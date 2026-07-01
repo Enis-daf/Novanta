@@ -32,6 +32,8 @@ import {
   sauvegarderSoldeInitial,
   supprimerAutreDepense,
   supprimerChargeFixe,
+  supprimerFactureClient,
+  supprimerFactureFournisseur,
   supprimerFinancement,
 } from "@/lib/supabaseRepository";
 
@@ -164,6 +166,11 @@ export default function Home() {
     if (companyId) persist(() => sauvegarderFactureClient(companyId, facture));
   };
 
+  const handleRemoveFactureClient = (id: string) => {
+    setFacturesClients((prev) => prev.filter((f) => f.id !== id));
+    if (companyId) persist(() => supprimerFactureClient(id));
+  };
+
   const handleChangeFactureFournisseur = (id: string, patch: Partial<FactureFournisseur>) => {
     setFacturesFournisseurs((prev) => {
       const suivant = prev.map((f) => (f.id === id ? { ...f, ...patch } : f));
@@ -187,6 +194,11 @@ export default function Home() {
     };
     setFacturesFournisseurs((prev) => [...prev, facture]);
     if (companyId) persist(() => sauvegarderFactureFournisseur(companyId, facture));
+  };
+
+  const handleRemoveFactureFournisseur = (id: string) => {
+    setFacturesFournisseurs((prev) => prev.filter((f) => f.id !== id));
+    if (companyId) persist(() => supprimerFactureFournisseur(id));
   };
 
   const handleChangeChargeFixe = (id: string, patch: Partial<ChargeFixe>) => {
@@ -315,11 +327,13 @@ export default function Home() {
           factures={facturesClients}
           onChange={handleChangeFactureClient}
           onAdd={handleAddFactureClient}
+          onRemove={handleRemoveFactureClient}
         />
         <FacturesFournisseursTable
           factures={facturesFournisseurs}
           onChange={handleChangeFactureFournisseur}
           onAdd={handleAddFactureFournisseur}
+          onRemove={handleRemoveFactureFournisseur}
         />
         <ChargesFixesTable
           charges={chargesFixes}

@@ -263,11 +263,19 @@ export async function sauvegarderFactureClient(companyId: string, facture: Factu
   await upsertOne("customer_invoices", factureClientToRow(companyId, facture));
 }
 
+export async function supprimerFactureClient(id: string): Promise<void> {
+  await deleteOne("customer_invoices", id);
+}
+
 export async function sauvegarderFactureFournisseur(
   companyId: string,
   facture: FactureFournisseur
 ): Promise<void> {
   await upsertOne("supplier_invoices", factureFournisseurToRow(companyId, facture));
+}
+
+export async function supprimerFactureFournisseur(id: string): Promise<void> {
+  await deleteOne("supplier_invoices", id);
 }
 
 export async function sauvegarderChargeFixe(companyId: string, charge: ChargeFixe): Promise<void> {

@@ -7,9 +7,15 @@ interface FacturesClientsTableProps {
   factures: FactureClient[];
   onChange: (id: string, patch: Partial<FactureClient>) => void;
   onAdd: () => void;
+  onRemove: (id: string) => void;
 }
 
-export default function FacturesClientsTable({ factures, onChange, onAdd }: FacturesClientsTableProps) {
+export default function FacturesClientsTable({
+  factures,
+  onChange,
+  onAdd,
+  onRemove,
+}: FacturesClientsTableProps) {
   return (
     <div className="table-wrapper">
       <h3>Factures clients</h3>
@@ -23,6 +29,7 @@ export default function FacturesClientsTable({ factures, onChange, onAdd }: Fact
             <th>Encaissement anticipé</th>
             <th>Décalage rapide</th>
             <th>Litigieuse</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -85,6 +92,17 @@ export default function FacturesClientsTable({ factures, onChange, onAdd }: Fact
                   checked={facture.litigieuse}
                   onChange={(e) => onChange(facture.id, { litigieuse: e.target.checked })}
                 />
+              </td>
+              <td className="col-actions">
+                <button
+                  type="button"
+                  className="btn-remove"
+                  onClick={() => {
+                    if (window.confirm("Supprimer cette facture ?")) onRemove(facture.id);
+                  }}
+                >
+                  ×
+                </button>
               </td>
             </tr>
           ))}
