@@ -278,6 +278,23 @@ export async function supprimerFactureFournisseur(id: string): Promise<void> {
   await deleteOne("supplier_invoices", id);
 }
 
+export async function importerFacturesClients(companyId: string, factures: FactureClient[]): Promise<void> {
+  await insertMany(
+    "customer_invoices",
+    factures.map((f) => factureClientToRow(companyId, f))
+  );
+}
+
+export async function importerFacturesFournisseurs(
+  companyId: string,
+  factures: FactureFournisseur[]
+): Promise<void> {
+  await insertMany(
+    "supplier_invoices",
+    factures.map((f) => factureFournisseurToRow(companyId, f))
+  );
+}
+
 export async function sauvegarderChargeFixe(companyId: string, charge: ChargeFixe): Promise<void> {
   await upsertOne("fixed_charges", chargeFixeToRow(companyId, charge));
 }

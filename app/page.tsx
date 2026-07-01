@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import type { Session } from "@supabase/supabase-js";
 import Dashboard from "@/components/Dashboard";
 import FacturesClientsTable from "@/components/FacturesClientsTable";
@@ -9,6 +10,8 @@ import ChargesFixesTable from "@/components/ChargesFixesTable";
 import AutresDepensesTable from "@/components/AutresDepensesTable";
 import FinancementsTable from "@/components/FinancementsTable";
 import LoginForm from "@/components/LoginForm";
+
+const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { todayISO } from "@/lib/dates";
 import {
@@ -26,6 +29,8 @@ import {
   getOrCreateCompanyForUser,
   sauvegarderAutreDepense,
   sauvegarderChargeFixe,
+  importerFacturesClients,
+  importerFacturesFournisseurs,
   sauvegarderFactureClient,
   sauvegarderFactureFournisseur,
   sauvegarderFinancement,
@@ -201,6 +206,20 @@ export default function Home() {
     if (companyId) persist(() => supprimerFactureFournisseur(id));
   };
 
+  const handleImporterFactures = (
+    nouvellesFacturesClients: FactureClient[],
+    nouvellesFacturesFournisseurs: FactureFournisseur[]
+  ) => {
+    if (nouvellesFacturesClients.length > 0) {
+      setFacturesClients((prev) => [...prev, ...nouvellesFacturesClients]);
+      if (companyId) persist(() => importerFacturesClients(companyId, nouvellesFacturesClients));
+    }
+    if (nouvellesFacturesFournisseurs.length > 0) {
+      setFacturesFournisseurs((prev) => [...prev, ...nouvellesFacturesFournisseurs]);
+      if (companyId) persist(() => importerFacturesFournisseurs(companyId, nouvellesFacturesFournisseurs));
+    }
+  };
+
   const handleChangeChargeFixe = (id: string, patch: Partial<ChargeFixe>) => {
     setChargesFixes((prev) => {
       const suivant = prev.map((c) => (c.id === id ? { ...c, ...patch } : c));
@@ -323,6 +342,7 @@ export default function Home() {
         />
       </div>
       <div className="cockpit__col cockpit__col--droite">
+        <ImportFactures onImporter={handleImporterFactures} />
         <FacturesClientsTable
           factures={facturesClients}
           onChange={handleChangeFactureClient}
