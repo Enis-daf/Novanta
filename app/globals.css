@@ -118,6 +118,8 @@ input[type="checkbox"] {
 .kpi-card__label {
   font-size: 12px;
   font-weight: 600;
+  line-height: 14px;
+  min-height: 28px;
   color: var(--couleur-fond);
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -295,6 +297,10 @@ input[type="checkbox"] {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+.import-actions .btn-add {
+  margin-top: 0;
 }
 
 .import-apercu {
