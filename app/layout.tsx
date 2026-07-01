@@ -5,7 +5,7 @@ import "./globals.css";
 const lexend = Lexend({ subsets: ["latin"], variable: "--font-lexend" });
 
 export const metadata: Metadata = {
-  title: "Cockpit tactique de trésorerie — J+90",
+  title: "Novanta - cockpit de tréso",
   description: "Pilotage tactique de la trésorerie à 90 jours",
 };
 
