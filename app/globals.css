@@ -36,7 +36,7 @@ input[type="checkbox"] {
 
 .cockpit {
   display: grid;
-  grid-template-columns: minmax(340px, 1fr) minmax(460px, 1.4fr);
+  grid-template-columns: minmax(340px, 1fr) minmax(460px, 1.35fr);
   gap: 14px;
   padding: 14px;
   min-height: 100vh;
@@ -109,20 +109,22 @@ input[type="checkbox"] {
 
 .kpi-card {
   border-radius: 10px;
-  padding: 14px 16px;
+  padding: 12px 10px;
   border: 1px solid var(--couleur-texte);
   background: var(--couleur-texte);
   color: var(--couleur-fond);
+  min-width: 0;
 }
 
 .kpi-card__label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  line-height: 14px;
-  min-height: 28px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--couleur-fond);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.01em;
   margin-bottom: 6px;
 }
 
@@ -131,10 +133,16 @@ input[type="checkbox"] {
   font-weight: 700;
   line-height: 1.3;
   color: var(--couleur-fond);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .kpi-card__value--compact {
   font-size: 14px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .kpi-card__sublabel {
@@ -142,6 +150,9 @@ input[type="checkbox"] {
   color: var(--couleur-fond);
   margin-top: 4px;
   opacity: 0.75;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chart-container {
