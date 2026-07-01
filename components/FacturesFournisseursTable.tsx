@@ -1,15 +1,19 @@
 "use client";
 
 import { FactureFournisseur } from "@/lib/types";
-import { formatDate, formatMontant } from "@/lib/format";
 import { decalerDateISO } from "@/lib/dates";
 
 interface FacturesFournisseursTableProps {
   factures: FactureFournisseur[];
   onChange: (id: string, patch: Partial<FactureFournisseur>) => void;
+  onAdd: () => void;
 }
 
-export default function FacturesFournisseursTable({ factures, onChange }: FacturesFournisseursTableProps) {
+export default function FacturesFournisseursTable({
+  factures,
+  onChange,
+  onAdd,
+}: FacturesFournisseursTableProps) {
   return (
     <div className="table-wrapper">
       <h3>Factures fournisseurs</h3>
@@ -28,10 +32,34 @@ export default function FacturesFournisseursTable({ factures, onChange }: Factur
         <tbody>
           {factures.map((facture) => (
             <tr key={facture.id} className={facture.litigieuse ? "row--litigieuse" : ""}>
-              <td>{facture.facture}</td>
-              <td>{facture.fournisseur}</td>
-              <td className="col-montant">{formatMontant(facture.montant)}</td>
-              <td>{formatDate(facture.dateEcheance)}</td>
+              <td>
+                <input
+                  type="text"
+                  value={facture.facture}
+                  onChange={(e) => onChange(facture.id, { facture: e.target.value })}
+                />
+              </td>
+              <td>
+                <input
+                  type="text"
+                  value={facture.fournisseur}
+                  onChange={(e) => onChange(facture.id, { fournisseur: e.target.value })}
+                />
+              </td>
+              <td className="col-montant">
+                <input
+                  type="number"
+                  value={facture.montant}
+                  onChange={(e) => onChange(facture.id, { montant: Number(e.target.value) })}
+                />
+              </td>
+              <td>
+                <input
+                  type="date"
+                  value={facture.dateEcheance}
+                  onChange={(e) => onChange(facture.id, { dateEcheance: e.target.value })}
+                />
+              </td>
               <td>
                 <input
                   type="date"
@@ -66,6 +94,9 @@ export default function FacturesFournisseursTable({ factures, onChange }: Factur
           ))}
         </tbody>
       </table>
+      <button type="button" className="btn-add" onClick={onAdd}>
+        + Ajouter une facture fournisseur
+      </button>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import Dashboard from "@/components/Dashboard";
 import FacturesClientsTable from "@/components/FacturesClientsTable";
@@ -35,11 +35,25 @@ import {
   supprimerFinancement,
 } from "@/lib/supabaseRepository";
 
+const DELAI_DEBOUNCE_MS = 600;
+
 function persist(action: () => Promise<void>) {
   action().catch((error) => console.error("Échec de la sauvegarde Supabase :", error));
 }
 
 export default function Home() {
+  const minuteursDebounce = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  const persistDebounce = (cle: string, action: () => Promise<void>) => {
+    const minuteurExistant = minuteursDebounce.current.get(cle);
+    if (minuteurExistant) clearTimeout(minuteurExistant);
+    const minuteur = setTimeout(() => {
+      minuteursDebounce.current.delete(cle);
+      persist(action);
+    }, DELAI_DEBOUNCE_MS);
+    minuteursDebounce.current.set(cle, minuteur);
+  };
+
   const [session, setSession] = useState<Session | null>(null);
   const [sessionChargee, setSessionChargee] = useState(!supabaseConfigured);
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -122,32 +136,66 @@ export default function Home() {
 
   const handleChangeSoldeInitial = (valeur: number) => {
     setSoldeInitial(valeur);
-    if (companyId) persist(() => sauvegarderSoldeInitial(companyId, valeur));
+    if (companyId) persistDebounce("soldeInitial", () => sauvegarderSoldeInitial(companyId, valeur));
   };
 
   const handleChangeFactureClient = (id: string, patch: Partial<FactureClient>) => {
     setFacturesClients((prev) => {
       const suivant = prev.map((f) => (f.id === id ? { ...f, ...patch } : f));
       const facture = suivant.find((f) => f.id === id);
-      if (companyId && facture) persist(() => sauvegarderFactureClient(companyId, facture));
+      if (companyId && facture) {
+        persistDebounce(`factureClient:${id}`, () => sauvegarderFactureClient(companyId, facture));
+      }
       return suivant;
     });
+  };
+
+  const handleAddFactureClient = () => {
+    const facture: FactureClient = {
+      id: crypto.randomUUID(),
+      facture: "",
+      client: "",
+      montant: 0,
+      dateEcheance: dateDepart,
+      dateEncaissementAnticipee: dateDepart,
+      litigieuse: false,
+    };
+    setFacturesClients((prev) => [...prev, facture]);
+    if (companyId) persist(() => sauvegarderFactureClient(companyId, facture));
   };
 
   const handleChangeFactureFournisseur = (id: string, patch: Partial<FactureFournisseur>) => {
     setFacturesFournisseurs((prev) => {
       const suivant = prev.map((f) => (f.id === id ? { ...f, ...patch } : f));
       const facture = suivant.find((f) => f.id === id);
-      if (companyId && facture) persist(() => sauvegarderFactureFournisseur(companyId, facture));
+      if (companyId && facture) {
+        persistDebounce(`factureFournisseur:${id}`, () => sauvegarderFactureFournisseur(companyId, facture));
+      }
       return suivant;
     });
+  };
+
+  const handleAddFactureFournisseur = () => {
+    const facture: FactureFournisseur = {
+      id: crypto.randomUUID(),
+      facture: "",
+      fournisseur: "",
+      montant: 0,
+      dateEcheance: dateDepart,
+      datePaiementPrevue: dateDepart,
+      litigieuse: false,
+    };
+    setFacturesFournisseurs((prev) => [...prev, facture]);
+    if (companyId) persist(() => sauvegarderFactureFournisseur(companyId, facture));
   };
 
   const handleChangeChargeFixe = (id: string, patch: Partial<ChargeFixe>) => {
     setChargesFixes((prev) => {
       const suivant = prev.map((c) => (c.id === id ? { ...c, ...patch } : c));
       const charge = suivant.find((c) => c.id === id);
-      if (companyId && charge) persist(() => sauvegarderChargeFixe(companyId, charge));
+      if (companyId && charge) {
+        persistDebounce(`chargeFixe:${id}`, () => sauvegarderChargeFixe(companyId, charge));
+      }
       return suivant;
     });
   };
@@ -173,7 +221,9 @@ export default function Home() {
     setAutresDepenses((prev) => {
       const suivant = prev.map((d) => (d.id === id ? { ...d, ...patch } : d));
       const depense = suivant.find((d) => d.id === id);
-      if (companyId && depense) persist(() => sauvegarderAutreDepense(companyId, depense));
+      if (companyId && depense) {
+        persistDebounce(`autreDepense:${id}`, () => sauvegarderAutreDepense(companyId, depense));
+      }
       return suivant;
     });
   };
@@ -199,7 +249,9 @@ export default function Home() {
     setFinancements((prev) => {
       const suivant = prev.map((f) => (f.id === id ? { ...f, ...patch } : f));
       const financement = suivant.find((f) => f.id === id);
-      if (companyId && financement) persist(() => sauvegarderFinancement(companyId, financement));
+      if (companyId && financement) {
+        persistDebounce(`financement:${id}`, () => sauvegarderFinancement(companyId, financement));
+      }
       return suivant;
     });
   };
@@ -259,10 +311,15 @@ export default function Home() {
         />
       </div>
       <div className="cockpit__col cockpit__col--droite">
-        <FacturesClientsTable factures={facturesClients} onChange={handleChangeFactureClient} />
+        <FacturesClientsTable
+          factures={facturesClients}
+          onChange={handleChangeFactureClient}
+          onAdd={handleAddFactureClient}
+        />
         <FacturesFournisseursTable
           factures={facturesFournisseurs}
           onChange={handleChangeFactureFournisseur}
+          onAdd={handleAddFactureFournisseur}
         />
         <ChargesFixesTable
           charges={chargesFixes}

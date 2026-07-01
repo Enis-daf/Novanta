@@ -1,8 +1,5 @@
 import { AutreDepense, ChargeFixe, FactureClient, FactureFournisseur, Financement } from "./types";
-
-function toISODate(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
+import { toISODate } from "./dates";
 
 function addDays(base: Date, days: number): string {
   const d = new Date(base);
