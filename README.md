@@ -20,7 +20,7 @@ Sans configuration Supabase, l'app tourne en **mode local** : données mockées 
    | Variable | Où la trouver |
    |---|---|
    | `NEXT_PUBLIC_SUPABASE_URL` | Supabase Dashboard → Project Settings → API → Project URL (sans `/rest/v1/`) |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Dashboard → Project Settings → API → clé `anon` / `publishable` (jamais la `service_role`) |
+   | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase Dashboard → Project Settings → API → clé `anon` / `publishable` (jamais la `service_role`) |
 
 2. Exécuter [supabase/schema.sql](supabase/schema.sql) dans le SQL Editor du projet Supabase (tables + Row Level Security).
 
@@ -36,6 +36,6 @@ npm run start
 ## Déploiement sur Vercel
 
 1. Pousser le projet sur un dépôt Git (GitHub/GitLab/Bitbucket), puis importer le dépôt dans Vercel — le framework Next.js est détecté automatiquement, aucune configuration `vercel.json` nécessaire.
-2. Dans les paramètres du projet Vercel (Settings → Environment Variables), ajouter `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_ANON_KEY` (mêmes valeurs que `.env.local`). Sans elles, l'app se redéploie automatiquement en mode local mocké.
+2. Dans les paramètres du projet Vercel (Settings → Environment Variables), ajouter `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (mêmes valeurs que `.env.local`). Sans elles, l'app se redéploie automatiquement en mode local mocké.
 3. Dans Supabase, ajouter l'URL de production (`https://votre-projet.vercel.app`) aux **Site URL** / **Redirect URLs** du projet (Authentication → URL Configuration), sinon les emails de confirmation/connexion redirigeront vers `localhost`.
 4. Déployer. Aucune autre configuration serveur n'est nécessaire (pas de backend séparé, l'app est 100 % Next.js + Supabase).
