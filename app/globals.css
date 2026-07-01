@@ -36,9 +36,9 @@ input[type="checkbox"] {
 
 .cockpit {
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) minmax(480px, 1.4fr);
-  gap: 20px;
-  padding: 20px;
+  grid-template-columns: minmax(340px, 1fr) minmax(460px, 1.4fr);
+  gap: 14px;
+  padding: 14px;
   min-height: 100vh;
   align-items: start;
 }
@@ -47,7 +47,7 @@ input[type="checkbox"] {
   background: #ffffff;
   border: 1px solid var(--couleur-bordure);
   border-radius: 10px;
-  padding: 20px;
+  padding: 16px;
 }
 
 .cockpit__col--droite {
@@ -157,12 +157,12 @@ input[type="checkbox"] {
 .invoice-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .invoice-table th,
 .invoice-table td {
-  padding: 8px 8px;
+  padding: 5px 4px;
   border-bottom: 1px solid var(--couleur-bordure);
   text-align: left;
   white-space: nowrap;
@@ -171,7 +171,7 @@ input[type="checkbox"] {
 .invoice-table th {
   color: var(--couleur-texte-secondaire);
   font-weight: 600;
-  font-size: 12px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.02em;
 }
@@ -195,18 +195,22 @@ input[type="checkbox"] {
 .invoice-table select {
   border: 1px solid var(--couleur-bordure);
   border-radius: 6px;
-  padding: 4px 6px;
-  font-size: 12px;
+  padding: 3px 4px;
+  font-size: 11px;
 }
 
 .invoice-table input[type="text"] {
   width: 100%;
-  min-width: 140px;
+  min-width: 78px;
 }
 
 .invoice-table input[type="number"] {
-  width: 100px;
+  width: 56px;
   text-align: right;
+}
+
+.invoice-table input[type="date"] {
+  width: 112px;
 }
 
 .invoice-table input[type="checkbox"] {
@@ -218,9 +222,9 @@ input[type="checkbox"] {
   border: 1px solid var(--couleur-bordure);
   background: #fff;
   border-radius: 6px;
-  padding: 3px 6px;
-  font-size: 11px;
-  margin-right: 4px;
+  padding: 2px 4px;
+  font-size: 10px;
+  margin-right: 2px;
   cursor: pointer;
   color: var(--couleur-texte);
 }
