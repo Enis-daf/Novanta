@@ -228,31 +228,44 @@ async function initialiserAvecDonneesMock(companyId: string): Promise<DonneesEnt
 }
 
 export async function chargerOuInitialiserDonnees(companyId: string): Promise<DonneesEntreprise> {
-  const [clientsRows, fournisseursRows] = await Promise.all([
-    selectAll("customer_invoices", companyId),
-    selectAll("supplier_invoices", companyId),
-  ]);
+  // La ligne cash_settings est créée une seule fois, à la toute première initialisation
+  // de la société, et n'est jamais supprimée par les actions de l'utilisateur (contrairement
+  // aux factures, qui peuvent légitimement être toutes supprimées). Sa seule présence — et non
+  // le nombre de factures — est donc le signal fiable pour savoir si la société a déjà été
+  // initialisée, afin de ne jamais re-seeder les données de démo sur une liste vidée par l'utilisateur.
+  const soldeInitial = await chargerSoldeInitial(companyId);
 
-  const dejaInitialise = clientsRows.length > 0 || fournisseursRows.length > 0;
-  if (!dejaInitialise) {
+  if (soldeInitial === null) {
     return initialiserAvecDonneesMock(companyId);
   }
 
-  const [chargesRows, depensesRows, financementsRows, soldeInitial] = await Promise.all([
+  const [clientsRows, fournisseursRows, chargesRows, depensesRows, financementsRows] = await Promise.all([
+    selectAll("customer_invoices", companyId),
+    selectAll("supplier_invoices", companyId),
     selectAll("fixed_charges", companyId),
     selectAll("other_expenses", companyId),
     selectAll("financings", companyId),
-    chargerSoldeInitial(companyId),
   ]);
 
   return {
-    soldeInitial: soldeInitial ?? SOLDE_BANCAIRE_INITIAL,
+    soldeInitial,
     facturesClients: clientsRows.map(rowToFactureClient),
     facturesFournisseurs: fournisseursRows.map(rowToFactureFournisseur),
     chargesFixes: chargesRows.map(rowToChargeFixe),
     autresDepenses: depensesRows.map(rowToAutreDepense),
     financements: financementsRows.map(rowToFinancement),
   };
+}
+
+export async function reinitialiserDonneesMock(companyId: string): Promise<DonneesEntreprise> {
+  await Promise.all([
+    client().from("customer_invoices").delete().eq("company_id", companyId),
+    client().from("supplier_invoices").delete().eq("company_id", companyId),
+    client().from("fixed_charges").delete().eq("company_id", companyId),
+    client().from("other_expenses").delete().eq("company_id", companyId),
+    client().from("financings").delete().eq("company_id", companyId),
+  ]);
+  return initialiserAvecDonneesMock(companyId);
 }
 
 export async function sauvegarderSoldeInitial(companyId: string, soldeInitial: number): Promise<void> {

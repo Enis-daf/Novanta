@@ -31,6 +31,7 @@ import {
   sauvegarderChargeFixe,
   importerFacturesClients,
   importerFacturesFournisseurs,
+  reinitialiserDonneesMock,
   sauvegarderFactureClient,
   sauvegarderFactureFournisseur,
   sauvegarderFinancement,
@@ -307,6 +308,27 @@ export default function Home() {
     supabase!.auth.signOut();
   };
 
+  const handleReinitialiserDemo = () => {
+    if (!companyId) return;
+    if (
+      !window.confirm(
+        "Réinitialiser les données de démonstration ? Toutes vos données actuelles seront définitivement supprimées."
+      )
+    ) {
+      return;
+    }
+    reinitialiserDonneesMock(companyId)
+      .then((donnees) => {
+        setSoldeInitial(donnees.soldeInitial);
+        setFacturesClients(donnees.facturesClients);
+        setFacturesFournisseurs(donnees.facturesFournisseurs);
+        setChargesFixes(donnees.chargesFixes);
+        setAutresDepenses(donnees.autresDepenses);
+        setFinancements(donnees.financements);
+      })
+      .catch((error) => console.error("Échec de la réinitialisation :", error));
+  };
+
   if (supabaseConfigured && !sessionChargee) {
     return <main className="cockpit-chargement">Chargement…</main>;
   }
@@ -329,9 +351,14 @@ export default function Home() {
       {supabaseConfigured && session && (
         <div className="barre-utilisateur">
           <span>{session.user.email}</span>
-          <button type="button" className="btn-deconnexion" onClick={handleDeconnexion}>
-            Se déconnecter
-          </button>
+          <div className="barre-utilisateur__actions">
+            <button type="button" className="btn-secondaire" onClick={handleReinitialiserDemo}>
+              Réinitialiser les données de démonstration
+            </button>
+            <button type="button" className="btn-deconnexion" onClick={handleDeconnexion}>
+              Se déconnecter
+            </button>
+          </div>
         </div>
       )}
       <div className="cockpit__col cockpit__col--gauche">
