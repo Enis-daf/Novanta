@@ -70,11 +70,23 @@ create table if not exists financings (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists recurring_income (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  libelle text not null,
+  montant numeric not null,
+  date_debut date not null,
+  frequence text not null check (frequence in ('ponctuel', 'quotidien', 'mensuel')),
+  date_fin date,
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists idx_customer_invoices_company on customer_invoices(company_id);
 create index if not exists idx_supplier_invoices_company on supplier_invoices(company_id);
 create index if not exists idx_fixed_charges_company on fixed_charges(company_id);
 create index if not exists idx_other_expenses_company on other_expenses(company_id);
 create index if not exists idx_financings_company on financings(company_id);
+create index if not exists idx_recurring_income_company on recurring_income(company_id);
 
 -- Row Level Security : chaque utilisateur ne voit que sa propre société et ses données.
 
@@ -85,6 +97,7 @@ alter table supplier_invoices enable row level security;
 alter table fixed_charges enable row level security;
 alter table other_expenses enable row level security;
 alter table financings enable row level security;
+alter table recurring_income enable row level security;
 
 create policy "Un utilisateur gère sa société" on companies
   for all
@@ -117,6 +130,11 @@ create policy "Accès société" on other_expenses
   with check (company_id in (select id from companies where owner_id = auth.uid()));
 
 create policy "Accès société" on financings
+  for all
+  using (company_id in (select id from companies where owner_id = auth.uid()))
+  with check (company_id in (select id from companies where owner_id = auth.uid()));
+
+create policy "Accès société" on recurring_income
   for all
   using (company_id in (select id from companies where owner_id = auth.uid()))
   with check (company_id in (select id from companies where owner_id = auth.uid()));

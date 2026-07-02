@@ -4,6 +4,7 @@ import {
   FactureClient,
   FactureFournisseur,
   Financement,
+  RentreeReguliere,
   SoldeJournalier,
 } from "./types";
 import { ajouterJours, ajouterMois, parseDateISO, toISODate } from "./dates";
@@ -17,6 +18,7 @@ export interface ParametresProjectionCash {
   chargesFixes: ChargeFixe[];
   autresDepenses: AutreDepense[];
   financements: Financement[];
+  rentreesRegulieres: RentreeReguliere[];
   dateDepart: string; // YYYY-MM-DD
   horizonJours?: number;
 }
@@ -42,6 +44,23 @@ function genererOccurrences(datePrevue: string, recurrence: ChargeFixe["recurren
   return occurrences;
 }
 
+function genererOccurrencesRentree(rentree: RentreeReguliere, fin: Date): Date[] {
+  const debut = parseDateISO(rentree.dateDebut);
+
+  if (rentree.frequence === "ponctuel") return [debut];
+
+  const borneFin = rentree.dateFin && parseDateISO(rentree.dateFin) < fin ? parseDateISO(rentree.dateFin) : fin;
+  const pas = rentree.frequence === "quotidien" ? (d: Date) => ajouterJours(d, 1) : (d: Date) => ajouterMois(d, 1);
+
+  const occurrences: Date[] = [];
+  let curseur = debut;
+  while (curseur <= borneFin) {
+    occurrences.push(curseur);
+    curseur = pas(curseur);
+  }
+  return occurrences;
+}
+
 export function calculerProjectionCash(params: ParametresProjectionCash): ResultatProjectionCash {
   const {
     soldeInitial,
@@ -50,6 +69,7 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
     chargesFixes,
     autresDepenses,
     financements,
+    rentreesRegulieres,
     dateDepart,
     horizonJours = HORIZON_JOURS_DEFAUT,
   } = params;
@@ -88,6 +108,12 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
 
   for (const depense of autresDepenses) {
     enregistrerFlux(depense.datePrevue, -depense.montant);
+  }
+
+  for (const rentree of rentreesRegulieres) {
+    for (const occurrence of genererOccurrencesRentree(rentree, fin)) {
+      enregistrerFlux(toISODate(occurrence), rentree.montant);
+    }
   }
 
   const serie: SoldeJournalier[] = [];

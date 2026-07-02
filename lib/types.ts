@@ -41,6 +41,15 @@ export interface Financement {
   dateEncaissementPrevue: string; // YYYY-MM-DD
 }
 
+export interface RentreeReguliere {
+  id: string;
+  libelle: string;
+  montant: number;
+  dateDebut: string; // YYYY-MM-DD
+  frequence: "ponctuel" | "quotidien" | "mensuel";
+  dateFin: string | null; // YYYY-MM-DD — optionnelle, sinon jusqu'à J+90
+}
+
 export interface SoldeJournalier {
   date: string; // YYYY-MM-DD
   solde: number;

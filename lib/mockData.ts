@@ -1,4 +1,11 @@
-import { AutreDepense, ChargeFixe, FactureClient, FactureFournisseur, Financement } from "./types";
+import {
+  AutreDepense,
+  ChargeFixe,
+  FactureClient,
+  FactureFournisseur,
+  Financement,
+  RentreeReguliere,
+} from "./types";
 import { toISODate } from "./dates";
 
 function addDays(base: Date, days: number): string {
@@ -215,5 +222,24 @@ export const mockFinancements: Financement[] = [
     libelle: "Avance associé",
     montant: 15000,
     dateEncaissementPrevue: addDays(today, 15),
+  },
+];
+
+export const mockRentreesRegulieres: RentreeReguliere[] = [
+  {
+    id: "rr-1",
+    libelle: "Ventes boutique en ligne moyennes",
+    montant: 450,
+    dateDebut: addDays(today, 1),
+    frequence: "quotidien",
+    dateFin: null,
+  },
+  {
+    id: "rr-2",
+    libelle: "Loyer encaissé (local commercial)",
+    montant: 1800,
+    dateDebut: addDays(today, 15),
+    frequence: "mensuel",
+    dateFin: null,
   },
 ];

@@ -6,8 +6,16 @@ import {
   mockFacturesClients,
   mockFacturesFournisseurs,
   mockFinancements,
+  mockRentreesRegulieres,
 } from "./mockData";
-import { AutreDepense, ChargeFixe, FactureClient, FactureFournisseur, Financement } from "./types";
+import {
+  AutreDepense,
+  ChargeFixe,
+  FactureClient,
+  FactureFournisseur,
+  Financement,
+  RentreeReguliere,
+} from "./types";
 
 export interface DonneesEntreprise {
   soldeInitial: number;
@@ -16,6 +24,7 @@ export interface DonneesEntreprise {
   chargesFixes: ChargeFixe[];
   autresDepenses: AutreDepense[];
   financements: Financement[];
+  rentreesRegulieres: RentreeReguliere[];
 }
 
 type Row = Record<string, unknown>;
@@ -158,6 +167,29 @@ function rowToFinancement(row: Row): Financement {
   };
 }
 
+function rentreeReguliereToRow(companyId: string, r: RentreeReguliere): Row {
+  return {
+    id: r.id,
+    company_id: companyId,
+    libelle: r.libelle,
+    montant: r.montant,
+    date_debut: r.dateDebut,
+    frequence: r.frequence,
+    date_fin: r.dateFin,
+  };
+}
+
+function rowToRentreeReguliere(row: Row): RentreeReguliere {
+  return {
+    id: row.id as string,
+    libelle: row.libelle as string,
+    montant: Number(row.montant),
+    dateDebut: row.date_debut as string,
+    frequence: row.frequence as RentreeReguliere["frequence"],
+    dateFin: (row.date_fin as string | null) ?? null,
+  };
+}
+
 export async function getOrCreateCompanyForUser(userId: string): Promise<string> {
   const { data: existing, error: selectError } = await client()
     .from("companies")
@@ -192,6 +224,7 @@ async function initialiserAvecDonneesMock(companyId: string): Promise<DonneesEnt
   const chargesFixes = mockChargesFixes.map((c) => ({ ...c, id: crypto.randomUUID() }));
   const autresDepenses = mockAutresDepenses.map((d) => ({ ...d, id: crypto.randomUUID() }));
   const financements = mockFinancements.map((f) => ({ ...f, id: crypto.randomUUID() }));
+  const rentreesRegulieres = mockRentreesRegulieres.map((r) => ({ ...r, id: crypto.randomUUID() }));
 
   await Promise.all([
     insertMany(
@@ -214,6 +247,10 @@ async function initialiserAvecDonneesMock(companyId: string): Promise<DonneesEnt
       "financings",
       financements.map((f) => financementToRow(companyId, f))
     ),
+    insertMany(
+      "recurring_income",
+      rentreesRegulieres.map((r) => rentreeReguliereToRow(companyId, r))
+    ),
     upsertOne("cash_settings", { company_id: companyId, solde_initial: SOLDE_BANCAIRE_INITIAL }),
   ]);
 
@@ -224,6 +261,7 @@ async function initialiserAvecDonneesMock(companyId: string): Promise<DonneesEnt
     chargesFixes,
     autresDepenses,
     financements,
+    rentreesRegulieres,
   };
 }
 
@@ -239,13 +277,15 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
     return initialiserAvecDonneesMock(companyId);
   }
 
-  const [clientsRows, fournisseursRows, chargesRows, depensesRows, financementsRows] = await Promise.all([
-    selectAll("customer_invoices", companyId),
-    selectAll("supplier_invoices", companyId),
-    selectAll("fixed_charges", companyId),
-    selectAll("other_expenses", companyId),
-    selectAll("financings", companyId),
-  ]);
+  const [clientsRows, fournisseursRows, chargesRows, depensesRows, financementsRows, rentreesRows] =
+    await Promise.all([
+      selectAll("customer_invoices", companyId),
+      selectAll("supplier_invoices", companyId),
+      selectAll("fixed_charges", companyId),
+      selectAll("other_expenses", companyId),
+      selectAll("financings", companyId),
+      selectAll("recurring_income", companyId),
+    ]);
 
   return {
     soldeInitial,
@@ -254,6 +294,7 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
     chargesFixes: chargesRows.map(rowToChargeFixe),
     autresDepenses: depensesRows.map(rowToAutreDepense),
     financements: financementsRows.map(rowToFinancement),
+    rentreesRegulieres: rentreesRows.map(rowToRentreeReguliere),
   };
 }
 
@@ -264,6 +305,7 @@ export async function reinitialiserDonneesMock(companyId: string): Promise<Donne
     client().from("fixed_charges").delete().eq("company_id", companyId),
     client().from("other_expenses").delete().eq("company_id", companyId),
     client().from("financings").delete().eq("company_id", companyId),
+    client().from("recurring_income").delete().eq("company_id", companyId),
   ]);
   return initialiserAvecDonneesMock(companyId);
 }
@@ -330,4 +372,12 @@ export async function sauvegarderFinancement(companyId: string, financement: Fin
 
 export async function supprimerFinancement(id: string): Promise<void> {
   await deleteOne("financings", id);
+}
+
+export async function sauvegarderRentreeReguliere(companyId: string, rentree: RentreeReguliere): Promise<void> {
+  await upsertOne("recurring_income", rentreeReguliereToRow(companyId, rentree));
+}
+
+export async function supprimerRentreeReguliere(id: string): Promise<void> {
+  await deleteOne("recurring_income", id);
 }

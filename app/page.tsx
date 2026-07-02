@@ -9,6 +9,7 @@ import FacturesFournisseursTable from "@/components/FacturesFournisseursTable";
 import ChargesFixesTable from "@/components/ChargesFixesTable";
 import AutresDepensesTable from "@/components/AutresDepensesTable";
 import FinancementsTable from "@/components/FinancementsTable";
+import RentreesRegulieresTable from "@/components/RentreesRegulieresTable";
 import LoginForm from "@/components/LoginForm";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
@@ -21,8 +22,16 @@ import {
   mockFacturesClients,
   mockFacturesFournisseurs,
   mockFinancements,
+  mockRentreesRegulieres,
 } from "@/lib/mockData";
-import { AutreDepense, ChargeFixe, FactureClient, FactureFournisseur, Financement } from "@/lib/types";
+import {
+  AutreDepense,
+  ChargeFixe,
+  FactureClient,
+  FactureFournisseur,
+  Financement,
+  RentreeReguliere,
+} from "@/lib/types";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import {
   chargerOuInitialiserDonnees,
@@ -35,12 +44,14 @@ import {
   sauvegarderFactureClient,
   sauvegarderFactureFournisseur,
   sauvegarderFinancement,
+  sauvegarderRentreeReguliere,
   sauvegarderSoldeInitial,
   supprimerAutreDepense,
   supprimerChargeFixe,
   supprimerFactureClient,
   supprimerFactureFournisseur,
   supprimerFinancement,
+  supprimerRentreeReguliere,
 } from "@/lib/supabaseRepository";
 
 const DELAI_DEBOUNCE_MS = 600;
@@ -74,6 +85,7 @@ export default function Home() {
   const [chargesFixes, setChargesFixes] = useState<ChargeFixe[]>(mockChargesFixes);
   const [autresDepenses, setAutresDepenses] = useState<AutreDepense[]>(mockAutresDepenses);
   const [financements, setFinancements] = useState<Financement[]>(mockFinancements);
+  const [rentreesRegulieres, setRentreesRegulieres] = useState<RentreeReguliere[]>(mockRentreesRegulieres);
 
   const dateDepart = useMemo(() => todayISO(), []);
 
@@ -117,6 +129,7 @@ export default function Home() {
       setChargesFixes(donnees.chargesFixes);
       setAutresDepenses(donnees.autresDepenses);
       setFinancements(donnees.financements);
+      setRentreesRegulieres(donnees.rentreesRegulieres);
       setDonneesChargees(true);
     })().catch((error) => {
       console.error("Échec du chargement Supabase :", error);
@@ -137,9 +150,19 @@ export default function Home() {
         chargesFixes,
         autresDepenses,
         financements,
+        rentreesRegulieres,
         dateDepart,
       }),
-    [soldeInitial, facturesClients, facturesFournisseurs, chargesFixes, autresDepenses, financements, dateDepart]
+    [
+      soldeInitial,
+      facturesClients,
+      facturesFournisseurs,
+      chargesFixes,
+      autresDepenses,
+      financements,
+      rentreesRegulieres,
+      dateDepart,
+    ]
   );
 
   const handleChangeSoldeInitial = (valeur: number) => {
@@ -304,6 +327,35 @@ export default function Home() {
     if (companyId) persist(() => supprimerFinancement(id));
   };
 
+  const handleChangeRentreeReguliere = (id: string, patch: Partial<RentreeReguliere>) => {
+    setRentreesRegulieres((prev) => {
+      const suivant = prev.map((r) => (r.id === id ? { ...r, ...patch } : r));
+      const rentree = suivant.find((r) => r.id === id);
+      if (companyId && rentree) {
+        persistDebounce(`rentreeReguliere:${id}`, () => sauvegarderRentreeReguliere(companyId, rentree));
+      }
+      return suivant;
+    });
+  };
+
+  const handleAddRentreeReguliere = () => {
+    const rentree: RentreeReguliere = {
+      id: crypto.randomUUID(),
+      libelle: "",
+      montant: 0,
+      dateDebut: dateDepart,
+      frequence: "mensuel",
+      dateFin: null,
+    };
+    setRentreesRegulieres((prev) => [...prev, rentree]);
+    if (companyId) persist(() => sauvegarderRentreeReguliere(companyId, rentree));
+  };
+
+  const handleRemoveRentreeReguliere = (id: string) => {
+    setRentreesRegulieres((prev) => prev.filter((r) => r.id !== id));
+    if (companyId) persist(() => supprimerRentreeReguliere(id));
+  };
+
   const handleDeconnexion = () => {
     supabase!.auth.signOut();
   };
@@ -325,6 +377,7 @@ export default function Home() {
         setChargesFixes(donnees.chargesFixes);
         setAutresDepenses(donnees.autresDepenses);
         setFinancements(donnees.financements);
+        setRentreesRegulieres(donnees.rentreesRegulieres);
       })
       .catch((error) => console.error("Échec de la réinitialisation :", error));
   };
@@ -399,6 +452,12 @@ export default function Home() {
           onChange={handleChangeFinancement}
           onAdd={handleAddFinancement}
           onRemove={handleRemoveFinancement}
+        />
+        <RentreesRegulieresTable
+          rentrees={rentreesRegulieres}
+          onChange={handleChangeRentreeReguliere}
+          onAdd={handleAddRentreeReguliere}
+          onRemove={handleRemoveRentreeReguliere}
         />
       </div>
     </main>
