@@ -66,9 +66,9 @@ input[type="checkbox"] {
   position: relative;
   margin: 0;
   padding-bottom: 12px;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--couleur-texte);
+  font-size: 20px;
+  font-weight: 300;
+  color: var(--couleur-accent-fonce);
 }
 
 .section-titre::after {
