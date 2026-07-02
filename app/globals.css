@@ -56,6 +56,13 @@ input[type="checkbox"] {
   gap: 24px;
 }
 
+.cockpit__col--gauche {
+  position: sticky;
+  top: 14px;
+  max-height: calc(100vh - 28px);
+  overflow-y: auto;
+}
+
 .bandeau-mode-local {
   grid-column: 1 / -1;
   background: var(--couleur-fond-alt-rose);
@@ -287,6 +294,12 @@ input[type="checkbox"] {
 @media (max-width: 900px) {
   .cockpit {
     grid-template-columns: 1fr;
+  }
+
+  .cockpit__col--gauche {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
   }
 }
 
