@@ -64,7 +64,6 @@ export default function ImportFactures({ onImporter }: ImportFacturesProps) {
 
   return (
     <div className="table-wrapper">
-      <h3>Import de factures</h3>
       <div className="import-actions">
         <button type="button" className="btn-add" onClick={() => inputRef.current?.click()}>
           Importer des factures

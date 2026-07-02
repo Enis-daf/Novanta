@@ -422,43 +422,54 @@ export default function Home() {
         />
       </div>
       <div className="cockpit__col cockpit__col--droite">
-        <ImportFactures onImporter={handleImporterFactures} />
-        <FacturesClientsTable
-          factures={facturesClients}
-          onChange={handleChangeFactureClient}
-          onAdd={handleAddFactureClient}
-          onRemove={handleRemoveFactureClient}
-        />
-        <RentreesRegulieresTable
-          rentrees={rentreesRegulieres}
-          onChange={handleChangeRentreeReguliere}
-          onAdd={handleAddRentreeReguliere}
-          onRemove={handleRemoveRentreeReguliere}
-        />
-        <FacturesFournisseursTable
-          factures={facturesFournisseurs}
-          onChange={handleChangeFactureFournisseur}
-          onAdd={handleAddFactureFournisseur}
-          onRemove={handleRemoveFactureFournisseur}
-        />
-        <ChargesFixesTable
-          charges={chargesFixes}
-          onChange={handleChangeChargeFixe}
-          onAdd={handleAddChargeFixe}
-          onRemove={handleRemoveChargeFixe}
-        />
-        <AutresDepensesTable
-          depenses={autresDepenses}
-          onChange={handleChangeAutreDepense}
-          onAdd={handleAddAutreDepense}
-          onRemove={handleRemoveAutreDepense}
-        />
-        <FinancementsTable
-          financements={financements}
-          onChange={handleChangeFinancement}
-          onAdd={handleAddFinancement}
-          onRemove={handleRemoveFinancement}
-        />
+        <section className="section-groupe">
+          <h2 className="section-titre">Entrées</h2>
+          <FacturesClientsTable
+            factures={facturesClients}
+            onChange={handleChangeFactureClient}
+            onAdd={handleAddFactureClient}
+            onRemove={handleRemoveFactureClient}
+          />
+          <RentreesRegulieresTable
+            rentrees={rentreesRegulieres}
+            onChange={handleChangeRentreeReguliere}
+            onAdd={handleAddRentreeReguliere}
+            onRemove={handleRemoveRentreeReguliere}
+          />
+          <FinancementsTable
+            financements={financements}
+            onChange={handleChangeFinancement}
+            onAdd={handleAddFinancement}
+            onRemove={handleRemoveFinancement}
+          />
+        </section>
+
+        <section className="section-groupe">
+          <h2 className="section-titre">Sorties</h2>
+          <FacturesFournisseursTable
+            factures={facturesFournisseurs}
+            onChange={handleChangeFactureFournisseur}
+            onAdd={handleAddFactureFournisseur}
+            onRemove={handleRemoveFactureFournisseur}
+          />
+          <ChargesFixesTable
+            charges={chargesFixes}
+            onChange={handleChangeChargeFixe}
+            onAdd={handleAddChargeFixe}
+            onRemove={handleRemoveChargeFixe}
+          />
+          <AutresDepensesTable
+            depenses={autresDepenses}
+            onChange={handleChangeAutreDepense}
+            onAdd={handleAddAutreDepense}
+            onRemove={handleRemoveAutreDepense}
+          />
+        </section>
+
+        <section className="section-groupe">
+          <h2 className="section-titre">Import de factures</h2>
+          <ImportFactures onImporter={handleImporterFactures} />
+        </section>
       </div>
     </main>
   );

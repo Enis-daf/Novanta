@@ -53,7 +53,32 @@ input[type="checkbox"] {
 .cockpit__col--droite {
   display: flex;
   flex-direction: column;
+  gap: 32px;
+}
+
+.section-groupe {
+  display: flex;
+  flex-direction: column;
   gap: 24px;
+}
+
+.section-titre {
+  position: relative;
+  margin: 0;
+  padding-bottom: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+}
+
+.section-titre::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 66%;
+  height: 2px;
+  background: var(--couleur-bordure);
 }
 
 .cockpit__col--gauche {
