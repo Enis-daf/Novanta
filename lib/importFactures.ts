@@ -92,8 +92,12 @@ export function validerLignesImport(lignesBrutes: Record<string, unknown>[]): Re
     const tiers = normaliserTexte(ligneBrute.tiers);
     if (!tiers) motifs.push("Tiers manquant");
 
-    const montant = parserMontant(ligneBrute.montant);
-    if (montant === null || montant <= 0) motifs.push("Montant invalide (doit être un nombre positif)");
+    // Les exports comptables (notamment fournisseurs) peuvent utiliser un signe négatif ;
+    // le sens du flux de trésorerie est déterminé uniquement par le type (client/fournisseur)
+    // dans le moteur de calcul, donc on normalise systématiquement en valeur absolue.
+    const montantBrut = parserMontant(ligneBrute.montant);
+    const montant = montantBrut !== null ? Math.abs(montantBrut) : null;
+    if (montant === null || montant === 0) motifs.push("Montant invalide (doit être un nombre différent de zéro)");
 
     const dateEcheance = parserDate(ligneBrute.date_echeance);
     if (!dateEcheance) motifs.push("Date d'échéance invalide");

@@ -52,8 +52,9 @@ export default function FacturesFournisseursTable({
               <td className="col-montant">
                 <input
                   type="number"
+                  min="0"
                   value={facture.montant}
-                  onChange={(e) => onChange(facture.id, { montant: Number(e.target.value) })}
+                  onChange={(e) => onChange(facture.id, { montant: Math.abs(Number(e.target.value) || 0) })}
                 />
               </td>
               <td>
