@@ -10,6 +10,7 @@ import ChargesFixesTable from "@/components/ChargesFixesTable";
 import AutresDepensesTable from "@/components/AutresDepensesTable";
 import FinancementsTable from "@/components/FinancementsTable";
 import RentreesRegulieresTable from "@/components/RentreesRegulieresTable";
+import SectionRepliable from "@/components/SectionRepliable";
 import LoginForm from "@/components/LoginForm";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
@@ -422,8 +423,7 @@ export default function Home() {
         />
       </div>
       <div className="cockpit__col cockpit__col--droite">
-        <section className="section-groupe">
-          <h2 className="section-titre">Entrées</h2>
+        <SectionRepliable titre="Entrées" ouvertParDefaut>
           <FacturesClientsTable
             factures={facturesClients}
             onChange={handleChangeFactureClient}
@@ -442,10 +442,9 @@ export default function Home() {
             onAdd={handleAddFinancement}
             onRemove={handleRemoveFinancement}
           />
-        </section>
+        </SectionRepliable>
 
-        <section className="section-groupe">
-          <h2 className="section-titre">Sorties</h2>
+        <SectionRepliable titre="Sorties" ouvertParDefaut>
           <FacturesFournisseursTable
             factures={facturesFournisseurs}
             onChange={handleChangeFactureFournisseur}
@@ -464,12 +463,11 @@ export default function Home() {
             onAdd={handleAddAutreDepense}
             onRemove={handleRemoveAutreDepense}
           />
-        </section>
+        </SectionRepliable>
 
-        <section className="section-groupe">
-          <h2 className="section-titre">Import de factures</h2>
+        <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>
           <ImportFactures onImporter={handleImporterFactures} />
-        </section>
+        </SectionRepliable>
       </div>
     </main>
   );
