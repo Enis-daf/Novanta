@@ -148,8 +148,16 @@ export function validerLignesImport(lignesBrutes: Record<string, unknown>[]): Re
   };
 }
 
-export function genererModeleCSV(): string {
-  const exemple1 = ["client", "FC-2026-101", "Client Exemple", "1500", "2026-08-01", "2026-08-01", "non"];
-  const exemple2 = ["fournisseur", "FF-2026-201", "Fournisseur Exemple", "800", "2026-08-05", "2026-08-05", "non"];
-  return [COLONNES_ATTENDUES, exemple1, exemple2].map((ligne) => ligne.join(",")).join("\n");
+export function genererModeleXLSX(): Blob {
+  const exemple1 = ["client", "FAC-001", "Client A", 15000, "2026-07-15", "2026-07-20", "false"];
+  const exemple2 = ["fournisseur", "FOU-001", "Fournisseur X", 12000, "2026-07-18", "2026-07-18", "false"];
+
+  const feuille = XLSX.utils.aoa_to_sheet([COLONNES_ATTENDUES, exemple1, exemple2]);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, "Import");
+
+  const contenu = XLSX.write(classeur, { bookType: "xlsx", type: "array" });
+  return new Blob([contenu], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
 }

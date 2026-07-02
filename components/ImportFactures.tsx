@@ -5,7 +5,7 @@ import { FactureClient, FactureFournisseur } from "@/lib/types";
 import { formatMontant } from "@/lib/format";
 import {
   ResultatImport,
-  genererModeleCSV,
+  genererModeleXLSX,
   lireFichierImport,
   validerLignesImport,
 } from "@/lib/importFactures";
@@ -36,12 +36,11 @@ export default function ImportFactures({ onImporter }: ImportFacturesProps) {
   };
 
   const handleTelechargerModele = () => {
-    const contenu = genererModeleCSV();
-    const blob = new Blob([contenu], { type: "text/csv;charset=utf-8;" });
+    const blob = genererModeleXLSX();
     const url = URL.createObjectURL(blob);
     const lien = document.createElement("a");
     lien.href = url;
-    lien.download = "modele-import-factures.csv";
+    lien.download = "modele-import-factures.xlsx";
     lien.click();
     URL.revokeObjectURL(url);
   };
@@ -71,7 +70,7 @@ export default function ImportFactures({ onImporter }: ImportFacturesProps) {
           Importer des factures
         </button>
         <button type="button" className="btn-secondaire" onClick={handleTelechargerModele}>
-          Télécharger le modèle d&apos;import
+          Télécharger le modèle Excel
         </button>
         <input
           ref={inputRef}
