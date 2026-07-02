@@ -429,6 +429,12 @@ export default function Home() {
           onAdd={handleAddFactureClient}
           onRemove={handleRemoveFactureClient}
         />
+        <RentreesRegulieresTable
+          rentrees={rentreesRegulieres}
+          onChange={handleChangeRentreeReguliere}
+          onAdd={handleAddRentreeReguliere}
+          onRemove={handleRemoveRentreeReguliere}
+        />
         <FacturesFournisseursTable
           factures={facturesFournisseurs}
           onChange={handleChangeFactureFournisseur}
@@ -452,12 +458,6 @@ export default function Home() {
           onChange={handleChangeFinancement}
           onAdd={handleAddFinancement}
           onRemove={handleRemoveFinancement}
-        />
-        <RentreesRegulieresTable
-          rentrees={rentreesRegulieres}
-          onChange={handleChangeRentreeReguliere}
-          onAdd={handleAddRentreeReguliere}
-          onRemove={handleRemoveRentreeReguliere}
         />
       </div>
     </main>
