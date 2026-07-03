@@ -8,23 +8,42 @@ import CashCurveChart from "./CashCurveChart";
 interface DashboardProps {
   soldeInitial: number;
   onChangeSoldeInitial: (valeur: number) => void;
+  dateReleve: string;
+  onChangeDateReleve: (valeur: string) => void;
   resultat: ResultatProjectionCash;
 }
 
-export default function Dashboard({ soldeInitial, onChangeSoldeInitial, resultat }: DashboardProps) {
+export default function Dashboard({
+  soldeInitial,
+  onChangeSoldeInitial,
+  dateReleve,
+  onChangeDateReleve,
+  resultat,
+}: DashboardProps) {
   const { serie, soldeJ90, pointBas, dateDuPointBas, datePassageSousZero } = resultat;
   const enRupture = datePassageSousZero !== null;
 
   return (
     <section className="dashboard">
-      <div className="solde-initial">
-        <label htmlFor="solde-initial-input">Solde bancaire initial</label>
-        <input
-          id="solde-initial-input"
-          type="number"
-          value={soldeInitial}
-          onChange={(e) => onChangeSoldeInitial(Number(e.target.value))}
-        />
+      <div className="dashboard-parametres">
+        <div className="solde-initial">
+          <label htmlFor="date-releve-input">Date du relevé</label>
+          <input
+            id="date-releve-input"
+            type="date"
+            value={dateReleve}
+            onChange={(e) => onChangeDateReleve(e.target.value)}
+          />
+        </div>
+        <div className="solde-initial">
+          <label htmlFor="solde-initial-input">Solde bancaire initial</label>
+          <input
+            id="solde-initial-input"
+            type="number"
+            value={soldeInitial}
+            onChange={(e) => onChangeSoldeInitial(Number(e.target.value))}
+          />
+        </div>
       </div>
 
       <div className="kpi-grid">

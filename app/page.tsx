@@ -42,6 +42,7 @@ import {
   importerFacturesClients,
   importerFacturesFournisseurs,
   reinitialiserDonneesMock,
+  sauvegarderDateReleve,
   sauvegarderFactureClient,
   sauvegarderFactureFournisseur,
   sauvegarderFinancement,
@@ -80,6 +81,7 @@ export default function Home() {
   const [donneesChargees, setDonneesChargees] = useState(!supabaseConfigured);
 
   const [soldeInitial, setSoldeInitial] = useState(SOLDE_BANCAIRE_INITIAL);
+  const [dateReleve, setDateReleve] = useState(() => todayISO());
   const [facturesClients, setFacturesClients] = useState<FactureClient[]>(mockFacturesClients);
   const [facturesFournisseurs, setFacturesFournisseurs] =
     useState<FactureFournisseur[]>(mockFacturesFournisseurs);
@@ -88,7 +90,7 @@ export default function Home() {
   const [financements, setFinancements] = useState<Financement[]>(mockFinancements);
   const [rentreesRegulieres, setRentreesRegulieres] = useState<RentreeReguliere[]>(mockRentreesRegulieres);
 
-  const dateDepart = useMemo(() => todayISO(), []);
+  const dateDepart = dateReleve;
 
   useEffect(() => {
     if (!supabaseConfigured) return;
@@ -125,6 +127,7 @@ export default function Home() {
       if (annule) return;
       setCompanyId(id);
       setSoldeInitial(donnees.soldeInitial);
+      setDateReleve(donnees.dateReleve);
       setFacturesClients(donnees.facturesClients);
       setFacturesFournisseurs(donnees.facturesFournisseurs);
       setChargesFixes(donnees.chargesFixes);
@@ -169,6 +172,11 @@ export default function Home() {
   const handleChangeSoldeInitial = (valeur: number) => {
     setSoldeInitial(valeur);
     if (companyId) persistDebounce("soldeInitial", () => sauvegarderSoldeInitial(companyId, valeur));
+  };
+
+  const handleChangeDateReleve = (valeur: string) => {
+    setDateReleve(valeur);
+    if (companyId) persistDebounce("dateReleve", () => sauvegarderDateReleve(companyId, valeur));
   };
 
   const handleChangeFactureClient = (id: string, patch: Partial<FactureClient>) => {
@@ -373,6 +381,7 @@ export default function Home() {
     reinitialiserDonneesMock(companyId)
       .then((donnees) => {
         setSoldeInitial(donnees.soldeInitial);
+        setDateReleve(donnees.dateReleve);
         setFacturesClients(donnees.facturesClients);
         setFacturesFournisseurs(donnees.facturesFournisseurs);
         setChargesFixes(donnees.chargesFixes);
@@ -419,6 +428,8 @@ export default function Home() {
         <Dashboard
           soldeInitial={soldeInitial}
           onChangeSoldeInitial={handleChangeSoldeInitial}
+          dateReleve={dateReleve}
+          onChangeDateReleve={handleChangeDateReleve}
           resultat={resultat}
         />
       </div>

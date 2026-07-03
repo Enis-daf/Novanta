@@ -1,4 +1,5 @@
 import { supabase } from "./supabaseClient";
+import { todayISO } from "./dates";
 import {
   SOLDE_BANCAIRE_INITIAL,
   mockAutresDepenses,
@@ -19,6 +20,7 @@ import {
 
 export interface DonneesEntreprise {
   soldeInitial: number;
+  dateReleve: string;
   facturesClients: FactureClient[];
   facturesFournisseurs: FactureFournisseur[];
   chargesFixes: ChargeFixe[];
@@ -208,17 +210,23 @@ export async function getOrCreateCompanyForUser(userId: string): Promise<string>
   return created.id as string;
 }
 
-async function chargerSoldeInitial(companyId: string): Promise<number | null> {
+interface CashSettings {
+  soldeInitial: number;
+  dateReleve: string;
+}
+
+async function chargerCashSettings(companyId: string): Promise<CashSettings | null> {
   const { data, error } = await client()
     .from("cash_settings")
-    .select("solde_initial")
+    .select("solde_initial, date_releve")
     .eq("company_id", companyId)
     .maybeSingle();
   if (error) throw error;
-  return data ? Number(data.solde_initial) : null;
+  return data ? { soldeInitial: Number(data.solde_initial), dateReleve: data.date_releve as string } : null;
 }
 
 async function initialiserAvecDonneesMock(companyId: string): Promise<DonneesEntreprise> {
+  const dateReleve = todayISO();
   const facturesClients = mockFacturesClients.map((f) => ({ ...f, id: crypto.randomUUID() }));
   const facturesFournisseurs = mockFacturesFournisseurs.map((f) => ({ ...f, id: crypto.randomUUID() }));
   const chargesFixes = mockChargesFixes.map((c) => ({ ...c, id: crypto.randomUUID() }));
@@ -251,11 +259,16 @@ async function initialiserAvecDonneesMock(companyId: string): Promise<DonneesEnt
       "recurring_income",
       rentreesRegulieres.map((r) => rentreeReguliereToRow(companyId, r))
     ),
-    upsertOne("cash_settings", { company_id: companyId, solde_initial: SOLDE_BANCAIRE_INITIAL }),
+    upsertOne("cash_settings", {
+      company_id: companyId,
+      solde_initial: SOLDE_BANCAIRE_INITIAL,
+      date_releve: dateReleve,
+    }),
   ]);
 
   return {
     soldeInitial: SOLDE_BANCAIRE_INITIAL,
+    dateReleve,
     facturesClients,
     facturesFournisseurs,
     chargesFixes,
@@ -271,9 +284,9 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
   // aux factures, qui peuvent légitimement être toutes supprimées). Sa seule présence — et non
   // le nombre de factures — est donc le signal fiable pour savoir si la société a déjà été
   // initialisée, afin de ne jamais re-seeder les données de démo sur une liste vidée par l'utilisateur.
-  const soldeInitial = await chargerSoldeInitial(companyId);
+  const cashSettings = await chargerCashSettings(companyId);
 
-  if (soldeInitial === null) {
+  if (cashSettings === null) {
     return initialiserAvecDonneesMock(companyId);
   }
 
@@ -288,7 +301,8 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
     ]);
 
   return {
-    soldeInitial,
+    soldeInitial: cashSettings.soldeInitial,
+    dateReleve: cashSettings.dateReleve,
     facturesClients: clientsRows.map(rowToFactureClient),
     facturesFournisseurs: fournisseursRows.map(rowToFactureFournisseur),
     chargesFixes: chargesRows.map(rowToChargeFixe),
@@ -312,6 +326,10 @@ export async function reinitialiserDonneesMock(companyId: string): Promise<Donne
 
 export async function sauvegarderSoldeInitial(companyId: string, soldeInitial: number): Promise<void> {
   await upsertOne("cash_settings", { company_id: companyId, solde_initial: soldeInitial });
+}
+
+export async function sauvegarderDateReleve(companyId: string, dateReleve: string): Promise<void> {
+  await upsertOne("cash_settings", { company_id: companyId, date_releve: dateReleve });
 }
 
 export async function sauvegarderFactureClient(companyId: string, facture: FactureClient): Promise<void> {

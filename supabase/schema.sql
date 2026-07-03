@@ -14,8 +14,13 @@ create table if not exists companies (
 create table if not exists cash_settings (
   company_id uuid primary key references companies(id) on delete cascade,
   solde_initial numeric not null default 0,
+  date_releve date not null default current_date,
   updated_at timestamptz not null default now()
 );
+
+-- Migration additive : ajoute la colonne aux installations existantes
+-- (sans effet si la table vient d'être créée ci-dessus).
+alter table cash_settings add column if not exists date_releve date not null default current_date;
 
 create table if not exists customer_invoices (
   id uuid primary key default gen_random_uuid(),

@@ -140,6 +140,12 @@ input[type="checkbox"] {
   gap: 20px;
 }
 
+.dashboard-parametres {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .solde-initial {
   display: flex;
   align-items: center;
