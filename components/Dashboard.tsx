@@ -27,21 +27,21 @@ export default function Dashboard({
     <section className="dashboard">
       <div className="dashboard-parametres">
         <div className="solde-initial">
-          <label htmlFor="date-releve-input">Date du relevé</label>
-          <input
-            id="date-releve-input"
-            type="date"
-            value={dateReleve}
-            onChange={(e) => onChangeDateReleve(e.target.value)}
-          />
-        </div>
-        <div className="solde-initial">
           <label htmlFor="solde-initial-input">Solde bancaire initial</label>
           <input
             id="solde-initial-input"
             type="number"
             value={soldeInitial}
             onChange={(e) => onChangeSoldeInitial(Number(e.target.value))}
+          />
+        </div>
+        <div className="solde-initial">
+          <label htmlFor="date-releve-input">Date du relevé</label>
+          <input
+            id="date-releve-input"
+            type="date"
+            value={dateReleve}
+            onChange={(e) => onChangeDateReleve(e.target.value)}
           />
         </div>
       </div>

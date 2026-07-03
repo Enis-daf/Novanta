@@ -142,8 +142,9 @@ input[type="checkbox"] {
 
 .dashboard-parametres {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 20px;
 }
 
 .solde-initial {
