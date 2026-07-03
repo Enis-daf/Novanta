@@ -60,11 +60,13 @@ create table if not exists fixed_charges (
 -- Migration additive : ajoute la colonne date_fin, renomme le vocabulaire de récurrence
 -- vers celui partagé avec les rentrées régulières puis élargit la contrainte pour
 -- accepter "hebdomadaire" (sans effet si la table vient d'être créée ci-dessus).
+-- L'ancienne contrainte doit être retirée AVANT le renommage des valeurs : sinon les
+-- UPDATE ci-dessous sont rejetés car 'ponctuel'/'mensuel' ne sont pas encore autorisés.
 alter table fixed_charges add column if not exists date_fin date;
+alter table fixed_charges drop constraint if exists fixed_charges_recurrence_check;
 update fixed_charges set recurrence = 'ponctuel' where recurrence = 'aucune';
 update fixed_charges set recurrence = 'mensuel' where recurrence = 'mensuelle';
 alter table fixed_charges alter column recurrence set default 'mensuel';
-alter table fixed_charges drop constraint if exists fixed_charges_recurrence_check;
 alter table fixed_charges add constraint fixed_charges_recurrence_check
   check (recurrence in ('ponctuel', 'quotidien', 'hebdomadaire', 'mensuel'));
 
