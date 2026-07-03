@@ -116,6 +116,7 @@ function chargeFixeToRow(companyId: string, c: ChargeFixe): Row {
     montant: c.montant,
     date_prevue: c.datePrevue,
     recurrence: c.recurrence,
+    date_fin: c.dateFin,
   };
 }
 
@@ -126,6 +127,7 @@ function rowToChargeFixe(row: Row): ChargeFixe {
     montant: Number(row.montant),
     datePrevue: row.date_prevue as string,
     recurrence: row.recurrence as ChargeFixe["recurrence"],
+    dateFin: (row.date_fin as string | null) ?? null,
   };
 }
 

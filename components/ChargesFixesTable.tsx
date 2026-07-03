@@ -20,6 +20,7 @@ export default function ChargesFixesTable({ charges, onChange, onAdd, onRemove }
             <th className="col-montant">Montant</th>
             <th>Date prévue</th>
             <th>Récurrence</th>
+            <th>Date de fin</th>
             <th></th>
           </tr>
         </thead>
@@ -54,9 +55,18 @@ export default function ChargesFixesTable({ charges, onChange, onAdd, onRemove }
                     onChange(charge.id, { recurrence: e.target.value as ChargeFixe["recurrence"] })
                   }
                 >
-                  <option value="mensuelle">Mensuelle</option>
-                  <option value="aucune">Ponctuelle</option>
+                  <option value="ponctuel">Ponctuelle</option>
+                  <option value="quotidien">Quotidienne</option>
+                  <option value="hebdomadaire">Hebdomadaire</option>
+                  <option value="mensuel">Mensuelle</option>
                 </select>
+              </td>
+              <td>
+                <input
+                  type="date"
+                  value={charge.dateFin ?? ""}
+                  onChange={(e) => onChange(charge.id, { dateFin: e.target.value || null })}
+                />
               </td>
               <td className="col-actions">
                 <button type="button" className="btn-remove" onClick={() => onRemove(charge.id)}>

@@ -31,26 +31,24 @@ export interface ResultatProjectionCash {
   datePassageSousZero: string | null;
 }
 
-function genererOccurrences(datePrevue: string, recurrence: ChargeFixe["recurrence"], fin: Date): Date[] {
-  const premiereEcheance = parseDateISO(datePrevue);
-  if (recurrence === "aucune") return [premiereEcheance];
+type FrequenceRecurrence = ChargeFixe["recurrence"] | RentreeReguliere["frequence"];
 
-  const occurrences: Date[] = [];
-  let curseur = premiereEcheance;
-  while (curseur <= fin) {
-    occurrences.push(curseur);
-    curseur = ajouterMois(curseur, 1);
-  }
-  return occurrences;
-}
+function genererOccurrencesRecurrentes(
+  dateDebut: string,
+  frequence: FrequenceRecurrence,
+  dateFin: string | null,
+  fin: Date
+): Date[] {
+  const debut = parseDateISO(dateDebut);
+  if (frequence === "ponctuel") return [debut];
 
-function genererOccurrencesRentree(rentree: RentreeReguliere, fin: Date): Date[] {
-  const debut = parseDateISO(rentree.dateDebut);
-
-  if (rentree.frequence === "ponctuel") return [debut];
-
-  const borneFin = rentree.dateFin && parseDateISO(rentree.dateFin) < fin ? parseDateISO(rentree.dateFin) : fin;
-  const pas = rentree.frequence === "quotidien" ? (d: Date) => ajouterJours(d, 1) : (d: Date) => ajouterMois(d, 1);
+  const borneFin = dateFin && parseDateISO(dateFin) < fin ? parseDateISO(dateFin) : fin;
+  const pas =
+    frequence === "quotidien"
+      ? (d: Date) => ajouterJours(d, 1)
+      : frequence === "hebdomadaire"
+        ? (d: Date) => ajouterJours(d, 7)
+        : (d: Date) => ajouterMois(d, 1);
 
   const occurrences: Date[] = [];
   let curseur = debut;
@@ -101,7 +99,7 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
   }
 
   for (const charge of chargesFixes) {
-    for (const occurrence of genererOccurrences(charge.datePrevue, charge.recurrence, fin)) {
+    for (const occurrence of genererOccurrencesRecurrentes(charge.datePrevue, charge.recurrence, charge.dateFin, fin)) {
       enregistrerFlux(toISODate(occurrence), -charge.montant);
     }
   }
@@ -111,7 +109,7 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
   }
 
   for (const rentree of rentreesRegulieres) {
-    for (const occurrence of genererOccurrencesRentree(rentree, fin)) {
+    for (const occurrence of genererOccurrencesRecurrentes(rentree.dateDebut, rentree.frequence, rentree.dateFin, fin)) {
       enregistrerFlux(toISODate(occurrence), rentree.montant);
     }
   }

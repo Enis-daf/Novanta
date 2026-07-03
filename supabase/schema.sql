@@ -52,9 +52,21 @@ create table if not exists fixed_charges (
   libelle text not null,
   montant numeric not null,
   date_prevue date not null,
-  recurrence text not null default 'mensuelle' check (recurrence in ('mensuelle', 'aucune')),
+  recurrence text not null default 'mensuel' check (recurrence in ('ponctuel', 'quotidien', 'hebdomadaire', 'mensuel')),
+  date_fin date,
   updated_at timestamptz not null default now()
 );
+
+-- Migration additive : ajoute la colonne date_fin, renomme le vocabulaire de récurrence
+-- vers celui partagé avec les rentrées régulières puis élargit la contrainte pour
+-- accepter "hebdomadaire" (sans effet si la table vient d'être créée ci-dessus).
+alter table fixed_charges add column if not exists date_fin date;
+update fixed_charges set recurrence = 'ponctuel' where recurrence = 'aucune';
+update fixed_charges set recurrence = 'mensuel' where recurrence = 'mensuelle';
+alter table fixed_charges alter column recurrence set default 'mensuel';
+alter table fixed_charges drop constraint if exists fixed_charges_recurrence_check;
+alter table fixed_charges add constraint fixed_charges_recurrence_check
+  check (recurrence in ('ponctuel', 'quotidien', 'hebdomadaire', 'mensuel'));
 
 create table if not exists other_expenses (
   id uuid primary key default gen_random_uuid(),

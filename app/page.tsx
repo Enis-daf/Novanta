@@ -270,7 +270,8 @@ export default function Home() {
       libelle: "",
       montant: 0,
       datePrevue: dateDepart,
-      recurrence: "mensuelle",
+      recurrence: "mensuel",
+      dateFin: null,
     };
     setChargesFixes((prev) => [...prev, charge]);
     if (companyId) persist(() => sauvegarderChargeFixe(companyId, charge));

@@ -23,7 +23,8 @@ export interface ChargeFixe {
   libelle: string;
   montant: number;
   datePrevue: string; // YYYY-MM-DD — première échéance
-  recurrence: "mensuelle" | "aucune";
+  recurrence: "ponctuel" | "quotidien" | "hebdomadaire" | "mensuel";
+  dateFin: string | null; // YYYY-MM-DD — optionnelle, sinon jusqu'à J+90
 }
 
 export interface AutreDepense {
