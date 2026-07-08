@@ -35,12 +35,13 @@ export default function FacturesClientsTable({
             <th>Encaissement anticipé</th>
             <th>Décalage rapide</th>
             <th>Litigieuse</th>
+            <th>Payée</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {facturesTriees.map((facture) => (
-            <tr key={facture.id} className={facture.litigieuse ? "row--litigieuse" : ""}>
+            <tr key={facture.id} className={facture.litigieuse || facture.payee ? "row--litigieuse" : ""}>
               <td>
                 <input
                   type="text"
@@ -98,6 +99,13 @@ export default function FacturesClientsTable({
                   type="checkbox"
                   checked={facture.litigieuse}
                   onChange={(e) => onChange(facture.id, { litigieuse: e.target.checked })}
+                />
+              </td>
+              <td className="col-checkbox">
+                <input
+                  type="checkbox"
+                  checked={facture.payee}
+                  onChange={(e) => onChange(facture.id, { payee: e.target.checked })}
                 />
               </td>
               <td className="col-actions">

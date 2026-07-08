@@ -211,6 +211,7 @@ export default function Home() {
       dateEcheance: dateDepart,
       dateEncaissementAnticipee: dateDepart,
       litigieuse: false,
+      payee: false,
     };
     setFacturesClients((prev) => [...prev, facture]);
     if (companyId) persist(() => sauvegarderFactureClient(companyId, facture));
@@ -241,6 +242,7 @@ export default function Home() {
       dateEcheance: dateDepart,
       datePaiementPrevue: dateDepart,
       litigieuse: false,
+      payee: false,
     };
     setFacturesFournisseurs((prev) => [...prev, facture]);
     if (companyId) persist(() => sauvegarderFactureFournisseur(companyId, facture));

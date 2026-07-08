@@ -85,12 +85,12 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
   };
 
   for (const facture of facturesClients) {
-    if (facture.litigieuse) continue;
+    if (facture.litigieuse || facture.payee) continue;
     enregistrerFlux(facture.dateEncaissementAnticipee, facture.montant);
   }
 
   for (const facture of facturesFournisseurs) {
-    if (facture.litigieuse) continue;
+    if (facture.litigieuse || facture.payee) continue;
     enregistrerFlux(facture.datePaiementPrevue, -facture.montant);
   }
 

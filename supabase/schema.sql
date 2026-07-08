@@ -37,8 +37,15 @@ create table if not exists customer_invoices (
   date_echeance date not null,
   date_encaissement_anticipee date not null,
   litigieuse boolean not null default false,
+  paid boolean not null default false,
   updated_at timestamptz not null default now()
 );
+
+-- Migration additive : ajoute la colonne aux installations existantes
+-- (sans effet si la table vient d'être créée ci-dessus). Toutes les factures
+-- existantes reçoivent paid = false, aucune ligne n'est supprimée ni modifiée
+-- autrement.
+alter table customer_invoices add column if not exists paid boolean not null default false;
 
 create table if not exists supplier_invoices (
   id uuid primary key default gen_random_uuid(),
@@ -49,8 +56,12 @@ create table if not exists supplier_invoices (
   date_echeance date not null,
   date_paiement_prevue date not null,
   litigieuse boolean not null default false,
+  paid boolean not null default false,
   updated_at timestamptz not null default now()
 );
+
+-- Migration additive : idem pour les factures fournisseurs existantes.
+alter table supplier_invoices add column if not exists paid boolean not null default false;
 
 create table if not exists fixed_charges (
   id uuid primary key default gen_random_uuid(),

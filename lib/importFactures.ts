@@ -124,6 +124,7 @@ export function validerLignesImport(lignesBrutes: Record<string, unknown>[]): Re
           dateEcheance: dateEcheance as string,
           dateEncaissementAnticipee: datePaiement as string,
           litigieuse,
+          payee: false,
         },
       });
     } else {
@@ -138,6 +139,7 @@ export function validerLignesImport(lignesBrutes: Record<string, unknown>[]): Re
           dateEcheance: dateEcheance as string,
           datePaiementPrevue: datePaiement as string,
           litigieuse,
+          payee: false,
         },
       });
     }

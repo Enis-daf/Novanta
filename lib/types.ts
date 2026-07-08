@@ -6,6 +6,7 @@ export interface FactureClient {
   dateEcheance: string; // YYYY-MM-DD
   dateEncaissementAnticipee: string; // YYYY-MM-DD — variable de simulation
   litigieuse: boolean;
+  payee: boolean;
 }
 
 export interface FactureFournisseur {
@@ -16,6 +17,7 @@ export interface FactureFournisseur {
   dateEcheance: string; // YYYY-MM-DD
   datePaiementPrevue: string; // YYYY-MM-DD — variable de simulation
   litigieuse: boolean;
+  payee: boolean;
 }
 
 export interface ChargeFixe {
