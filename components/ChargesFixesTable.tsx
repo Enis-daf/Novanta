@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { ChargeFixe } from "@/lib/types";
 import { trierParDate } from "@/lib/dates";
+import DateField from "./DateField";
 
 interface ChargesFixesTableProps {
   charges: ChargeFixe[];
@@ -46,10 +47,9 @@ export default function ChargesFixesTable({ charges, onChange, onAdd, onRemove }
                 />
               </td>
               <td>
-                <input
-                  type="date"
+                <DateField
                   value={charge.datePrevue}
-                  onChange={(e) => onChange(charge.id, { datePrevue: e.target.value })}
+                  onChange={(valeur) => onChange(charge.id, { datePrevue: valeur })}
                 />
               </td>
               <td>
@@ -66,10 +66,9 @@ export default function ChargesFixesTable({ charges, onChange, onAdd, onRemove }
                 </select>
               </td>
               <td>
-                <input
-                  type="date"
+                <DateField
                   value={charge.dateFin ?? ""}
-                  onChange={(e) => onChange(charge.id, { dateFin: e.target.value || null })}
+                  onChange={(valeur) => onChange(charge.id, { dateFin: valeur || null })}
                 />
               </td>
               <td className="col-actions">

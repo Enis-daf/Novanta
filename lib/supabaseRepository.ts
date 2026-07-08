@@ -33,6 +33,14 @@ export interface DonneesEntreprise {
 
 type Row = Record<string, unknown>;
 
+// Les colonnes de date sont nullable en base : une ligne nouvellement ajoutée peut
+// ne pas encore avoir de date choisie par l'utilisateur. "" est la convention interne
+// pour "pas de date" ; on la convertit en null uniquement à la frontière Supabase,
+// car une chaîne vide n'est pas une valeur "date" valide pour Postgres.
+function dateOuNull(dateStr: string): string | null {
+  return dateStr || null;
+}
+
 function client() {
   if (!supabase) throw new Error("Supabase non configuré");
   return supabase;
@@ -67,8 +75,8 @@ function factureClientToRow(companyId: string, f: FactureClient): Row {
     facture: f.facture,
     client: f.client,
     montant: f.montant,
-    date_echeance: f.dateEcheance,
-    date_encaissement_anticipee: f.dateEncaissementAnticipee,
+    date_echeance: dateOuNull(f.dateEcheance),
+    date_encaissement_anticipee: dateOuNull(f.dateEncaissementAnticipee),
     litigieuse: f.litigieuse,
     paid: f.payee,
   };
@@ -80,8 +88,8 @@ function rowToFactureClient(row: Row): FactureClient {
     facture: row.facture as string,
     client: row.client as string,
     montant: Number(row.montant),
-    dateEcheance: row.date_echeance as string,
-    dateEncaissementAnticipee: row.date_encaissement_anticipee as string,
+    dateEcheance: (row.date_echeance as string | null) ?? "",
+    dateEncaissementAnticipee: (row.date_encaissement_anticipee as string | null) ?? "",
     litigieuse: row.litigieuse as boolean,
     payee: Boolean(row.paid),
   };
@@ -94,8 +102,8 @@ function factureFournisseurToRow(companyId: string, f: FactureFournisseur): Row 
     facture: f.facture,
     fournisseur: f.fournisseur,
     montant: f.montant,
-    date_echeance: f.dateEcheance,
-    date_paiement_prevue: f.datePaiementPrevue,
+    date_echeance: dateOuNull(f.dateEcheance),
+    date_paiement_prevue: dateOuNull(f.datePaiementPrevue),
     litigieuse: f.litigieuse,
     paid: f.payee,
   };
@@ -107,8 +115,8 @@ function rowToFactureFournisseur(row: Row): FactureFournisseur {
     facture: row.facture as string,
     fournisseur: row.fournisseur as string,
     montant: Number(row.montant),
-    dateEcheance: row.date_echeance as string,
-    datePaiementPrevue: row.date_paiement_prevue as string,
+    dateEcheance: (row.date_echeance as string | null) ?? "",
+    datePaiementPrevue: (row.date_paiement_prevue as string | null) ?? "",
     litigieuse: row.litigieuse as boolean,
     payee: Boolean(row.paid),
   };
@@ -120,7 +128,7 @@ function chargeFixeToRow(companyId: string, c: ChargeFixe): Row {
     company_id: companyId,
     libelle: c.libelle,
     montant: c.montant,
-    date_prevue: c.datePrevue,
+    date_prevue: dateOuNull(c.datePrevue),
     recurrence: c.recurrence,
     date_fin: c.dateFin,
   };
@@ -131,7 +139,7 @@ function rowToChargeFixe(row: Row): ChargeFixe {
     id: row.id as string,
     libelle: row.libelle as string,
     montant: Number(row.montant),
-    datePrevue: row.date_prevue as string,
+    datePrevue: (row.date_prevue as string | null) ?? "",
     recurrence: row.recurrence as ChargeFixe["recurrence"],
     dateFin: (row.date_fin as string | null) ?? null,
   };
@@ -143,7 +151,7 @@ function autreDepenseToRow(companyId: string, d: AutreDepense): Row {
     company_id: companyId,
     libelle: d.libelle,
     montant: d.montant,
-    date_prevue: d.datePrevue,
+    date_prevue: dateOuNull(d.datePrevue),
     type: d.type,
   };
 }
@@ -153,7 +161,7 @@ function rowToAutreDepense(row: Row): AutreDepense {
     id: row.id as string,
     libelle: row.libelle as string,
     montant: Number(row.montant),
-    datePrevue: row.date_prevue as string,
+    datePrevue: (row.date_prevue as string | null) ?? "",
     type: row.type as AutreDepense["type"],
   };
 }
@@ -164,7 +172,7 @@ function financementToRow(companyId: string, f: Financement): Row {
     company_id: companyId,
     libelle: f.libelle,
     montant: f.montant,
-    date_encaissement_prevue: f.dateEncaissementPrevue,
+    date_encaissement_prevue: dateOuNull(f.dateEncaissementPrevue),
   };
 }
 
@@ -173,7 +181,7 @@ function rowToFinancement(row: Row): Financement {
     id: row.id as string,
     libelle: row.libelle as string,
     montant: Number(row.montant),
-    dateEncaissementPrevue: row.date_encaissement_prevue as string,
+    dateEncaissementPrevue: (row.date_encaissement_prevue as string | null) ?? "",
   };
 }
 
@@ -183,7 +191,7 @@ function rentreeReguliereToRow(companyId: string, r: RentreeReguliere): Row {
     company_id: companyId,
     libelle: r.libelle,
     montant: r.montant,
-    date_debut: r.dateDebut,
+    date_debut: dateOuNull(r.dateDebut),
     frequence: r.frequence,
     date_fin: r.dateFin,
   };
@@ -194,7 +202,7 @@ function rowToRentreeReguliere(row: Row): RentreeReguliere {
     id: row.id as string,
     libelle: row.libelle as string,
     montant: Number(row.montant),
-    dateDebut: row.date_debut as string,
+    dateDebut: (row.date_debut as string | null) ?? "",
     frequence: row.frequence as RentreeReguliere["frequence"],
     dateFin: (row.date_fin as string | null) ?? null,
   };
@@ -328,18 +336,6 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
     financements: financementsRows.map(rowToFinancement),
     rentreesRegulieres: rentreesRows.map(rowToRentreeReguliere),
   };
-}
-
-export async function reinitialiserDonneesMock(companyId: string): Promise<DonneesEntreprise> {
-  await Promise.all([
-    client().from("customer_invoices").delete().eq("company_id", companyId),
-    client().from("supplier_invoices").delete().eq("company_id", companyId),
-    client().from("fixed_charges").delete().eq("company_id", companyId),
-    client().from("other_expenses").delete().eq("company_id", companyId),
-    client().from("financings").delete().eq("company_id", companyId),
-    client().from("recurring_income").delete().eq("company_id", companyId),
-  ]);
-  return initialiserAvecDonneesMock(companyId);
 }
 
 export async function sauvegarderSoldeInitial(companyId: string, soldeInitial: number): Promise<void> {

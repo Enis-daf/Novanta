@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { FactureFournisseur } from "@/lib/types";
-import { decalerDateISO, estEnRetard, trierParDate } from "@/lib/dates";
+import { decalerDateISO, estDateValide, estEnRetard, trierParDate } from "@/lib/dates";
+import DateField from "./DateField";
 
 interface FacturesFournisseursTableProps {
   factures: FactureFournisseur[];
@@ -67,18 +68,16 @@ export default function FacturesFournisseursTable({
                 />
               </td>
               <td>
-                <input
-                  type="date"
+                <DateField
                   value={facture.dateEcheance}
-                  onChange={(e) => onChange(facture.id, { dateEcheance: e.target.value })}
+                  onChange={(valeur) => onChange(facture.id, { dateEcheance: valeur })}
                 />
               </td>
               <td>
-                <input
-                  type="date"
+                <DateField
                   className={enRetard ? "date-retard" : ""}
                   value={facture.datePaiementPrevue}
-                  onChange={(e) => onChange(facture.id, { datePaiementPrevue: e.target.value })}
+                  onChange={(valeur) => onChange(facture.id, { datePaiementPrevue: valeur })}
                 />
                 {enRetard && <span className="badge-retard">En retard</span>}
               </td>
@@ -88,6 +87,7 @@ export default function FacturesFournisseursTable({
                     key={jours}
                     type="button"
                     className="btn-shift"
+                    disabled={!estDateValide(facture.datePaiementPrevue)}
                     onClick={() =>
                       onChange(facture.id, {
                         datePaiementPrevue: decalerDateISO(facture.datePaiementPrevue, jours),

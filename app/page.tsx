@@ -42,7 +42,6 @@ import {
   sauvegarderChargeFixe,
   importerFacturesClients,
   importerFacturesFournisseurs,
-  reinitialiserDonneesMock,
   sauvegarderDateReleve,
   sauvegarderFactureClient,
   sauvegarderFactureFournisseur,
@@ -208,8 +207,8 @@ export default function Home() {
       facture: "",
       client: "",
       montant: 0,
-      dateEcheance: dateDepart,
-      dateEncaissementAnticipee: dateDepart,
+      dateEcheance: "",
+      dateEncaissementAnticipee: "",
       litigieuse: false,
       payee: false,
     };
@@ -239,8 +238,8 @@ export default function Home() {
       facture: "",
       fournisseur: "",
       montant: 0,
-      dateEcheance: dateDepart,
-      datePaiementPrevue: dateDepart,
+      dateEcheance: "",
+      datePaiementPrevue: "",
       litigieuse: false,
       payee: false,
     };
@@ -283,7 +282,7 @@ export default function Home() {
       id: crypto.randomUUID(),
       libelle: "",
       montant: 0,
-      datePrevue: dateDepart,
+      datePrevue: "",
       recurrence: "mensuel",
       dateFin: null,
     };
@@ -312,7 +311,7 @@ export default function Home() {
       id: crypto.randomUUID(),
       libelle: "",
       montant: 0,
-      datePrevue: dateDepart,
+      datePrevue: "",
       type: "certaine",
     };
     setAutresDepenses((prev) => [...prev, depense]);
@@ -340,7 +339,7 @@ export default function Home() {
       id: crypto.randomUUID(),
       libelle: "",
       montant: 0,
-      dateEncaissementPrevue: dateDepart,
+      dateEncaissementPrevue: "",
     };
     setFinancements((prev) => [...prev, financement]);
     if (companyId) persist(() => sauvegarderFinancement(companyId, financement));
@@ -367,7 +366,7 @@ export default function Home() {
       id: crypto.randomUUID(),
       libelle: "",
       montant: 0,
-      dateDebut: dateDepart,
+      dateDebut: "",
       frequence: "mensuel",
       dateFin: null,
     };
@@ -382,30 +381,6 @@ export default function Home() {
 
   const handleDeconnexion = () => {
     supabase!.auth.signOut();
-  };
-
-  const handleReinitialiserDemo = () => {
-    if (!companyId) return;
-    if (
-      !window.confirm(
-        "Réinitialiser les données de démonstration ? Toutes vos données actuelles seront définitivement supprimées."
-      )
-    ) {
-      return;
-    }
-    reinitialiserDonneesMock(companyId)
-      .then((donnees) => {
-        setSoldeInitial(donnees.soldeInitial);
-        setDateReleve(donnees.dateReleve);
-        setHorizonJours(donnees.horizonJours);
-        setFacturesClients(donnees.facturesClients);
-        setFacturesFournisseurs(donnees.facturesFournisseurs);
-        setChargesFixes(donnees.chargesFixes);
-        setAutresDepenses(donnees.autresDepenses);
-        setFinancements(donnees.financements);
-        setRentreesRegulieres(donnees.rentreesRegulieres);
-      })
-      .catch((error) => console.error("Échec de la réinitialisation :", error));
   };
 
   if (supabaseConfigured && !sessionChargee) {
@@ -431,9 +406,6 @@ export default function Home() {
         <div className="barre-utilisateur">
           <span>{session.user.email}</span>
           <div className="barre-utilisateur__actions">
-            <button type="button" className="btn-secondaire" onClick={handleReinitialiserDemo}>
-              Réinitialiser les données de démonstration
-            </button>
             <button type="button" className="btn-deconnexion" onClick={handleDeconnexion}>
               Se déconnecter
             </button>

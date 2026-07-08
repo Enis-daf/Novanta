@@ -34,8 +34,8 @@ create table if not exists customer_invoices (
   facture text not null,
   client text not null,
   montant numeric not null,
-  date_echeance date not null,
-  date_encaissement_anticipee date not null,
+  date_echeance date,
+  date_encaissement_anticipee date,
   litigieuse boolean not null default false,
   paid boolean not null default false,
   updated_at timestamptz not null default now()
@@ -47,14 +47,20 @@ create table if not exists customer_invoices (
 -- autrement.
 alter table customer_invoices add column if not exists paid boolean not null default false;
 
+-- Migration non destructive : autorise les dates vides (nouvelle ligne pas encore
+-- complétée par l'utilisateur). Les factures existantes gardent leurs dates actuelles,
+-- seule la contrainte NOT NULL est retirée.
+alter table customer_invoices alter column date_echeance drop not null;
+alter table customer_invoices alter column date_encaissement_anticipee drop not null;
+
 create table if not exists supplier_invoices (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,
   facture text not null,
   fournisseur text not null,
   montant numeric not null,
-  date_echeance date not null,
-  date_paiement_prevue date not null,
+  date_echeance date,
+  date_paiement_prevue date,
   litigieuse boolean not null default false,
   paid boolean not null default false,
   updated_at timestamptz not null default now()
@@ -63,16 +69,23 @@ create table if not exists supplier_invoices (
 -- Migration additive : idem pour les factures fournisseurs existantes.
 alter table supplier_invoices add column if not exists paid boolean not null default false;
 
+-- Migration non destructive : idem, autorise les dates vides.
+alter table supplier_invoices alter column date_echeance drop not null;
+alter table supplier_invoices alter column date_paiement_prevue drop not null;
+
 create table if not exists fixed_charges (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,
   libelle text not null,
   montant numeric not null,
-  date_prevue date not null,
+  date_prevue date,
   recurrence text not null default 'mensuel' check (recurrence in ('ponctuel', 'quotidien', 'hebdomadaire', 'mensuel')),
   date_fin date,
   updated_at timestamptz not null default now()
 );
+
+-- Migration non destructive : autorise les dates vides (nouvelle ligne pas encore complétée).
+alter table fixed_charges alter column date_prevue drop not null;
 
 -- Migration additive : ajoute la colonne date_fin, renomme le vocabulaire de récurrence
 -- vers celui partagé avec les rentrées régulières puis élargit la contrainte pour
@@ -92,30 +105,39 @@ create table if not exists other_expenses (
   company_id uuid not null references companies(id) on delete cascade,
   libelle text not null,
   montant numeric not null,
-  date_prevue date not null,
+  date_prevue date,
   type text not null check (type in ('certaine', 'probable')),
   updated_at timestamptz not null default now()
 );
+
+-- Migration non destructive : autorise les dates vides.
+alter table other_expenses alter column date_prevue drop not null;
 
 create table if not exists financings (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,
   libelle text not null,
   montant numeric not null,
-  date_encaissement_prevue date not null,
+  date_encaissement_prevue date,
   updated_at timestamptz not null default now()
 );
+
+-- Migration non destructive : autorise les dates vides.
+alter table financings alter column date_encaissement_prevue drop not null;
 
 create table if not exists recurring_income (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,
   libelle text not null,
   montant numeric not null,
-  date_debut date not null,
+  date_debut date,
   frequence text not null check (frequence in ('ponctuel', 'quotidien', 'mensuel')),
   date_fin date,
   updated_at timestamptz not null default now()
 );
+
+-- Migration non destructive : autorise les dates vides.
+alter table recurring_income alter column date_debut drop not null;
 
 create index if not exists idx_customer_invoices_company on customer_invoices(company_id);
 create index if not exists idx_supplier_invoices_company on supplier_invoices(company_id);

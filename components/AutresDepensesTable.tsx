@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { AutreDepense } from "@/lib/types";
 import { trierParDate } from "@/lib/dates";
+import DateField from "./DateField";
 
 interface AutresDepensesTableProps {
   depenses: AutreDepense[];
@@ -50,10 +51,9 @@ export default function AutresDepensesTable({
                 />
               </td>
               <td>
-                <input
-                  type="date"
+                <DateField
                   value={depense.datePrevue}
-                  onChange={(e) => onChange(depense.id, { datePrevue: e.target.value })}
+                  onChange={(valeur) => onChange(depense.id, { datePrevue: valeur })}
                 />
               </td>
               <td>

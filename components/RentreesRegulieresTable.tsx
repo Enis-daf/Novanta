@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { RentreeReguliere } from "@/lib/types";
 import { trierParDate } from "@/lib/dates";
+import DateField from "./DateField";
 
 interface RentreesRegulieresTableProps {
   rentrees: RentreeReguliere[];
@@ -52,10 +53,9 @@ export default function RentreesRegulieresTable({
                 />
               </td>
               <td>
-                <input
-                  type="date"
+                <DateField
                   value={rentree.dateDebut}
-                  onChange={(e) => onChange(rentree.id, { dateDebut: e.target.value })}
+                  onChange={(valeur) => onChange(rentree.id, { dateDebut: valeur })}
                 />
               </td>
               <td>
@@ -71,10 +71,9 @@ export default function RentreesRegulieresTable({
                 </select>
               </td>
               <td>
-                <input
-                  type="date"
+                <DateField
                   value={rentree.dateFin ?? ""}
-                  onChange={(e) => onChange(rentree.id, { dateFin: e.target.value || null })}
+                  onChange={(valeur) => onChange(rentree.id, { dateFin: valeur || null })}
                 />
               </td>
               <td className="col-actions">

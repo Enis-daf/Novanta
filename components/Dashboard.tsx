@@ -5,6 +5,7 @@ import { formatDate, formatMontant } from "@/lib/format";
 import { HorizonJours } from "@/lib/types";
 import KpiCard from "./KpiCard";
 import CashCurveChart from "./CashCurveChart";
+import DateField from "./DateField";
 
 interface DashboardProps {
   soldeInitial: number;
@@ -42,11 +43,11 @@ export default function Dashboard({
         </div>
         <div className="solde-initial">
           <label htmlFor="date-releve-input">Date du relevé</label>
-          <input
+          <DateField
             id="date-releve-input"
-            type="date"
             value={dateReleve}
-            onChange={(e) => onChangeDateReleve(e.target.value)}
+            onChange={onChangeDateReleve}
+            effacable={false}
           />
         </div>
         <div className="solde-initial">

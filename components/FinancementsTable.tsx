@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Financement } from "@/lib/types";
 import { trierParDate } from "@/lib/dates";
+import DateField from "./DateField";
 
 interface FinancementsTableProps {
   financements: Financement[];
@@ -52,10 +53,9 @@ export default function FinancementsTable({
                 />
               </td>
               <td>
-                <input
-                  type="date"
+                <DateField
                   value={financement.dateEncaissementPrevue}
-                  onChange={(e) => onChange(financement.id, { dateEncaissementPrevue: e.target.value })}
+                  onChange={(valeur) => onChange(financement.id, { dateEncaissementPrevue: valeur })}
                 />
               </td>
               <td className="col-actions">

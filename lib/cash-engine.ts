@@ -7,7 +7,7 @@ import {
   RentreeReguliere,
   SoldeJournalier,
 } from "./types";
-import { ajouterJours, ajouterMois, parseDateISO, toISODate } from "./dates";
+import { ajouterJours, ajouterMois, estDateValide, parseDateISO, toISODate } from "./dates";
 
 export const HORIZON_JOURS_DEFAUT = 90;
 
@@ -39,6 +39,8 @@ function genererOccurrencesRecurrentes(
   dateFin: string | null,
   fin: Date
 ): Date[] {
+  if (!estDateValide(dateDebut)) return [];
+
   const debut = parseDateISO(dateDebut);
   if (frequence === "ponctuel") return [debut];
 
@@ -78,6 +80,9 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
   const fluxParDate = new Map<string, number>();
 
   const enregistrerFlux = (dateStr: string, montant: number) => {
+    // Une ligne sans date (nouvellement ajoutée, pas encore complétée par l'utilisateur)
+    // ne doit jamais entrer dans le calcul, et ne doit jamais faire planter le moteur.
+    if (!estDateValide(dateStr)) return;
     const date = parseDateISO(dateStr);
     if (date < debut || date > fin) return;
     const cle = toISODate(date);

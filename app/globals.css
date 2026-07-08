@@ -316,6 +316,123 @@ input[type="checkbox"] {
   width: 112px;
 }
 
+.date-field {
+  position: relative;
+  display: inline-block;
+}
+
+.date-field__bouton {
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 6px;
+  padding: 3px 4px;
+  font-size: 11px;
+  width: 112px;
+  text-align: left;
+  background: #fff;
+  color: var(--couleur-texte);
+  cursor: pointer;
+}
+
+.date-field__bouton.date-retard {
+  color: var(--couleur-accent-fonce);
+  font-weight: 600;
+}
+
+.date-field__popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 200px;
+  background: #fff;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 4px 16px rgba(3, 10, 22, 0.12);
+  white-space: normal;
+}
+
+.date-field__entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+}
+
+.date-field__entete button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  color: var(--couleur-accent-fonce);
+}
+
+.date-field__entete button:hover {
+  color: var(--couleur-accent);
+}
+
+.date-field__grille-noms {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  font-size: 10px;
+  color: var(--couleur-texte-secondaire);
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.date-field__grille {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.date-field__jour {
+  border: none;
+  background: none;
+  border-radius: 4px;
+  padding: 4px 0;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--couleur-texte);
+  text-align: center;
+}
+
+.date-field__jour:hover {
+  background: var(--couleur-fond);
+}
+
+.date-field__jour--hors-mois {
+  color: var(--couleur-texte-secondaire);
+  opacity: 0.5;
+}
+
+.date-field__jour--selectionne {
+  background: var(--couleur-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.date-field__effacer {
+  margin-top: 6px;
+  width: 100%;
+  border: 1px solid var(--couleur-bordure);
+  background: #fff;
+  border-radius: 6px;
+  padding: 3px 0;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--couleur-texte-secondaire);
+}
+
+.date-field__effacer:hover {
+  color: var(--couleur-accent-fonce);
+}
+
 .invoice-table input[type="checkbox"] {
   width: 16px;
   height: 16px;

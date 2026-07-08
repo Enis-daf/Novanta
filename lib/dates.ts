@@ -31,7 +31,7 @@ export function todayISO(): string {
   return toISODate(d);
 }
 
-function estDateValide(dateStr: string | null | undefined): dateStr is string {
+export function estDateValide(dateStr: string | null | undefined): dateStr is string {
   return !!dateStr && !Number.isNaN(parseDateISO(dateStr).getTime());
 }
 
