@@ -175,6 +175,7 @@ export default function Home() {
   };
 
   const handleChangeDateReleve = (valeur: string) => {
+    if (!valeur) return;
     setDateReleve(valeur);
     if (companyId) persistDebounce("dateReleve", () => sauvegarderDateReleve(companyId, valeur));
   };
