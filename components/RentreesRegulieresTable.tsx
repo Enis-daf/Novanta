@@ -1,6 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
 import { RentreeReguliere } from "@/lib/types";
+import { trierParDate } from "@/lib/dates";
 
 interface RentreesRegulieresTableProps {
   rentrees: RentreeReguliere[];
@@ -15,6 +17,8 @@ export default function RentreesRegulieresTable({
   onAdd,
   onRemove,
 }: RentreesRegulieresTableProps) {
+  const rentreesTriees = useMemo(() => trierParDate(rentrees, (r) => r.dateDebut), [rentrees]);
+
   return (
     <div className="table-wrapper">
       <h3>Rentrées régulières</h3>
@@ -30,7 +34,7 @@ export default function RentreesRegulieresTable({
           </tr>
         </thead>
         <tbody>
-          {rentrees.map((rentree) => (
+          {rentreesTriees.map((rentree) => (
             <tr key={rentree.id}>
               <td>
                 <input

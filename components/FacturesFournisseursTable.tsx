@@ -1,7 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
 import { FactureFournisseur } from "@/lib/types";
-import { decalerDateISO } from "@/lib/dates";
+import { decalerDateISO, trierParDate } from "@/lib/dates";
 
 interface FacturesFournisseursTableProps {
   factures: FactureFournisseur[];
@@ -16,6 +17,8 @@ export default function FacturesFournisseursTable({
   onAdd,
   onRemove,
 }: FacturesFournisseursTableProps) {
+  const facturesTriees = useMemo(() => trierParDate(factures, (f) => f.datePaiementPrevue), [factures]);
+
   return (
     <div className="table-wrapper">
       <h3>Factures fournisseurs</h3>
@@ -33,7 +36,7 @@ export default function FacturesFournisseursTable({
           </tr>
         </thead>
         <tbody>
-          {factures.map((facture) => (
+          {facturesTriees.map((facture) => (
             <tr key={facture.id} className={facture.litigieuse ? "row--litigieuse" : ""}>
               <td>
                 <input

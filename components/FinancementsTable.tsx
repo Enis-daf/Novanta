@@ -1,6 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
 import { Financement } from "@/lib/types";
+import { trierParDate } from "@/lib/dates";
 
 interface FinancementsTableProps {
   financements: Financement[];
@@ -15,6 +17,11 @@ export default function FinancementsTable({
   onAdd,
   onRemove,
 }: FinancementsTableProps) {
+  const financementsTries = useMemo(
+    () => trierParDate(financements, (f) => f.dateEncaissementPrevue),
+    [financements]
+  );
+
   return (
     <div className="table-wrapper">
       <h3>Financements</h3>
@@ -28,7 +35,7 @@ export default function FinancementsTable({
           </tr>
         </thead>
         <tbody>
-          {financements.map((financement) => (
+          {financementsTries.map((financement) => (
             <tr key={financement.id}>
               <td>
                 <input

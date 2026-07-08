@@ -30,3 +30,21 @@ export function todayISO(): string {
   d.setHours(0, 0, 0, 0);
   return toISODate(d);
 }
+
+function estDateValide(dateStr: string | null | undefined): dateStr is string {
+  return !!dateStr && !Number.isNaN(parseDateISO(dateStr).getTime());
+}
+
+/** Trie une copie du tableau par date croissante (les dates absentes/invalides passent en dernier). */
+export function trierParDate<T>(items: T[], dateDe: (item: T) => string | null | undefined): T[] {
+  return [...items].sort((a, b) => {
+    const dateA = dateDe(a);
+    const dateB = dateDe(b);
+    const validA = estDateValide(dateA);
+    const validB = estDateValide(dateB);
+    if (!validA && !validB) return 0;
+    if (!validA) return 1;
+    if (!validB) return -1;
+    return dateA < dateB ? -1 : dateA > dateB ? 1 : 0;
+  });
+}

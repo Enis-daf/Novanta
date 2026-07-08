@@ -1,6 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
 import { AutreDepense } from "@/lib/types";
+import { trierParDate } from "@/lib/dates";
 
 interface AutresDepensesTableProps {
   depenses: AutreDepense[];
@@ -15,6 +17,8 @@ export default function AutresDepensesTable({
   onAdd,
   onRemove,
 }: AutresDepensesTableProps) {
+  const depensesTriees = useMemo(() => trierParDate(depenses, (d) => d.datePrevue), [depenses]);
+
   return (
     <div className="table-wrapper">
       <h3>Autres dépenses</h3>
@@ -29,7 +33,7 @@ export default function AutresDepensesTable({
           </tr>
         </thead>
         <tbody>
-          {depenses.map((depense) => (
+          {depensesTriees.map((depense) => (
             <tr key={depense.id}>
               <td>
                 <input

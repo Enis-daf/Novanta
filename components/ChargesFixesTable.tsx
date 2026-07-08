@@ -1,6 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
 import { ChargeFixe } from "@/lib/types";
+import { trierParDate } from "@/lib/dates";
 
 interface ChargesFixesTableProps {
   charges: ChargeFixe[];
@@ -10,6 +12,8 @@ interface ChargesFixesTableProps {
 }
 
 export default function ChargesFixesTable({ charges, onChange, onAdd, onRemove }: ChargesFixesTableProps) {
+  const chargesTriees = useMemo(() => trierParDate(charges, (c) => c.datePrevue), [charges]);
+
   return (
     <div className="table-wrapper">
       <h3>Charges fixes</h3>
@@ -25,7 +29,7 @@ export default function ChargesFixesTable({ charges, onChange, onAdd, onRemove }
           </tr>
         </thead>
         <tbody>
-          {charges.map((charge) => (
+          {chargesTriees.map((charge) => (
             <tr key={charge.id}>
               <td>
                 <input
