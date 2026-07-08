@@ -55,3 +55,5 @@ export interface SoldeJournalier {
   date: string; // YYYY-MM-DD
   solde: number;
 }
+
+export type HorizonJours = 90 | 180;

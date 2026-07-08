@@ -31,6 +31,7 @@ import {
   FactureClient,
   FactureFournisseur,
   Financement,
+  HorizonJours,
   RentreeReguliere,
 } from "@/lib/types";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
@@ -46,6 +47,7 @@ import {
   sauvegarderFactureClient,
   sauvegarderFactureFournisseur,
   sauvegarderFinancement,
+  sauvegarderHorizonJours,
   sauvegarderRentreeReguliere,
   sauvegarderSoldeInitial,
   supprimerAutreDepense,
@@ -82,6 +84,7 @@ export default function Home() {
 
   const [soldeInitial, setSoldeInitial] = useState(SOLDE_BANCAIRE_INITIAL);
   const [dateReleve, setDateReleve] = useState(() => todayISO());
+  const [horizonJours, setHorizonJours] = useState<HorizonJours>(90);
   const [facturesClients, setFacturesClients] = useState<FactureClient[]>(mockFacturesClients);
   const [facturesFournisseurs, setFacturesFournisseurs] =
     useState<FactureFournisseur[]>(mockFacturesFournisseurs);
@@ -128,6 +131,7 @@ export default function Home() {
       setCompanyId(id);
       setSoldeInitial(donnees.soldeInitial);
       setDateReleve(donnees.dateReleve);
+      setHorizonJours(donnees.horizonJours);
       setFacturesClients(donnees.facturesClients);
       setFacturesFournisseurs(donnees.facturesFournisseurs);
       setChargesFixes(donnees.chargesFixes);
@@ -156,6 +160,7 @@ export default function Home() {
         financements,
         rentreesRegulieres,
         dateDepart,
+        horizonJours,
       }),
     [
       soldeInitial,
@@ -166,12 +171,18 @@ export default function Home() {
       financements,
       rentreesRegulieres,
       dateDepart,
+      horizonJours,
     ]
   );
 
   const handleChangeSoldeInitial = (valeur: number) => {
     setSoldeInitial(valeur);
     if (companyId) persistDebounce("soldeInitial", () => sauvegarderSoldeInitial(companyId, valeur));
+  };
+
+  const handleChangeHorizonJours = (valeur: HorizonJours) => {
+    setHorizonJours(valeur);
+    if (companyId) persistDebounce("horizonJours", () => sauvegarderHorizonJours(companyId, valeur));
   };
 
   const handleChangeDateReleve = (valeur: string) => {
@@ -384,6 +395,7 @@ export default function Home() {
       .then((donnees) => {
         setSoldeInitial(donnees.soldeInitial);
         setDateReleve(donnees.dateReleve);
+        setHorizonJours(donnees.horizonJours);
         setFacturesClients(donnees.facturesClients);
         setFacturesFournisseurs(donnees.facturesFournisseurs);
         setChargesFixes(donnees.chargesFixes);
@@ -432,6 +444,8 @@ export default function Home() {
           onChangeSoldeInitial={handleChangeSoldeInitial}
           dateReleve={dateReleve}
           onChangeDateReleve={handleChangeDateReleve}
+          horizonJours={horizonJours}
+          onChangeHorizonJours={handleChangeHorizonJours}
           resultat={resultat}
         />
       </div>

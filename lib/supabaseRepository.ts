@@ -15,12 +15,14 @@ import {
   FactureClient,
   FactureFournisseur,
   Financement,
+  HorizonJours,
   RentreeReguliere,
 } from "./types";
 
 export interface DonneesEntreprise {
   soldeInitial: number;
   dateReleve: string;
+  horizonJours: HorizonJours;
   facturesClients: FactureClient[];
   facturesFournisseurs: FactureFournisseur[];
   chargesFixes: ChargeFixe[];
@@ -215,16 +217,23 @@ export async function getOrCreateCompanyForUser(userId: string): Promise<string>
 interface CashSettings {
   soldeInitial: number;
   dateReleve: string;
+  horizonJours: HorizonJours;
 }
 
 async function chargerCashSettings(companyId: string): Promise<CashSettings | null> {
   const { data, error } = await client()
     .from("cash_settings")
-    .select("solde_initial, date_releve")
+    .select("solde_initial, date_releve, horizon_jours")
     .eq("company_id", companyId)
     .maybeSingle();
   if (error) throw error;
-  return data ? { soldeInitial: Number(data.solde_initial), dateReleve: data.date_releve as string } : null;
+  return data
+    ? {
+        soldeInitial: Number(data.solde_initial),
+        dateReleve: data.date_releve as string,
+        horizonJours: Number(data.horizon_jours) as HorizonJours,
+      }
+    : null;
 }
 
 async function initialiserAvecDonneesMock(companyId: string): Promise<DonneesEntreprise> {
@@ -265,12 +274,14 @@ async function initialiserAvecDonneesMock(companyId: string): Promise<DonneesEnt
       company_id: companyId,
       solde_initial: SOLDE_BANCAIRE_INITIAL,
       date_releve: dateReleve,
+      horizon_jours: 90,
     }),
   ]);
 
   return {
     soldeInitial: SOLDE_BANCAIRE_INITIAL,
     dateReleve,
+    horizonJours: 90,
     facturesClients,
     facturesFournisseurs,
     chargesFixes,
@@ -305,6 +316,7 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
   return {
     soldeInitial: cashSettings.soldeInitial,
     dateReleve: cashSettings.dateReleve,
+    horizonJours: cashSettings.horizonJours,
     facturesClients: clientsRows.map(rowToFactureClient),
     facturesFournisseurs: fournisseursRows.map(rowToFactureFournisseur),
     chargesFixes: chargesRows.map(rowToChargeFixe),
@@ -332,6 +344,10 @@ export async function sauvegarderSoldeInitial(companyId: string, soldeInitial: n
 
 export async function sauvegarderDateReleve(companyId: string, dateReleve: string): Promise<void> {
   await upsertOne("cash_settings", { company_id: companyId, date_releve: dateReleve });
+}
+
+export async function sauvegarderHorizonJours(companyId: string, horizonJours: HorizonJours): Promise<void> {
+  await upsertOne("cash_settings", { company_id: companyId, horizon_jours: horizonJours });
 }
 
 export async function sauvegarderFactureClient(companyId: string, facture: FactureClient): Promise<void> {

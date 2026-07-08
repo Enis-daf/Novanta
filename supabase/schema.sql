@@ -15,12 +15,18 @@ create table if not exists cash_settings (
   company_id uuid primary key references companies(id) on delete cascade,
   solde_initial numeric not null default 0,
   date_releve date not null default current_date,
+  horizon_jours integer not null default 90 check (horizon_jours in (90, 180)),
   updated_at timestamptz not null default now()
 );
 
--- Migration additive : ajoute la colonne aux installations existantes
--- (sans effet si la table vient d'être créée ci-dessus).
+-- Migration additive : ajoute les colonnes aux installations existantes
+-- (sans effet si la table vient d'être créée ci-dessus). Aucune ligne existante
+-- n'est supprimée ; horizon_jours vaut 90 par défaut pour toutes les sociétés
+-- déjà présentes.
 alter table cash_settings add column if not exists date_releve date not null default current_date;
+alter table cash_settings add column if not exists horizon_jours integer not null default 90;
+alter table cash_settings drop constraint if exists cash_settings_horizon_jours_check;
+alter table cash_settings add constraint cash_settings_horizon_jours_check check (horizon_jours in (90, 180));
 
 create table if not exists customer_invoices (
   id uuid primary key default gen_random_uuid(),

@@ -159,7 +159,8 @@ input[type="checkbox"] {
   color: var(--couleur-texte);
 }
 
-.solde-initial input {
+.solde-initial input,
+.solde-initial select {
   border: 1px solid var(--couleur-bordure);
   border-radius: 6px;
   padding: 6px 10px;
