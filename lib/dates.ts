@@ -48,3 +48,10 @@ export function trierParDate<T>(items: T[], dateDe: (item: T) => string | null |
     return dateA < dateB ? -1 : dateA > dateB ? 1 : 0;
   });
 }
+
+/** Une facture est en retard si sa date est passée, non payée et non litigieuse. Affichage uniquement. */
+export function estEnRetard(datePrevue: string | null | undefined, payee: boolean, litigieuse: boolean): boolean {
+  if (payee || litigieuse) return false;
+  if (!estDateValide(datePrevue)) return false;
+  return datePrevue < todayISO();
+}

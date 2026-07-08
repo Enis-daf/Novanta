@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { FactureClient } from "@/lib/types";
-import { decalerDateISO, trierParDate } from "@/lib/dates";
+import { decalerDateISO, estEnRetard, trierParDate } from "@/lib/dates";
 
 interface FacturesClientsTableProps {
   factures: FactureClient[];
@@ -40,8 +40,13 @@ export default function FacturesClientsTable({
           </tr>
         </thead>
         <tbody>
-          {facturesTriees.map((facture) => (
-            <tr key={facture.id} className={facture.litigieuse || facture.payee ? "row--litigieuse" : ""}>
+          {facturesTriees.map((facture) => {
+            const enRetard = estEnRetard(facture.dateEncaissementAnticipee, facture.payee, facture.litigieuse);
+            const rowClassName = [facture.litigieuse || facture.payee ? "row--litigieuse" : "", enRetard ? "row--en-retard" : ""]
+              .filter(Boolean)
+              .join(" ");
+            return (
+            <tr key={facture.id} className={rowClassName}>
               <td>
                 <input
                   type="text"
@@ -74,9 +79,11 @@ export default function FacturesClientsTable({
               <td>
                 <input
                   type="date"
+                  className={enRetard ? "date-retard" : ""}
                   value={facture.dateEncaissementAnticipee}
                   onChange={(e) => onChange(facture.id, { dateEncaissementAnticipee: e.target.value })}
                 />
+                {enRetard && <span className="badge-retard">En retard</span>}
               </td>
               <td className="col-actions">
                 {[7, 15, 30].map((jours) => (
@@ -120,7 +127,8 @@ export default function FacturesClientsTable({
                 </button>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       <button type="button" className="btn-add" onClick={onAdd}>

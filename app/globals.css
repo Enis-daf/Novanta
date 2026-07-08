@@ -269,6 +269,29 @@ input[type="checkbox"] {
   opacity: 0.55;
 }
 
+.row--en-retard {
+  background: var(--couleur-fond-alt-rose);
+}
+
+.badge-retard {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--couleur-accent-fonce);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: var(--couleur-accent-fonce);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.invoice-table input[type="date"].date-retard {
+  color: var(--couleur-accent-fonce);
+  font-weight: 600;
+}
+
 .invoice-table input[type="date"],
 .invoice-table input[type="text"],
 .invoice-table input[type="number"],
