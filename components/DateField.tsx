@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { estDateValide, parseDateISO, toISODate } from "@/lib/dates";
+import { estDateValide, formatDateCourte, parseDateISO, toISODate } from "@/lib/dates";
 
 interface DateFieldProps {
   id?: string;
@@ -26,13 +26,6 @@ const NOMS_MOIS = [
   "Novembre",
   "Décembre",
 ];
-
-function formatDateCourte(dateISO: string): string {
-  const date = parseDateISO(dateISO);
-  const jour = String(date.getDate()).padStart(2, "0");
-  const mois = String(date.getMonth() + 1).padStart(2, "0");
-  return `${jour}/${mois}/${date.getFullYear()}`;
-}
 
 function premierJourDeGrille(moisAffiche: Date): Date {
   const premierDuMois = new Date(moisAffiche.getFullYear(), moisAffiche.getMonth(), 1);

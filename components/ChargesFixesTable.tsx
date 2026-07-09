@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { ChargeFixe } from "@/lib/types";
 import { trierParDate } from "@/lib/dates";
+import { filtrerChargesFixes } from "@/lib/recherche";
 import DateField from "./DateField";
 
 interface ChargesFixesTableProps {
@@ -10,14 +11,27 @@ interface ChargesFixesTableProps {
   onChange: (id: string, patch: Partial<ChargeFixe>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  recherche: string;
 }
 
-export default function ChargesFixesTable({ charges, onChange, onAdd, onRemove }: ChargesFixesTableProps) {
-  const chargesTriees = useMemo(() => trierParDate(charges, (c) => c.datePrevue), [charges]);
+export default function ChargesFixesTable({
+  charges,
+  onChange,
+  onAdd,
+  onRemove,
+  recherche,
+}: ChargesFixesTableProps) {
+  const chargesTriees = useMemo(
+    () => filtrerChargesFixes(trierParDate(charges, (c) => c.datePrevue), recherche),
+    [charges, recherche]
+  );
 
   return (
     <div className="table-wrapper">
       <h3>Charges fixes</h3>
+      {recherche && chargesTriees.length === 0 ? (
+        <p className="recherche-vide">Aucun résultat dans cette section</p>
+      ) : (
       <table className="invoice-table">
         <thead>
           <tr>
@@ -80,6 +94,7 @@ export default function ChargesFixesTable({ charges, onChange, onAdd, onRemove }
           ))}
         </tbody>
       </table>
+      )}
       <button type="button" className="btn-add" onClick={onAdd}>
         + Ajouter une charge fixe
       </button>

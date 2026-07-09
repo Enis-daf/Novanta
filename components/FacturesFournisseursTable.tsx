@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { FactureFournisseur } from "@/lib/types";
 import { decalerDateISO, estDateValide, estEnRetard, trierParDate } from "@/lib/dates";
+import { filtrerFacturesFournisseurs } from "@/lib/recherche";
 import DateField from "./DateField";
 
 interface FacturesFournisseursTableProps {
@@ -10,6 +11,7 @@ interface FacturesFournisseursTableProps {
   onChange: (id: string, patch: Partial<FactureFournisseur>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  recherche: string;
 }
 
 export default function FacturesFournisseursTable({
@@ -17,12 +19,19 @@ export default function FacturesFournisseursTable({
   onChange,
   onAdd,
   onRemove,
+  recherche,
 }: FacturesFournisseursTableProps) {
-  const facturesTriees = useMemo(() => trierParDate(factures, (f) => f.datePaiementPrevue), [factures]);
+  const facturesTriees = useMemo(
+    () => filtrerFacturesFournisseurs(trierParDate(factures, (f) => f.datePaiementPrevue), recherche),
+    [factures, recherche]
+  );
 
   return (
     <div className="table-wrapper">
       <h3>Factures fournisseurs</h3>
+      {recherche && facturesTriees.length === 0 ? (
+        <p className="recherche-vide">Aucun résultat dans cette section</p>
+      ) : (
       <table className="invoice-table">
         <thead>
           <tr>
@@ -128,6 +137,7 @@ export default function FacturesFournisseursTable({
           })}
         </tbody>
       </table>
+      )}
       <button type="button" className="btn-add" onClick={onAdd}>
         + Ajouter une facture fournisseur
       </button>

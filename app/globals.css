@@ -56,6 +56,56 @@ input[type="checkbox"] {
   gap: 32px;
 }
 
+.barre-recherche {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.barre-recherche__input {
+  width: 100%;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 8px;
+  padding: 9px 34px 9px 12px;
+  font-size: 14px;
+  color: var(--couleur-texte);
+  background: #fff;
+}
+
+.barre-recherche__input:focus {
+  outline: none;
+  border-color: var(--couleur-accent);
+}
+
+.barre-recherche__effacer {
+  position: absolute;
+  right: 8px;
+  border: none;
+  background: none;
+  color: var(--couleur-texte-secondaire);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.barre-recherche__effacer:hover {
+  color: var(--couleur-accent-fonce);
+}
+
+.recherche-resume {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  margin-top: -14px;
+}
+
+.recherche-vide {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  font-style: italic;
+  padding: 8px 0;
+}
+
 .section-groupe {
   display: flex;
   flex-direction: column;

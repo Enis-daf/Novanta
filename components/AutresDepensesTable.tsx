@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { AutreDepense } from "@/lib/types";
 import { trierParDate } from "@/lib/dates";
+import { filtrerAutresDepenses } from "@/lib/recherche";
 import DateField from "./DateField";
 
 interface AutresDepensesTableProps {
@@ -10,6 +11,7 @@ interface AutresDepensesTableProps {
   onChange: (id: string, patch: Partial<AutreDepense>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  recherche: string;
 }
 
 export default function AutresDepensesTable({
@@ -17,12 +19,19 @@ export default function AutresDepensesTable({
   onChange,
   onAdd,
   onRemove,
+  recherche,
 }: AutresDepensesTableProps) {
-  const depensesTriees = useMemo(() => trierParDate(depenses, (d) => d.datePrevue), [depenses]);
+  const depensesTriees = useMemo(
+    () => filtrerAutresDepenses(trierParDate(depenses, (d) => d.datePrevue), recherche),
+    [depenses, recherche]
+  );
 
   return (
     <div className="table-wrapper">
       <h3>Autres dépenses</h3>
+      {recherche && depensesTriees.length === 0 ? (
+        <p className="recherche-vide">Aucun résultat dans cette section</p>
+      ) : (
       <table className="invoice-table">
         <thead>
           <tr>
@@ -74,6 +83,7 @@ export default function AutresDepensesTable({
           ))}
         </tbody>
       </table>
+      )}
       <button type="button" className="btn-add" onClick={onAdd}>
         + Ajouter une dépense
       </button>

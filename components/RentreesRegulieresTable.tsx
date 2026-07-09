@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { RentreeReguliere } from "@/lib/types";
 import { trierParDate } from "@/lib/dates";
+import { filtrerRentreesRegulieres } from "@/lib/recherche";
 import DateField from "./DateField";
 
 interface RentreesRegulieresTableProps {
@@ -10,6 +11,7 @@ interface RentreesRegulieresTableProps {
   onChange: (id: string, patch: Partial<RentreeReguliere>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  recherche: string;
 }
 
 export default function RentreesRegulieresTable({
@@ -17,12 +19,19 @@ export default function RentreesRegulieresTable({
   onChange,
   onAdd,
   onRemove,
+  recherche,
 }: RentreesRegulieresTableProps) {
-  const rentreesTriees = useMemo(() => trierParDate(rentrees, (r) => r.dateDebut), [rentrees]);
+  const rentreesTriees = useMemo(
+    () => filtrerRentreesRegulieres(trierParDate(rentrees, (r) => r.dateDebut), recherche),
+    [rentrees, recherche]
+  );
 
   return (
     <div className="table-wrapper">
       <h3>Rentrées régulières</h3>
+      {recherche && rentreesTriees.length === 0 ? (
+        <p className="recherche-vide">Aucun résultat dans cette section</p>
+      ) : (
       <table className="invoice-table">
         <thead>
           <tr>
@@ -85,6 +94,7 @@ export default function RentreesRegulieresTable({
           ))}
         </tbody>
       </table>
+      )}
       <button type="button" className="btn-add" onClick={onAdd}>
         + Ajouter une rentrée régulière
       </button>

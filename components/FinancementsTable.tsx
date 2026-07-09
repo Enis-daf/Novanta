@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Financement } from "@/lib/types";
 import { trierParDate } from "@/lib/dates";
+import { filtrerFinancements } from "@/lib/recherche";
 import DateField from "./DateField";
 
 interface FinancementsTableProps {
@@ -10,6 +11,7 @@ interface FinancementsTableProps {
   onChange: (id: string, patch: Partial<Financement>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  recherche: string;
 }
 
 export default function FinancementsTable({
@@ -17,15 +19,19 @@ export default function FinancementsTable({
   onChange,
   onAdd,
   onRemove,
+  recherche,
 }: FinancementsTableProps) {
   const financementsTries = useMemo(
-    () => trierParDate(financements, (f) => f.dateEncaissementPrevue),
-    [financements]
+    () => filtrerFinancements(trierParDate(financements, (f) => f.dateEncaissementPrevue), recherche),
+    [financements, recherche]
   );
 
   return (
     <div className="table-wrapper">
       <h3>Financements</h3>
+      {recherche && financementsTries.length === 0 ? (
+        <p className="recherche-vide">Aucun résultat dans cette section</p>
+      ) : (
       <table className="invoice-table">
         <thead>
           <tr>
@@ -67,6 +73,7 @@ export default function FinancementsTable({
           ))}
         </tbody>
       </table>
+      )}
       <button type="button" className="btn-add" onClick={onAdd}>
         + Ajouter un financement
       </button>

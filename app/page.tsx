@@ -11,11 +11,20 @@ import AutresDepensesTable from "@/components/AutresDepensesTable";
 import FinancementsTable from "@/components/FinancementsTable";
 import RentreesRegulieresTable from "@/components/RentreesRegulieresTable";
 import SectionRepliable from "@/components/SectionRepliable";
+import BarreRecherche from "@/components/BarreRecherche";
 import LoginForm from "@/components/LoginForm";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { todayISO } from "@/lib/dates";
+import {
+  filtrerAutresDepenses,
+  filtrerChargesFixes,
+  filtrerFacturesClients,
+  filtrerFacturesFournisseurs,
+  filtrerFinancements,
+  filtrerRentreesRegulieres,
+} from "@/lib/recherche";
 import {
   SOLDE_BANCAIRE_INITIAL,
   mockAutresDepenses,
@@ -91,8 +100,31 @@ export default function Home() {
   const [autresDepenses, setAutresDepenses] = useState<AutreDepense[]>(mockAutresDepenses);
   const [financements, setFinancements] = useState<Financement[]>(mockFinancements);
   const [rentreesRegulieres, setRentreesRegulieres] = useState<RentreeReguliere[]>(mockRentreesRegulieres);
+  const [recherche, setRecherche] = useState("");
 
   const dateDepart = dateReleve;
+
+  // Résumé global de la recherche : purement pour l'affichage (compteur / message
+  // "aucun résultat"), totalement indépendant du calcul de trésorerie ci-dessous.
+  const totalResultatsRecherche = useMemo(() => {
+    if (!recherche) return null;
+    return (
+      filtrerFacturesClients(facturesClients, recherche).length +
+      filtrerFacturesFournisseurs(facturesFournisseurs, recherche).length +
+      filtrerChargesFixes(chargesFixes, recherche).length +
+      filtrerRentreesRegulieres(rentreesRegulieres, recherche).length +
+      filtrerAutresDepenses(autresDepenses, recherche).length +
+      filtrerFinancements(financements, recherche).length
+    );
+  }, [
+    recherche,
+    facturesClients,
+    facturesFournisseurs,
+    chargesFixes,
+    rentreesRegulieres,
+    autresDepenses,
+    financements,
+  ]);
 
   useEffect(() => {
     if (!supabaseConfigured) return;
@@ -424,24 +456,36 @@ export default function Home() {
         />
       </div>
       <div className="cockpit__col cockpit__col--droite">
+        <BarreRecherche valeur={recherche} onChange={setRecherche} />
+        {recherche && (
+          <p className="recherche-resume">
+            {totalResultatsRecherche === 0
+              ? "Aucun résultat pour cette recherche"
+              : `${totalResultatsRecherche} ligne(s) trouvée(s)`}
+          </p>
+        )}
+
         <SectionRepliable titre="Entrées" ouvertParDefaut>
           <FacturesClientsTable
             factures={facturesClients}
             onChange={handleChangeFactureClient}
             onAdd={handleAddFactureClient}
             onRemove={handleRemoveFactureClient}
+            recherche={recherche}
           />
           <RentreesRegulieresTable
             rentrees={rentreesRegulieres}
             onChange={handleChangeRentreeReguliere}
             onAdd={handleAddRentreeReguliere}
             onRemove={handleRemoveRentreeReguliere}
+            recherche={recherche}
           />
           <FinancementsTable
             financements={financements}
             onChange={handleChangeFinancement}
             onAdd={handleAddFinancement}
             onRemove={handleRemoveFinancement}
+            recherche={recherche}
           />
         </SectionRepliable>
 
@@ -451,18 +495,21 @@ export default function Home() {
             onChange={handleChangeFactureFournisseur}
             onAdd={handleAddFactureFournisseur}
             onRemove={handleRemoveFactureFournisseur}
+            recherche={recherche}
           />
           <ChargesFixesTable
             charges={chargesFixes}
             onChange={handleChangeChargeFixe}
             onAdd={handleAddChargeFixe}
             onRemove={handleRemoveChargeFixe}
+            recherche={recherche}
           />
           <AutresDepensesTable
             depenses={autresDepenses}
             onChange={handleChangeAutreDepense}
             onAdd={handleAddAutreDepense}
             onRemove={handleRemoveAutreDepense}
+            recherche={recherche}
           />
         </SectionRepliable>
 

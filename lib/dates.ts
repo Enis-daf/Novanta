@@ -55,3 +55,12 @@ export function estEnRetard(datePrevue: string | null | undefined, payee: boolea
   if (!estDateValide(datePrevue)) return false;
   return datePrevue < todayISO();
 }
+
+/** Format d'affichage court jj/mm/aaaa, celui utilisé dans les champs date. "" si date vide/invalide. */
+export function formatDateCourte(dateISO: string): string {
+  if (!estDateValide(dateISO)) return "";
+  const date = parseDateISO(dateISO);
+  const jour = String(date.getDate()).padStart(2, "0");
+  const mois = String(date.getMonth() + 1).padStart(2, "0");
+  return `${jour}/${mois}/${date.getFullYear()}`;
+}

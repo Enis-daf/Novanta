@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { FactureClient } from "@/lib/types";
 import { decalerDateISO, estDateValide, estEnRetard, trierParDate } from "@/lib/dates";
+import { filtrerFacturesClients } from "@/lib/recherche";
 import DateField from "./DateField";
 
 interface FacturesClientsTableProps {
@@ -10,6 +11,7 @@ interface FacturesClientsTableProps {
   onChange: (id: string, patch: Partial<FactureClient>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  recherche: string;
 }
 
 export default function FacturesClientsTable({
@@ -17,15 +19,19 @@ export default function FacturesClientsTable({
   onChange,
   onAdd,
   onRemove,
+  recherche,
 }: FacturesClientsTableProps) {
   const facturesTriees = useMemo(
-    () => trierParDate(factures, (f) => f.dateEncaissementAnticipee),
-    [factures]
+    () => filtrerFacturesClients(trierParDate(factures, (f) => f.dateEncaissementAnticipee), recherche),
+    [factures, recherche]
   );
 
   return (
     <div className="table-wrapper">
       <h3>Factures clients</h3>
+      {recherche && facturesTriees.length === 0 ? (
+        <p className="recherche-vide">Aucun résultat dans cette section</p>
+      ) : (
       <table className="invoice-table">
         <thead>
           <tr>
@@ -131,6 +137,7 @@ export default function FacturesClientsTable({
           })}
         </tbody>
       </table>
+      )}
       <button type="button" className="btn-add" onClick={onAdd}>
         + Ajouter une facture client
       </button>
