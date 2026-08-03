@@ -15,6 +15,7 @@ interface DashboardProps {
   horizonJours: HorizonJours;
   onChangeHorizonJours: (valeur: HorizonJours) => void;
   resultat: ResultatProjectionCash;
+  onPointClickCourbe?: (date: string) => void;
 }
 
 export default function Dashboard({
@@ -25,6 +26,7 @@ export default function Dashboard({
   horizonJours,
   onChangeHorizonJours,
   resultat,
+  onPointClickCourbe,
 }: DashboardProps) {
   const { serie, soldeJ90, pointBas, dateDuPointBas, datePassageSousZero } = resultat;
   const enRupture = datePassageSousZero !== null;
@@ -87,7 +89,7 @@ export default function Dashboard({
         />
       </div>
 
-      <CashCurveChart serie={serie} />
+      <CashCurveChart serie={serie} onPointClick={onPointClickCourbe} />
     </section>
   );
 }

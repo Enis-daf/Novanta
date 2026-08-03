@@ -11,6 +11,7 @@ import {
   trierParMontant,
 } from "@/lib/dates";
 import { filtrerFacturesFournisseurs } from "@/lib/recherche";
+import { OccurrencesParId } from "@/lib/periodeFiltre";
 import DateField from "./DateField";
 
 interface FacturesFournisseursTableProps {
@@ -20,6 +21,7 @@ interface FacturesFournisseursTableProps {
   onRemove: (id: string) => void;
   recherche: string;
   tri: TriMode;
+  filtrePeriode?: OccurrencesParId | null;
 }
 
 export default function FacturesFournisseursTable({
@@ -29,19 +31,23 @@ export default function FacturesFournisseursTable({
   onRemove,
   recherche,
   tri,
+  filtrePeriode,
 }: FacturesFournisseursTableProps) {
   const facturesTriees = useMemo(() => {
     const actives = factures.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt));
-    const filtrees = filtrerFacturesFournisseurs(actives, recherche);
+    const dansPeriode = filtrePeriode ? actives.filter((f) => filtrePeriode.has(f.id)) : actives;
+    const filtrees = filtrerFacturesFournisseurs(dansPeriode, recherche);
     return tri === "montant"
       ? trierParMontant(filtrees, (f) => f.montant)
       : trierParDate(filtrees, (f) => f.datePaiementPrevue);
-  }, [factures, recherche, tri]);
+  }, [factures, recherche, tri, filtrePeriode]);
+
+  const filtreActif = !!recherche || !!filtrePeriode;
 
   return (
     <div className="table-wrapper">
       <h3>Factures fournisseurs</h3>
-      {recherche && facturesTriees.length === 0 ? (
+      {filtreActif && facturesTriees.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
       <table className="invoice-table">

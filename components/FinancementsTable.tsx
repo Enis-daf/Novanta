@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Financement, TriMode } from "@/lib/types";
 import { trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerFinancements } from "@/lib/recherche";
+import { OccurrencesParId } from "@/lib/periodeFiltre";
 import DateField from "./DateField";
 
 interface FinancementsTableProps {
@@ -13,6 +14,7 @@ interface FinancementsTableProps {
   onRemove: (id: string) => void;
   recherche: string;
   tri: TriMode;
+  filtrePeriode?: OccurrencesParId | null;
 }
 
 export default function FinancementsTable({
@@ -22,18 +24,22 @@ export default function FinancementsTable({
   onRemove,
   recherche,
   tri,
+  filtrePeriode,
 }: FinancementsTableProps) {
   const financementsTries = useMemo(() => {
-    const filtrees = filtrerFinancements(financements, recherche);
+    const dansPeriode = filtrePeriode ? financements.filter((f) => filtrePeriode.has(f.id)) : financements;
+    const filtrees = filtrerFinancements(dansPeriode, recherche);
     return tri === "montant"
       ? trierParMontant(filtrees, (f) => f.montant)
       : trierParDate(filtrees, (f) => f.dateEncaissementPrevue);
-  }, [financements, recherche, tri]);
+  }, [financements, recherche, tri, filtrePeriode]);
+
+  const filtreActif = !!recherche || !!filtrePeriode;
 
   return (
     <div className="table-wrapper">
       <h3>Financements</h3>
-      {recherche && financementsTries.length === 0 ? (
+      {filtreActif && financementsTries.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
       <table className="invoice-table">

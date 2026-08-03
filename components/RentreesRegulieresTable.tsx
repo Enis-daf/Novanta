@@ -2,8 +2,9 @@
 
 import { useMemo } from "react";
 import { RentreeReguliere, TriMode } from "@/lib/types";
-import { trierParDate, trierParMontant } from "@/lib/dates";
+import { formatDateCourte, trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerRentreesRegulieres } from "@/lib/recherche";
+import { OccurrencesParId } from "@/lib/periodeFiltre";
 import DateField from "./DateField";
 
 interface RentreesRegulieresTableProps {
@@ -13,6 +14,7 @@ interface RentreesRegulieresTableProps {
   onRemove: (id: string) => void;
   recherche: string;
   tri: TriMode;
+  filtrePeriode?: OccurrencesParId | null;
 }
 
 export default function RentreesRegulieresTable({
@@ -22,18 +24,22 @@ export default function RentreesRegulieresTable({
   onRemove,
   recherche,
   tri,
+  filtrePeriode,
 }: RentreesRegulieresTableProps) {
   const rentreesTriees = useMemo(() => {
-    const filtrees = filtrerRentreesRegulieres(rentrees, recherche);
+    const dansPeriode = filtrePeriode ? rentrees.filter((r) => filtrePeriode.has(r.id)) : rentrees;
+    const filtrees = filtrerRentreesRegulieres(dansPeriode, recherche);
     return tri === "montant"
       ? trierParMontant(filtrees, (r) => r.montant)
       : trierParDate(filtrees, (r) => r.dateDebut);
-  }, [rentrees, recherche, tri]);
+  }, [rentrees, recherche, tri, filtrePeriode]);
+
+  const filtreActif = !!recherche || !!filtrePeriode;
 
   return (
     <div className="table-wrapper">
       <h3>Rentrées régulières</h3>
-      {recherche && rentreesTriees.length === 0 ? (
+      {filtreActif && rentreesTriees.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
       <table className="invoice-table">
@@ -48,7 +54,9 @@ export default function RentreesRegulieresTable({
           </tr>
         </thead>
         <tbody>
-          {rentreesTriees.map((rentree) => (
+          {rentreesTriees.map((rentree) => {
+            const occurrences = filtrePeriode?.get(rentree.id);
+            return (
             <tr key={rentree.id}>
               <td>
                 <input
@@ -56,6 +64,11 @@ export default function RentreesRegulieresTable({
                   value={rentree.libelle}
                   onChange={(e) => onChange(rentree.id, { libelle: e.target.value })}
                 />
+                {occurrences && occurrences.length > 0 && (
+                  <p className="occurrences-periode">
+                    Occurrences dans la période : {occurrences.map(formatDateCourte).join(", ")}
+                  </p>
+                )}
               </td>
               <td className="col-montant">
                 <input
@@ -95,7 +108,8 @@ export default function RentreesRegulieresTable({
                 </button>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       )}

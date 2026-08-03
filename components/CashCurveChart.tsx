@@ -15,13 +15,24 @@ import { formatDate, formatMontant } from "@/lib/format";
 
 interface CashCurveChartProps {
   serie: SoldeJournalier[];
+  onPointClick?: (date: string) => void;
 }
 
-export default function CashCurveChart({ serie }: CashCurveChartProps) {
+export default function CashCurveChart({ serie, onPointClick }: CashCurveChartProps) {
   return (
-    <div className="chart-container" style={{ fontFamily: "var(--font-lexend), sans-serif" }}>
+    <div
+      className="chart-container"
+      style={{ fontFamily: "var(--font-lexend), sans-serif", cursor: onPointClick ? "pointer" : undefined }}
+    >
       <ResponsiveContainer width="100%" height={320}>
-        <LineChart data={serie} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+        <LineChart
+          data={serie}
+          margin={{ top: 10, right: 20, left: 10, bottom: 0 }}
+          onClick={(state) => {
+            const date = state?.activeLabel;
+            if (onPointClick && typeof date === "string") onPointClick(date);
+          }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
           <XAxis
             dataKey="date"

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { AutreDepense, TriMode } from "@/lib/types";
 import { trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerAutresDepenses } from "@/lib/recherche";
+import { OccurrencesParId } from "@/lib/periodeFiltre";
 import DateField from "./DateField";
 
 interface AutresDepensesTableProps {
@@ -13,6 +14,7 @@ interface AutresDepensesTableProps {
   onRemove: (id: string) => void;
   recherche: string;
   tri: TriMode;
+  filtrePeriode?: OccurrencesParId | null;
 }
 
 export default function AutresDepensesTable({
@@ -22,18 +24,22 @@ export default function AutresDepensesTable({
   onRemove,
   recherche,
   tri,
+  filtrePeriode,
 }: AutresDepensesTableProps) {
   const depensesTriees = useMemo(() => {
-    const filtrees = filtrerAutresDepenses(depenses, recherche);
+    const dansPeriode = filtrePeriode ? depenses.filter((d) => filtrePeriode.has(d.id)) : depenses;
+    const filtrees = filtrerAutresDepenses(dansPeriode, recherche);
     return tri === "montant"
       ? trierParMontant(filtrees, (d) => d.montant)
       : trierParDate(filtrees, (d) => d.datePrevue);
-  }, [depenses, recherche, tri]);
+  }, [depenses, recherche, tri, filtrePeriode]);
+
+  const filtreActif = !!recherche || !!filtrePeriode;
 
   return (
     <div className="table-wrapper">
       <h3>Autres dépenses</h3>
-      {recherche && depensesTriees.length === 0 ? (
+      {filtreActif && depensesTriees.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
       <table className="invoice-table">

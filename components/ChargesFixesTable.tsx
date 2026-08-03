@@ -2,8 +2,9 @@
 
 import { useMemo } from "react";
 import { ChargeFixe, TriMode } from "@/lib/types";
-import { trierParDate, trierParMontant } from "@/lib/dates";
+import { formatDateCourte, trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerChargesFixes } from "@/lib/recherche";
+import { OccurrencesParId } from "@/lib/periodeFiltre";
 import DateField from "./DateField";
 
 interface ChargesFixesTableProps {
@@ -13,6 +14,7 @@ interface ChargesFixesTableProps {
   onRemove: (id: string) => void;
   recherche: string;
   tri: TriMode;
+  filtrePeriode?: OccurrencesParId | null;
 }
 
 export default function ChargesFixesTable({
@@ -22,18 +24,22 @@ export default function ChargesFixesTable({
   onRemove,
   recherche,
   tri,
+  filtrePeriode,
 }: ChargesFixesTableProps) {
   const chargesTriees = useMemo(() => {
-    const filtrees = filtrerChargesFixes(charges, recherche);
+    const dansPeriode = filtrePeriode ? charges.filter((c) => filtrePeriode.has(c.id)) : charges;
+    const filtrees = filtrerChargesFixes(dansPeriode, recherche);
     return tri === "montant"
       ? trierParMontant(filtrees, (c) => c.montant)
       : trierParDate(filtrees, (c) => c.datePrevue);
-  }, [charges, recherche, tri]);
+  }, [charges, recherche, tri, filtrePeriode]);
+
+  const filtreActif = !!recherche || !!filtrePeriode;
 
   return (
     <div className="table-wrapper">
       <h3>Charges fixes</h3>
-      {recherche && chargesTriees.length === 0 ? (
+      {filtreActif && chargesTriees.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
       <table className="invoice-table">
@@ -48,7 +54,9 @@ export default function ChargesFixesTable({
           </tr>
         </thead>
         <tbody>
-          {chargesTriees.map((charge) => (
+          {chargesTriees.map((charge) => {
+            const occurrences = filtrePeriode?.get(charge.id);
+            return (
             <tr key={charge.id}>
               <td>
                 <input
@@ -56,6 +64,11 @@ export default function ChargesFixesTable({
                   value={charge.libelle}
                   onChange={(e) => onChange(charge.id, { libelle: e.target.value })}
                 />
+                {occurrences && occurrences.length > 0 && (
+                  <p className="occurrences-periode">
+                    Occurrences dans la période : {occurrences.map(formatDateCourte).join(", ")}
+                  </p>
+                )}
               </td>
               <td className="col-montant">
                 <input
@@ -95,7 +108,8 @@ export default function ChargesFixesTable({
                 </button>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       )}

@@ -13,12 +13,14 @@ import FinancementsTable from "@/components/FinancementsTable";
 import RentreesRegulieresTable from "@/components/RentreesRegulieresTable";
 import SectionRepliable from "@/components/SectionRepliable";
 import BarreRecherche from "@/components/BarreRecherche";
+import BandeauPeriodeFiltre from "@/components/BandeauPeriodeFiltre";
 import LoginForm from "@/components/LoginForm";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
+import { calculerFluxPeriode, calculerPeriodeFiltre } from "@/lib/periodeFiltre";
 import {
   filtrerAutresDepenses,
   filtrerChargesFixes,
@@ -105,6 +107,7 @@ export default function Home() {
   const [rentreesRegulieres, setRentreesRegulieres] = useState<RentreeReguliere[]>(mockRentreesRegulieres);
   const [recherche, setRecherche] = useState("");
   const [tri, setTri] = useState<TriMode>("date");
+  const [dateClicCourbe, setDateClicCourbe] = useState<string | null>(null);
 
   const dateDepart = dateReleve;
 
@@ -239,6 +242,42 @@ export default function Home() {
       rentreesRegulieres,
     ]
   );
+
+  // Filtre de période issu d'un clic sur la courbe : purement un filtre d'affichage
+  // du panneau droit, calculé côté interface. N'affecte jamais `resultat` ni la courbe
+  // ci-dessus (aucune de ces deux valeurs ne dépend de dateClicCourbe/periodeFiltre).
+  const periodeFiltre = useMemo(
+    () => (dateClicCourbe ? calculerPeriodeFiltre(dateClicCourbe, dateReleve, horizonJours) : null),
+    [dateClicCourbe, dateReleve, horizonJours]
+  );
+
+  const fluxPeriode = useMemo(
+    () =>
+      periodeFiltre
+        ? calculerFluxPeriode({
+            debut: periodeFiltre.debut,
+            fin: periodeFiltre.fin,
+            facturesClients,
+            facturesFournisseurs,
+            chargesFixes,
+            autresDepenses,
+            financements,
+            rentreesRegulieres,
+          })
+        : null,
+    [
+      periodeFiltre,
+      facturesClients,
+      facturesFournisseurs,
+      chargesFixes,
+      autresDepenses,
+      financements,
+      rentreesRegulieres,
+    ]
+  );
+
+  const handleClicCourbe = (date: string) => setDateClicCourbe(date);
+  const handleRevenirVueGenerale = () => setDateClicCourbe(null);
 
   const handleChangeSoldeInitial = (valeur: number) => {
     setSoldeInitial(valeur);
@@ -489,10 +528,20 @@ export default function Home() {
           horizonJours={horizonJours}
           onChangeHorizonJours={handleChangeHorizonJours}
           resultat={resultat}
+          onPointClickCourbe={handleClicCourbe}
         />
         <SyntheseMensuelle synthese={syntheseMensuelle} />
       </div>
       <div className="cockpit__col cockpit__col--droite">
+        {periodeFiltre && fluxPeriode && (
+          <BandeauPeriodeFiltre
+            dateClic={periodeFiltre.dateClic}
+            debut={periodeFiltre.debut}
+            fin={periodeFiltre.fin}
+            resume={fluxPeriode.resume}
+            onRevenir={handleRevenirVueGenerale}
+          />
+        )}
         <div className="barre-outils-recherche">
           <BarreRecherche valeur={recherche} onChange={setRecherche} />
           <div className="tri-controle">
@@ -519,6 +568,7 @@ export default function Home() {
             onRemove={handleRemoveFactureClient}
             recherche={recherche}
             tri={tri}
+            filtrePeriode={fluxPeriode?.idsFacturesClients ?? null}
           />
           <RentreesRegulieresTable
             rentrees={rentreesRegulieres}
@@ -527,6 +577,7 @@ export default function Home() {
             onRemove={handleRemoveRentreeReguliere}
             recherche={recherche}
             tri={tri}
+            filtrePeriode={fluxPeriode?.occurrencesRentreesRegulieres ?? null}
           />
           <FinancementsTable
             financements={financements}
@@ -535,6 +586,7 @@ export default function Home() {
             onRemove={handleRemoveFinancement}
             recherche={recherche}
             tri={tri}
+            filtrePeriode={fluxPeriode?.idsFinancements ?? null}
           />
         </SectionRepliable>
 
@@ -546,6 +598,7 @@ export default function Home() {
             onRemove={handleRemoveFactureFournisseur}
             recherche={recherche}
             tri={tri}
+            filtrePeriode={fluxPeriode?.idsFacturesFournisseurs ?? null}
           />
           <ChargesFixesTable
             charges={chargesFixes}
@@ -554,6 +607,7 @@ export default function Home() {
             onRemove={handleRemoveChargeFixe}
             recherche={recherche}
             tri={tri}
+            filtrePeriode={fluxPeriode?.occurrencesChargesFixes ?? null}
           />
           <AutresDepensesTable
             depenses={autresDepenses}
@@ -562,6 +616,7 @@ export default function Home() {
             onRemove={handleRemoveAutreDepense}
             recherche={recherche}
             tri={tri}
+            filtrePeriode={fluxPeriode?.idsAutresDepenses ?? null}
           />
         </SectionRepliable>
 
