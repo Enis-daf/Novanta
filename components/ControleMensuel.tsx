@@ -20,6 +20,10 @@ export default function ControleMensuel({ controle }: ControleMensuelProps) {
       <p className="controle-mensuel__sous-titre">
         Comparez les totaux Novanta des derniers mois avec vos relevés bancaires.
       </p>
+      <p className="controle-mensuel__note">
+        Se base sur les données que vous avez rentrées dans Novanta : ces chiffres ne sont cohérents que si le mois a
+        été intégralement saisi.
+      </p>
       <div className="controle-mensuel__scroll">
         <table className="controle-mensuel__table">
           <thead>

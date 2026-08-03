@@ -398,8 +398,15 @@ input[type="checkbox"] {
 }
 
 .controle-mensuel__sous-titre {
-  margin: 0 0 12px;
+  margin: 0 0 4px;
   font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.controle-mensuel__note {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-style: italic;
   color: var(--couleur-texte-secondaire);
 }
 
