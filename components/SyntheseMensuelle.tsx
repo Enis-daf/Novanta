@@ -1,6 +1,6 @@
 "use client";
 
-import { formatMontant } from "@/lib/format";
+import { formatMontantK } from "@/lib/format";
 import { ResultatSyntheseMensuelle } from "@/lib/syntheseMensuelle";
 
 interface SyntheseMensuelleProps {
@@ -8,7 +8,7 @@ interface SyntheseMensuelleProps {
 }
 
 function formatMontantSigne(montant: number): string {
-  const base = formatMontant(montant);
+  const base = formatMontantK(montant);
   return montant > 0 ? `+${base}` : base;
 }
 
