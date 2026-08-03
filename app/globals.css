@@ -56,10 +56,41 @@ input[type="checkbox"] {
   gap: 32px;
 }
 
+.barre-outils-recherche {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .barre-recherche {
   position: relative;
   display: flex;
   align-items: center;
+  flex: 1;
+  min-width: 220px;
+}
+
+.tri-controle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.tri-controle label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+}
+
+.tri-controle select {
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--couleur-texte);
+  background: #fff;
 }
 
 .barre-recherche__input {

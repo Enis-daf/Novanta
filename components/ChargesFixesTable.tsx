@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { ChargeFixe } from "@/lib/types";
-import { trierParDate } from "@/lib/dates";
+import { ChargeFixe, TriMode } from "@/lib/types";
+import { trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerChargesFixes } from "@/lib/recherche";
 import DateField from "./DateField";
 
@@ -12,6 +12,7 @@ interface ChargesFixesTableProps {
   onAdd: () => void;
   onRemove: (id: string) => void;
   recherche: string;
+  tri: TriMode;
 }
 
 export default function ChargesFixesTable({
@@ -20,11 +21,14 @@ export default function ChargesFixesTable({
   onAdd,
   onRemove,
   recherche,
+  tri,
 }: ChargesFixesTableProps) {
-  const chargesTriees = useMemo(
-    () => filtrerChargesFixes(trierParDate(charges, (c) => c.datePrevue), recherche),
-    [charges, recherche]
-  );
+  const chargesTriees = useMemo(() => {
+    const filtrees = filtrerChargesFixes(charges, recherche);
+    return tri === "montant"
+      ? trierParMontant(filtrees, (c) => c.montant)
+      : trierParDate(filtrees, (c) => c.datePrevue);
+  }, [charges, recherche, tri]);
 
   return (
     <div className="table-wrapper">

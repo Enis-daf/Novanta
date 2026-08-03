@@ -42,6 +42,7 @@ import {
   Financement,
   HorizonJours,
   RentreeReguliere,
+  TriMode,
 } from "@/lib/types";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import {
@@ -101,6 +102,7 @@ export default function Home() {
   const [financements, setFinancements] = useState<Financement[]>(mockFinancements);
   const [rentreesRegulieres, setRentreesRegulieres] = useState<RentreeReguliere[]>(mockRentreesRegulieres);
   const [recherche, setRecherche] = useState("");
+  const [tri, setTri] = useState<TriMode>("date");
 
   const dateDepart = dateReleve;
 
@@ -456,7 +458,16 @@ export default function Home() {
         />
       </div>
       <div className="cockpit__col cockpit__col--droite">
-        <BarreRecherche valeur={recherche} onChange={setRecherche} />
+        <div className="barre-outils-recherche">
+          <BarreRecherche valeur={recherche} onChange={setRecherche} />
+          <div className="tri-controle">
+            <label htmlFor="tri-select">Trier par</label>
+            <select id="tri-select" value={tri} onChange={(e) => setTri(e.target.value as TriMode)}>
+              <option value="date">Date la plus proche</option>
+              <option value="montant">Montant le plus élevé</option>
+            </select>
+          </div>
+        </div>
         {recherche && (
           <p className="recherche-resume">
             {totalResultatsRecherche === 0
@@ -472,6 +483,7 @@ export default function Home() {
             onAdd={handleAddFactureClient}
             onRemove={handleRemoveFactureClient}
             recherche={recherche}
+            tri={tri}
           />
           <RentreesRegulieresTable
             rentrees={rentreesRegulieres}
@@ -479,6 +491,7 @@ export default function Home() {
             onAdd={handleAddRentreeReguliere}
             onRemove={handleRemoveRentreeReguliere}
             recherche={recherche}
+            tri={tri}
           />
           <FinancementsTable
             financements={financements}
@@ -486,6 +499,7 @@ export default function Home() {
             onAdd={handleAddFinancement}
             onRemove={handleRemoveFinancement}
             recherche={recherche}
+            tri={tri}
           />
         </SectionRepliable>
 
@@ -496,6 +510,7 @@ export default function Home() {
             onAdd={handleAddFactureFournisseur}
             onRemove={handleRemoveFactureFournisseur}
             recherche={recherche}
+            tri={tri}
           />
           <ChargesFixesTable
             charges={chargesFixes}
@@ -503,6 +518,7 @@ export default function Home() {
             onAdd={handleAddChargeFixe}
             onRemove={handleRemoveChargeFixe}
             recherche={recherche}
+            tri={tri}
           />
           <AutresDepensesTable
             depenses={autresDepenses}
@@ -510,6 +526,7 @@ export default function Home() {
             onAdd={handleAddAutreDepense}
             onRemove={handleRemoveAutreDepense}
             recherche={recherche}
+            tri={tri}
           />
         </SectionRepliable>
 

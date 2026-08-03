@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { AutreDepense } from "@/lib/types";
-import { trierParDate } from "@/lib/dates";
+import { AutreDepense, TriMode } from "@/lib/types";
+import { trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerAutresDepenses } from "@/lib/recherche";
 import DateField from "./DateField";
 
@@ -12,6 +12,7 @@ interface AutresDepensesTableProps {
   onAdd: () => void;
   onRemove: (id: string) => void;
   recherche: string;
+  tri: TriMode;
 }
 
 export default function AutresDepensesTable({
@@ -20,11 +21,14 @@ export default function AutresDepensesTable({
   onAdd,
   onRemove,
   recherche,
+  tri,
 }: AutresDepensesTableProps) {
-  const depensesTriees = useMemo(
-    () => filtrerAutresDepenses(trierParDate(depenses, (d) => d.datePrevue), recherche),
-    [depenses, recherche]
-  );
+  const depensesTriees = useMemo(() => {
+    const filtrees = filtrerAutresDepenses(depenses, recherche);
+    return tri === "montant"
+      ? trierParMontant(filtrees, (d) => d.montant)
+      : trierParDate(filtrees, (d) => d.datePrevue);
+  }, [depenses, recherche, tri]);
 
   return (
     <div className="table-wrapper">

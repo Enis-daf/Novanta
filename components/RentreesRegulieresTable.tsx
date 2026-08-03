@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { RentreeReguliere } from "@/lib/types";
-import { trierParDate } from "@/lib/dates";
+import { RentreeReguliere, TriMode } from "@/lib/types";
+import { trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerRentreesRegulieres } from "@/lib/recherche";
 import DateField from "./DateField";
 
@@ -12,6 +12,7 @@ interface RentreesRegulieresTableProps {
   onAdd: () => void;
   onRemove: (id: string) => void;
   recherche: string;
+  tri: TriMode;
 }
 
 export default function RentreesRegulieresTable({
@@ -20,11 +21,14 @@ export default function RentreesRegulieresTable({
   onAdd,
   onRemove,
   recherche,
+  tri,
 }: RentreesRegulieresTableProps) {
-  const rentreesTriees = useMemo(
-    () => filtrerRentreesRegulieres(trierParDate(rentrees, (r) => r.dateDebut), recherche),
-    [rentrees, recherche]
-  );
+  const rentreesTriees = useMemo(() => {
+    const filtrees = filtrerRentreesRegulieres(rentrees, recherche);
+    return tri === "montant"
+      ? trierParMontant(filtrees, (r) => r.montant)
+      : trierParDate(filtrees, (r) => r.dateDebut);
+  }, [rentrees, recherche, tri]);
 
   return (
     <div className="table-wrapper">

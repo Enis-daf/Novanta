@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { Financement } from "@/lib/types";
-import { trierParDate } from "@/lib/dates";
+import { Financement, TriMode } from "@/lib/types";
+import { trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerFinancements } from "@/lib/recherche";
 import DateField from "./DateField";
 
@@ -12,6 +12,7 @@ interface FinancementsTableProps {
   onAdd: () => void;
   onRemove: (id: string) => void;
   recherche: string;
+  tri: TriMode;
 }
 
 export default function FinancementsTable({
@@ -20,11 +21,14 @@ export default function FinancementsTable({
   onAdd,
   onRemove,
   recherche,
+  tri,
 }: FinancementsTableProps) {
-  const financementsTries = useMemo(
-    () => filtrerFinancements(trierParDate(financements, (f) => f.dateEncaissementPrevue), recherche),
-    [financements, recherche]
-  );
+  const financementsTries = useMemo(() => {
+    const filtrees = filtrerFinancements(financements, recherche);
+    return tri === "montant"
+      ? trierParMontant(filtrees, (f) => f.montant)
+      : trierParDate(filtrees, (f) => f.dateEncaissementPrevue);
+  }, [financements, recherche, tri]);
 
   return (
     <div className="table-wrapper">

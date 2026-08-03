@@ -64,3 +64,17 @@ export function formatDateCourte(dateISO: string): string {
   const mois = String(date.getMonth() + 1).padStart(2, "0");
   return `${jour}/${mois}/${date.getFullYear()}`;
 }
+
+/** Trie une copie du tableau par montant décroissant (montants absents/invalides passent en dernier). */
+export function trierParMontant<T>(items: T[], montantDe: (item: T) => number): T[] {
+  return [...items].sort((a, b) => {
+    const montantA = montantDe(a);
+    const montantB = montantDe(b);
+    const validA = Number.isFinite(montantA);
+    const validB = Number.isFinite(montantB);
+    if (!validA && !validB) return 0;
+    if (!validA) return 1;
+    if (!validB) return -1;
+    return montantB - montantA;
+  });
+}

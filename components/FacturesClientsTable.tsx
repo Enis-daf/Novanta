@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { FactureClient } from "@/lib/types";
-import { decalerDateISO, estDateValide, estEnRetard, trierParDate } from "@/lib/dates";
+import { FactureClient, TriMode } from "@/lib/types";
+import { decalerDateISO, estDateValide, estEnRetard, trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerFacturesClients } from "@/lib/recherche";
 import DateField from "./DateField";
 
@@ -12,6 +12,7 @@ interface FacturesClientsTableProps {
   onAdd: () => void;
   onRemove: (id: string) => void;
   recherche: string;
+  tri: TriMode;
 }
 
 export default function FacturesClientsTable({
@@ -20,11 +21,14 @@ export default function FacturesClientsTable({
   onAdd,
   onRemove,
   recherche,
+  tri,
 }: FacturesClientsTableProps) {
-  const facturesTriees = useMemo(
-    () => filtrerFacturesClients(trierParDate(factures, (f) => f.dateEncaissementAnticipee), recherche),
-    [factures, recherche]
-  );
+  const facturesTriees = useMemo(() => {
+    const filtrees = filtrerFacturesClients(factures, recherche);
+    return tri === "montant"
+      ? trierParMontant(filtrees, (f) => f.montant)
+      : trierParDate(filtrees, (f) => f.dateEncaissementAnticipee);
+  }, [factures, recherche, tri]);
 
   return (
     <div className="table-wrapper">

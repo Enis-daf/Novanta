@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { FactureFournisseur } from "@/lib/types";
-import { decalerDateISO, estDateValide, estEnRetard, trierParDate } from "@/lib/dates";
+import { FactureFournisseur, TriMode } from "@/lib/types";
+import { decalerDateISO, estDateValide, estEnRetard, trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerFacturesFournisseurs } from "@/lib/recherche";
 import DateField from "./DateField";
 
@@ -12,6 +12,7 @@ interface FacturesFournisseursTableProps {
   onAdd: () => void;
   onRemove: (id: string) => void;
   recherche: string;
+  tri: TriMode;
 }
 
 export default function FacturesFournisseursTable({
@@ -20,11 +21,14 @@ export default function FacturesFournisseursTable({
   onAdd,
   onRemove,
   recherche,
+  tri,
 }: FacturesFournisseursTableProps) {
-  const facturesTriees = useMemo(
-    () => filtrerFacturesFournisseurs(trierParDate(factures, (f) => f.datePaiementPrevue), recherche),
-    [factures, recherche]
-  );
+  const facturesTriees = useMemo(() => {
+    const filtrees = filtrerFacturesFournisseurs(factures, recherche);
+    return tri === "montant"
+      ? trierParMontant(filtrees, (f) => f.montant)
+      : trierParDate(filtrees, (f) => f.datePaiementPrevue);
+  }, [factures, recherche, tri]);
 
   return (
     <div className="table-wrapper">

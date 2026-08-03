@@ -59,3 +59,5 @@ export interface SoldeJournalier {
 }
 
 export type HorizonJours = 90 | 180;
+
+export type TriMode = "date" | "montant";
