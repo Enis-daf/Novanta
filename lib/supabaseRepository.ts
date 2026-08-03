@@ -79,6 +79,7 @@ function factureClientToRow(companyId: string, f: FactureClient): Row {
     date_encaissement_anticipee: dateOuNull(f.dateEncaissementAnticipee),
     litigieuse: f.litigieuse,
     paid: f.payee,
+    paid_at: f.paidAt,
   };
 }
 
@@ -92,6 +93,7 @@ function rowToFactureClient(row: Row): FactureClient {
     dateEncaissementAnticipee: (row.date_encaissement_anticipee as string | null) ?? "",
     litigieuse: row.litigieuse as boolean,
     payee: Boolean(row.paid),
+    paidAt: (row.paid_at as string | null) ?? null,
   };
 }
 
@@ -106,6 +108,7 @@ function factureFournisseurToRow(companyId: string, f: FactureFournisseur): Row 
     date_paiement_prevue: dateOuNull(f.datePaiementPrevue),
     litigieuse: f.litigieuse,
     paid: f.payee,
+    paid_at: f.paidAt,
   };
 }
 
@@ -119,6 +122,7 @@ function rowToFactureFournisseur(row: Row): FactureFournisseur {
     datePaiementPrevue: (row.date_paiement_prevue as string | null) ?? "",
     litigieuse: row.litigieuse as boolean,
     payee: Boolean(row.paid),
+    paidAt: (row.paid_at as string | null) ?? null,
   };
 }
 

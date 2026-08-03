@@ -38,6 +38,7 @@ create table if not exists customer_invoices (
   date_encaissement_anticipee date,
   litigieuse boolean not null default false,
   paid boolean not null default false,
+  paid_at timestamptz,
   updated_at timestamptz not null default now()
 );
 
@@ -53,6 +54,12 @@ alter table customer_invoices add column if not exists paid boolean not null def
 alter table customer_invoices alter column date_echeance drop not null;
 alter table customer_invoices alter column date_encaissement_anticipee drop not null;
 
+-- Migration additive : horodatage du moment où "Payée" a été cochée, pour masquer
+-- (affichage uniquement) les factures payées depuis plus de 7 jours. Nullable et sans
+-- valeur par défaut à dessein : les factures déjà payées avant cette migration gardent
+-- paid_at = null et restent donc visibles (voir explication fournie avant la migration).
+alter table customer_invoices add column if not exists paid_at timestamptz;
+
 create table if not exists supplier_invoices (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,
@@ -63,11 +70,13 @@ create table if not exists supplier_invoices (
   date_paiement_prevue date,
   litigieuse boolean not null default false,
   paid boolean not null default false,
+  paid_at timestamptz,
   updated_at timestamptz not null default now()
 );
 
 -- Migration additive : idem pour les factures fournisseurs existantes.
 alter table supplier_invoices add column if not exists paid boolean not null default false;
+alter table supplier_invoices add column if not exists paid_at timestamptz;
 
 -- Migration non destructive : idem, autorise les dates vides.
 alter table supplier_invoices alter column date_echeance drop not null;

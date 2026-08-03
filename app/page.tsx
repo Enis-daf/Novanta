@@ -17,7 +17,7 @@ import LoginForm from "@/components/LoginForm";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 import { calculerProjectionCash } from "@/lib/cash-engine";
-import { todayISO } from "@/lib/dates";
+import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
 import {
   filtrerAutresDepenses,
@@ -112,9 +112,13 @@ export default function Home() {
   // "aucun résultat"), totalement indépendant du calcul de trésorerie ci-dessous.
   const totalResultatsRecherche = useMemo(() => {
     if (!recherche) return null;
+    const facturesClientsActives = facturesClients.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt));
+    const facturesFournisseursActives = facturesFournisseurs.filter(
+      (f) => !estMasqueeApresPaiement(f.payee, f.paidAt)
+    );
     return (
-      filtrerFacturesClients(facturesClients, recherche).length +
-      filtrerFacturesFournisseurs(facturesFournisseurs, recherche).length +
+      filtrerFacturesClients(facturesClientsActives, recherche).length +
+      filtrerFacturesFournisseurs(facturesFournisseursActives, recherche).length +
       filtrerChargesFixes(chargesFixes, recherche).length +
       filtrerRentreesRegulieres(rentreesRegulieres, recherche).length +
       filtrerAutresDepenses(autresDepenses, recherche).length +
@@ -273,6 +277,7 @@ export default function Home() {
       dateEncaissementAnticipee: "",
       litigieuse: false,
       payee: false,
+      paidAt: null,
     };
     setFacturesClients((prev) => [...prev, facture]);
     if (companyId) persist(() => sauvegarderFactureClient(companyId, facture));
@@ -304,6 +309,7 @@ export default function Home() {
       datePaiementPrevue: "",
       litigieuse: false,
       payee: false,
+      paidAt: null,
     };
     setFacturesFournisseurs((prev) => [...prev, facture]);
     if (companyId) persist(() => sauvegarderFactureFournisseur(companyId, facture));

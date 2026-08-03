@@ -28,6 +28,7 @@ export const mockFacturesClients: FactureClient[] = [
     dateEncaissementAnticipee: addDays(today, 5),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "fc-2",
@@ -38,6 +39,7 @@ export const mockFacturesClients: FactureClient[] = [
     dateEncaissementAnticipee: addDays(today, 12),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "fc-3",
@@ -48,6 +50,7 @@ export const mockFacturesClients: FactureClient[] = [
     dateEncaissementAnticipee: addDays(today, 20),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "fc-4",
@@ -58,6 +61,7 @@ export const mockFacturesClients: FactureClient[] = [
     dateEncaissementAnticipee: addDays(today, 25),
     litigieuse: true,
     payee: false,
+    paidAt: null,
   },
   {
     id: "fc-5",
@@ -68,6 +72,7 @@ export const mockFacturesClients: FactureClient[] = [
     dateEncaissementAnticipee: addDays(today, 35),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "fc-6",
@@ -78,6 +83,7 @@ export const mockFacturesClients: FactureClient[] = [
     dateEncaissementAnticipee: addDays(today, 48),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "fc-7",
@@ -88,6 +94,7 @@ export const mockFacturesClients: FactureClient[] = [
     dateEncaissementAnticipee: addDays(today, 60),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "fc-8",
@@ -98,6 +105,7 @@ export const mockFacturesClients: FactureClient[] = [
     dateEncaissementAnticipee: addDays(today, 75),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
 ];
 
@@ -111,6 +119,7 @@ export const mockFacturesFournisseurs: FactureFournisseur[] = [
     datePaiementPrevue: addDays(today, 3),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "ff-2",
@@ -121,6 +130,7 @@ export const mockFacturesFournisseurs: FactureFournisseur[] = [
     datePaiementPrevue: addDays(today, 8),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "ff-3",
@@ -131,6 +141,7 @@ export const mockFacturesFournisseurs: FactureFournisseur[] = [
     datePaiementPrevue: addDays(today, 15),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "ff-4",
@@ -141,6 +152,7 @@ export const mockFacturesFournisseurs: FactureFournisseur[] = [
     datePaiementPrevue: addDays(today, 18),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "ff-5",
@@ -151,6 +163,7 @@ export const mockFacturesFournisseurs: FactureFournisseur[] = [
     datePaiementPrevue: addDays(today, 30),
     litigieuse: true,
     payee: false,
+    paidAt: null,
   },
   {
     id: "ff-6",
@@ -161,6 +174,7 @@ export const mockFacturesFournisseurs: FactureFournisseur[] = [
     datePaiementPrevue: addDays(today, 42),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "ff-7",
@@ -171,6 +185,7 @@ export const mockFacturesFournisseurs: FactureFournisseur[] = [
     datePaiementPrevue: addDays(today, 55),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
   {
     id: "ff-8",
@@ -181,6 +196,7 @@ export const mockFacturesFournisseurs: FactureFournisseur[] = [
     datePaiementPrevue: addDays(today, 70),
     litigieuse: false,
     payee: false,
+    paidAt: null,
   },
 ];
 

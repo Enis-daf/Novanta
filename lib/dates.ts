@@ -78,3 +78,20 @@ export function trierParMontant<T>(items: T[], montantDe: (item: T) => number): 
     return montantB - montantA;
   });
 }
+
+export const JOURS_VISIBILITE_APRES_PAIEMENT = 7;
+
+/**
+ * Une facture payée depuis plus de 7 jours doit disparaître des tableaux actifs
+ * (affichage uniquement — jamais du calcul, déjà exclu dès payee=true, ni de Supabase).
+ * Règle la plus sûre pour les factures déjà payées avant l'ajout de paid_at : tant que
+ * paid_at est absent, on ne masque jamais (pas de disparition surprise d'anciennes données).
+ */
+export function estMasqueeApresPaiement(payee: boolean, paidAt: string | null): boolean {
+  if (!payee || !paidAt) return false;
+  const date = new Date(paidAt);
+  if (Number.isNaN(date.getTime())) return false;
+  const limite = new Date();
+  limite.setDate(limite.getDate() - JOURS_VISIBILITE_APRES_PAIEMENT);
+  return date < limite;
+}

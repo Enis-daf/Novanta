@@ -125,6 +125,7 @@ export function validerLignesImport(lignesBrutes: Record<string, unknown>[]): Re
           dateEncaissementAnticipee: datePaiement as string,
           litigieuse,
           payee: false,
+          paidAt: null,
         },
       });
     } else {
@@ -140,6 +141,7 @@ export function validerLignesImport(lignesBrutes: Record<string, unknown>[]): Re
           datePaiementPrevue: datePaiement as string,
           litigieuse,
           payee: false,
+          paidAt: null,
         },
       });
     }

@@ -7,6 +7,7 @@ export interface FactureClient {
   dateEncaissementAnticipee: string; // YYYY-MM-DD — variable de simulation
   litigieuse: boolean;
   payee: boolean;
+  paidAt: string | null; // ISO 8601 datetime — moment où "Payée" a été cochée
 }
 
 export interface FactureFournisseur {
@@ -18,6 +19,7 @@ export interface FactureFournisseur {
   datePaiementPrevue: string; // YYYY-MM-DD — variable de simulation
   litigieuse: boolean;
   payee: boolean;
+  paidAt: string | null; // ISO 8601 datetime — moment où "Payée" a été cochée
 }
 
 export interface ChargeFixe {

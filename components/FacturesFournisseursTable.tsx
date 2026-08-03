@@ -2,7 +2,14 @@
 
 import { useMemo } from "react";
 import { FactureFournisseur, TriMode } from "@/lib/types";
-import { decalerDateISO, estDateValide, estEnRetard, trierParDate, trierParMontant } from "@/lib/dates";
+import {
+  decalerDateISO,
+  estDateValide,
+  estEnRetard,
+  estMasqueeApresPaiement,
+  trierParDate,
+  trierParMontant,
+} from "@/lib/dates";
 import { filtrerFacturesFournisseurs } from "@/lib/recherche";
 import DateField from "./DateField";
 
@@ -24,7 +31,8 @@ export default function FacturesFournisseursTable({
   tri,
 }: FacturesFournisseursTableProps) {
   const facturesTriees = useMemo(() => {
-    const filtrees = filtrerFacturesFournisseurs(factures, recherche);
+    const actives = factures.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt));
+    const filtrees = filtrerFacturesFournisseurs(actives, recherche);
     return tri === "montant"
       ? trierParMontant(filtrees, (f) => f.montant)
       : trierParDate(filtrees, (f) => f.datePaiementPrevue);
@@ -122,7 +130,12 @@ export default function FacturesFournisseursTable({
                 <input
                   type="checkbox"
                   checked={facture.payee}
-                  onChange={(e) => onChange(facture.id, { payee: e.target.checked })}
+                  onChange={(e) =>
+                    onChange(facture.id, {
+                      payee: e.target.checked,
+                      paidAt: e.target.checked ? new Date().toISOString() : null,
+                    })
+                  }
                 />
               </td>
               <td className="col-actions">
