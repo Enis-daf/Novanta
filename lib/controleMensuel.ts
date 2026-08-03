@@ -94,6 +94,10 @@ function ajouterAuMois(totaux: Map<string, TotauxMoisControle>, date: Date, mont
  * complets, à comparer manuellement par l'utilisateur avec ses relevés bancaires. Calculé
  * indépendamment de calculerProjectionCash et calculerSyntheseMensuelle — n'affecte jamais
  * les KPIs, la courbe, la synthèse mensuelle ou le prévisionnel.
+ *
+ * Contrairement au prévisionnel, les factures cochées "Payée" sont incluses ici : sur un
+ * mois écoulé, une facture payée est un mouvement réel qui doit apparaître dans le total à
+ * comparer avec le relevé bancaire. Seule l'exclusion "Litigieuse" (montant incertain) reste.
  */
 export function calculerControleMensuel(
   params: ParametresControleMensuel,
@@ -103,7 +107,7 @@ export function calculerControleMensuel(
   const totaux = new Map<string, TotauxMoisControle>();
 
   for (const f of params.facturesClients) {
-    if (f.litigieuse || f.payee) continue;
+    if (f.litigieuse) continue;
     if (!estDateValide(f.dateEncaissementAnticipee)) continue;
     const date = parseDateISO(f.dateEncaissementAnticipee);
     if (!dansPeriode(date, debut, fin)) continue;
@@ -125,7 +129,7 @@ export function calculerControleMensuel(
   }
 
   for (const f of params.facturesFournisseurs) {
-    if (f.litigieuse || f.payee) continue;
+    if (f.litigieuse) continue;
     if (!estDateValide(f.datePaiementPrevue)) continue;
     const date = parseDateISO(f.datePaiementPrevue);
     if (!dansPeriode(date, debut, fin)) continue;
