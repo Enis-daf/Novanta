@@ -207,6 +207,9 @@ input[type="checkbox"] {
 }
 
 .bandeau-periode-filtre {
+  position: sticky;
+  top: 14px;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -216,6 +219,7 @@ input[type="checkbox"] {
   border-radius: 8px;
   padding: 10px 16px;
   margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(3, 10, 22, 0.1);
 }
 
 .bandeau-periode-filtre__texte {
