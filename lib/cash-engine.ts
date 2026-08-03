@@ -31,9 +31,9 @@ export interface ResultatProjectionCash {
   datePassageSousZero: string | null;
 }
 
-type FrequenceRecurrence = ChargeFixe["recurrence"] | RentreeReguliere["frequence"];
+export type FrequenceRecurrence = ChargeFixe["recurrence"] | RentreeReguliere["frequence"];
 
-function genererOccurrencesRecurrentes(
+export function genererOccurrencesRecurrentes(
   dateDebut: string,
   frequence: FrequenceRecurrence,
   dateFin: string | null,

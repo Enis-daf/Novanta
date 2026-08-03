@@ -310,6 +310,45 @@ input[type="checkbox"] {
   background: #fff;
 }
 
+.synthese-mensuelle {
+  margin-top: 20px;
+}
+
+.synthese-mensuelle h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.synthese-mensuelle__scroll {
+  overflow-x: auto;
+}
+
+.synthese-mensuelle__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.synthese-mensuelle__table th,
+.synthese-mensuelle__table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--couleur-bordure);
+  white-space: nowrap;
+  text-align: left;
+}
+
+.synthese-mensuelle__table th {
+  color: var(--couleur-texte-secondaire);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.synthese-mensuelle__total {
+  font-weight: 600;
+}
+
 .table-wrapper h3 {
   margin: 0 0 10px;
   font-size: 15px;

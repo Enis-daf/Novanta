@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { Session } from "@supabase/supabase-js";
 import Dashboard from "@/components/Dashboard";
+import SyntheseMensuelle from "@/components/SyntheseMensuelle";
 import FacturesClientsTable from "@/components/FacturesClientsTable";
 import FacturesFournisseursTable from "@/components/FacturesFournisseursTable";
 import ChargesFixesTable from "@/components/ChargesFixesTable";
@@ -17,6 +18,7 @@ import LoginForm from "@/components/LoginForm";
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { todayISO } from "@/lib/dates";
+import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
 import {
   filtrerAutresDepenses,
   filtrerChargesFixes,
@@ -205,6 +207,32 @@ export default function Home() {
       rentreesRegulieres,
       dateDepart,
       horizonJours,
+    ]
+  );
+
+  // Synthèse mensuelle : calcul indépendant, purement pour l'affichage du panneau
+  // gauche. N'affecte jamais `resultat` (KPIs + courbe) ci-dessus.
+  const syntheseMensuelle = useMemo(
+    () =>
+      calculerSyntheseMensuelle({
+        dateReleve,
+        horizonJours,
+        facturesClients,
+        facturesFournisseurs,
+        chargesFixes,
+        autresDepenses,
+        financements,
+        rentreesRegulieres,
+      }),
+    [
+      dateReleve,
+      horizonJours,
+      facturesClients,
+      facturesFournisseurs,
+      chargesFixes,
+      autresDepenses,
+      financements,
+      rentreesRegulieres,
     ]
   );
 
@@ -456,6 +484,7 @@ export default function Home() {
           onChangeHorizonJours={handleChangeHorizonJours}
           resultat={resultat}
         />
+        <SyntheseMensuelle synthese={syntheseMensuelle} />
       </div>
       <div className="cockpit__col cockpit__col--droite">
         <div className="barre-outils-recherche">
