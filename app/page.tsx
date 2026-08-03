@@ -14,12 +14,14 @@ import RentreesRegulieresTable from "@/components/RentreesRegulieresTable";
 import SectionRepliable from "@/components/SectionRepliable";
 import BarreRecherche from "@/components/BarreRecherche";
 import BandeauPeriodeFiltre from "@/components/BandeauPeriodeFiltre";
+import ControleMensuel from "@/components/ControleMensuel";
 import LoginForm from "@/components/LoginForm";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
+import { calculerControleMensuel } from "@/lib/controleMensuel";
 import { calculerFluxPeriode, calculerPeriodeFiltre } from "@/lib/periodeFiltre";
 import {
   filtrerAutresDepenses,
@@ -278,6 +280,21 @@ export default function Home() {
 
   const handleClicCourbe = (date: string) => setDateClicCourbe(date);
   const handleRevenirVueGenerale = () => setDateClicCourbe(null);
+
+  // Contrôle mensuel : totaux Novanta en lecture seule sur les 3 derniers mois calendaires
+  // complets, indépendant de dateReleve/horizonJours. N'affecte jamais resultat/syntheseMensuelle.
+  const controleMensuel = useMemo(
+    () =>
+      calculerControleMensuel({
+        facturesClients,
+        facturesFournisseurs,
+        chargesFixes,
+        autresDepenses,
+        financements,
+        rentreesRegulieres,
+      }),
+    [facturesClients, facturesFournisseurs, chargesFixes, autresDepenses, financements, rentreesRegulieres]
+  );
 
   const handleChangeSoldeInitial = (valeur: number) => {
     setSoldeInitial(valeur);
@@ -622,6 +639,10 @@ export default function Home() {
 
         <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>
           <ImportFactures onImporter={handleImporterFactures} />
+        </SectionRepliable>
+
+        <SectionRepliable titre="Contrôle mensuel" ouvertParDefaut={false}>
+          <ControleMensuel controle={controleMensuel} />
         </SectionRepliable>
       </div>
     </main>
