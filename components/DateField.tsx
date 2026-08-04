@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { estDateValide, formatDateCourte, parseDateISO, toISODate } from "@/lib/dates";
 
 interface DateFieldProps {
@@ -37,15 +38,23 @@ function premierJourDeGrille(moisAffiche: Date): Date {
 
 export default function DateField({ id, value, onChange, className, effacable = true }: DateFieldProps) {
   const [ouvert, setOuvert] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
   const [moisAffiche, setMoisAffiche] = useState<Date>(() =>
     estDateValide(value) ? parseDateISO(value) : new Date()
   );
   const conteneurRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!ouvert) return;
     const gererClicExterieur = (e: MouseEvent) => {
-      if (conteneurRef.current && !conteneurRef.current.contains(e.target as Node)) {
+      const cible = e.target as Node;
+      if (
+        conteneurRef.current &&
+        !conteneurRef.current.contains(cible) &&
+        popoverRef.current &&
+        !popoverRef.current.contains(cible)
+      ) {
         setOuvert(false);
       }
     };
@@ -55,6 +64,10 @@ export default function DateField({ id, value, onChange, className, effacable = 
 
   const ouvrir = () => {
     setMoisAffiche(estDateValide(value) ? parseDateISO(value) : new Date());
+    if (conteneurRef.current) {
+      const rect = conteneurRef.current.getBoundingClientRect();
+      setPosition({ top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX });
+    }
     setOuvert(true);
   };
 
@@ -93,50 +106,56 @@ export default function DateField({ id, value, onChange, className, effacable = 
       >
         {valeurValide ? formatDateCourte(valeurValide) : "jj/mm/aaaa"}
       </button>
-      {ouvert && (
-        <div className="date-field__popover">
-          <div className="date-field__entete">
-            <button type="button" onClick={() => changerMois(-1)} aria-label="Mois précédent">
-              ‹
-            </button>
-            <span>
-              {NOMS_MOIS[moisAffiche.getMonth()]} {moisAffiche.getFullYear()}
-            </span>
-            <button type="button" onClick={() => changerMois(1)} aria-label="Mois suivant">
-              ›
-            </button>
-          </div>
-          <div className="date-field__grille-noms">
-            {NOMS_JOURS.map((nom) => (
-              <span key={nom}>{nom}</span>
-            ))}
-          </div>
-          <div className="date-field__grille">
-            {joursGrille.map((jour) => {
-              const iso = toISODate(jour);
-              const horsMois = jour.getMonth() !== moisAffiche.getMonth();
-              const selectionne = valeurValide === iso;
-              const classes = [
-                "date-field__jour",
-                horsMois ? "date-field__jour--hors-mois" : "",
-                selectionne ? "date-field__jour--selectionne" : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
-              return (
-                <button type="button" key={iso} className={classes} onClick={() => choisirJour(jour)}>
-                  {jour.getDate()}
-                </button>
-              );
-            })}
-          </div>
-          {effacable && valeurValide && (
-            <button type="button" className="date-field__effacer" onClick={effacer}>
-              Effacer la date
-            </button>
-          )}
-        </div>
-      )}
+      {ouvert &&
+        createPortal(
+          <div
+            className="date-field__popover"
+            ref={popoverRef}
+            style={{ position: "absolute", top: position.top, left: position.left }}
+          >
+            <div className="date-field__entete">
+              <button type="button" onClick={() => changerMois(-1)} aria-label="Mois précédent">
+                ‹
+              </button>
+              <span>
+                {NOMS_MOIS[moisAffiche.getMonth()]} {moisAffiche.getFullYear()}
+              </span>
+              <button type="button" onClick={() => changerMois(1)} aria-label="Mois suivant">
+                ›
+              </button>
+            </div>
+            <div className="date-field__grille-noms">
+              {NOMS_JOURS.map((nom) => (
+                <span key={nom}>{nom}</span>
+              ))}
+            </div>
+            <div className="date-field__grille">
+              {joursGrille.map((jour) => {
+                const iso = toISODate(jour);
+                const horsMois = jour.getMonth() !== moisAffiche.getMonth();
+                const selectionne = valeurValide === iso;
+                const classes = [
+                  "date-field__jour",
+                  horsMois ? "date-field__jour--hors-mois" : "",
+                  selectionne ? "date-field__jour--selectionne" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ");
+                return (
+                  <button type="button" key={iso} className={classes} onClick={() => choisirJour(jour)}>
+                    {jour.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+            {effacable && valeurValide && (
+              <button type="button" className="date-field__effacer" onClick={effacer}>
+                Effacer la date
+              </button>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
