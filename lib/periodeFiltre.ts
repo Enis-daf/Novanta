@@ -154,12 +154,19 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
     debut,
     fin
   );
-  const autresDepensesRes = itemSimple(params.autresDepenses, (d) => d.datePrevue, -1, () => false, debut, fin);
+  const autresDepensesRes = itemSimple(
+    params.autresDepenses,
+    (d) => d.datePrevue,
+    -1,
+    (d) => d.facturee,
+    debut,
+    fin
+  );
   const financementsRes = itemSimple(
     params.financements,
     (f) => f.dateEncaissementPrevue,
     1,
-    () => false,
+    (f) => f.verse,
     debut,
     fin
   );

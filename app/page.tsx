@@ -437,6 +437,7 @@ export default function Home() {
       montant: 0,
       datePrevue: "",
       type: "certaine",
+      facturee: false,
     };
     setAutresDepenses((prev) => [...prev, depense]);
     if (companyId) persist(() => sauvegarderAutreDepense(companyId, depense));
@@ -464,6 +465,7 @@ export default function Home() {
       libelle: "",
       montant: 0,
       dateEncaissementPrevue: "",
+      verse: false,
     };
     setFinancements((prev) => [...prev, financement]);
     if (companyId) persist(() => sauvegarderFinancement(companyId, financement));

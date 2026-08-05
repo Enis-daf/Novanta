@@ -37,6 +37,7 @@ export interface AutreDepense {
   montant: number;
   datePrevue: string; // YYYY-MM-DD
   type: "certaine" | "probable";
+  facturee: boolean; // true = remplacée par une vraie facture fournisseur, exclue du calcul
 }
 
 export interface Financement {
@@ -44,6 +45,7 @@ export interface Financement {
   libelle: string;
   montant: number;
   dateEncaissementPrevue: string; // YYYY-MM-DD
+  verse: boolean; // true = effectivement versé sur le compte, exclu du calcul (libellé UI : "Versé")
 }
 
 export interface RentreeReguliere {

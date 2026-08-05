@@ -242,6 +242,7 @@ export const mockAutresDepenses: AutreDepense[] = [
     montant: 2200,
     datePrevue: addDays(today, 10),
     type: "certaine",
+    facturee: false,
   },
   {
     id: "ad-2",
@@ -249,6 +250,7 @@ export const mockAutresDepenses: AutreDepense[] = [
     montant: 5000,
     datePrevue: addDays(today, 50),
     type: "probable",
+    facturee: false,
   },
 ];
 
@@ -258,6 +260,7 @@ export const mockFinancements: Financement[] = [
     libelle: "Avance associé",
     montant: 15000,
     dateEncaissementPrevue: addDays(today, 15),
+    verse: false,
   },
 ];
 

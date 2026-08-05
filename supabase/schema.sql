@@ -116,11 +116,15 @@ create table if not exists other_expenses (
   montant numeric not null,
   date_prevue date,
   type text not null check (type in ('certaine', 'probable')),
+  facturee boolean not null default false,
   updated_at timestamptz not null default now()
 );
 
 -- Migration non destructive : autorise les dates vides.
 alter table other_expenses alter column date_prevue drop not null;
+
+-- Migration additive : "Facturée" (remplacée par une vraie facture fournisseur, exclue du calcul).
+alter table other_expenses add column if not exists facturee boolean not null default false;
 
 create table if not exists financings (
   id uuid primary key default gen_random_uuid(),
@@ -128,11 +132,15 @@ create table if not exists financings (
   libelle text not null,
   montant numeric not null,
   date_encaissement_prevue date,
+  verse boolean not null default false,
   updated_at timestamptz not null default now()
 );
 
 -- Migration non destructive : autorise les dates vides.
 alter table financings alter column date_encaissement_prevue drop not null;
+
+-- Migration additive : "Versé" (effectivement encaissé, exclu du calcul).
+alter table financings add column if not exists verse boolean not null default false;
 
 create table if not exists recurring_income (
   id uuid primary key default gen_random_uuid(),

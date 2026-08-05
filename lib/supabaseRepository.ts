@@ -157,6 +157,7 @@ function autreDepenseToRow(companyId: string, d: AutreDepense): Row {
     montant: d.montant,
     date_prevue: dateOuNull(d.datePrevue),
     type: d.type,
+    facturee: d.facturee,
   };
 }
 
@@ -167,6 +168,7 @@ function rowToAutreDepense(row: Row): AutreDepense {
     montant: Number(row.montant),
     datePrevue: (row.date_prevue as string | null) ?? "",
     type: row.type as AutreDepense["type"],
+    facturee: Boolean(row.facturee),
   };
 }
 
@@ -177,6 +179,7 @@ function financementToRow(companyId: string, f: Financement): Row {
     libelle: f.libelle,
     montant: f.montant,
     date_encaissement_prevue: dateOuNull(f.dateEncaissementPrevue),
+    verse: f.verse,
   };
 }
 
@@ -186,6 +189,7 @@ function rowToFinancement(row: Row): Financement {
     libelle: row.libelle as string,
     montant: Number(row.montant),
     dateEncaissementPrevue: (row.date_encaissement_prevue as string | null) ?? "",
+    verse: Boolean(row.verse),
   };
 }
 

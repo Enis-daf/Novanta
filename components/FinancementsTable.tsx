@@ -48,12 +48,13 @@ export default function FinancementsTable({
             <th>Libellé</th>
             <th className="col-montant">Montant</th>
             <th>Date d&apos;encaissement prévue</th>
+            <th>Versé</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {financementsTries.map((financement) => (
-            <tr key={financement.id}>
+            <tr key={financement.id} className={financement.verse ? "row--litigieuse" : ""}>
               <td>
                 <input
                   type="text"
@@ -72,6 +73,13 @@ export default function FinancementsTable({
                 <DateField
                   value={financement.dateEncaissementPrevue}
                   onChange={(valeur) => onChange(financement.id, { dateEncaissementPrevue: valeur })}
+                />
+              </td>
+              <td className="col-checkbox">
+                <input
+                  type="checkbox"
+                  checked={financement.verse}
+                  onChange={(e) => onChange(financement.id, { verse: e.target.checked })}
                 />
               </td>
               <td className="col-actions">

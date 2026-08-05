@@ -49,12 +49,13 @@ export default function AutresDepensesTable({
             <th className="col-montant">Montant</th>
             <th>Date prévue</th>
             <th>Type</th>
+            <th>Facturée</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {depensesTriees.map((depense) => (
-            <tr key={depense.id}>
+            <tr key={depense.id} className={depense.facturee ? "row--litigieuse" : ""}>
               <td>
                 <input
                   type="text"
@@ -83,6 +84,13 @@ export default function AutresDepensesTable({
                   <option value="certaine">Certaine</option>
                   <option value="probable">Probable</option>
                 </select>
+              </td>
+              <td className="col-checkbox">
+                <input
+                  type="checkbox"
+                  checked={depense.facturee}
+                  onChange={(e) => onChange(depense.id, { facturee: e.target.checked })}
+                />
               </td>
               <td className="col-actions">
                 <button type="button" className="btn-remove" onClick={() => onRemove(depense.id)}>

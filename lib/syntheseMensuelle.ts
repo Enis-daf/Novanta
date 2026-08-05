@@ -117,6 +117,7 @@ function occurrencesFacturesFournisseurs(factures: FactureFournisseur[], debut: 
 function occurrencesFinancements(financements: Financement[], debut: Date, fin: Date): Occurrence[] {
   const res: Occurrence[] = [];
   for (const f of financements) {
+    if (f.verse) continue;
     if (!estDateValide(f.dateEncaissementPrevue)) continue;
     const date = parseDateISO(f.dateEncaissementPrevue);
     if (!dansHorizon(date, debut, fin)) continue;
@@ -128,6 +129,7 @@ function occurrencesFinancements(financements: Financement[], debut: Date, fin: 
 function occurrencesAutresDepenses(depenses: AutreDepense[], debut: Date, fin: Date): Occurrence[] {
   const res: Occurrence[] = [];
   for (const d of depenses) {
+    if (d.facturee) continue;
     if (!estDateValide(d.datePrevue)) continue;
     const date = parseDateISO(d.datePrevue);
     if (!dansHorizon(date, debut, fin)) continue;

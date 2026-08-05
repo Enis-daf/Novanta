@@ -100,6 +100,7 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
   }
 
   for (const financement of financements) {
+    if (financement.verse) continue;
     enregistrerFlux(financement.dateEncaissementPrevue, financement.montant);
   }
 
@@ -110,6 +111,7 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
   }
 
   for (const depense of autresDepenses) {
+    if (depense.facturee) continue;
     enregistrerFlux(depense.datePrevue, -depense.montant);
   }
 
