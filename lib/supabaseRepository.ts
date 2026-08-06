@@ -216,23 +216,6 @@ function rowToRentreeReguliere(row: Row): RentreeReguliere {
   };
 }
 
-export async function getOrCreateCompanyForUser(userId: string): Promise<string> {
-  const { data: existing, error: selectError } = await client()
-    .from("companies")
-    .select("id")
-    .eq("owner_id", userId)
-    .maybeSingle();
-  if (selectError) throw selectError;
-  if (existing) return existing.id as string;
-
-  const { data: created, error: insertError } = await client()
-    .from("companies")
-    .insert({ owner_id: userId, name: "Ma société" })
-    .select("id")
-    .single();
-  if (insertError) throw insertError;
-  return created.id as string;
-}
 
 interface CashSettings {
   soldeInitial: number;

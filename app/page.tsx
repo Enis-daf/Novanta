@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import Dashboard from "@/components/Dashboard";
 import SyntheseMensuelle from "@/components/SyntheseMensuelle";
@@ -51,9 +53,9 @@ import {
   TriMode,
 } from "@/lib/types";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
+import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import {
   chargerOuInitialiserDonnees,
-  getOrCreateCompanyForUser,
   sauvegarderAutreDepense,
   sauvegarderChargeFixe,
   importerFacturesClients,
@@ -80,6 +82,7 @@ function persist(action: () => Promise<void>) {
 }
 
 export default function Home() {
+  const router = useRouter();
   const minuteursDebounce = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const persistDebounce = (cle: string, action: () => Promise<void>) => {
@@ -95,6 +98,8 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionChargee, setSessionChargee] = useState(!supabaseConfigured);
   const [companyId, setCompanyId] = useState<string | null>(null);
+  // null = pas encore déterminé, true = abonnement actif, false = accès refusé (redirection en cours)
+  const [accesAutorise, setAccesAutorise] = useState<boolean | null>(!supabaseConfigured ? true : null);
   const [donneesChargees, setDonneesChargees] = useState(!supabaseConfigured);
 
   const [soldeInitial, setSoldeInitial] = useState(SOLDE_BANCAIRE_INITIAL);
@@ -161,6 +166,7 @@ export default function Home() {
 
     if (!session) {
       setCompanyId(null);
+      setAccesAutorise(null);
       setDonneesChargees(false);
       return;
     }
@@ -169,10 +175,19 @@ export default function Home() {
     setDonneesChargees(false);
 
     (async () => {
-      const id = await getOrCreateCompanyForUser(session.user.id);
-      const donnees = await chargerOuInitialiserDonnees(id);
+      const company = await getOrCreateCompanyForBilling(supabase!, session.user.id);
       if (annule) return;
-      setCompanyId(id);
+
+      if (!company.accessEnabled) {
+        setAccesAutorise(false);
+        router.replace("/account/billing");
+        return;
+      }
+      setAccesAutorise(true);
+
+      const donnees = await chargerOuInitialiserDonnees(company.id);
+      if (annule) return;
+      setCompanyId(company.id);
       setSoldeInitial(donnees.soldeInitial);
       setDateReleve(donnees.dateReleve);
       setHorizonJours(donnees.horizonJours);
@@ -191,7 +206,7 @@ export default function Home() {
     return () => {
       annule = true;
     };
-  }, [session]);
+  }, [session, router]);
 
   const resultat = useMemo(
     () =>
@@ -517,6 +532,10 @@ export default function Home() {
     return <LoginForm />;
   }
 
+  if (supabaseConfigured && accesAutorise === false) {
+    return <main className="cockpit-chargement">Redirection vers la page d&apos;abonnement…</main>;
+  }
+
   if (supabaseConfigured && !donneesChargees) {
     return <main className="cockpit-chargement">Chargement des données…</main>;
   }
@@ -532,6 +551,9 @@ export default function Home() {
         <div className="barre-utilisateur">
           <span>{session.user.email}</span>
           <div className="barre-utilisateur__actions">
+            <Link href="/account/billing" className="btn-secondaire">
+              Abonnement
+            </Link>
             <button type="button" className="btn-deconnexion" onClick={handleDeconnexion}>
               Se déconnecter
             </button>

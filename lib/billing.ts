@@ -31,8 +31,9 @@ function rowToCompanyBilling(row: Row): CompanyBilling {
   };
 }
 
-// Même logique que getOrCreateCompanyForUser (lib/supabaseRepository.ts), appelée
-// côté serveur avec un client scopé à l'utilisateur (RLS owner_id = auth.uid()).
+// Récupère la société de l'utilisateur connecté, ou la crée si c'est sa première
+// connexion. Utilisée à la fois par le cockpit et par les routes de facturation :
+// c'est le seul point de création d'une société, pour garder une seule logique.
 export async function getOrCreateCompanyForBilling(
   supabase: SupabaseClient,
   userId: string
@@ -45,9 +46,13 @@ export async function getOrCreateCompanyForBilling(
   if (selectError) throw selectError;
   if (existing) return rowToCompanyBilling(existing);
 
+  // access_enabled démarre à false pour toute nouvelle société : l'accès n'est
+  // accordé qu'après un abonnement actif confirmé par le webhook Stripe. Les
+  // sociétés déjà existantes gardent leur valeur actuelle (colonne "default true"
+  // au niveau du schéma), donc aucune n'est bloquée rétroactivement.
   const { data: created, error: insertError } = await supabase
     .from("companies")
-    .insert({ owner_id: userId, name: "Ma société" })
+    .insert({ owner_id: userId, name: "Ma société", access_enabled: false })
     .select(BILLING_COLUMNS)
     .single();
   if (insertError) throw insertError;
