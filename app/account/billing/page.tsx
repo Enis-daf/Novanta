@@ -76,7 +76,7 @@ function BillingPageContent() {
     }
     let annule = false;
     setChargementCompany(true);
-    getOrCreateCompanyForBilling(supabase!, session.user.id)
+    getOrCreateCompanyForBilling(supabase!, session.user.id, session.user.email)
       .then((c) => {
         if (!annule) setCompany(c);
       })

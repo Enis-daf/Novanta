@@ -34,9 +34,14 @@ function rowToCompanyBilling(row: Row): CompanyBilling {
 // Récupère la société de l'utilisateur connecté, ou la crée si c'est sa première
 // connexion. Utilisée à la fois par le cockpit et par les routes de facturation :
 // c'est le seul point de création d'une société, pour garder une seule logique.
+//
+// email sert à identifier la société dans le Table Editor Supabase avant même
+// tout abonnement Stripe (name et billing_email affichent l'email du client dès
+// la création, au lieu d'attendre le webhook checkout.session.completed).
 export async function getOrCreateCompanyForBilling(
   supabase: SupabaseClient,
-  userId: string
+  userId: string,
+  email: string | null | undefined
 ): Promise<CompanyBilling> {
   const { data: existing, error: selectError } = await supabase
     .from("companies")
@@ -52,7 +57,12 @@ export async function getOrCreateCompanyForBilling(
   // au niveau du schéma), donc aucune n'est bloquée rétroactivement.
   const { data: created, error: insertError } = await supabase
     .from("companies")
-    .insert({ owner_id: userId, name: "Ma société", access_enabled: false })
+    .insert({
+      owner_id: userId,
+      name: email || "Ma société",
+      billing_email: email || null,
+      access_enabled: false,
+    })
     .select(BILLING_COLUMNS)
     .single();
   if (insertError) throw insertError;
