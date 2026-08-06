@@ -213,3 +213,19 @@ create policy "Accès société" on recurring_income
   for all
   using (company_id in (select id from companies where owner_id = auth.uid()))
   with check (company_id in (select id from companies where owner_id = auth.uid()));
+
+-- Migration additive : informations d'abonnement Stripe au niveau de la société
+-- (branche stripe-billing). Toutes les colonnes sont nullable sauf access_enabled,
+-- qui vaut true par défaut pour ne bloquer aucune société existante. Rien n'est
+-- supprimé ni renommé. Écrite par le webhook Stripe via la clé service_role
+-- (RLS ci-dessus ne s'applique pas à cette clé, donc pas de policy à ajouter).
+alter table companies add column if not exists stripe_customer_id text;
+alter table companies add column if not exists stripe_subscription_id text;
+alter table companies add column if not exists subscription_status text;
+alter table companies add column if not exists subscription_plan text;
+alter table companies add column if not exists subscription_current_period_end timestamptz;
+alter table companies add column if not exists billing_email text;
+alter table companies add column if not exists access_enabled boolean not null default true;
+
+create index if not exists idx_companies_stripe_customer on companies(stripe_customer_id);
+create index if not exists idx_companies_stripe_subscription on companies(stripe_subscription_id);

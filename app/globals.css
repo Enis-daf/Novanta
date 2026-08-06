@@ -863,3 +863,66 @@ input[type="checkbox"] {
 .btn-deconnexion:hover {
   background: var(--couleur-fond);
 }
+
+.billing-page {
+  min-height: 100vh;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.billing-page__header {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.billing-page__email {
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.billing-card {
+  width: 100%;
+  max-width: 480px;
+  background: #fff;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 10px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.billing-card h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+.billing-status {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.billing-status dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--couleur-texte-secondaire);
+}
+
+.billing-status dd {
+  margin: 0;
+  font-size: 14px;
+}
+
+.billing-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
