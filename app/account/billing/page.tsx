@@ -20,6 +20,8 @@ const LIBELLES_STATUT: Record<string, string> = {
 
 const STATUTS_ABONNEMENT_ACTIF = new Set(["active", "trialing"]);
 
+const LIBELLE_PLAN = "Novanta — 9,99 € / mois";
+
 function libelleStatut(statut: string | null): string {
   if (!statut) return "Aucun abonnement";
   return LIBELLES_STATUT[statut] ?? statut;
@@ -166,7 +168,7 @@ function BillingPageContent() {
               {company?.subscriptionPlan && (
                 <>
                   <dt>Plan</dt>
-                  <dd>{company.subscriptionPlan}</dd>
+                  <dd>{LIBELLE_PLAN}</dd>
                 </>
               )}
 
