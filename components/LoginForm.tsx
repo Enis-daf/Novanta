@@ -5,6 +5,9 @@ import { supabase } from "@/lib/supabaseClient";
 
 export default function LoginForm() {
   const [mode, setMode] = useState<"connexion" | "creation">("connexion");
+  const [prenom, setPrenom] = useState("");
+  const [nom, setNom] = useState("");
+  const [entreprise, setEntreprise] = useState("");
   const [email, setEmail] = useState("");
   const [motDePasse, setMotDePasse] = useState("");
   const [erreur, setErreur] = useState<string | null>(null);
@@ -15,20 +18,41 @@ export default function LoginForm() {
     e.preventDefault();
     setErreur(null);
     setInfo(null);
-    setEnCours(true);
 
     if (mode === "connexion") {
+      setEnCours(true);
       const { error } = await supabase!.auth.signInWithPassword({ email, password: motDePasse });
       if (error) setErreur(error.message);
-    } else {
-      const { data, error } = await supabase!.auth.signUp({ email, password: motDePasse });
-      if (error) {
-        setErreur(error.message);
-      } else if (!data.session) {
-        setInfo("Compte créé. Vérifiez votre email pour confirmer votre compte avant de vous connecter.");
-      }
+      setEnCours(false);
+      return;
     }
 
+    const prenomNettoye = prenom.trim();
+    const nomNettoye = nom.trim();
+    const entrepriseNettoyee = entreprise.trim();
+
+    if (!prenomNettoye || !nomNettoye || !entrepriseNettoyee) {
+      setErreur("Prénom, nom et entreprise sont obligatoires.");
+      return;
+    }
+
+    setEnCours(true);
+    const { data, error } = await supabase!.auth.signUp({
+      email,
+      password: motDePasse,
+      options: {
+        data: {
+          first_name: prenomNettoye,
+          last_name: nomNettoye,
+          company_name: entrepriseNettoyee,
+        },
+      },
+    });
+    if (error) {
+      setErreur(error.message);
+    } else if (!data.session) {
+      setInfo("Compte créé. Vérifiez votre email pour confirmer votre compte avant de vous connecter.");
+    }
     setEnCours(false);
   };
 
@@ -39,6 +63,31 @@ export default function LoginForm() {
         <p className="login-subtitle">
           {mode === "connexion" ? "Connectez-vous à votre société" : "Créez votre compte"}
         </p>
+
+        {mode === "creation" && (
+          <>
+            <label htmlFor="login-prenom">Prénom</label>
+            <input
+              id="login-prenom"
+              type="text"
+              required
+              value={prenom}
+              onChange={(e) => setPrenom(e.target.value)}
+            />
+
+            <label htmlFor="login-nom">Nom</label>
+            <input id="login-nom" type="text" required value={nom} onChange={(e) => setNom(e.target.value)} />
+
+            <label htmlFor="login-entreprise">Entreprise</label>
+            <input
+              id="login-entreprise"
+              type="text"
+              required
+              value={entreprise}
+              onChange={(e) => setEntreprise(e.target.value)}
+            />
+          </>
+        )}
 
         <label htmlFor="login-email">Email</label>
         <input

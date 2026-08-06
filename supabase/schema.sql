@@ -229,3 +229,9 @@ alter table companies add column if not exists access_enabled boolean not null d
 
 create index if not exists idx_companies_stripe_customer on companies(stripe_customer_id);
 create index if not exists idx_companies_stripe_subscription on companies(stripe_subscription_id);
+
+-- Migration additive : prénom et nom de la personne responsable de la société,
+-- saisis au formulaire d'inscription (branche stripe-billing). Nullable : les
+-- comptes déjà existants gardent first_name/last_name à null, sans être bloqués.
+alter table companies add column if not exists first_name text;
+alter table companies add column if not exists last_name text;

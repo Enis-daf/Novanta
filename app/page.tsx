@@ -175,7 +175,7 @@ export default function Home() {
     setDonneesChargees(false);
 
     (async () => {
-      const company = await getOrCreateCompanyForBilling(supabase!, session.user.id, session.user.email);
+      const company = await getOrCreateCompanyForBilling(supabase!, session.user);
       if (annule) return;
 
       if (!company.accessEnabled) {

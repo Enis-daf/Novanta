@@ -1,8 +1,10 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 export interface CompanyBilling {
   id: string;
   name: string;
+  firstName: string | null;
+  lastName: string | null;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
   subscriptionStatus: string | null;
@@ -13,7 +15,7 @@ export interface CompanyBilling {
 }
 
 const BILLING_COLUMNS =
-  "id, name, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_plan, subscription_current_period_end, billing_email, access_enabled";
+  "id, name, first_name, last_name, stripe_customer_id, stripe_subscription_id, subscription_status, subscription_plan, subscription_current_period_end, billing_email, access_enabled";
 
 type Row = Record<string, unknown>;
 
@@ -21,6 +23,8 @@ function rowToCompanyBilling(row: Row): CompanyBilling {
   return {
     id: row.id as string,
     name: row.name as string,
+    firstName: (row.first_name as string | null) ?? null,
+    lastName: (row.last_name as string | null) ?? null,
     stripeCustomerId: (row.stripe_customer_id as string | null) ?? null,
     stripeSubscriptionId: (row.stripe_subscription_id as string | null) ?? null,
     subscriptionStatus: (row.subscription_status as string | null) ?? null,
@@ -31,25 +35,33 @@ function rowToCompanyBilling(row: Row): CompanyBilling {
   };
 }
 
+function metadataString(metadata: Record<string, unknown> | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 // Récupère la société de l'utilisateur connecté, ou la crée si c'est sa première
-// connexion. Utilisée à la fois par le cockpit et par les routes de facturation :
-// c'est le seul point de création d'une société, pour garder une seule logique.
+// connexion confirmée. Utilisée à la fois par le cockpit et par les routes de
+// facturation : c'est le seul point de création d'une société, pour garder une
+// seule logique.
 //
-// email sert à identifier la société dans le Table Editor Supabase avant même
-// tout abonnement Stripe (name et billing_email affichent l'email du client dès
-// la création, au lieu d'attendre le webhook checkout.session.completed).
-export async function getOrCreateCompanyForBilling(
-  supabase: SupabaseClient,
-  userId: string,
-  email: string | null | undefined
-): Promise<CompanyBilling> {
+// Prénom/nom/nom d'entreprise sont saisis au formulaire d'inscription et transitent
+// via user_metadata (options.data du signUp) le temps que l'email soit confirmé —
+// la ligne companies elle-même ne peut être créée qu'une fois la session active
+// (RLS), donc à cette première connexion confirmée, jamais avant, jamais en double.
+export async function getOrCreateCompanyForBilling(supabase: SupabaseClient, user: User): Promise<CompanyBilling> {
   const { data: existing, error: selectError } = await supabase
     .from("companies")
     .select(BILLING_COLUMNS)
-    .eq("owner_id", userId)
+    .eq("owner_id", user.id)
     .maybeSingle();
   if (selectError) throw selectError;
   if (existing) return rowToCompanyBilling(existing);
+
+  const metadata = user.user_metadata as Record<string, unknown> | undefined;
+  const firstName = metadataString(metadata, "first_name");
+  const lastName = metadataString(metadata, "last_name");
+  const companyName = metadataString(metadata, "company_name") ?? user.email ?? "Ma société";
 
   // access_enabled démarre à false pour toute nouvelle société : l'accès n'est
   // accordé qu'après un abonnement actif confirmé par le webhook Stripe. Les
@@ -58,9 +70,11 @@ export async function getOrCreateCompanyForBilling(
   const { data: created, error: insertError } = await supabase
     .from("companies")
     .insert({
-      owner_id: userId,
-      name: email || "Ma société",
-      billing_email: email || null,
+      owner_id: user.id,
+      name: companyName,
+      first_name: firstName,
+      last_name: lastName,
+      billing_email: user.email || null,
       access_enabled: false,
     })
     .select(BILLING_COLUMNS)

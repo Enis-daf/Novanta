@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   const { supabase, user } = auth;
 
   try {
-    const company = await getOrCreateCompanyForBilling(supabase, user.id, user.email);
+    const company = await getOrCreateCompanyForBilling(supabase, user);
 
     if (!company.stripeCustomerId) {
       return NextResponse.json({ error: "Aucun client Stripe associé à ce compte." }, { status: 400 });
