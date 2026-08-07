@@ -81,6 +81,13 @@ function persist(action: () => Promise<void>) {
   action().catch((error) => console.error("Échec de la sauvegarde Supabase :", error));
 }
 
+// Détecte la violation de clé étrangère companies_owner_id_fkey (le compte de
+// connexion n'existe plus), pour la distinguer d'une simple erreur technique.
+function estErreurUtilisateurSupprime(error: unknown): boolean {
+  const err = error as { code?: string; message?: string } | null;
+  return err?.code === "23503" && Boolean(err.message?.toLowerCase().includes("owner_id"));
+}
+
 export default function Home() {
   const router = useRouter();
   const minuteursDebounce = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -98,8 +105,12 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [sessionChargee, setSessionChargee] = useState(!supabaseConfigured);
   const [companyId, setCompanyId] = useState<string | null>(null);
-  // null = pas encore déterminé, true = abonnement actif, false = accès refusé (redirection en cours)
-  const [accesAutorise, setAccesAutorise] = useState<boolean | null>(!supabaseConfigured ? true : null);
+  // "verification" (par défaut, fail-closed) : le cockpit ne s'affiche jamais tant
+  // qu'on n'est pas passé explicitement à "autorise" — jamais par défaut/erreur.
+  const [etatAcces, setEtatAcces] = useState<"verification" | "autorise" | "refuse" | "erreur">(
+    !supabaseConfigured ? "autorise" : "verification"
+  );
+  const [tentativeVerification, setTentativeVerification] = useState(0);
   const [donneesChargees, setDonneesChargees] = useState(!supabaseConfigured);
 
   const [soldeInitial, setSoldeInitial] = useState(SOLDE_BANCAIRE_INITIAL);
@@ -166,24 +177,37 @@ export default function Home() {
 
     if (!session) {
       setCompanyId(null);
-      setAccesAutorise(null);
+      setEtatAcces("verification");
       setDonneesChargees(false);
       return;
     }
 
     let annule = false;
+    setEtatAcces("verification");
     setDonneesChargees(false);
 
     (async () => {
-      const company = await getOrCreateCompanyForBilling(supabase!, session.user);
+      // Ne jamais faire confiance à la seule présence d'une session en localStorage :
+      // getUser() revérifie réellement auprès de Supabase que le compte existe
+      // encore et que le token est valide, contrairement à getSession() qui ne
+      // fait que relire le stockage local.
+      const { data: userData, error: userError } = await supabase!.auth.getUser();
+      if (annule) return;
+
+      if (userError || !userData.user) {
+        await supabase!.auth.signOut();
+        return;
+      }
+
+      const company = await getOrCreateCompanyForBilling(supabase!, userData.user);
       if (annule) return;
 
       if (!company.accessEnabled) {
-        setAccesAutorise(false);
+        setEtatAcces("refuse");
         router.replace("/account/billing");
         return;
       }
-      setAccesAutorise(true);
+      setEtatAcces("autorise");
 
       const donnees = await chargerOuInitialiserDonnees(company.id);
       if (annule) return;
@@ -199,14 +223,22 @@ export default function Home() {
       setRentreesRegulieres(donnees.rentreesRegulieres);
       setDonneesChargees(true);
     })().catch((error) => {
-      console.error("Échec du chargement Supabase :", error);
-      setDonneesChargees(true);
+      if (annule) return;
+      console.error("Échec de la vérification d'accès :", error);
+      // Le compte a pu être supprimé entre-temps (violation de la clé étrangère
+      // owner_id -> auth.users lors de la création de la société) : on traite ça
+      // comme une session invalide, pas comme une simple erreur technique.
+      if (estErreurUtilisateurSupprime(error)) {
+        supabase!.auth.signOut().catch(() => {});
+        return;
+      }
+      setEtatAcces("erreur");
     });
 
     return () => {
       annule = true;
     };
-  }, [session, router]);
+  }, [session, router, tentativeVerification]);
 
   const resultat = useMemo(
     () =>
@@ -532,10 +564,32 @@ export default function Home() {
     return <LoginForm />;
   }
 
-  if (supabaseConfigured && accesAutorise === false) {
+  if (supabaseConfigured && etatAcces === "verification") {
+    return <main className="cockpit-chargement">Vérification de votre accès…</main>;
+  }
+
+  if (supabaseConfigured && etatAcces === "refuse") {
     return <main className="cockpit-chargement">Redirection vers la page d&apos;abonnement…</main>;
   }
 
+  if (supabaseConfigured && etatAcces === "erreur") {
+    return (
+      <main className="cockpit-chargement cockpit-erreur-acces">
+        <p>Impossible de vérifier votre accès pour le moment. Veuillez réessayer.</p>
+        <div className="cockpit-erreur-acces__actions">
+          <button type="button" className="btn-add" onClick={() => setTentativeVerification((t) => t + 1)}>
+            Réessayer
+          </button>
+          <button type="button" className="btn-secondaire" onClick={() => supabase!.auth.signOut()}>
+            Se déconnecter
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  // À partir d'ici, etatAcces === "autorise" (fail-closed : tout autre état est
+  // déjà intercepté ci-dessus, jamais de cockpit sans vérification réussie).
   if (supabaseConfigured && !donneesChargees) {
     return <main className="cockpit-chargement">Chargement des données…</main>;
   }

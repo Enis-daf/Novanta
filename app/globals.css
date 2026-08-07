@@ -263,6 +263,18 @@ input[type="checkbox"] {
   font-size: 14px;
 }
 
+.cockpit-erreur-acces {
+  flex-direction: column;
+  gap: 14px;
+  text-align: center;
+  padding: 20px;
+}
+
+.cockpit-erreur-acces__actions {
+  display: flex;
+  gap: 10px;
+}
+
 .dashboard {
   display: flex;
   flex-direction: column;
