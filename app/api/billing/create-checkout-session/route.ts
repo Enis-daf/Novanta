@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripe, stripeConfigured } from "@/lib/stripe";
 import { requireUser } from "@/lib/supabaseServer";
+import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseAdmin";
 import { getOrCreateCompanyForBilling, setStripeCustomerId } from "@/lib/billing";
 
 // La company de l'utilisateur connecté est toujours dérivée de son token (jamais
@@ -18,6 +19,9 @@ export async function POST(req: NextRequest) {
   }
   if (!appUrl) {
     return NextResponse.json({ error: "NEXT_PUBLIC_APP_URL n'est pas configuré." }, { status: 500 });
+  }
+  if (!supabaseAdminConfigured || !supabaseAdmin) {
+    return NextResponse.json({ error: "Supabase (service_role) n'est pas configuré." }, { status: 500 });
   }
 
   const auth = await requireUser(req);
@@ -37,7 +41,10 @@ export async function POST(req: NextRequest) {
         metadata: { company_id: company.id, user_id: user.id },
       });
       customerId = customer.id;
-      await setStripeCustomerId(supabase, company.id, customerId);
+      // stripe_customer_id est une colonne protégée (migration
+      // 20260806_restrict_billing_columns_and_access_default) : seule la clé
+      // service_role peut l'écrire, jamais la connexion de l'utilisateur.
+      await setStripeCustomerId(supabaseAdmin, company.id, customerId);
     }
 
     const session = await stripe.checkout.sessions.create({
