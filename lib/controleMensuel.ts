@@ -1,5 +1,6 @@
 import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, ajouterMois, estDateValide, parseDateISO } from "./dates";
+import { montantEffectifChargeFixe } from "./montantCalcule";
 import {
   AutreDepense,
   ChargeFixe,
@@ -137,9 +138,11 @@ export function calculerControleMensuel(
   }
 
   for (const c of params.chargesFixes) {
+    const montant = montantEffectifChargeFixe(c, params.chargesFixes, params.rentreesRegulieres);
+    if (montant === null) continue; // source indisponible : ligne exclue
     for (const occ of genererOccurrencesRecurrentes(c.datePrevue, c.recurrence, c.dateFin, fin)) {
       if (!dansPeriode(occ, debut, fin)) continue;
-      ajouterAuMois(totaux, occ, c.montant, "sortie");
+      ajouterAuMois(totaux, occ, montant, "sortie");
     }
   }
 

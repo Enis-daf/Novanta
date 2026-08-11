@@ -109,6 +109,38 @@ alter table fixed_charges alter column recurrence set default 'mensuel';
 alter table fixed_charges add constraint fixed_charges_recurrence_check
   check (recurrence in ('ponctuel', 'quotidien', 'hebdomadaire', 'mensuel'));
 
+-- Migration additive et non destructive : ajoute le support du "Montant calculé" pour les
+-- Charges fixes uniquement (Rentrées régulières non concernées). Toutes les colonnes sont
+-- nouvelles, nullables ou par défaut ; aucune colonne existante n'est modifiée ; aucune ligne
+-- existante n'est touchée. Les charges fixes existantes reçoivent mode_montant = 'fixe' par
+-- défaut et continuent de fonctionner exactement comme avant.
+--
+-- Pas de contrainte de clé étrangère sur source_calcul_id : elle peut référencer soit
+-- fixed_charges(id) soit recurring_income(id) selon source_calcul_type (deux tables
+-- différentes). La protection contre la suppression d'une ligne source utilisée, et
+-- l'interdiction d'utiliser une charge déjà calculée comme source, sont appliquées côté
+-- application (comme le reste du modèle de données, qui n'a aucune FK inter-entités).
+--
+-- La contrainte ci-dessous n'impose la cohérence que dans un sens : en mode "fixe", pas de
+-- taux ni de source. Elle n'impose PAS que taux_calcul/source_calcul_id soient renseignés dès
+-- le passage en mode "calcule", car l'application enregistre chaque champ au fil de la saisie
+-- (comme pour tous les autres champs de cette table) — une ligne "calcule" incomplète est
+-- traitée comme un montant indisponible côté applicatif, jamais comme une erreur bloquante.
+alter table fixed_charges add column if not exists mode_montant text not null default 'fixe'
+  check (mode_montant in ('fixe', 'calcule'));
+alter table fixed_charges add column if not exists taux_calcul numeric;
+alter table fixed_charges add column if not exists source_calcul_id uuid;
+alter table fixed_charges add column if not exists source_calcul_type text
+  check (source_calcul_type in ('charge_fixe', 'rentree_reguliere'));
+alter table fixed_charges drop constraint if exists fixed_charges_mode_montant_coherent;
+alter table fixed_charges add constraint fixed_charges_mode_montant_coherent check (
+  mode_montant != 'fixe' or (taux_calcul is null and source_calcul_id is null and source_calcul_type is null)
+);
+alter table fixed_charges drop constraint if exists fixed_charges_source_calcul_pas_soi_meme;
+alter table fixed_charges add constraint fixed_charges_source_calcul_pas_soi_meme check (
+  source_calcul_type is distinct from 'charge_fixe' or source_calcul_id is distinct from id
+);
+
 create table if not exists other_expenses (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,

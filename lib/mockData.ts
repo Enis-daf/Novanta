@@ -208,6 +208,10 @@ export const mockChargesFixes: ChargeFixe[] = [
     datePrevue: addDays(today, 1),
     recurrence: "mensuel",
     dateFin: null,
+    modeMontant: "fixe",
+    tauxCalcul: null,
+    sourceCalculId: null,
+    sourceCalculType: null,
   },
   {
     id: "cf-2",
@@ -216,6 +220,10 @@ export const mockChargesFixes: ChargeFixe[] = [
     datePrevue: addDays(today, 2),
     recurrence: "mensuel",
     dateFin: null,
+    modeMontant: "fixe",
+    tauxCalcul: null,
+    sourceCalculId: null,
+    sourceCalculType: null,
   },
   {
     id: "cf-3",
@@ -224,6 +232,10 @@ export const mockChargesFixes: ChargeFixe[] = [
     datePrevue: addDays(today, 5),
     recurrence: "mensuel",
     dateFin: null,
+    modeMontant: "fixe",
+    tauxCalcul: null,
+    sourceCalculId: null,
+    sourceCalculType: null,
   },
   {
     id: "cf-4",
@@ -232,6 +244,10 @@ export const mockChargesFixes: ChargeFixe[] = [
     datePrevue: addDays(today, 40),
     recurrence: "ponctuel",
     dateFin: null,
+    modeMontant: "fixe",
+    tauxCalcul: null,
+    sourceCalculId: null,
+    sourceCalculType: null,
   },
 ];
 

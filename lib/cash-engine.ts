@@ -8,6 +8,7 @@ import {
   SoldeJournalier,
 } from "./types";
 import { ajouterJours, ajouterMois, estDateValide, parseDateISO, toISODate } from "./dates";
+import { montantEffectifChargeFixe } from "./montantCalcule";
 
 export const HORIZON_JOURS_DEFAUT = 90;
 
@@ -105,8 +106,10 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
   }
 
   for (const charge of chargesFixes) {
+    const montant = montantEffectifChargeFixe(charge, chargesFixes, rentreesRegulieres);
+    if (montant === null) continue; // source indisponible : ligne exclue du calcul
     for (const occurrence of genererOccurrencesRecurrentes(charge.datePrevue, charge.recurrence, charge.dateFin, fin)) {
-      enregistrerFlux(toISODate(occurrence), -charge.montant);
+      enregistrerFlux(toISODate(occurrence), -montant);
     }
   }
 

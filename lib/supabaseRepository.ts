@@ -135,6 +135,10 @@ function chargeFixeToRow(companyId: string, c: ChargeFixe): Row {
     date_prevue: dateOuNull(c.datePrevue),
     recurrence: c.recurrence,
     date_fin: c.dateFin,
+    mode_montant: c.modeMontant,
+    taux_calcul: c.tauxCalcul,
+    source_calcul_id: c.sourceCalculId,
+    source_calcul_type: c.sourceCalculType,
   };
 }
 
@@ -146,6 +150,11 @@ function rowToChargeFixe(row: Row): ChargeFixe {
     datePrevue: (row.date_prevue as string | null) ?? "",
     recurrence: row.recurrence as ChargeFixe["recurrence"],
     dateFin: (row.date_fin as string | null) ?? null,
+    // Colonnes absentes sur une ligne créée avant la migration "montant calculé" : reste "fixe".
+    modeMontant: (row.mode_montant as ChargeFixe["modeMontant"] | undefined) ?? "fixe",
+    tauxCalcul: (row.taux_calcul as number | null | undefined) ?? null,
+    sourceCalculId: (row.source_calcul_id as string | null | undefined) ?? null,
+    sourceCalculType: (row.source_calcul_type as ChargeFixe["sourceCalculType"] | undefined) ?? null,
   };
 }
 

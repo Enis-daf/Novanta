@@ -1,5 +1,6 @@
 import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO, toISODate } from "./dates";
+import { montantEffectifChargeFixe } from "./montantCalcule";
 import {
   AutreDepense,
   ChargeFixe,
@@ -76,11 +77,12 @@ function itemSimple<T extends { id: string; montant: number }>(
   return { parId, totalSigne };
 }
 
-function itemRecurrent<T extends { id: string; montant: number }>(
+function itemRecurrent<T extends { id: string }>(
   items: T[],
   dateDebutDe: (item: T) => string,
   frequenceDe: (item: T) => Parameters<typeof genererOccurrencesRecurrentes>[1],
   dateFinDe: (item: T) => string | null,
+  montantDe: (item: T) => number | null,
   signe: 1 | -1,
   debut: Date,
   fin: Date
@@ -96,7 +98,9 @@ function itemRecurrent<T extends { id: string; montant: number }>(
     ).filter((d) => dansPeriode(d, debut, fin));
     if (occurrences.length === 0) continue;
     parId.set(item.id, occurrences.map(toISODate));
-    totalSigne += signe * item.montant * occurrences.length;
+    const montant = montantDe(item);
+    if (montant === null) continue; // source indisponible : occurrences affichées, montant exclu du résumé
+    totalSigne += signe * montant * occurrences.length;
   }
   return { parId, totalSigne };
 }
@@ -175,6 +179,7 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
     (c) => c.datePrevue,
     (c) => c.recurrence,
     (c) => c.dateFin,
+    (c) => montantEffectifChargeFixe(c, params.chargesFixes, params.rentreesRegulieres),
     -1,
     debut,
     fin
@@ -184,6 +189,7 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
     (r) => r.dateDebut,
     (r) => r.frequence,
     (r) => r.dateFin,
+    (r) => r.montant,
     1,
     debut,
     fin

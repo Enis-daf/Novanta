@@ -1,5 +1,6 @@
 import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO } from "./dates";
+import { montantEffectifChargeFixe } from "./montantCalcule";
 import {
   AutreDepense,
   ChargeFixe,
@@ -149,12 +150,19 @@ function occurrencesRentreesRegulieres(rentrees: RentreeReguliere[], debut: Date
   return res;
 }
 
-function occurrencesChargesFixes(charges: ChargeFixe[], debut: Date, fin: Date): Occurrence[] {
+function occurrencesChargesFixes(
+  charges: ChargeFixe[],
+  rentreesRegulieres: RentreeReguliere[],
+  debut: Date,
+  fin: Date
+): Occurrence[] {
   const res: Occurrence[] = [];
   for (const c of charges) {
+    const montant = montantEffectifChargeFixe(c, charges, rentreesRegulieres);
+    if (montant === null) continue; // source indisponible : ligne exclue
     for (const occ of genererOccurrencesRecurrentes(c.datePrevue, c.recurrence, c.dateFin, fin)) {
       if (!dansHorizon(occ, debut, fin)) continue;
-      res.push({ date: occ, montant: -c.montant });
+      res.push({ date: occ, montant: -montant });
     }
   }
   return res;
@@ -190,7 +198,7 @@ export function calculerSyntheseMensuelle(params: ParametresSyntheseMensuelle): 
     ligne("Rentrées régulières", occurrencesRentreesRegulieres(rentreesRegulieres, debut, fin), mois),
     ligne("Financements", occurrencesFinancements(financements, debut, fin), mois),
     ligne("Factures fournisseurs", occurrencesFacturesFournisseurs(facturesFournisseurs, debut, fin), mois),
-    ligne("Charges fixes", occurrencesChargesFixes(chargesFixes, debut, fin), mois),
+    ligne("Charges fixes", occurrencesChargesFixes(chargesFixes, rentreesRegulieres, debut, fin), mois),
     ligne("Autres dépenses", occurrencesAutresDepenses(autresDepenses, debut, fin), mois),
   ];
 
