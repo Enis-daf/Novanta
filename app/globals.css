@@ -906,7 +906,7 @@ input[type="checkbox"] {
 
 .rentree-saisonnalite__aide {
   position: absolute;
-  top: 28px;
+  top: 52px; /* champ Date de début (~22px) + l'espace d'une cellule de plus qu'avant */
   left: 0;
   width: 340px;
   margin: 0;
