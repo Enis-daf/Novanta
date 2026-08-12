@@ -137,6 +137,35 @@ export function libelleSourceCalcul(
   return resoudreSourceCalcul(charge, chargesFixes, rentreesRegulieres)?.libelle ?? null;
 }
 
+/**
+ * Message affiché quand le montant d'une charge calculée est indisponible. Diagnostic de
+ * présentation uniquement : il ne fait que ré-interroger les mêmes signaux (taux, source,
+ * frequenceCompatible) que montantOccurrenceChargeFixe pour choisir le message le plus précis
+ * possible — il ne duplique ni ne modifie aucune règle de calcul ou de compatibilité.
+ */
+export function messageMontantIndisponible(
+  charge: ChargeFixe,
+  chargesFixes: ChargeFixe[],
+  rentreesRegulieres: RentreeReguliere[]
+): string {
+  if (charge.tauxCalcul === null || !Number.isFinite(charge.tauxCalcul)) {
+    return "Le taux doit être compris entre 0 et 100 %.";
+  }
+
+  const { sourceCalculId, sourceCalculType } = charge;
+  if (sourceCalculId && sourceCalculType) {
+    const frequenceSource =
+      sourceCalculType === "charge_fixe"
+        ? chargesFixes.find((c) => c.id === sourceCalculId)?.recurrence
+        : rentreesRegulieres.find((r) => r.id === sourceCalculId)?.frequence;
+    if (frequenceSource && !frequenceCompatible(frequenceSource, charge.recurrence)) {
+      return "Source incompatible : elle doit être au moins aussi fréquente que la charge calculée.";
+    }
+  }
+
+  return "Vérifier le taux, la récurrence et la source.";
+}
+
 /** Charges fixes calculées dépendant d'une ligne source donnée (charge fixe ou rentrée régulière). */
 export function chargesUtilisantCommeSource(
   sourceType: TypeSourceCalculChargeFixe,

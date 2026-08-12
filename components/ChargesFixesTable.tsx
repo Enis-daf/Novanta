@@ -6,7 +6,12 @@ import { formatDateCourte, trierParDate, trierParMontant } from "@/lib/dates";
 import { formatMontant } from "@/lib/format";
 import { filtrerChargesFixes } from "@/lib/recherche";
 import { OccurrencesParId } from "@/lib/periodeFiltre";
-import { libelleSourceCalcul, montantApercuChargeFixe, optionsSourceDisponibles } from "@/lib/montantCalcule";
+import {
+  libelleSourceCalcul,
+  messageMontantIndisponible,
+  montantApercuChargeFixe,
+  optionsSourceDisponibles,
+} from "@/lib/montantCalcule";
 import DateField from "./DateField";
 import SourceCalculSelect from "./SourceCalculSelect";
 import IconCalculatrice from "./IconCalculatrice";
@@ -132,7 +137,7 @@ export default function ChargesFixesTable({
                     </div>
                     {montantCalcule === null ? (
                       <p className="charge-calcul__indisponible">
-                        Montant indisponible — vérifiez le taux et la source
+                        {messageMontantIndisponible(charge, charges, rentreesRegulieres)}
                       </p>
                     ) : (
                       <>
