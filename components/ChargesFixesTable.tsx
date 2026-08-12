@@ -1,14 +1,24 @@
 "use client";
 
 import { useMemo } from "react";
-import { ChargeFixe, TriMode } from "@/lib/types";
+import { ChargeFixe, RentreeReguliere, TriMode } from "@/lib/types";
 import { formatDateCourte, trierParDate, trierParMontant } from "@/lib/dates";
+import { formatMontant } from "@/lib/format";
 import { filtrerChargesFixes } from "@/lib/recherche";
 import { OccurrencesParId } from "@/lib/periodeFiltre";
+import {
+  libelleSourceCalcul,
+  messageMontantIndisponible,
+  montantApercuChargeFixe,
+  optionsSourceDisponibles,
+} from "@/lib/montantCalcule";
 import DateField from "./DateField";
+import SourceCalculSelect from "./SourceCalculSelect";
+import IconCalculatrice from "./IconCalculatrice";
 
 interface ChargesFixesTableProps {
   charges: ChargeFixe[];
+  rentreesRegulieres: RentreeReguliere[];
   onChange: (id: string, patch: Partial<ChargeFixe>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
@@ -19,6 +29,7 @@ interface ChargesFixesTableProps {
 
 export default function ChargesFixesTable({
   charges,
+  rentreesRegulieres,
   onChange,
   onAdd,
   onRemove,
@@ -30,9 +41,9 @@ export default function ChargesFixesTable({
     const dansPeriode = filtrePeriode ? charges.filter((c) => filtrePeriode.has(c.id)) : charges;
     const filtrees = filtrerChargesFixes(dansPeriode, recherche);
     return tri === "montant"
-      ? trierParMontant(filtrees, (c) => c.montant)
+      ? trierParMontant(filtrees, (c) => montantApercuChargeFixe(c, charges, rentreesRegulieres) ?? Number.NaN)
       : trierParDate(filtrees, (c) => c.datePrevue);
-  }, [charges, recherche, tri, filtrePeriode]);
+  }, [charges, rentreesRegulieres, recherche, tri, filtrePeriode]);
 
   const filtreActif = !!recherche || !!filtrePeriode;
 
@@ -56,6 +67,11 @@ export default function ChargesFixesTable({
         <tbody>
           {chargesTriees.map((charge) => {
             const occurrences = filtrePeriode?.get(charge.id);
+            const estCalculee = charge.modeMontant === "calcule";
+            const montantCalcule = estCalculee
+              ? montantApercuChargeFixe(charge, charges, rentreesRegulieres)
+              : null;
+            const sourceLibelle = estCalculee ? libelleSourceCalcul(charge, charges, rentreesRegulieres) : null;
             return (
             <tr key={charge.id}>
               <td>
@@ -70,12 +86,74 @@ export default function ChargesFixesTable({
                   </p>
                 )}
               </td>
-              <td className="col-montant">
-                <input
-                  type="number"
-                  value={charge.montant}
-                  onChange={(e) => onChange(charge.id, { montant: Number(e.target.value) })}
-                />
+              <td className={`col-montant ${estCalculee ? "col-montant--calcule" : ""}`}>
+                <div className="mode-montant-toggle">
+                  <button
+                    type="button"
+                    className={charge.modeMontant === "fixe" ? "actif" : ""}
+                    onClick={() => onChange(charge.id, { modeMontant: "fixe" })}
+                  >
+                    Fixe
+                  </button>
+                  <button
+                    type="button"
+                    className={estCalculee ? "actif" : ""}
+                    onClick={() => onChange(charge.id, { modeMontant: "calcule" })}
+                  >
+                    Calculé
+                  </button>
+                </div>
+                {!estCalculee ? (
+                  <input
+                    type="number"
+                    value={charge.montant}
+                    onChange={(e) => onChange(charge.id, { montant: Number(e.target.value) })}
+                  />
+                ) : (
+                  <div className="charge-calcul">
+                    <div className="charge-calcul__regle">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="charge-calcul__taux"
+                        placeholder="—"
+                        value={charge.tauxCalcul ?? ""}
+                        onChange={(e) => {
+                          const valeur = e.target.value;
+                          onChange(charge.id, { tauxCalcul: valeur === "" ? null : Number(valeur) });
+                        }}
+                      />
+                      <span>% de</span>
+                      <SourceCalculSelect
+                        options={optionsSourceDisponibles(charge, charges, rentreesRegulieres)}
+                        valeur={
+                          charge.sourceCalculId && charge.sourceCalculType
+                            ? { type: charge.sourceCalculType, id: charge.sourceCalculId }
+                            : null
+                        }
+                        onChange={(type, id) => onChange(charge.id, { sourceCalculType: type, sourceCalculId: id })}
+                      />
+                    </div>
+                    {montantCalcule === null ? (
+                      <p className="charge-calcul__indisponible">
+                        {messageMontantIndisponible(charge, charges, rentreesRegulieres)}
+                      </p>
+                    ) : (
+                      <>
+                        <p
+                          className="charge-calcul__apercu"
+                          title={`Montant calculé : ${charge.tauxCalcul}% de ${sourceLibelle}`}
+                        >
+                          = {formatMontant(montantCalcule)} <IconCalculatrice />
+                        </p>
+                        <p className="charge-calcul__hint">
+                          Le montant se met à jour automatiquement lorsque {sourceLibelle} change.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
               </td>
               <td>
                 <DateField

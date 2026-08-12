@@ -1,3 +1,5 @@
+import { ChargeFixe, RentreeReguliere } from "./types";
+
 export function parseDateISO(dateStr: string): Date {
   return new Date(dateStr + "T00:00:00");
 }
@@ -33,6 +35,42 @@ export function todayISO(): string {
 
 export function estDateValide(dateStr: string | null | undefined): dateStr is string {
   return !!dateStr && !Number.isNaN(parseDateISO(dateStr).getTime());
+}
+
+export type FrequenceRecurrence = ChargeFixe["recurrence"] | RentreeReguliere["frequence"];
+
+/**
+ * Génère les dates d'occurrence d'une ligne récurrente entre sa date de début et la borne
+ * "fin" (bornée aussi par dateFin si elle est plus tôt). Partagé par le moteur de projection,
+ * la synthèse mensuelle, le contrôle mensuel, le bandeau de période et le moteur de montant
+ * calculé — c'est la seule source de vérité pour "quelles dates couvre cette ligne".
+ */
+export function genererOccurrencesRecurrentes(
+  dateDebut: string,
+  frequence: FrequenceRecurrence,
+  dateFin: string | null,
+  fin: Date
+): Date[] {
+  if (!estDateValide(dateDebut)) return [];
+
+  const debut = parseDateISO(dateDebut);
+  if (frequence === "ponctuel") return [debut];
+
+  const borneFin = dateFin && parseDateISO(dateFin) < fin ? parseDateISO(dateFin) : fin;
+  const pas =
+    frequence === "quotidien"
+      ? (d: Date) => ajouterJours(d, 1)
+      : frequence === "hebdomadaire"
+        ? (d: Date) => ajouterJours(d, 7)
+        : (d: Date) => ajouterMois(d, 1);
+
+  const occurrences: Date[] = [];
+  let curseur = debut;
+  while (curseur <= borneFin) {
+    occurrences.push(curseur);
+    curseur = pas(curseur);
+  }
+  return occurrences;
 }
 
 /** Trie une copie du tableau par date croissante (les dates absentes/invalides passent en dernier). */

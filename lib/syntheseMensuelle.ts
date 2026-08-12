@@ -1,5 +1,6 @@
 import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO } from "./dates";
+import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import {
   AutreDepense,
   ChargeFixe,
@@ -149,13 +150,22 @@ function occurrencesRentreesRegulieres(rentrees: RentreeReguliere[], debut: Date
   return res;
 }
 
-function occurrencesChargesFixes(charges: ChargeFixe[], debut: Date, fin: Date): Occurrence[] {
+function occurrencesChargesFixes(
+  charges: ChargeFixe[],
+  rentreesRegulieres: RentreeReguliere[],
+  debut: Date,
+  fin: Date
+): Occurrence[] {
   const res: Occurrence[] = [];
   for (const c of charges) {
-    for (const occ of genererOccurrencesRecurrentes(c.datePrevue, c.recurrence, c.dateFin, fin)) {
-      if (!dansHorizon(occ, debut, fin)) continue;
-      res.push({ date: occ, montant: -c.montant });
-    }
+    const occurrencesCharge = genererOccurrencesRecurrentes(c.datePrevue, c.recurrence, c.dateFin, fin);
+    occurrencesCharge.forEach((occ, index) => {
+      if (!dansHorizon(occ, debut, fin)) return;
+      const precedente = index > 0 ? occurrencesCharge[index - 1] : null;
+      const montant = montantOccurrenceChargeFixe(c, occ, precedente, charges, rentreesRegulieres, fin);
+      if (montant === null) return; // source indisponible : occurrence exclue
+      res.push({ date: occ, montant: -montant });
+    });
   }
   return res;
 }
@@ -190,7 +200,7 @@ export function calculerSyntheseMensuelle(params: ParametresSyntheseMensuelle): 
     ligne("Rentrées régulières", occurrencesRentreesRegulieres(rentreesRegulieres, debut, fin), mois),
     ligne("Financements", occurrencesFinancements(financements, debut, fin), mois),
     ligne("Factures fournisseurs", occurrencesFacturesFournisseurs(facturesFournisseurs, debut, fin), mois),
-    ligne("Charges fixes", occurrencesChargesFixes(chargesFixes, debut, fin), mois),
+    ligne("Charges fixes", occurrencesChargesFixes(chargesFixes, rentreesRegulieres, debut, fin), mois),
     ligne("Autres dépenses", occurrencesAutresDepenses(autresDepenses, debut, fin), mois),
   ];
 

@@ -22,13 +22,21 @@ export interface FactureFournisseur {
   paidAt: string | null; // ISO 8601 datetime — moment où "Payée" a été cochée
 }
 
+export type ModeMontantChargeFixe = "fixe" | "calcule";
+
+export type TypeSourceCalculChargeFixe = "charge_fixe" | "rentree_reguliere";
+
 export interface ChargeFixe {
   id: string;
   libelle: string;
-  montant: number;
+  montant: number; // montant fixe en mode "fixe" ; en mode "calcule", dernière valeur connue seulement — jamais lue par le moteur, voir lib/montantCalcule.ts
   datePrevue: string; // YYYY-MM-DD — première échéance
   recurrence: "ponctuel" | "quotidien" | "hebdomadaire" | "mensuel";
   dateFin: string | null; // YYYY-MM-DD — optionnelle, sinon jusqu'à J+90
+  modeMontant: ModeMontantChargeFixe;
+  tauxCalcul: number | null; // % — non nul uniquement en mode "calcule"
+  sourceCalculId: string | null; // id de la ligne source (ChargeFixe non calculée ou RentreeReguliere)
+  sourceCalculType: TypeSourceCalculChargeFixe | null;
 }
 
 export interface AutreDepense {

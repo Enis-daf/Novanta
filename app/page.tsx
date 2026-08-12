@@ -26,6 +26,12 @@ import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
 import { calculerControleMensuel } from "@/lib/controleMensuel";
 import { calculerFluxPeriode, calculerPeriodeFiltre } from "@/lib/periodeFiltre";
 import {
+  chargesUtilisantCommeSource,
+  messageBlocageConversion,
+  messageBlocageSuppression,
+  montantApercuChargeFixe,
+} from "@/lib/montantCalcule";
+import {
   filtrerAutresDepenses,
   filtrerChargesFixes,
   filtrerFacturesClients,
@@ -439,7 +445,34 @@ export default function Home() {
 
   const handleChangeChargeFixe = (id: string, patch: Partial<ChargeFixe>) => {
     setChargesFixes((prev) => {
-      const suivant = prev.map((c) => (c.id === id ? { ...c, ...patch } : c));
+      const courante = prev.find((c) => c.id === id);
+      if (!courante) return prev;
+
+      let patchApplique = patch;
+
+      if (patch.modeMontant === "calcule" && courante.modeMontant === "fixe") {
+        // Une charge déjà utilisée comme source ne peut pas devenir elle-même calculée
+        // (empêche toute chaîne de dépendances à 2 niveaux).
+        const dependantes = chargesUtilisantCommeSource("charge_fixe", id, prev);
+        if (dependantes.length > 0) {
+          window.alert(messageBlocageConversion(dependantes));
+          return prev;
+        }
+      }
+
+      if (patch.modeMontant === "fixe" && courante.modeMontant === "calcule") {
+        // Passage Calculé -> Fixe : fige le montant calculé courant et retire la dépendance.
+        const montantCourant = montantApercuChargeFixe(courante, prev, rentreesRegulieres);
+        patchApplique = {
+          ...patch,
+          montant: montantCourant ?? courante.montant,
+          tauxCalcul: null,
+          sourceCalculId: null,
+          sourceCalculType: null,
+        };
+      }
+
+      const suivant = prev.map((c) => (c.id === id ? { ...c, ...patchApplique } : c));
       const charge = suivant.find((c) => c.id === id);
       if (companyId && charge) {
         persistDebounce(`chargeFixe:${id}`, () => sauvegarderChargeFixe(companyId, charge));
@@ -456,12 +489,21 @@ export default function Home() {
       datePrevue: "",
       recurrence: "mensuel",
       dateFin: null,
+      modeMontant: "fixe",
+      tauxCalcul: null,
+      sourceCalculId: null,
+      sourceCalculType: null,
     };
     setChargesFixes((prev) => [...prev, charge]);
     if (companyId) persist(() => sauvegarderChargeFixe(companyId, charge));
   };
 
   const handleRemoveChargeFixe = (id: string) => {
+    const dependantes = chargesUtilisantCommeSource("charge_fixe", id, chargesFixes);
+    if (dependantes.length > 0) {
+      window.alert(messageBlocageSuppression(dependantes));
+      return;
+    }
     setChargesFixes((prev) => prev.filter((c) => c.id !== id));
     if (companyId) persist(() => supprimerChargeFixe(id));
   };
@@ -548,6 +590,11 @@ export default function Home() {
   };
 
   const handleRemoveRentreeReguliere = (id: string) => {
+    const dependantes = chargesUtilisantCommeSource("rentree_reguliere", id, chargesFixes);
+    if (dependantes.length > 0) {
+      window.alert(messageBlocageSuppression(dependantes));
+      return;
+    }
     setRentreesRegulieres((prev) => prev.filter((r) => r.id !== id));
     if (companyId) persist(() => supprimerRentreeReguliere(id));
   };
@@ -697,6 +744,7 @@ export default function Home() {
           />
           <ChargesFixesTable
             charges={chargesFixes}
+            rentreesRegulieres={rentreesRegulieres}
             onChange={handleChangeChargeFixe}
             onAdd={handleAddChargeFixe}
             onRemove={handleRemoveChargeFixe}
