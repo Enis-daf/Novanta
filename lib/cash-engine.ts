@@ -7,8 +7,8 @@ import {
   RentreeReguliere,
   SoldeJournalier,
 } from "./types";
-import { ajouterJours, ajouterMois, estDateValide, parseDateISO, toISODate } from "./dates";
-import { montantEffectifChargeFixe } from "./montantCalcule";
+import { ajouterJours, estDateValide, genererOccurrencesRecurrentes, parseDateISO, toISODate } from "./dates";
+import { montantOccurrenceChargeFixe } from "./montantCalcule";
 
 export const HORIZON_JOURS_DEFAUT = 90;
 
@@ -32,35 +32,10 @@ export interface ResultatProjectionCash {
   datePassageSousZero: string | null;
 }
 
-export type FrequenceRecurrence = ChargeFixe["recurrence"] | RentreeReguliere["frequence"];
-
-export function genererOccurrencesRecurrentes(
-  dateDebut: string,
-  frequence: FrequenceRecurrence,
-  dateFin: string | null,
-  fin: Date
-): Date[] {
-  if (!estDateValide(dateDebut)) return [];
-
-  const debut = parseDateISO(dateDebut);
-  if (frequence === "ponctuel") return [debut];
-
-  const borneFin = dateFin && parseDateISO(dateFin) < fin ? parseDateISO(dateFin) : fin;
-  const pas =
-    frequence === "quotidien"
-      ? (d: Date) => ajouterJours(d, 1)
-      : frequence === "hebdomadaire"
-        ? (d: Date) => ajouterJours(d, 7)
-        : (d: Date) => ajouterMois(d, 1);
-
-  const occurrences: Date[] = [];
-  let curseur = debut;
-  while (curseur <= borneFin) {
-    occurrences.push(curseur);
-    curseur = pas(curseur);
-  }
-  return occurrences;
-}
+// Ré-exporté pour compatibilité : la génération d'occurrences vit désormais dans lib/dates.ts
+// (déplacée pour éviter un import circulaire avec lib/montantCalcule.ts, qui en a aussi besoin).
+export { genererOccurrencesRecurrentes };
+export type { FrequenceRecurrence } from "./dates";
 
 export function calculerProjectionCash(params: ParametresProjectionCash): ResultatProjectionCash {
   const {
@@ -106,11 +81,13 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
   }
 
   for (const charge of chargesFixes) {
-    const montant = montantEffectifChargeFixe(charge, chargesFixes, rentreesRegulieres);
-    if (montant === null) continue; // source indisponible : ligne exclue du calcul
-    for (const occurrence of genererOccurrencesRecurrentes(charge.datePrevue, charge.recurrence, charge.dateFin, fin)) {
+    const occurrencesCharge = genererOccurrencesRecurrentes(charge.datePrevue, charge.recurrence, charge.dateFin, fin);
+    occurrencesCharge.forEach((occurrence, index) => {
+      const precedente = index > 0 ? occurrencesCharge[index - 1] : null;
+      const montant = montantOccurrenceChargeFixe(charge, occurrence, precedente, chargesFixes, rentreesRegulieres, fin);
+      if (montant === null) return; // source indisponible : occurrence exclue du calcul
       enregistrerFlux(toISODate(occurrence), -montant);
-    }
+    });
   }
 
   for (const depense of autresDepenses) {

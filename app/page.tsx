@@ -29,7 +29,7 @@ import {
   chargesUtilisantCommeSource,
   messageBlocageConversion,
   messageBlocageSuppression,
-  montantEffectifChargeFixe,
+  montantApercuChargeFixe,
 } from "@/lib/montantCalcule";
 import {
   filtrerAutresDepenses,
@@ -462,7 +462,7 @@ export default function Home() {
 
       if (patch.modeMontant === "fixe" && courante.modeMontant === "calcule") {
         // Passage Calculé -> Fixe : fige le montant calculé courant et retire la dépendance.
-        const montantCourant = montantEffectifChargeFixe(courante, prev, rentreesRegulieres);
+        const montantCourant = montantApercuChargeFixe(courante, prev, rentreesRegulieres);
         patchApplique = {
           ...patch,
           montant: montantCourant ?? courante.montant,

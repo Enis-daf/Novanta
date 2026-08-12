@@ -6,7 +6,7 @@ import { formatDateCourte, trierParDate, trierParMontant } from "@/lib/dates";
 import { formatMontant } from "@/lib/format";
 import { filtrerChargesFixes } from "@/lib/recherche";
 import { OccurrencesParId } from "@/lib/periodeFiltre";
-import { libelleSourceCalcul, montantEffectifChargeFixe, optionsSourceDisponibles } from "@/lib/montantCalcule";
+import { libelleSourceCalcul, montantApercuChargeFixe, optionsSourceDisponibles } from "@/lib/montantCalcule";
 import DateField from "./DateField";
 import SourceCalculSelect from "./SourceCalculSelect";
 import IconCalculatrice from "./IconCalculatrice";
@@ -36,7 +36,7 @@ export default function ChargesFixesTable({
     const dansPeriode = filtrePeriode ? charges.filter((c) => filtrePeriode.has(c.id)) : charges;
     const filtrees = filtrerChargesFixes(dansPeriode, recherche);
     return tri === "montant"
-      ? trierParMontant(filtrees, (c) => montantEffectifChargeFixe(c, charges, rentreesRegulieres) ?? Number.NaN)
+      ? trierParMontant(filtrees, (c) => montantApercuChargeFixe(c, charges, rentreesRegulieres) ?? Number.NaN)
       : trierParDate(filtrees, (c) => c.datePrevue);
   }, [charges, rentreesRegulieres, recherche, tri, filtrePeriode]);
 
@@ -64,7 +64,7 @@ export default function ChargesFixesTable({
             const occurrences = filtrePeriode?.get(charge.id);
             const estCalculee = charge.modeMontant === "calcule";
             const montantCalcule = estCalculee
-              ? montantEffectifChargeFixe(charge, charges, rentreesRegulieres)
+              ? montantApercuChargeFixe(charge, charges, rentreesRegulieres)
               : null;
             const sourceLibelle = estCalculee ? libelleSourceCalcul(charge, charges, rentreesRegulieres) : null;
             return (
@@ -121,7 +121,7 @@ export default function ChargesFixesTable({
                       />
                       <span>% de</span>
                       <SourceCalculSelect
-                        options={optionsSourceDisponibles(charge.id, charges, rentreesRegulieres)}
+                        options={optionsSourceDisponibles(charge, charges, rentreesRegulieres)}
                         valeur={
                           charge.sourceCalculId && charge.sourceCalculType
                             ? { type: charge.sourceCalculType, id: charge.sourceCalculId }

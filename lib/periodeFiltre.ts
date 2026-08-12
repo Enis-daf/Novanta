@@ -1,6 +1,6 @@
 import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO, toISODate } from "./dates";
-import { montantEffectifChargeFixe } from "./montantCalcule";
+import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import {
   AutreDepense,
   ChargeFixe,
@@ -82,7 +82,7 @@ function itemRecurrent<T extends { id: string }>(
   dateDebutDe: (item: T) => string,
   frequenceDe: (item: T) => Parameters<typeof genererOccurrencesRecurrentes>[1],
   dateFinDe: (item: T) => string | null,
-  montantDe: (item: T) => number | null,
+  montantOccurrenceDe: (item: T, dateOccurrence: Date, dateOccurrencePrecedente: Date | null) => number | null,
   signe: 1 | -1,
   debut: Date,
   fin: Date
@@ -90,17 +90,18 @@ function itemRecurrent<T extends { id: string }>(
   const parId: OccurrencesParId = new Map();
   let totalSigne = 0;
   for (const item of items) {
-    const occurrences = genererOccurrencesRecurrentes(
-      dateDebutDe(item),
-      frequenceDe(item),
-      dateFinDe(item),
-      fin
-    ).filter((d) => dansPeriode(d, debut, fin));
-    if (occurrences.length === 0) continue;
-    parId.set(item.id, occurrences.map(toISODate));
-    const montant = montantDe(item);
-    if (montant === null) continue; // source indisponible : occurrences affichées, montant exclu du résumé
-    totalSigne += signe * montant * occurrences.length;
+    const toutesOccurrences = genererOccurrencesRecurrentes(dateDebutDe(item), frequenceDe(item), dateFinDe(item), fin);
+    const occurrencesPeriode: Date[] = [];
+    toutesOccurrences.forEach((date, index) => {
+      if (!dansPeriode(date, debut, fin)) return;
+      occurrencesPeriode.push(date);
+      const precedente = index > 0 ? toutesOccurrences[index - 1] : null;
+      const montant = montantOccurrenceDe(item, date, precedente);
+      if (montant === null) return; // source indisponible : occurrence affichée, montant exclu du résumé
+      totalSigne += signe * montant;
+    });
+    if (occurrencesPeriode.length === 0) continue;
+    parId.set(item.id, occurrencesPeriode.map(toISODate));
   }
   return { parId, totalSigne };
 }
@@ -179,7 +180,8 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
     (c) => c.datePrevue,
     (c) => c.recurrence,
     (c) => c.dateFin,
-    (c) => montantEffectifChargeFixe(c, params.chargesFixes, params.rentreesRegulieres),
+    (c, dateOccurrence, dateOccurrencePrecedente) =>
+      montantOccurrenceChargeFixe(c, dateOccurrence, dateOccurrencePrecedente, params.chargesFixes, params.rentreesRegulieres, fin),
     -1,
     debut,
     fin

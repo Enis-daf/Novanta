@@ -1,6 +1,6 @@
 import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO } from "./dates";
-import { montantEffectifChargeFixe } from "./montantCalcule";
+import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import {
   AutreDepense,
   ChargeFixe,
@@ -158,12 +158,14 @@ function occurrencesChargesFixes(
 ): Occurrence[] {
   const res: Occurrence[] = [];
   for (const c of charges) {
-    const montant = montantEffectifChargeFixe(c, charges, rentreesRegulieres);
-    if (montant === null) continue; // source indisponible : ligne exclue
-    for (const occ of genererOccurrencesRecurrentes(c.datePrevue, c.recurrence, c.dateFin, fin)) {
-      if (!dansHorizon(occ, debut, fin)) continue;
+    const occurrencesCharge = genererOccurrencesRecurrentes(c.datePrevue, c.recurrence, c.dateFin, fin);
+    occurrencesCharge.forEach((occ, index) => {
+      if (!dansHorizon(occ, debut, fin)) return;
+      const precedente = index > 0 ? occurrencesCharge[index - 1] : null;
+      const montant = montantOccurrenceChargeFixe(c, occ, precedente, charges, rentreesRegulieres, fin);
+      if (montant === null) return; // source indisponible : occurrence exclue
       res.push({ date: occ, montant: -montant });
-    }
+    });
   }
   return res;
 }
