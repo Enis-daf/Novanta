@@ -1,6 +1,7 @@
 import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, ajouterMois, estDateValide, parseDateISO } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
+import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 import {
   AutreDepense,
   ChargeFixe,
@@ -125,7 +126,9 @@ export function calculerControleMensuel(
   for (const r of params.rentreesRegulieres) {
     for (const occ of genererOccurrencesRecurrentes(r.dateDebut, r.frequence, r.dateFin, fin)) {
       if (!dansPeriode(occ, debut, fin)) continue;
-      ajouterAuMois(totaux, occ, r.montant, "entree");
+      const montant = montantOccurrenceRentreeReguliere(r, occ);
+      if (montant === null) continue; // profil de saisonnalité indisponible : occurrence exclue
+      ajouterAuMois(totaux, occ, montant, "entree");
     }
   }
 

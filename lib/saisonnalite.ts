@@ -1,0 +1,82 @@
+import { ProfilSaisonnalite, RentreeReguliere } from "./types";
+
+export const NOMBRE_MOIS = 12;
+export const TOLERANCE_MIN = 99.9;
+export const TOLERANCE_MAX = 100.1;
+
+function arrondirCentimes(montant: number): number {
+  return Math.round(montant * 100) / 100;
+}
+
+/**
+ * Répartition uniforme des 12 mois, en pleine précision flottante — jamais arrondie à 2
+ * décimales en stockage. La somme de 12 × (100/12) vaut ~99,999999999999986 en double
+ * précision (écart de l'ordre de 10⁻¹⁴), totalement négligeable face à la tolérance de 0,1
+ * point demandée : aucune astuce de répartition du reste n'est nécessaire.
+ */
+export function repartitionUniforme(): number[] {
+  return Array(NOMBRE_MOIS).fill(100 / NOMBRE_MOIS);
+}
+
+export function totalPonderations(ponderations: number[]): number {
+  return ponderations.reduce((acc, p) => acc + p, 0);
+}
+
+export function totalDansTolerance(total: number): boolean {
+  return total >= TOLERANCE_MIN && total <= TOLERANCE_MAX;
+}
+
+/**
+ * Normalisation proportionnelle : chaque pondération non nulle est mise à l'échelle par
+ * 100/total, préservant les proportions relatives choisies par l'utilisateur. Un poids à 0
+ * reste strictement à 0 (0 × n'importe quel facteur = 0) — jamais transformé en valeur positive
+ * par la correction.
+ */
+export function normaliserPonderations(ponderations: number[]): number[] {
+  const total = totalPonderations(ponderations);
+  if (total === 0) return ponderations.slice();
+  const facteur = 100 / total;
+  return ponderations.map((p) => (p === 0 ? 0 : p * facteur));
+}
+
+/** État du total des pondérations, pour l'affichage du panneau — jamais utilisé par le moteur. */
+export type EtatTotalPonderations = "exact" | "normalisable" | "invalide";
+
+export function etatTotalPonderations(total: number): EtatTotalPonderations {
+  if (Math.abs(total - 100) < 1e-9) return "exact";
+  if (totalDansTolerance(total)) return "normalisable";
+  return "invalide";
+}
+
+/**
+ * Montant d'un mois donné (0 = janvier ... 11 = décembre) d'un profil de saisonnalité —
+ * indépendant de toute année précise, puisque le profil se répète à l'identique chaque année.
+ * Normalise les pondérations à la lecture seulement (jamais en écrivant le profil). null =
+ * indisponible (profil incomplet, ou total hors tolérance [99,90 %, 100,10 %]).
+ */
+export function montantMoisSaisonnalise(profil: ProfilSaisonnalite, moisIndex: number): number | null {
+  if (!Number.isFinite(profil.montantAnnuel) || profil.montantAnnuel < 0) return null;
+  if (profil.ponderationsMensuelles.length !== NOMBRE_MOIS) return null;
+
+  const total = totalPonderations(profil.ponderationsMensuelles);
+  if (!totalDansTolerance(total)) return null;
+
+  const ponderationsEffectives = normaliserPonderations(profil.ponderationsMensuelles);
+  const ponderationMois = ponderationsEffectives[moisIndex];
+  if (!Number.isFinite(ponderationMois)) return null;
+
+  return arrondirCentimes(profil.montantAnnuel * (ponderationMois / 100));
+}
+
+/**
+ * Montant d'UNE occurrence d'une Rentrée régulière : montant fixe en mode "fixe"
+ * (comportement strictement inchangé), ou montant du mois calendaire de l'occurrence en mode
+ * "saisonnalise" (voir montantMoisSaisonnalise). Jamais une valeur mise en cache — toujours
+ * recalculé à partir du profil courant. null = indisponible ; l'appelant doit alors exclure
+ * l'occurrence du calcul.
+ */
+export function montantOccurrenceRentreeReguliere(rentree: RentreeReguliere, dateOccurrence: Date): number | null {
+  if (rentree.modeMontant === "fixe") return rentree.montant;
+  if (!rentree.profilSaisonnalite) return null;
+  return montantMoisSaisonnalise(rentree.profilSaisonnalite, dateOccurrence.getMonth());
+}

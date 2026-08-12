@@ -33,6 +33,8 @@ function rentree(overrides: Partial<RentreeReguliere> = {}): RentreeReguliere {
     dateDebut: "2026-01-01",
     frequence: "quotidien",
     dateFin: null,
+    modeMontant: "fixe",
+    profilSaisonnalite: null,
     ...overrides,
   };
 }
@@ -444,5 +446,156 @@ describe("mode fixe : comportement strictement inchangé, indépendant des dates
     );
     assert.equal(montant1, 2500);
     assert.equal(montant2, 2500);
+  });
+});
+
+describe("Rentrée saisonnalisée comme source d'une Charge calculée (cas de référence obligatoire)", () => {
+  // CA annuel = 1 200 000 € : juillet 10 %, août 15 %, décembre 3 %, reste réparti à 8 % x 9 = 72 %. Total = 100 %.
+  const ca = rentree({
+    id: "ca",
+    libelle: "CA",
+    dateDebut: "2026-01-01",
+    frequence: "mensuel",
+    modeMontant: "saisonnalise",
+    profilSaisonnalite: {
+      montantAnnuel: 1200000,
+      ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3],
+    },
+  });
+  const ads = chargeFixe({
+    id: "ads",
+    libelle: "Ads",
+    datePrevue: "2026-01-01",
+    recurrence: "mensuel",
+    modeMontant: "calcule",
+    tauxCalcul: 40,
+    sourceCalculId: "ca",
+    sourceCalculType: "rentree_reguliere",
+  });
+
+  test("juillet : CA = 120 000 €, Ads = 40% x 120 000 = 48 000 €", () => {
+    const montant = montantOccurrenceChargeFixe(
+      ads,
+      parseDateISO("2026-07-01"),
+      parseDateISO("2026-06-01"),
+      [],
+      [ca],
+      FIN_LOINTAINE
+    );
+    assert.equal(montant, 48000);
+  });
+
+  test("août : CA = 180 000 €, Ads = 40% x 180 000 = 72 000 €", () => {
+    const montant = montantOccurrenceChargeFixe(
+      ads,
+      parseDateISO("2026-08-01"),
+      parseDateISO("2026-07-01"),
+      [],
+      [ca],
+      FIN_LOINTAINE
+    );
+    assert.equal(montant, 72000);
+  });
+
+  test("décembre : CA = 36 000 €, Ads = 40% x 36 000 = 14 400 €", () => {
+    const montant = montantOccurrenceChargeFixe(
+      ads,
+      parseDateISO("2026-12-01"),
+      parseDateISO("2026-11-01"),
+      [],
+      [ca],
+      FIN_LOINTAINE
+    );
+    assert.equal(montant, 14400);
+  });
+
+  test("optionsSourceDisponibles PROPOSE la rentrée saisonnalisée (jamais exclue)", () => {
+    const cible = chargeFixe({ id: "cible", recurrence: "mensuel" });
+    const options = optionsSourceDisponibles(cible, [], [ca]);
+    assert.equal(options.rentreesRegulieres.length, 1);
+    assert.equal(options.rentreesRegulieres[0].id, "ca");
+  });
+
+  test("saisonnalisée mensuelle -> charge hebdomadaire : toujours interdit", () => {
+    const chargeHebdo = chargeFixe({
+      datePrevue: "2026-01-01",
+      recurrence: "hebdomadaire",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    const montant = montantOccurrenceChargeFixe(
+      chargeHebdo,
+      parseDateISO("2026-01-08"),
+      parseDateISO("2026-01-01"),
+      [],
+      [ca],
+      FIN_LOINTAINE
+    );
+    assert.equal(montant, null);
+  });
+
+  test("saisonnalisée mensuelle -> charge quotidienne : toujours interdit", () => {
+    const chargeQuotidienne = chargeFixe({
+      datePrevue: "2026-01-01",
+      recurrence: "quotidien",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    const montant = montantOccurrenceChargeFixe(
+      chargeQuotidienne,
+      parseDateISO("2026-01-02"),
+      parseDateISO("2026-01-01"),
+      [],
+      [ca],
+      FIN_LOINTAINE
+    );
+    assert.equal(montant, null);
+  });
+
+  test("modification du montant annuel de la source : recalcul immédiat de la charge dépendante", () => {
+    const caAugmente = { ...ca, profilSaisonnalite: { ...ca.profilSaisonnalite!, montantAnnuel: 2000000 } };
+    const montant = montantOccurrenceChargeFixe(
+      ads,
+      parseDateISO("2026-08-01"),
+      parseDateISO("2026-07-01"),
+      [],
+      [caAugmente],
+      FIN_LOINTAINE
+    );
+    assert.equal(montant, 120000); // 40% x (2 000 000 x 15%)
+  });
+
+  test("modification d'une pondération de la source : recalcul immédiat de la charge dépendante", () => {
+    const ponderationsModifiees = ca.profilSaisonnalite!.ponderationsMensuelles.map((p, i) => (i === 7 ? 20 : i === 6 ? 5 : p));
+    const caModifie = { ...ca, profilSaisonnalite: { ...ca.profilSaisonnalite!, ponderationsMensuelles: ponderationsModifiees } };
+    const montant = montantOccurrenceChargeFixe(
+      ads,
+      parseDateISO("2026-08-01"),
+      parseDateISO("2026-07-01"),
+      [],
+      [caModifie],
+      FIN_LOINTAINE
+    );
+    assert.equal(montant, 96000); // 40% x (1 200 000 x 20%)
+  });
+
+  test("total des pondérations de la source hors tolérance : la charge dépendante devient indisponible, jamais 0 ni une valeur inventée", () => {
+    const caInvalide = {
+      ...ca,
+      profilSaisonnalite: { montantAnnuel: 1200000, ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 0] }, // total 97
+    };
+    const montant = montantOccurrenceChargeFixe(
+      ads,
+      parseDateISO("2026-08-01"),
+      parseDateISO("2026-07-01"),
+      [],
+      [caInvalide],
+      FIN_LOINTAINE
+    );
+    assert.equal(montant, null);
   });
 });

@@ -9,6 +9,7 @@ import {
 } from "./types";
 import { ajouterJours, estDateValide, genererOccurrencesRecurrentes, parseDateISO, toISODate } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
+import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 
 export const HORIZON_JOURS_DEFAUT = 90;
 
@@ -97,7 +98,9 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
 
   for (const rentree of rentreesRegulieres) {
     for (const occurrence of genererOccurrencesRecurrentes(rentree.dateDebut, rentree.frequence, rentree.dateFin, fin)) {
-      enregistrerFlux(toISODate(occurrence), rentree.montant);
+      const montant = montantOccurrenceRentreeReguliere(rentree, occurrence);
+      if (montant === null) continue; // profil de saisonnalité indisponible : occurrence exclue
+      enregistrerFlux(toISODate(occurrence), montant);
     }
   }
 

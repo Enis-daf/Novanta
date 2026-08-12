@@ -1,6 +1,7 @@
 import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
+import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 import {
   AutreDepense,
   ChargeFixe,
@@ -144,7 +145,9 @@ function occurrencesRentreesRegulieres(rentrees: RentreeReguliere[], debut: Date
   for (const r of rentrees) {
     for (const occ of genererOccurrencesRecurrentes(r.dateDebut, r.frequence, r.dateFin, fin)) {
       if (!dansHorizon(occ, debut, fin)) continue;
-      res.push({ date: occ, montant: r.montant });
+      const montant = montantOccurrenceRentreeReguliere(r, occ);
+      if (montant === null) continue; // profil de saisonnalité indisponible : occurrence exclue
+      res.push({ date: occ, montant });
     }
   }
   return res;

@@ -1,6 +1,7 @@
 import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO, toISODate } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
+import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 import {
   AutreDepense,
   ChargeFixe,
@@ -191,7 +192,7 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
     (r) => r.dateDebut,
     (r) => r.frequence,
     (r) => r.dateFin,
-    (r) => r.montant,
+    (r, dateOccurrence) => montantOccurrenceRentreeReguliere(r, dateOccurrence),
     1,
     debut,
     fin

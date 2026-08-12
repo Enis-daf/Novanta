@@ -72,6 +72,10 @@ export default function ChargesFixesTable({
               ? montantApercuChargeFixe(charge, charges, rentreesRegulieres)
               : null;
             const sourceLibelle = estCalculee ? libelleSourceCalcul(charge, charges, rentreesRegulieres) : null;
+            const sourceSaisonnalisee =
+              estCalculee &&
+              charge.sourceCalculType === "rentree_reguliere" &&
+              rentreesRegulieres.find((r) => r.id === charge.sourceCalculId)?.modeMontant === "saisonnalise";
             return (
             <tr key={charge.id}>
               <td>
@@ -148,7 +152,9 @@ export default function ChargesFixesTable({
                           = {formatMontant(montantCalcule)} <IconCalculatrice />
                         </p>
                         <p className="charge-calcul__hint">
-                          Le montant se met à jour automatiquement lorsque {sourceLibelle} change.
+                          {sourceSaisonnalisee
+                            ? `Le montant varie chaque mois selon la saisonnalité de ${sourceLibelle}.`
+                            : `Le montant se met à jour automatiquement lorsque ${sourceLibelle} change.`}
                         </p>
                       </>
                     )}

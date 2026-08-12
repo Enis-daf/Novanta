@@ -1,5 +1,6 @@
 import { ChargeFixe, RentreeReguliere, TypeSourceCalculChargeFixe } from "./types";
 import { ajouterJours, estDateValide, FrequenceRecurrence, genererOccurrencesRecurrentes, parseDateISO } from "./dates";
+import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 
 function arrondirCentimes(montant: number): number {
   return Math.round(montant * 100) / 100;
@@ -28,11 +29,17 @@ export function frequenceCompatible(frequenceSource: FrequenceRecurrence, freque
 }
 
 interface SourceResolue {
-  montant: number;
   libelle: string;
   frequence: FrequenceRecurrence;
   dateDebut: string;
   dateFin: string | null;
+  /**
+   * Montant d'UNE occurrence précise de la source, à sa propre date. Une charge fixe non
+   * calculée a un montant nominal constant (ignore la date). Une rentrée régulière peut être
+   * fixe (montant constant) ou saisonnalisée (variable selon le mois de l'occurrence, via
+   * montantOccurrenceRentreeReguliere) — la Charge calculée n'a pas à connaître la différence.
+   */
+  montantOccurrence: (dateOccurrence: Date) => number | null;
 }
 
 /**
@@ -41,6 +48,8 @@ interface SourceResolue {
  * mode "calcule" (interdit — voir chargesUtilisantCommeSource / la contrainte de conversion),
  * ou si sa fréquence n'est pas compatible avec celle de la charge (garde-fou défensif : la
  * sélection dans l'UI filtre déjà ces cas, ceci couvre un changement ultérieur de fréquence).
+ * Une rentrée régulière saisonnalisée est une source valide comme une autre : la saisonnalité
+ * reste définie une seule fois sur la rentrée, la charge calculée en hérite via montantOccurrence.
  */
 function resoudreSourceCalcul(
   charge: ChargeFixe,
@@ -55,13 +64,25 @@ function resoudreSourceCalcul(
     const source = chargesFixes.find((c) => c.id === sourceCalculId);
     if (!source || source.modeMontant === "calcule") return null;
     if (!frequenceCompatible(source.recurrence, charge.recurrence)) return null;
-    return { montant: source.montant, libelle: source.libelle, frequence: source.recurrence, dateDebut: source.datePrevue, dateFin: source.dateFin };
+    return {
+      libelle: source.libelle,
+      frequence: source.recurrence,
+      dateDebut: source.datePrevue,
+      dateFin: source.dateFin,
+      montantOccurrence: () => source.montant,
+    };
   }
 
   const source = rentreesRegulieres.find((r) => r.id === sourceCalculId);
   if (!source) return null;
   if (!frequenceCompatible(source.frequence, charge.recurrence)) return null;
-  return { montant: source.montant, libelle: source.libelle, frequence: source.frequence, dateDebut: source.dateDebut, dateFin: source.dateFin };
+  return {
+    libelle: source.libelle,
+    frequence: source.frequence,
+    dateDebut: source.dateDebut,
+    dateFin: source.dateFin,
+    montantOccurrence: (dateOccurrence) => montantOccurrenceRentreeReguliere(source, dateOccurrence),
+  };
 }
 
 /**
@@ -96,7 +117,13 @@ export function montantOccurrenceChargeFixe(
   const occurrencesSource = genererOccurrencesRecurrentes(source.dateDebut, source.frequence, source.dateFin, finHorizon);
   const occurrencesDansPeriode = occurrencesSource.filter((d) => d >= periodeDebut && d <= periodeFin);
 
-  const sommeSource = occurrencesDansPeriode.length * source.montant;
+  let sommeSource = 0;
+  for (const dateOccurrenceSource of occurrencesDansPeriode) {
+    const montantOccurrenceSource = source.montantOccurrence(dateOccurrenceSource);
+    if (montantOccurrenceSource === null) return null; // une occurrence de la source est indisponible
+    sommeSource += montantOccurrenceSource;
+  }
+
   return arrondirCentimes((charge.tauxCalcul / 100) * sommeSource);
 }
 
@@ -231,7 +258,10 @@ export function optionsSourceDisponibles(
         type: "rentree_reguliere",
         id: r.id,
         libelle: r.libelle,
-        montant: r.montant,
+        // Pour une rentrée saisonnalisée, r.montant n'est pas la source de vérité : on affiche
+        // le montant du mois calendaire courant (même convention que le tri et l'aperçu de
+        // conversion dans RentreesRegulieresTable), à défaut le montant fixe habituel.
+        montant: montantOccurrenceRentreeReguliere(r, new Date()) ?? r.montant,
         frequence: r.frequence,
       })),
   };

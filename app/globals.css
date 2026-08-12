@@ -885,6 +885,98 @@ input[type="checkbox"] {
   color: var(--couleur-texte-secondaire);
 }
 
+.rentree-saisonnalite {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 220px;
+}
+
+.rentree-saisonnalite__annuel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.rentree-saisonnalite__annuel label {
+  font-weight: 600;
+  color: var(--couleur-texte-secondaire);
+  white-space: nowrap;
+}
+
+.rentree-saisonnalite__annuel input {
+  flex: 1;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 6px;
+  padding: 3px 4px;
+  font-size: 11px;
+  text-align: right;
+}
+
+.rentree-saisonnalite__grille {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 6px;
+  padding: 3px;
+}
+
+.rentree-saisonnalite__ligne {
+  display: grid;
+  grid-template-columns: 40px 56px 1fr;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 2px;
+}
+
+.rentree-saisonnalite__mois {
+  font-size: 10px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.rentree-saisonnalite__poids {
+  width: 52px;
+  text-align: right;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 6px;
+  padding: 2px 4px;
+  font-size: 10px;
+}
+
+.rentree-saisonnalite__montant {
+  font-size: 10px;
+  font-weight: 600;
+  text-align: right;
+  color: var(--couleur-texte);
+}
+
+.rentree-saisonnalite__total {
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+}
+
+.rentree-saisonnalite__total--invalide {
+  color: var(--couleur-accent-fonce);
+}
+
+.rentree-saisonnalite__uniforme {
+  align-self: flex-start;
+  padding: 3px 8px;
+  font-size: 10px;
+}
+
+.frequence-figee {
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+  font-style: italic;
+}
+
 @media (max-width: 900px) {
   .cockpit {
     grid-template-columns: 1fr;
