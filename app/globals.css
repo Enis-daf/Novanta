@@ -476,6 +476,7 @@ input[type="checkbox"] {
   border-bottom: 1px solid var(--couleur-bordure);
   text-align: left;
   white-space: nowrap;
+  vertical-align: top;
 }
 
 .invoice-table th {
@@ -889,7 +890,14 @@ input[type="checkbox"] {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 220px;
+  width: 280px;
+}
+
+.rentree-saisonnalite__aide {
+  margin: 0 0 2px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--couleur-texte-secondaire);
 }
 
 .rentree-saisonnalite__annuel {
@@ -914,6 +922,18 @@ input[type="checkbox"] {
   text-align: right;
 }
 
+.rentree-saisonnalite__entetes {
+  display: grid;
+  grid-template-columns: 44px 62px 1fr;
+  gap: 6px;
+  padding: 0 2px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--couleur-texte-secondaire);
+}
+
 .rentree-saisonnalite__grille {
   display: flex;
   flex-direction: column;
@@ -927,10 +947,10 @@ input[type="checkbox"] {
 
 .rentree-saisonnalite__ligne {
   display: grid;
-  grid-template-columns: 40px 56px 1fr;
+  grid-template-columns: 44px 62px 1fr;
   align-items: center;
   gap: 6px;
-  padding: 1px 2px;
+  padding: 2px;
 }
 
 .rentree-saisonnalite__mois {
@@ -939,21 +959,21 @@ input[type="checkbox"] {
 }
 
 .rentree-saisonnalite__poids {
-  width: 52px;
+  width: 100%;
   text-align: right;
   border: 1px solid var(--couleur-bordure);
   border-radius: 6px;
-  padding: 2px 4px;
-  font-size: 10px;
+  padding: 3px 4px;
+  font-size: 11px;
 }
 
 .rentree-saisonnalite__montant {
-  width: 76px;
+  width: 100%;
   text-align: right;
   border: 1px solid var(--couleur-bordure);
   border-radius: 6px;
-  padding: 2px 4px;
-  font-size: 10px;
+  padding: 3px 4px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--couleur-texte);
 }

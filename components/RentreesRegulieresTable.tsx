@@ -132,6 +132,10 @@ export default function RentreesRegulieresTable({
                   />
                 ) : (
                   <div className="rentree-saisonnalite">
+                    <p className="rentree-saisonnalite__aide">
+                      Ajoutez le montant annuel, répartissez le pourcentage par mois, puis ajustez directement un
+                      montant si besoin. Le total et les pourcentages se recalculent automatiquement.
+                    </p>
                     <div className="rentree-saisonnalite__annuel">
                       <label>Montant annuel</label>
                       <input
@@ -144,6 +148,11 @@ export default function RentreesRegulieresTable({
                           })
                         }
                       />
+                    </div>
+                    <div className="rentree-saisonnalite__entetes">
+                      <span>Mois</span>
+                      <span>%</span>
+                      <span>Montant</span>
                     </div>
                     <div className="rentree-saisonnalite__grille">
                       {NOMS_MOIS_COURTS.map((nomMois, index) => (

@@ -1,6 +1,6 @@
 import { ChargeFixe, RentreeReguliere, TypeSourceCalculChargeFixe } from "./types";
 import { ajouterJours, estDateValide, FrequenceRecurrence, genererOccurrencesRecurrentes, parseDateISO } from "./dates";
-import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
+import { montantMoisSaisonnalise, montantOccurrenceRentreeReguliere, repartirMontantMensuel } from "./saisonnalite";
 
 function arrondirCentimes(montant: number): number {
   return Math.round(montant * 100) / 100;
@@ -75,7 +75,12 @@ function resoudreSourceCalcul(
 
   const source = rentreesRegulieres.find((r) => r.id === sourceCalculId);
   if (!source) return null;
-  if (!frequenceCompatible(source.frequence, charge.recurrence)) return null;
+  // Une rentrée saisonnalisée n'est jamais contrainte par sa propre fréquence : voir
+  // montantOccurrenceChargeFixe, qui la traite via un chemin dédié (mois calendaire d'abord,
+  // découpage selon la fréquence de la CHARGE ensuite — jamais celle de la source).
+  if (source.modeMontant !== "saisonnalise" && !frequenceCompatible(source.frequence, charge.recurrence)) {
+    return null;
+  }
   return {
     libelle: source.libelle,
     frequence: source.frequence,
@@ -86,13 +91,24 @@ function resoudreSourceCalcul(
 }
 
 /**
- * Montant d'UNE occurrence précise d'une charge fixe calculée : taux % appliqué à la somme
- * des occurrences réelles de la source tombant dans la période couverte par cette occurrence
- * — pas au montant nominal de la source, et pas à un coefficient moyen. La période est
- * [occurrence précédente + 1 jour, cette occurrence] ; pour la toute première occurrence de la
- * charge (dateOccurrencePrecedente = null), la période est réduite au seul jour de
- * l'occurrence elle-même — jamais d'occurrences de source antérieures au début réel de la
- * charge. En mode "fixe", le montant ne dépend d'aucune période : c'est toujours charge.montant.
+ * Montant d'UNE occurrence précise d'une charge fixe calculée.
+ *
+ * Cas particulier — source = Rentrée régulière saisonnalisée : la saisonnalité raisonne
+ * "combien pour CE mois calendaire ?", pas "combien d'occurrences de la source dans la période
+ * écoulée ?". On calcule donc d'abord le montant mensuel de la source pour le mois de CETTE
+ * occurrence (montantMoisSaisonnalise), on applique le taux, puis on découpe le résultat selon
+ * la récurrence de la CHARGE elle-même (repartirMontantMensuel) — jamais celle de la source, et
+ * jamais via la période glissante ci-dessous (qui donnerait un mois décalé/mélangé avec une
+ * source à granularité plus fine, ex. CA quotidien).
+ *
+ * Cas général — toute autre source : taux % appliqué à la somme des occurrences réelles de la
+ * source tombant dans la période couverte par cette occurrence — pas au montant nominal de la
+ * source, et pas à un coefficient moyen. La période est [occurrence précédente + 1 jour, cette
+ * occurrence] ; pour la toute première occurrence de la charge (dateOccurrencePrecedente =
+ * null), la période est réduite au seul jour de l'occurrence elle-même — jamais d'occurrences
+ * de source antérieures au début réel de la charge.
+ *
+ * En mode "fixe", le montant ne dépend d'aucune période : c'est toujours charge.montant.
  * null = montant indisponible (taux/source/fréquence invalide) ; l'appelant doit exclure
  * l'occurrence du calcul.
  */
@@ -107,6 +123,17 @@ export function montantOccurrenceChargeFixe(
   if (charge.modeMontant === "fixe") return charge.montant;
 
   if (charge.tauxCalcul === null || !Number.isFinite(charge.tauxCalcul)) return null;
+
+  if (charge.sourceCalculType === "rentree_reguliere" && charge.sourceCalculId) {
+    const sourceRentree = rentreesRegulieres.find((r) => r.id === charge.sourceCalculId);
+    if (sourceRentree && sourceRentree.modeMontant === "saisonnalise") {
+      if (!sourceRentree.profilSaisonnalite) return null;
+      const montantMensuelSource = montantMoisSaisonnalise(sourceRentree.profilSaisonnalite, dateOccurrence.getMonth());
+      if (montantMensuelSource === null) return null;
+      const montantMensuelCharge = arrondirCentimes((charge.tauxCalcul / 100) * montantMensuelSource);
+      return repartirMontantMensuel(montantMensuelCharge, charge.recurrence, charge.datePrevue, charge.dateFin, dateOccurrence);
+    }
+  }
 
   const source = resoudreSourceCalcul(charge, chargesFixes, rentreesRegulieres);
   if (!source) return null;
@@ -253,7 +280,10 @@ export function optionsSourceDisponibles(
       )
       .map((c) => ({ type: "charge_fixe", id: c.id, libelle: c.libelle, montant: c.montant, frequence: c.recurrence })),
     rentreesRegulieres: rentreesRegulieres
-      .filter((r) => frequenceCompatible(r.frequence, charge.recurrence))
+      // Une rentrée saisonnalisée n'est jamais exclue pour incompatibilité de fréquence : sa
+      // propre fréquence ne sert qu'à son découpage direct, pas à alimenter une charge calculée
+      // (voir montantOccurrenceChargeFixe, qui découpe selon la fréquence de la CHARGE).
+      .filter((r) => r.modeMontant === "saisonnalise" || frequenceCompatible(r.frequence, charge.recurrence))
       .map((r) => ({
         type: "rentree_reguliere",
         id: r.id,

@@ -1,4 +1,4 @@
-import { genererOccurrencesRecurrentes } from "./dates";
+import { FrequenceRecurrence, genererOccurrencesRecurrentes } from "./dates";
 import { ProfilSaisonnalite, RentreeReguliere } from "./types";
 
 export const NOMBRE_MOIS = 12;
@@ -105,17 +105,44 @@ function dernierJourMois(date: Date): Date {
 }
 
 /**
+ * Répartit un montant MENSUEL déjà connu sur les occurrences d'une fréquence donnée tombant
+ * dans le même mois calendaire que dateOccurrence : le montant entier pour "mensuel"/
+ * "ponctuel" (une seule occurrence), ou réparti à parts égales entre les N occurrences réelles
+ * du mois pour "quotidien"/"hebdomadaire" (réutilise le moteur d'occurrences existant, jamais
+ * de nouvelle logique de calendrier). Ne fait aucune hypothèse sur l'origine du montant mensuel
+ * — c'est la seule fonction qui sait "comment découper un mois", partagée par la saisonnalité
+ * des Rentrées régulières et par les Charges fixes calculées à partir d'une source saisonnalisée.
+ * null = indisponible (aucune occurrence dans le mois, cas qui ne devrait pas se produire pour
+ * une occurrence déjà valide).
+ */
+export function repartirMontantMensuel(
+  montantMensuel: number,
+  frequence: FrequenceRecurrence,
+  dateDebut: string,
+  dateFin: string | null,
+  dateOccurrence: Date
+): number | null {
+  if (frequence === "mensuel" || frequence === "ponctuel") return montantMensuel;
+
+  const debutMois = premierJourMois(dateOccurrence);
+  const finMois = dernierJourMois(dateOccurrence);
+  const occurrencesDuMois = genererOccurrencesRecurrentes(dateDebut, frequence, dateFin, finMois).filter(
+    (d) => d >= debutMois
+  );
+
+  if (occurrencesDuMois.length === 0) return null;
+  return arrondirCentimes(montantMensuel / occurrencesDuMois.length);
+}
+
+/**
  * Montant d'UNE occurrence d'une Rentrée régulière : montant fixe en mode "fixe" (comportement
  * strictement inchangé), ou dérivé de la saisonnalité en mode "saisonnalise".
  *
  * Règle centrale : la saisonnalité est TOUJOURS mensuelle (montant annuel × pondération du
  * mois — voir montantMoisSaisonnalise). La fréquence de la rentrée ne sert qu'à répartir ENSUITE
- * ce montant mensuel sur les occurrences réelles de la rentrée tombant dans ce même mois
- * calendaire : une seule occurrence pour "mensuel"/"ponctuel" (le montant mensuel entier), ou
- * réparti à parts égales entre les N occurrences du mois pour "quotidien"/"hebdomadaire" — en
- * réutilisant le même moteur de génération d'occurrences que le reste de l'application, jamais
- * une nouvelle logique de calendrier. Jamais une valeur mise en cache — toujours recalculé.
- * null = indisponible ; l'appelant doit alors exclure l'occurrence du calcul.
+ * ce montant mensuel sur ses propres occurrences du mois (voir repartirMontantMensuel). Jamais
+ * une valeur mise en cache — toujours recalculé. null = indisponible ; l'appelant doit alors
+ * exclure l'occurrence du calcul.
  */
 export function montantOccurrenceRentreeReguliere(rentree: RentreeReguliere, dateOccurrence: Date): number | null {
   if (rentree.modeMontant === "fixe") return rentree.montant;
@@ -124,17 +151,5 @@ export function montantOccurrenceRentreeReguliere(rentree: RentreeReguliere, dat
   const montantMensuel = montantMoisSaisonnalise(rentree.profilSaisonnalite, dateOccurrence.getMonth());
   if (montantMensuel === null) return null;
 
-  if (rentree.frequence === "mensuel" || rentree.frequence === "ponctuel") return montantMensuel;
-
-  const debutMois = premierJourMois(dateOccurrence);
-  const finMois = dernierJourMois(dateOccurrence);
-  const occurrencesDuMois = genererOccurrencesRecurrentes(
-    rentree.dateDebut,
-    rentree.frequence,
-    rentree.dateFin,
-    finMois
-  ).filter((d) => d >= debutMois);
-
-  if (occurrencesDuMois.length === 0) return null;
-  return arrondirCentimes(montantMensuel / occurrencesDuMois.length);
+  return repartirMontantMensuel(montantMensuel, rentree.frequence, rentree.dateDebut, rentree.dateFin, dateOccurrence);
 }

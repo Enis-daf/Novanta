@@ -516,7 +516,12 @@ describe("Rentrée saisonnalisée comme source d'une Charge calculée (cas de r�
     assert.equal(options.rentreesRegulieres[0].id, "ca");
   });
 
-  test("saisonnalisée mensuelle -> charge hebdomadaire : toujours interdit", () => {
+  // La fréquence PROPRE de la source saisonnalisée (ici "mensuel") n'a plus aucune incidence :
+  // seule la récurrence de la CHARGE détermine le découpage du montant mensuel de CA. Une
+  // charge calculée peut donc être hebdomadaire ou quotidienne même si sa source saisonnalisée
+  // est déclarée "mensuel" — la restriction de compatibilité de fréquence (frequenceCompatible)
+  // ne s'applique plus à ce cas, volontairement (voir montantOccurrenceChargeFixe).
+  test("source saisonnalisée + charge hebdomadaire : découpe le montant mensuel sur les semaines du mois", () => {
     const chargeHebdo = chargeFixe({
       datePrevue: "2026-01-01",
       recurrence: "hebdomadaire",
@@ -525,6 +530,8 @@ describe("Rentrée saisonnalisée comme source d'une Charge calculée (cas de r�
       sourceCalculId: "ca",
       sourceCalculType: "rentree_reguliere",
     });
+    // Janvier (8 % de CA) = 96 000 € -> charge mensuelle = 38 400 €. Janvier 2026 contient 5
+    // lundis(ish) hebdomadaires à partir du 1er (1, 8, 15, 22, 29) -> 38 400 / 5 = 7 680 €.
     const montant = montantOccurrenceChargeFixe(
       chargeHebdo,
       parseDateISO("2026-01-08"),
@@ -533,10 +540,10 @@ describe("Rentrée saisonnalisée comme source d'une Charge calculée (cas de r�
       [ca],
       FIN_LOINTAINE
     );
-    assert.equal(montant, null);
+    assert.equal(montant, 7680);
   });
 
-  test("saisonnalisée mensuelle -> charge quotidienne : toujours interdit", () => {
+  test("source saisonnalisée + charge quotidienne : découpe le montant mensuel sur les jours du mois", () => {
     const chargeQuotidienne = chargeFixe({
       datePrevue: "2026-01-01",
       recurrence: "quotidien",
@@ -545,6 +552,7 @@ describe("Rentrée saisonnalisée comme source d'une Charge calculée (cas de r�
       sourceCalculId: "ca",
       sourceCalculType: "rentree_reguliere",
     });
+    // Janvier (8 % de CA) = 96 000 € -> charge mensuelle = 38 400 €, répartie sur 31 jours.
     const montant = montantOccurrenceChargeFixe(
       chargeQuotidienne,
       parseDateISO("2026-01-02"),
@@ -553,7 +561,7 @@ describe("Rentrée saisonnalisée comme source d'une Charge calculée (cas de r�
       [ca],
       FIN_LOINTAINE
     );
-    assert.equal(montant, null);
+    assert.equal(montant, Math.round((38400 / 31) * 100) / 100);
   });
 
   test("modification du montant annuel de la source : recalcul immédiat de la charge dépendante", () => {
@@ -597,5 +605,89 @@ describe("Rentrée saisonnalisée comme source d'une Charge calculée (cas de r�
       FIN_LOINTAINE
     );
     assert.equal(montant, null);
+  });
+});
+
+describe("Régression : charge calculée % de CA saisonnalisé — le mois ne doit jamais être mélangé avec le découpage", () => {
+  // Cas de régression rapporté : CA annuel 1 000 000 €, septembre = 30 % (300 000 €),
+  // Charge = 40 % du CA -> 120 000 € pour septembre, quelle que soit sa propre récurrence.
+  // Avant correction, le mécanisme générique de "période glissante entre occurrences de la
+  // charge" mélangeait la fréquence de la SOURCE (quotidienne) avec le mois de la charge,
+  // donnant 28 633 € (mensuel) ou 4 000 € affiché à la place de 120 000 € en mode mensuel.
+  const ponderations = Array(12).fill(70 / 11);
+  ponderations[8] = 30; // septembre
+  const ca = rentree({
+    id: "ca",
+    libelle: "CA",
+    dateDebut: "2026-01-01",
+    frequence: "quotidien", // la fréquence de la SOURCE ne doit plus influencer le résultat
+    modeMontant: "saisonnalise",
+    profilSaisonnalite: { montantAnnuel: 1000000, ponderationsMensuelles: ponderations },
+  });
+
+  test("charge mensuelle : 120 000 € pour septembre, pas la valeur journalière", () => {
+    const charge = chargeFixe({
+      datePrevue: "2026-01-01",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    const montant = montantOccurrenceChargeFixe(
+      charge,
+      parseDateISO("2026-09-01"),
+      parseDateISO("2026-08-01"),
+      [],
+      [ca],
+      FIN_LOINTAINE
+    );
+    assert.equal(montant, 120000);
+  });
+
+  test("charge quotidienne : 120 000 / 30 jours = 4 000 € par jour de septembre", () => {
+    const charge = chargeFixe({
+      datePrevue: "2026-01-01",
+      recurrence: "quotidien",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    const montant = montantOccurrenceChargeFixe(
+      charge,
+      parseDateISO("2026-09-15"),
+      parseDateISO("2026-09-14"),
+      [],
+      [ca],
+      FIN_LOINTAINE
+    );
+    assert.equal(montant, 4000);
+  });
+
+  test("charge hebdomadaire : les semaines de septembre totalisent 120 000 €", () => {
+    const charge = chargeFixe({
+      datePrevue: "2026-01-05", // lundi
+      recurrence: "hebdomadaire",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    // Septembre 2026 : lundis 7, 14, 21, 28 (4 semaines).
+    let total = 0;
+    for (const jour of [7, 14, 21, 28]) {
+      const montant = montantOccurrenceChargeFixe(
+        charge,
+        new Date(2026, 8, jour),
+        new Date(2026, 8, jour - 7),
+        [],
+        [ca],
+        FIN_LOINTAINE
+      );
+      assert.ok(montant !== null);
+      total += montant!;
+    }
+    assert.equal(total, 120000);
   });
 });
