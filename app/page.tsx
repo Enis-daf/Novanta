@@ -575,11 +575,12 @@ export default function Home() {
 
       if (patch.modeMontant === "saisonnalise" && courante.modeMontant === "fixe") {
         // Passage Fixe -> Saisonnalisé : répartition uniforme par défaut, pas de reprise
-        // automatique d'un montant annuel (demandé explicitement à l'utilisateur), fréquence
-        // imposée à mensuelle (seule fréquence supportée par la saisonnalité en V1).
+        // automatique d'un montant annuel (demandé explicitement à l'utilisateur). La fréquence
+        // n'est pas imposée : la saisonnalité est toujours calculée au niveau mensuel en
+        // interne, puis répartie sur les occurrences de la fréquence choisie (ponctuel/
+        // quotidien/hebdomadaire/mensuel) par le moteur — voir lib/saisonnalite.ts.
         patchApplique = {
           ...patch,
-          frequence: "mensuel",
           profilSaisonnalite: { montantAnnuel: 0, ponderationsMensuelles: repartitionUniforme() },
         };
       }

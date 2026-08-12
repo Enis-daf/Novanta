@@ -948,9 +948,13 @@ input[type="checkbox"] {
 }
 
 .rentree-saisonnalite__montant {
+  width: 76px;
+  text-align: right;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 6px;
+  padding: 2px 4px;
   font-size: 10px;
   font-weight: 600;
-  text-align: right;
   color: var(--couleur-texte);
 }
 
@@ -969,12 +973,6 @@ input[type="checkbox"] {
   align-self: flex-start;
   padding: 3px 8px;
   font-size: 10px;
-}
-
-.frequence-figee {
-  font-size: 11px;
-  color: var(--couleur-texte-secondaire);
-  font-style: italic;
 }
 
 @media (max-width: 900px) {

@@ -2,10 +2,12 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   etatTotalPonderations,
+  montantMoisBrut,
   montantMoisSaisonnalise,
   montantOccurrenceRentreeReguliere,
   normaliserPonderations,
   NOMBRE_MOIS,
+  profilDepuisMontants,
   repartitionUniforme,
   totalPonderations,
 } from "./saisonnalite";
@@ -188,5 +190,111 @@ describe("Dates : respect de la date de début/fin (délégué au moteur d'occur
     });
     const montantAout = montantOccurrenceRentreeReguliere(r, new Date(2026, 7, 15));
     assert.ok(montantAout !== null && Math.abs(montantAout - 180000) < 1);
+  });
+});
+
+describe("Répartition mensuel/hebdomadaire/quotidien : la saisonnalité reste mensuelle, seul le découpage change", () => {
+  const ponderations = [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3]; // total 100, août = 15%, septembre = 8%
+
+  test("breakdown mensuel : le montant du mois est versé en une seule occurrence", () => {
+    const r = rentreeSaisonnalisee(1200000, ponderations, { frequence: "mensuel", dateDebut: "2026-01-01" });
+    const montant = montantOccurrenceRentreeReguliere(r, new Date(2026, 7, 1)); // 1er août
+    assert.equal(montant, 180000); // 15% x 1 200 000, versé en une fois
+  });
+
+  test("breakdown quotidien : le montant du mois est réparti à parts égales sur ses jours", () => {
+    const r = rentreeSaisonnalisee(1200000, ponderations, { frequence: "quotidien", dateDebut: "2026-01-01" });
+    // Août 2026 compte 31 jours.
+    const montantUnJour = montantOccurrenceRentreeReguliere(r, new Date(2026, 7, 15));
+    assert.ok(montantUnJour !== null);
+    assert.ok(Math.abs(montantUnJour - 180000 / 31) < 0.01, `montant/jour : ${montantUnJour}`);
+
+    // La somme des 31 jours doit reconstituer le montant mensuel (aux centimes d'arrondi près).
+    let sommeAout = 0;
+    for (let jour = 1; jour <= 31; jour++) {
+      const m = montantOccurrenceRentreeReguliere(r, new Date(2026, 7, jour));
+      assert.ok(m !== null);
+      sommeAout += m!;
+    }
+    assert.ok(Math.abs(sommeAout - 180000) < 0.5, `somme du mois : ${sommeAout}`);
+  });
+
+  test("breakdown hebdomadaire : le montant du mois est réparti sur les semaines qui y tombent (4 ou 5 selon le mois)", () => {
+    // Aout 2026 : le 1er est un samedi -> 5 lundis dans le mois (3, 10, 17, 24, 31).
+    // Septembre 2026 : 4 lundis (7, 14, 21, 28).
+    const r = rentreeSaisonnalisee(1200000, ponderations, { frequence: "hebdomadaire", dateDebut: "2026-08-03" });
+
+    const montantAout = montantOccurrenceRentreeReguliere(r, new Date(2026, 7, 3)); // lundi 3 août
+    assert.ok(montantAout !== null && Math.abs(montantAout - 180000 / 5) < 0.01, `août : ${montantAout}`);
+
+    const montantSeptembre = montantOccurrenceRentreeReguliere(r, new Date(2026, 8, 7)); // lundi 7 sept.
+    assert.ok(montantSeptembre !== null && Math.abs(montantSeptembre - 96000 / 4) < 0.01, `septembre : ${montantSeptembre}`);
+  });
+
+  test("changer uniquement la fréquence (mensuel -> quotidien) change le découpage sans changer le montant mensuel total", () => {
+    const rMensuel = rentreeSaisonnalisee(1200000, ponderations, { frequence: "mensuel", dateDebut: "2026-01-01" });
+    const rQuotidien = { ...rMensuel, frequence: "quotidien" as const };
+
+    const montantMensuel = montantOccurrenceRentreeReguliere(rMensuel, new Date(2026, 7, 1));
+    let sommeQuotidienne = 0;
+    for (let jour = 1; jour <= 31; jour++) {
+      sommeQuotidienne += montantOccurrenceRentreeReguliere(rQuotidien, new Date(2026, 7, jour)) ?? 0;
+    }
+    assert.ok(montantMensuel !== null);
+    assert.ok(Math.abs(sommeQuotidienne - montantMensuel!) < 0.5);
+  });
+});
+
+describe("Édition d'un montant mensuel : recalcule le CA total et les 12 pourcentages, sans nouvel état", () => {
+  test("éditer le montant d'un mois recalcule le montant annuel comme la somme des 12 montants", () => {
+    const profilInitial = { montantAnnuel: 1200000, ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3] };
+    // Montants courants (bruts) des 12 mois, puis édition manuelle d'août (15% -> 200 000 €).
+    const montantsCourants = profilInitial.ponderationsMensuelles.map((_, i) => montantMoisBrut(profilInitial, i));
+    montantsCourants[7] = 200000;
+
+    const nouveauProfil = profilDepuisMontants(montantsCourants);
+
+    const sommeAttendue = montantsCourants.reduce((a, b) => a + b, 0);
+    assert.equal(nouveauProfil.montantAnnuel, sommeAttendue);
+    assert.equal(montantMoisBrut(nouveauProfil, 7), 200000); // le mois édité vaut exactement ce qui a été saisi
+  });
+
+  test("après édition d'un montant, les 12 pourcentages recalculés totalisent exactement 100 %", () => {
+    const profilInitial = { montantAnnuel: 1200000, ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3] };
+    const montantsCourants = profilInitial.ponderationsMensuelles.map((_, i) => montantMoisBrut(profilInitial, i));
+    montantsCourants[7] = 250000; // valeur arbitraire, sans rapport avec les autres mois
+
+    const nouveauProfil = profilDepuisMontants(montantsCourants);
+    const totalPourcentages = totalPonderations(nouveauProfil.ponderationsMensuelles);
+    assert.ok(Math.abs(totalPourcentages - 100) < 1e-9, `total : ${totalPourcentages}`);
+  });
+
+  test("aucun champ 'modifié à la main' n'est ajouté au profil résultant", () => {
+    const nouveauProfil = profilDepuisMontants([100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000, 100000]);
+    assert.deepEqual(Object.keys(nouveauProfil).sort(), ["montantAnnuel", "ponderationsMensuelles"]);
+  });
+});
+
+describe("Édition du CA total : recalcule les montants mensuels depuis les pourcentages existants", () => {
+  test("changer le montant annuel recalcule tous les montants mensuels sans toucher aux pourcentages", () => {
+    const profilAvant = { montantAnnuel: 1200000, ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3] };
+    const profilApres = { ...profilAvant, montantAnnuel: 2000000 };
+
+    assert.equal(montantMoisBrut(profilAvant, 7), 180000); // 15% x 1 200 000
+    assert.equal(montantMoisBrut(profilApres, 7), 300000); // 15% x 2 000 000
+    assert.deepEqual(profilApres.ponderationsMensuelles, profilAvant.ponderationsMensuelles); // pourcentages inchangés
+  });
+});
+
+describe("Édition d'un pourcentage mensuel : recalcule le montant du mois correspondant", () => {
+  test("changer une pondération recalcule immédiatement le montant du mois concerné", () => {
+    const profil = { montantAnnuel: 1200000, ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3] };
+    assert.equal(montantMoisBrut(profil, 7), 180000);
+
+    const profilModifie = {
+      ...profil,
+      ponderationsMensuelles: profil.ponderationsMensuelles.map((p, i) => (i === 7 ? 20 : p)),
+    };
+    assert.equal(montantMoisBrut(profilModifie, 7), 240000); // 20% x 1 200 000
   });
 });

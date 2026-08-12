@@ -34,3 +34,12 @@ alter table recurring_income drop constraint if exists recurring_income_mode_mon
 alter table recurring_income add constraint recurring_income_mode_montant_coherent check (
   mode_montant != 'fixe' or profil_saisonnalite is null
 );
+
+-- Élargit la fréquence des Rentrées régulières pour autoriser "hebdomadaire" (alignement avec
+-- fixed_charges.recurrence, qui l'autorise déjà). Nécessaire pour que la saisonnalité (toujours
+-- mensuelle en interne) puisse être répartie en occurrences hebdomadaires, comme elle l'est déjà
+-- en quotidien/mensuel. Additif : aucune ligne existante n'est modifiée, les valeurs déjà en
+-- usage restent valides.
+alter table recurring_income drop constraint if exists recurring_income_frequence_check;
+alter table recurring_income add constraint recurring_income_frequence_check
+  check (frequence in ('ponctuel', 'quotidien', 'hebdomadaire', 'mensuel'));

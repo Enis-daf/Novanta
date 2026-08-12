@@ -1,3 +1,4 @@
+import { genererOccurrencesRecurrentes } from "./dates";
 import { ProfilSaisonnalite, RentreeReguliere } from "./types";
 
 export const NOMBRE_MOIS = 12;
@@ -52,7 +53,8 @@ export function etatTotalPonderations(total: number): EtatTotalPonderations {
  * Montant d'un mois donné (0 = janvier ... 11 = décembre) d'un profil de saisonnalité —
  * indépendant de toute année précise, puisque le profil se répète à l'identique chaque année.
  * Normalise les pondérations à la lecture seulement (jamais en écrivant le profil). null =
- * indisponible (profil incomplet, ou total hors tolérance [99,90 %, 100,10 %]).
+ * indisponible (profil incomplet, ou total hors tolérance [99,90 %, 100,10 %]). C'est la valeur
+ * utilisée par le moteur de calcul (jamais une valeur mise en cache).
  */
 export function montantMoisSaisonnalise(profil: ProfilSaisonnalite, moisIndex: number): number | null {
   if (!Number.isFinite(profil.montantAnnuel) || profil.montantAnnuel < 0) return null;
@@ -69,14 +71,70 @@ export function montantMoisSaisonnalise(profil: ProfilSaisonnalite, moisIndex: n
 }
 
 /**
- * Montant d'UNE occurrence d'une Rentrée régulière : montant fixe en mode "fixe"
- * (comportement strictement inchangé), ou montant du mois calendaire de l'occurrence en mode
- * "saisonnalise" (voir montantMoisSaisonnalise). Jamais une valeur mise en cache — toujours
- * recalculé à partir du profil courant. null = indisponible ; l'appelant doit alors exclure
- * l'occurrence du calcul.
+ * Montant BRUT d'un mois : montant annuel × pondération telle que saisie, sans normalisation ni
+ * garde-fou de tolérance. Utilisé uniquement pour l'affichage/l'édition du panneau (le montant
+ * mensuel doit toujours être éditable, même quand le total n'est pas encore à 100 %) — jamais
+ * par le moteur de calcul, qui utilise montantMoisSaisonnalise.
+ */
+export function montantMoisBrut(profil: ProfilSaisonnalite, moisIndex: number): number {
+  return arrondirCentimes(profil.montantAnnuel * (profil.ponderationsMensuelles[moisIndex] / 100));
+}
+
+/**
+ * Dérive un profil { montantAnnuel, ponderationsMensuelles } à partir de 12 montants mensuels
+ * (ex. après édition manuelle d'un montant) : le montant annuel devient la somme des 12
+ * montants, et chaque pondération = montant du mois / montant annuel × 100. Les 12 pourcentages
+ * obtenus totalisent alors exactement 100 % par construction (somme / somme × 100), sans qu'une
+ * normalisation séparée soit nécessaire. Un montant annuel nul laisse toutes les pondérations à 0.
+ */
+export function profilDepuisMontants(montantsMensuels: number[]): ProfilSaisonnalite {
+  const montantAnnuel = montantsMensuels.reduce((acc, m) => acc + m, 0);
+  const ponderationsMensuelles =
+    montantAnnuel === 0
+      ? montantsMensuels.map(() => 0)
+      : montantsMensuels.map((m) => (m / montantAnnuel) * 100);
+  return { montantAnnuel, ponderationsMensuelles };
+}
+
+function premierJourMois(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function dernierJourMois(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+/**
+ * Montant d'UNE occurrence d'une Rentrée régulière : montant fixe en mode "fixe" (comportement
+ * strictement inchangé), ou dérivé de la saisonnalité en mode "saisonnalise".
+ *
+ * Règle centrale : la saisonnalité est TOUJOURS mensuelle (montant annuel × pondération du
+ * mois — voir montantMoisSaisonnalise). La fréquence de la rentrée ne sert qu'à répartir ENSUITE
+ * ce montant mensuel sur les occurrences réelles de la rentrée tombant dans ce même mois
+ * calendaire : une seule occurrence pour "mensuel"/"ponctuel" (le montant mensuel entier), ou
+ * réparti à parts égales entre les N occurrences du mois pour "quotidien"/"hebdomadaire" — en
+ * réutilisant le même moteur de génération d'occurrences que le reste de l'application, jamais
+ * une nouvelle logique de calendrier. Jamais une valeur mise en cache — toujours recalculé.
+ * null = indisponible ; l'appelant doit alors exclure l'occurrence du calcul.
  */
 export function montantOccurrenceRentreeReguliere(rentree: RentreeReguliere, dateOccurrence: Date): number | null {
   if (rentree.modeMontant === "fixe") return rentree.montant;
   if (!rentree.profilSaisonnalite) return null;
-  return montantMoisSaisonnalise(rentree.profilSaisonnalite, dateOccurrence.getMonth());
+
+  const montantMensuel = montantMoisSaisonnalise(rentree.profilSaisonnalite, dateOccurrence.getMonth());
+  if (montantMensuel === null) return null;
+
+  if (rentree.frequence === "mensuel" || rentree.frequence === "ponctuel") return montantMensuel;
+
+  const debutMois = premierJourMois(dateOccurrence);
+  const finMois = dernierJourMois(dateOccurrence);
+  const occurrencesDuMois = genererOccurrencesRecurrentes(
+    rentree.dateDebut,
+    rentree.frequence,
+    rentree.dateFin,
+    finMois
+  ).filter((d) => d >= debutMois);
+
+  if (occurrencesDuMois.length === 0) return null;
+  return arrondirCentimes(montantMensuel / occurrencesDuMois.length);
 }

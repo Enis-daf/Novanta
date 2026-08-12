@@ -68,7 +68,7 @@ export interface RentreeReguliere {
   libelle: string;
   montant: number; // montant fixe en mode "fixe" ; en mode "saisonnalise", dernière valeur connue seulement — jamais lue par le moteur, voir lib/saisonnalite.ts
   dateDebut: string; // YYYY-MM-DD
-  frequence: "ponctuel" | "quotidien" | "mensuel";
+  frequence: "ponctuel" | "quotidien" | "hebdomadaire" | "mensuel";
   dateFin: string | null; // YYYY-MM-DD — optionnelle, sinon jusqu'à J+90
   modeMontant: ModeMontantRentreeReguliere;
   profilSaisonnalite: ProfilSaisonnalite | null; // non nul uniquement en mode "saisonnalise"

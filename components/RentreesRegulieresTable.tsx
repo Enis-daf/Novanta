@@ -3,13 +3,13 @@
 import { useMemo } from "react";
 import { RentreeReguliere, TriMode } from "@/lib/types";
 import { formatDateCourte, trierParDate, trierParMontant } from "@/lib/dates";
-import { formatMontant } from "@/lib/format";
 import { filtrerRentreesRegulieres } from "@/lib/recherche";
 import { OccurrencesParId } from "@/lib/periodeFiltre";
 import {
   etatTotalPonderations,
-  montantMoisSaisonnalise,
+  montantMoisBrut,
   montantOccurrenceRentreeReguliere,
+  profilDepuisMontants,
   repartitionUniforme,
   totalPonderations,
 } from "@/lib/saisonnalite";
@@ -163,12 +163,20 @@ export default function RentreesRegulieresTable({
                               onChange(rentree.id, { profilSaisonnalite: { ...profil, ponderationsMensuelles: ponderations } });
                             }}
                           />
-                          <span className="rentree-saisonnalite__montant">
-                            {(() => {
-                              const montantMois = montantMoisSaisonnalise(profil, index);
-                              return montantMois === null ? "—" : formatMontant(montantMois);
-                            })()}
-                          </span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="rentree-saisonnalite__montant"
+                            value={montantMoisBrut(profil, index)}
+                            onChange={(e) => {
+                              const nouveauMontant = Math.abs(Number(e.target.value) || 0);
+                              const montantsMensuels = NOMS_MOIS_COURTS.map((_, i) =>
+                                i === index ? nouveauMontant : montantMoisBrut(profil, i)
+                              );
+                              onChange(rentree.id, { profilSaisonnalite: profilDepuisMontants(montantsMensuels) });
+                            }}
+                          />
                         </div>
                       ))}
                     </div>
@@ -214,20 +222,17 @@ export default function RentreesRegulieresTable({
                 />
               </td>
               <td>
-                {estSaisonnalisee ? (
-                  <span className="frequence-figee">Mensuelle</span>
-                ) : (
-                  <select
-                    value={rentree.frequence}
-                    onChange={(e) =>
-                      onChange(rentree.id, { frequence: e.target.value as RentreeReguliere["frequence"] })
-                    }
-                  >
-                    <option value="ponctuel">Ponctuel</option>
-                    <option value="quotidien">Quotidien</option>
-                    <option value="mensuel">Mensuel</option>
-                  </select>
-                )}
+                <select
+                  value={rentree.frequence}
+                  onChange={(e) =>
+                    onChange(rentree.id, { frequence: e.target.value as RentreeReguliere["frequence"] })
+                  }
+                >
+                  <option value="ponctuel">Ponctuel</option>
+                  <option value="quotidien">Quotidien</option>
+                  <option value="hebdomadaire">Hebdomadaire</option>
+                  <option value="mensuel">Mensuel</option>
+                </select>
               </td>
               <td>
                 <DateField

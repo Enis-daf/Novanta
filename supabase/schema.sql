@@ -210,6 +210,16 @@ alter table recurring_income add constraint recurring_income_mode_montant_cohere
   mode_montant != 'fixe' or profil_saisonnalite is null
 );
 
+-- Migration additive et non destructive : élargit la fréquence des Rentrées régulières pour
+-- autoriser "hebdomadaire" (alignement avec fixed_charges.recurrence, qui l'autorise déjà).
+-- Nécessaire pour que la saisonnalité (toujours mensuelle en interne) puisse être répartie en
+-- occurrences hebdomadaires, comme elle l'est déjà en quotidien/mensuel. Aucune ligne existante
+-- n'est modifiée : les valeurs déjà en usage restent valides, "hebdomadaire" n'est qu'une
+-- nouvelle valeur permise pour les prochaines saisies.
+alter table recurring_income drop constraint if exists recurring_income_frequence_check;
+alter table recurring_income add constraint recurring_income_frequence_check
+  check (frequence in ('ponctuel', 'quotidien', 'hebdomadaire', 'mensuel'));
+
 create index if not exists idx_customer_invoices_company on customer_invoices(company_id);
 create index if not exists idx_supplier_invoices_company on supplier_invoices(company_id);
 create index if not exists idx_fixed_charges_company on fixed_charges(company_id);
