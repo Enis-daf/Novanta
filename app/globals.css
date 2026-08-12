@@ -886,18 +886,35 @@ input[type="checkbox"] {
   color: var(--couleur-texte-secondaire);
 }
 
+/* Zone gauche (montant annuel + tableau de saisonnalité) et zone droite (texte d'aide),
+   alignées en haut, côte à côte — l'aide occupe l'espace libre latéral au lieu de pousser
+   le tableau vers le bas. */
 .rentree-saisonnalite {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: 420px;
+}
+
+.rentree-saisonnalite__controles {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  width: 280px;
+  flex-shrink: 0;
+  width: 230px;
 }
 
 .rentree-saisonnalite__aide {
-  margin: 0 0 2px;
+  flex: 1;
+  min-width: 150px;
+  margin: 0;
   font-size: 10px;
   line-height: 1.4;
   color: var(--couleur-texte-secondaire);
+  /* .invoice-table td { white-space: nowrap } l'emporte en spécificité sur
+     .col-montant--calcule { white-space: normal } : ce texte long doit forcer son propre
+     retour à la ligne plutôt que d'en hériter un qui le ferait déborder sur une seule ligne. */
+  white-space: normal;
 }
 
 .rentree-saisonnalite__annuel {
@@ -922,10 +939,16 @@ input[type="checkbox"] {
   text-align: right;
 }
 
-.rentree-saisonnalite__entetes {
+/* Mois : court. % : moyen. Montant : large — ne doit jamais être plus étroit que "%", et
+   doit afficher un montant à 7 chiffres (ex. 1 200 000) sans troncature. */
+.rentree-saisonnalite__entetes,
+.rentree-saisonnalite__ligne {
   display: grid;
-  grid-template-columns: 44px 62px 1fr;
+  grid-template-columns: 32px 46px minmax(96px, 1fr);
   gap: 6px;
+}
+
+.rentree-saisonnalite__entetes {
   padding: 0 2px;
   font-size: 9px;
   font-weight: 600;
@@ -946,10 +969,7 @@ input[type="checkbox"] {
 }
 
 .rentree-saisonnalite__ligne {
-  display: grid;
-  grid-template-columns: 44px 62px 1fr;
   align-items: center;
-  gap: 6px;
   padding: 2px;
 }
 
@@ -960,6 +980,7 @@ input[type="checkbox"] {
 
 .rentree-saisonnalite__poids {
   width: 100%;
+  min-width: 0;
   text-align: right;
   border: 1px solid var(--couleur-bordure);
   border-radius: 6px;
@@ -969,10 +990,11 @@ input[type="checkbox"] {
 
 .rentree-saisonnalite__montant {
   width: 100%;
+  min-width: 96px;
   text-align: right;
   border: 1px solid var(--couleur-bordure);
   border-radius: 6px;
-  padding: 3px 4px;
+  padding: 3px 6px;
   font-size: 11px;
   font-weight: 600;
   color: var(--couleur-texte);
