@@ -893,19 +893,22 @@ input[type="checkbox"] {
   width: 230px;
 }
 
-/* Ligne supplémentaire sous la ligne principale d'une rentrée saisonnalisée : place le texte
-   d'aide précisément sous les colonnes Date de début / Fréquence / Date de fin (colSpan=3),
-   peu importe leur largeur réelle — plus fiable qu'un positionnement latéral approximatif. */
-.rentree-saisonnalite__ligne-aide td {
-  padding-top: 0;
-  border-bottom: 1px solid var(--couleur-bordure);
-}
-
-.rentree-saisonnalite__aide-cellule {
-  vertical-align: top;
+/* Le texte d'aide doit apparaître dans l'espace libre SOUS le champ Date de début (la ligne
+   entière est haute à cause du panneau de saisonnalité dans la colonne Montant, et
+   vertical-align: top laisse tout ce vide sous le champ) — pas dans une nouvelle ligne de
+   tableau, qui apparaîtrait après toute la hauteur du panneau, beaucoup trop bas. Positionné en
+   absolu par rapport à la cellule Date de début : il ne change ni la largeur ni la hauteur de
+   cette cellule (donc n'affecte pas l'alignement des colonnes des autres lignes), et déborde
+   volontairement à droite dans l'espace tout aussi libre des colonnes Fréquence/Date de fin. */
+.rentree-saisonnalite__cellule-date-debut {
+  position: relative;
 }
 
 .rentree-saisonnalite__aide {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  width: 340px;
   margin: 0;
   font-size: 10px;
   line-height: 1.4;

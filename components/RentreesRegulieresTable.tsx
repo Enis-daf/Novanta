@@ -223,11 +223,17 @@ export default function RentreesRegulieresTable({
                   </div>
                 )}
               </td>
-              <td>
+              <td className={estSaisonnalisee && profil ? "rentree-saisonnalite__cellule-date-debut" : undefined}>
                 <DateField
                   value={rentree.dateDebut}
                   onChange={(valeur) => onChange(rentree.id, { dateDebut: valeur })}
                 />
+                {estSaisonnalisee && profil && (
+                  <p className="rentree-saisonnalite__aide">
+                    Ajoutez le montant annuel, répartissez le pourcentage par mois, puis ajustez directement un
+                    montant si besoin. Le total et les pourcentages se recalculent automatiquement.
+                  </p>
+                )}
               </td>
               <td>
                 <select
@@ -254,19 +260,6 @@ export default function RentreesRegulieresTable({
                 </button>
               </td>
             </tr>
-            {estSaisonnalisee && profil && (
-              <tr className="rentree-saisonnalite__ligne-aide">
-                <td></td>
-                <td></td>
-                <td colSpan={3} className="rentree-saisonnalite__aide-cellule">
-                  <p className="rentree-saisonnalite__aide">
-                    Ajoutez le montant annuel, répartissez le pourcentage par mois, puis ajustez directement un
-                    montant si besoin. Le total et les pourcentages se recalculent automatiquement.
-                  </p>
-                </td>
-                <td></td>
-              </tr>
-            )}
             </Fragment>
             );
           })}
