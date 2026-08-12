@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { RentreeReguliere, TriMode } from "@/lib/types";
 import { formatDateCourte, trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerRentreesRegulieres } from "@/lib/recherche";
@@ -93,7 +93,8 @@ export default function RentreesRegulieresTable({
             const total = profil ? totalPonderations(profil.ponderationsMensuelles) : 0;
             const etatTotal = profil ? etatTotalPonderations(total) : "invalide";
             return (
-            <tr key={rentree.id}>
+            <Fragment key={rentree.id}>
+            <tr>
               <td>
                 <input
                   type="text"
@@ -132,99 +133,93 @@ export default function RentreesRegulieresTable({
                   />
                 ) : (
                   <div className="rentree-saisonnalite">
-                    <div className="rentree-saisonnalite__controles">
-                      <div className="rentree-saisonnalite__annuel">
-                        <label>Montant annuel</label>
-                        <input
-                          type="number"
-                          min="0"
-                          value={profil.montantAnnuel}
-                          onChange={(e) =>
-                            onChange(rentree.id, {
-                              profilSaisonnalite: { ...profil, montantAnnuel: Math.abs(Number(e.target.value) || 0) },
-                            })
-                          }
-                        />
-                      </div>
-                      <div className="rentree-saisonnalite__entetes">
-                        <span>Mois</span>
-                        <span>%</span>
-                        <span>Montant</span>
-                      </div>
-                      <div className="rentree-saisonnalite__grille">
-                        {NOMS_MOIS_COURTS.map((nomMois, index) => (
-                          <div className="rentree-saisonnalite__ligne" key={nomMois}>
-                            <span className="rentree-saisonnalite__mois">{nomMois}</span>
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className="rentree-saisonnalite__poids"
-                              value={arrondirPourcentageAffiche(profil.ponderationsMensuelles[index])}
-                              onChange={(e) => {
-                                const valeur = Math.max(0, Number(e.target.value) || 0);
-                                const ponderations = profil.ponderationsMensuelles.map((p, i) =>
-                                  i === index ? valeur : p
-                                );
-                                onChange(rentree.id, {
-                                  profilSaisonnalite: { ...profil, ponderationsMensuelles: ponderations },
-                                });
-                              }}
-                            />
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className="rentree-saisonnalite__montant"
-                              value={montantMoisBrut(profil, index)}
-                              onChange={(e) => {
-                                const nouveauMontant = Math.abs(Number(e.target.value) || 0);
-                                const montantsMensuels = NOMS_MOIS_COURTS.map((_, i) =>
-                                  i === index ? nouveauMontant : montantMoisBrut(profil, i)
-                                );
-                                onChange(rentree.id, { profilSaisonnalite: profilDepuisMontants(montantsMensuels) });
-                              }}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                      <p
-                        className={`rentree-saisonnalite__total ${
-                          etatTotal === "invalide" ? "rentree-saisonnalite__total--invalide" : ""
-                        }`}
-                      >
-                        Total : {arrondirPourcentageAffiche(total)} %
-                        {etatTotal === "invalide" &&
-                          (total < 100
-                            ? ` — Il manque ${arrondirPourcentageAffiche(100 - total)} %`
-                            : ` — Dépassement de ${arrondirPourcentageAffiche(total - 100)} %`)}
-                      </p>
-                      {etatTotal === "invalide" && (
-                        <p className="charge-calcul__indisponible">
-                          Le total des pondérations doit être égal à 100 %.
-                        </p>
-                      )}
-                      {etatTotal === "normalisable" && (
-                        <p className="charge-calcul__hint">
-                          Répartition ajustée automatiquement pour atteindre 100 %.
-                        </p>
-                      )}
-                      <button
-                        type="button"
-                        className="btn-secondaire rentree-saisonnalite__uniforme"
-                        onClick={() =>
+                    <div className="rentree-saisonnalite__annuel">
+                      <label>Montant annuel</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={profil.montantAnnuel}
+                        onChange={(e) =>
                           onChange(rentree.id, {
-                            profilSaisonnalite: { ...profil, ponderationsMensuelles: repartitionUniforme() },
+                            profilSaisonnalite: { ...profil, montantAnnuel: Math.abs(Number(e.target.value) || 0) },
                           })
                         }
-                      >
-                        Répartition uniforme
-                      </button>
+                      />
                     </div>
-                    <p className="rentree-saisonnalite__aide">
-                      Ajoutez le montant annuel, répartissez le pourcentage par mois, puis ajustez directement un
-                      montant si besoin. Le total et les pourcentages se recalculent automatiquement.
+                    <div className="rentree-saisonnalite__entetes">
+                      <span>Mois</span>
+                      <span>%</span>
+                      <span>Montant</span>
+                    </div>
+                    <div className="rentree-saisonnalite__grille">
+                      {NOMS_MOIS_COURTS.map((nomMois, index) => (
+                        <div className="rentree-saisonnalite__ligne" key={nomMois}>
+                          <span className="rentree-saisonnalite__mois">{nomMois}</span>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="rentree-saisonnalite__poids"
+                            value={arrondirPourcentageAffiche(profil.ponderationsMensuelles[index])}
+                            onChange={(e) => {
+                              const valeur = Math.max(0, Number(e.target.value) || 0);
+                              const ponderations = profil.ponderationsMensuelles.map((p, i) =>
+                                i === index ? valeur : p
+                              );
+                              onChange(rentree.id, {
+                                profilSaisonnalite: { ...profil, ponderationsMensuelles: ponderations },
+                              });
+                            }}
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="rentree-saisonnalite__montant"
+                            value={montantMoisBrut(profil, index)}
+                            onChange={(e) => {
+                              const nouveauMontant = Math.abs(Number(e.target.value) || 0);
+                              const montantsMensuels = NOMS_MOIS_COURTS.map((_, i) =>
+                                i === index ? nouveauMontant : montantMoisBrut(profil, i)
+                              );
+                              onChange(rentree.id, { profilSaisonnalite: profilDepuisMontants(montantsMensuels) });
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p
+                      className={`rentree-saisonnalite__total ${
+                        etatTotal === "invalide" ? "rentree-saisonnalite__total--invalide" : ""
+                      }`}
+                    >
+                      Total : {arrondirPourcentageAffiche(total)} %
+                      {etatTotal === "invalide" &&
+                        (total < 100
+                          ? ` — Il manque ${arrondirPourcentageAffiche(100 - total)} %`
+                          : ` — Dépassement de ${arrondirPourcentageAffiche(total - 100)} %`)}
                     </p>
+                    {etatTotal === "invalide" && (
+                      <p className="charge-calcul__indisponible">
+                        Le total des pondérations doit être égal à 100 %.
+                      </p>
+                    )}
+                    {etatTotal === "normalisable" && (
+                      <p className="charge-calcul__hint">
+                        Répartition ajustée automatiquement pour atteindre 100 %.
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      className="btn-secondaire rentree-saisonnalite__uniforme"
+                      onClick={() =>
+                        onChange(rentree.id, {
+                          profilSaisonnalite: { ...profil, ponderationsMensuelles: repartitionUniforme() },
+                        })
+                      }
+                    >
+                      Répartition uniforme
+                    </button>
                   </div>
                 )}
               </td>
@@ -259,6 +254,20 @@ export default function RentreesRegulieresTable({
                 </button>
               </td>
             </tr>
+            {estSaisonnalisee && profil && (
+              <tr className="rentree-saisonnalite__ligne-aide">
+                <td></td>
+                <td></td>
+                <td colSpan={3} className="rentree-saisonnalite__aide-cellule">
+                  <p className="rentree-saisonnalite__aide">
+                    Ajoutez le montant annuel, répartissez le pourcentage par mois, puis ajustez directement un
+                    montant si besoin. Le total et les pourcentages se recalculent automatiquement.
+                  </p>
+                </td>
+                <td></td>
+              </tr>
+            )}
+            </Fragment>
             );
           })}
         </tbody>

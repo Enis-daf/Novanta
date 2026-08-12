@@ -886,27 +886,26 @@ input[type="checkbox"] {
   color: var(--couleur-texte-secondaire);
 }
 
-/* Zone gauche (montant annuel + tableau de saisonnalité) et zone droite (texte d'aide),
-   alignées en haut, côte à côte — l'aide occupe l'espace libre latéral au lieu de pousser
-   le tableau vers le bas. */
 .rentree-saisonnalite {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  width: 420px;
-}
-
-.rentree-saisonnalite__controles {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  flex-shrink: 0;
   width: 230px;
 }
 
+/* Ligne supplémentaire sous la ligne principale d'une rentrée saisonnalisée : place le texte
+   d'aide précisément sous les colonnes Date de début / Fréquence / Date de fin (colSpan=3),
+   peu importe leur largeur réelle — plus fiable qu'un positionnement latéral approximatif. */
+.rentree-saisonnalite__ligne-aide td {
+  padding-top: 0;
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+.rentree-saisonnalite__aide-cellule {
+  vertical-align: top;
+}
+
 .rentree-saisonnalite__aide {
-  flex: 1;
-  min-width: 150px;
   margin: 0;
   font-size: 10px;
   line-height: 1.4;
