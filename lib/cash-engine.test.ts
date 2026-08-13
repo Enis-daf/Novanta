@@ -28,6 +28,8 @@ function rentree(overrides: Partial<RentreeReguliere> = {}): RentreeReguliere {
     dateDebut: "2026-01-01",
     frequence: "quotidien",
     dateFin: null,
+    modeMontant: "fixe",
+    profilSaisonnalite: null,
     ...overrides,
   };
 }
@@ -166,6 +168,176 @@ describe("calculerProjectionCash — impact du montant calculé sur le moteur (K
   });
 });
 
+describe("calculerProjectionCash — Rentrée régulière saisonnalisée (directe et comme source de Charge calculée)", () => {
+  test("une rentrée saisonnalisée directe débite le bon mois : août = 15% de 1 200 000", () => {
+    const ca = rentree({
+      id: "ca",
+      libelle: "CA",
+      dateDebut: "2026-01-01",
+      frequence: "mensuel",
+      modeMontant: "saisonnalise",
+      profilSaisonnalite: {
+        montantAnnuel: 1200000,
+        ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3],
+      },
+    });
+
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 0,
+      chargesFixes: [],
+      rentreesRegulieres: [ca],
+      dateDepart: "2026-01-01",
+      horizonJours: 365,
+    });
+
+    const soldeJuillet31 = resultat.serie.find((p) => p.date === "2026-07-31")!.solde;
+    const soldeAout1 = resultat.serie.find((p) => p.date === "2026-08-01")!.solde;
+    assert.equal(soldeAout1 - soldeJuillet31, 180000); // 15% x 1 200 000, débité pile le 1er août
+  });
+
+  test("horizon exact : si l'horizon commence en août, juillet n'est jamais intégré", () => {
+    const ca = rentree({
+      id: "ca",
+      dateDebut: "2025-01-01", // profil actif bien avant l'horizon
+      frequence: "mensuel",
+      modeMontant: "saisonnalise",
+      profilSaisonnalite: {
+        montantAnnuel: 1200000,
+        ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3],
+      },
+    });
+
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 0,
+      chargesFixes: [],
+      rentreesRegulieres: [ca],
+      dateDepart: "2026-08-01",
+      horizonJours: 30, // couvre uniquement août (+ 1er sept.)
+    });
+
+    const fluxJuillet = resultat.serie.find((p) => p.date === "2026-07-01");
+    assert.equal(fluxJuillet, undefined); // juillet est avant l'horizon : jamais dans la série
+    const soldeJ0 = resultat.serie[0].solde;
+    assert.equal(soldeJ0, 180000); // uniquement l'occurrence d'août (15%), pas juillet (10%)
+  });
+
+  test("Charge calculée dépendant d'une source saisonnalisée : la courbe reflète les deux flux, mois par mois", () => {
+    const ca = rentree({
+      id: "ca",
+      libelle: "CA",
+      dateDebut: "2026-01-01",
+      frequence: "mensuel",
+      modeMontant: "saisonnalise",
+      profilSaisonnalite: {
+        montantAnnuel: 1200000,
+        ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3],
+      },
+    });
+    const ads = chargeFixe({
+      id: "ads",
+      libelle: "Ads",
+      datePrevue: "2026-01-01",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 0,
+      chargesFixes: [ads],
+      rentreesRegulieres: [ca],
+      dateDepart: "2026-01-01",
+      horizonJours: 365,
+    });
+
+    const soldeJuillet31 = resultat.serie.find((p) => p.date === "2026-07-31")!.solde;
+    const soldeAout1 = resultat.serie.find((p) => p.date === "2026-08-01")!.solde;
+    // +180 000 de CA, -72 000 d'Ads (40% de 180 000), le même jour.
+    assert.equal(soldeAout1 - soldeJuillet31, 180000 - 72000);
+  });
+
+  test("modification du montant annuel de la source : recalcule immédiatement la courbe et le point bas", () => {
+    const chargesFixesEtRentrees = (montantAnnuel: number) => ({
+      ca: rentree({
+        id: "ca",
+        dateDebut: "2026-01-01",
+        frequence: "mensuel",
+        modeMontant: "saisonnalise",
+        profilSaisonnalite: { montantAnnuel, ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3] },
+      }),
+    });
+
+    const { ca: caAvant } = chargesFixesEtRentrees(1200000);
+    const { ca: caApres } = chargesFixesEtRentrees(2000000);
+
+    const resultatAvant = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 0,
+      chargesFixes: [],
+      rentreesRegulieres: [caAvant],
+      dateDepart: "2026-01-01",
+      horizonJours: 240,
+    });
+    const resultatApres = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 0,
+      chargesFixes: [],
+      rentreesRegulieres: [caApres],
+      dateDepart: "2026-01-01",
+      horizonJours: 240,
+    });
+
+    assert.notEqual(resultatAvant.pointBas, resultatApres.pointBas);
+    assert.ok(resultatApres.soldeJ90 > resultatAvant.soldeJ90); // montant annuel plus élevé -> solde final plus élevé
+  });
+
+  test("horizon 90 jours et 180 jours avec source saisonnalisée : les deux se recalculent sans erreur", () => {
+    const ca = rentree({
+      id: "ca",
+      dateDebut: "2026-01-01",
+      frequence: "mensuel",
+      modeMontant: "saisonnalise",
+      profilSaisonnalite: { montantAnnuel: 1200000, ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3] },
+    });
+    const ads = chargeFixe({
+      id: "ads",
+      datePrevue: "2026-01-01",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+
+    const resultat90 = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 0,
+      chargesFixes: [ads],
+      rentreesRegulieres: [ca],
+      dateDepart: "2026-01-01",
+      horizonJours: 90,
+    });
+    const resultat180 = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 0,
+      chargesFixes: [ads],
+      rentreesRegulieres: [ca],
+      dateDepart: "2026-01-01",
+      horizonJours: 180,
+    });
+
+    assert.equal(resultat90.serie.length, 91);
+    assert.equal(resultat180.serie.length, 181);
+    assert.equal(Number.isFinite(resultat90.soldeJ90), true);
+    assert.equal(Number.isFinite(resultat180.soldeJ90), true);
+  });
+});
+
 describe("calculerSyntheseMensuelle — agrégation mensuelle avec le montant calculé", () => {
   test("répartit correctement 31 jours de CA en janvier et 28 en février (charge mensuelle 10%)", () => {
     const ca = rentree({ id: "ca", montant: 1000, dateDebut: "2025-01-01", frequence: "quotidien" });
@@ -198,5 +370,46 @@ describe("calculerSyntheseMensuelle — agrégation mensuelle avec le montant ca
     // apparaît elle dans la colonne de janvier.
     assert.equal(ligneCharges.montantsParMois[indexFevrier], -3100); // 10% x 31000 (janvier, 31 jours)
     assert.equal(ligneCharges.montantsParMois[indexJanvier], -100); // 10% x 1000 (1er janvier seul)
+  });
+
+  test("source saisonnalisée + charge calculée dépendante : les deux restent dans leurs catégories existantes", () => {
+    const ca = rentree({
+      id: "ca",
+      libelle: "CA",
+      dateDebut: "2026-01-01",
+      frequence: "mensuel",
+      modeMontant: "saisonnalise",
+      profilSaisonnalite: { montantAnnuel: 1200000, ponderationsMensuelles: [8, 8, 8, 8, 8, 8, 10, 15, 8, 8, 8, 3] },
+    });
+    const ads = chargeFixe({
+      id: "ads",
+      libelle: "Ads",
+      datePrevue: "2026-01-01",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+
+    const resultat = calculerSyntheseMensuelle({
+      ...PARAMS_VIDES,
+      dateReleve: "2026-01-01",
+      horizonJours: 365,
+      chargesFixes: [ads],
+      rentreesRegulieres: [ca],
+    });
+
+    // Aucune nouvelle catégorie "Saisonnières" : uniquement les 6 lignes habituelles.
+    assert.deepEqual(
+      resultat.lignes.map((l) => l.libelle),
+      ["Factures clients", "Rentrées régulières", "Financements", "Factures fournisseurs", "Charges fixes", "Autres dépenses"]
+    );
+
+    const ligneRentrees = resultat.lignes.find((l) => l.libelle === "Rentrées régulières")!;
+    const ligneCharges = resultat.lignes.find((l) => l.libelle === "Charges fixes")!;
+    const indexAout = resultat.mois.findIndex((m) => m.cle === "2026-08");
+    assert.equal(ligneRentrees.montantsParMois[indexAout], 180000);
+    assert.equal(ligneCharges.montantsParMois[indexAout], -72000);
   });
 });

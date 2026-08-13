@@ -211,6 +211,8 @@ function rentreeReguliereToRow(companyId: string, r: RentreeReguliere): Row {
     date_debut: dateOuNull(r.dateDebut),
     frequence: r.frequence,
     date_fin: r.dateFin,
+    mode_montant: r.modeMontant,
+    profil_saisonnalite: r.profilSaisonnalite,
   };
 }
 
@@ -222,6 +224,9 @@ function rowToRentreeReguliere(row: Row): RentreeReguliere {
     dateDebut: (row.date_debut as string | null) ?? "",
     frequence: row.frequence as RentreeReguliere["frequence"],
     dateFin: (row.date_fin as string | null) ?? null,
+    // Colonnes absentes sur une ligne créée avant la migration "saisonnalité" : reste "fixe".
+    modeMontant: (row.mode_montant as RentreeReguliere["modeMontant"] | undefined) ?? "fixe",
+    profilSaisonnalite: (row.profil_saisonnalite as RentreeReguliere["profilSaisonnalite"] | undefined) ?? null,
   };
 }
 

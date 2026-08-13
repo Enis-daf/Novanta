@@ -188,6 +188,38 @@ create table if not exists recurring_income (
 -- Migration non destructive : autorise les dates vides.
 alter table recurring_income alter column date_debut drop not null;
 
+-- Migration additive et non destructive : ajoute le support du "Montant saisonnalisé" pour les
+-- Rentrées régulières uniquement (les Charges fixes ne sont pas concernées). Toutes les colonnes
+-- sont nouvelles, nullables ou avec valeur par défaut ; aucune colonne existante n'est modifiée ;
+-- aucune ligne existante n'est touchée : mode_montant vaut 'fixe' par défaut, donc toutes les
+-- rentrées déjà en base continuent de fonctionner exactement comme avant.
+--
+-- profil_saisonnalite (jsonb) contient { montantAnnuel: number, ponderationsMensuelles: number[12] }
+-- — pas de 12 colonnes, pas de table séparée : une seule structure additive, lisible, dont la
+-- validation (12 valeurs, total proche de 100 %) est faite côté application, comme le taux/la
+-- source des Charges fixes calculées ne sont pas non plus validés en profondeur côté base.
+--
+-- La contrainte ci-dessous n'impose la cohérence que dans un sens : en mode "fixe", pas de
+-- profil de saisonnalité. Elle n'impose PAS que profil_saisonnalite soit déjà complet dès le
+-- passage en mode "saisonnalise" (même raisonnement que pour les Charges fixes calculées).
+alter table recurring_income add column if not exists mode_montant text not null default 'fixe'
+  check (mode_montant in ('fixe', 'saisonnalise'));
+alter table recurring_income add column if not exists profil_saisonnalite jsonb;
+alter table recurring_income drop constraint if exists recurring_income_mode_montant_coherent;
+alter table recurring_income add constraint recurring_income_mode_montant_coherent check (
+  mode_montant != 'fixe' or profil_saisonnalite is null
+);
+
+-- Migration additive et non destructive : élargit la fréquence des Rentrées régulières pour
+-- autoriser "hebdomadaire" (alignement avec fixed_charges.recurrence, qui l'autorise déjà).
+-- Nécessaire pour que la saisonnalité (toujours mensuelle en interne) puisse être répartie en
+-- occurrences hebdomadaires, comme elle l'est déjà en quotidien/mensuel. Aucune ligne existante
+-- n'est modifiée : les valeurs déjà en usage restent valides, "hebdomadaire" n'est qu'une
+-- nouvelle valeur permise pour les prochaines saisies.
+alter table recurring_income drop constraint if exists recurring_income_frequence_check;
+alter table recurring_income add constraint recurring_income_frequence_check
+  check (frequence in ('ponctuel', 'quotidien', 'hebdomadaire', 'mensuel'));
+
 create index if not exists idx_customer_invoices_company on customer_invoices(company_id);
 create index if not exists idx_supplier_invoices_company on supplier_invoices(company_id);
 create index if not exists idx_fixed_charges_company on fixed_charges(company_id);

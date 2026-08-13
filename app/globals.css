@@ -476,6 +476,7 @@ input[type="checkbox"] {
   border-bottom: 1px solid var(--couleur-bordure);
   text-align: left;
   white-space: nowrap;
+  vertical-align: top;
 }
 
 .invoice-table th {
@@ -883,6 +884,147 @@ input[type="checkbox"] {
   padding: 5px 6px;
   font-size: 12px;
   color: var(--couleur-texte-secondaire);
+}
+
+.rentree-saisonnalite {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 230px;
+}
+
+/* Le texte d'aide doit apparaître dans l'espace libre SOUS le champ Date de début (la ligne
+   entière est haute à cause du panneau de saisonnalité dans la colonne Montant, et
+   vertical-align: top laisse tout ce vide sous le champ) — pas dans une nouvelle ligne de
+   tableau, qui apparaîtrait après toute la hauteur du panneau, beaucoup trop bas. Positionné en
+   absolu par rapport à la cellule Date de début : il ne change ni la largeur ni la hauteur de
+   cette cellule (donc n'affecte pas l'alignement des colonnes des autres lignes), et déborde
+   volontairement à droite dans l'espace tout aussi libre des colonnes Fréquence/Date de fin. */
+.rentree-saisonnalite__cellule-date-debut {
+  position: relative;
+}
+
+.rentree-saisonnalite__aide {
+  position: absolute;
+  top: 52px; /* champ Date de début (~22px) + l'espace d'une cellule de plus qu'avant */
+  left: 0;
+  width: 340px;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--couleur-texte-secondaire);
+  /* .invoice-table td { white-space: nowrap } l'emporte en spécificité sur
+     .col-montant--calcule { white-space: normal } : ce texte long doit forcer son propre
+     retour à la ligne plutôt que d'en hériter un qui le ferait déborder sur une seule ligne. */
+  white-space: normal;
+}
+
+.rentree-saisonnalite__annuel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.rentree-saisonnalite__annuel label {
+  font-weight: 600;
+  color: var(--couleur-texte-secondaire);
+  white-space: nowrap;
+}
+
+.rentree-saisonnalite__annuel input {
+  flex: 1;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 6px;
+  padding: 3px 4px;
+  font-size: 11px;
+  text-align: right;
+}
+
+/* Mois : court. % : moyen. Montant : large — ne doit jamais être plus étroit que "%", et
+   doit afficher un montant à 7 chiffres (ex. 1 200 000) sans troncature. */
+.rentree-saisonnalite__entetes,
+.rentree-saisonnalite__ligne {
+  display: grid;
+  grid-template-columns: 32px 46px minmax(96px, 1fr);
+  gap: 6px;
+}
+
+.rentree-saisonnalite__entetes {
+  padding: 0 2px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--couleur-texte-secondaire);
+}
+
+.rentree-saisonnalite__grille {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 6px;
+  padding: 3px;
+}
+
+.rentree-saisonnalite__ligne {
+  align-items: center;
+  padding: 2px;
+}
+
+.rentree-saisonnalite__mois {
+  font-size: 10px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.rentree-saisonnalite__poids {
+  width: 100%;
+  min-width: 0;
+  text-align: right;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 6px;
+  padding: 3px 4px;
+  font-size: 11px;
+}
+
+.rentree-saisonnalite__montant {
+  width: 100%;
+  min-width: 96px;
+  text-align: right;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+}
+
+.rentree-saisonnalite__total {
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+}
+
+.rentree-saisonnalite__periode {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+  cursor: default;
+}
+
+.rentree-saisonnalite__total--invalide {
+  color: var(--couleur-accent-fonce);
+}
+
+.rentree-saisonnalite__uniforme {
+  align-self: flex-start;
+  padding: 3px 8px;
+  font-size: 10px;
 }
 
 @media (max-width: 900px) {

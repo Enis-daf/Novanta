@@ -25,6 +25,7 @@ import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
 import { calculerControleMensuel } from "@/lib/controleMensuel";
 import { calculerFluxPeriode, calculerPeriodeFiltre } from "@/lib/periodeFiltre";
+import { montantOccurrenceRentreeReguliere, repartitionUniforme } from "@/lib/saisonnalite";
 import {
   chargesUtilisantCommeSource,
   messageBlocageConversion,
@@ -567,7 +568,34 @@ export default function Home() {
 
   const handleChangeRentreeReguliere = (id: string, patch: Partial<RentreeReguliere>) => {
     setRentreesRegulieres((prev) => {
-      const suivant = prev.map((r) => (r.id === id ? { ...r, ...patch } : r));
+      const courante = prev.find((r) => r.id === id);
+      if (!courante) return prev;
+
+      let patchApplique = patch;
+
+      if (patch.modeMontant === "saisonnalise" && courante.modeMontant === "fixe") {
+        // Passage Fixe -> Saisonnalisé : répartition uniforme par défaut, pas de reprise
+        // automatique d'un montant annuel (demandé explicitement à l'utilisateur). La fréquence
+        // n'est pas imposée : la saisonnalité est toujours calculée au niveau mensuel en
+        // interne, puis répartie sur les occurrences de la fréquence choisie (ponctuel/
+        // quotidien/hebdomadaire/mensuel) par le moteur — voir lib/saisonnalite.ts.
+        patchApplique = {
+          ...patch,
+          profilSaisonnalite: { montantAnnuel: 0, ponderationsMensuelles: repartitionUniforme() },
+        };
+      }
+
+      if (patch.modeMontant === "fixe" && courante.modeMontant === "saisonnalise") {
+        // Passage Saisonnalisé -> Fixe : fige le montant du mois calendaire courant.
+        const montantCourant = montantOccurrenceRentreeReguliere(courante, new Date());
+        patchApplique = {
+          ...patch,
+          montant: montantCourant ?? courante.montant,
+          profilSaisonnalite: null,
+        };
+      }
+
+      const suivant = prev.map((r) => (r.id === id ? { ...r, ...patchApplique } : r));
       const rentree = suivant.find((r) => r.id === id);
       if (companyId && rentree) {
         persistDebounce(`rentreeReguliere:${id}`, () => sauvegarderRentreeReguliere(companyId, rentree));
@@ -584,6 +612,8 @@ export default function Home() {
       dateDebut: "",
       frequence: "mensuel",
       dateFin: null,
+      modeMontant: "fixe",
+      profilSaisonnalite: null,
     };
     setRentreesRegulieres((prev) => [...prev, rentree]);
     if (companyId) persist(() => sauvegarderRentreeReguliere(companyId, rentree));
@@ -720,6 +750,7 @@ export default function Home() {
             recherche={recherche}
             tri={tri}
             filtrePeriode={fluxPeriode?.occurrencesRentreesRegulieres ?? null}
+            periodeFiltre={periodeFiltre}
           />
           <FinancementsTable
             financements={financements}
@@ -751,6 +782,7 @@ export default function Home() {
             recherche={recherche}
             tri={tri}
             filtrePeriode={fluxPeriode?.occurrencesChargesFixes ?? null}
+            periodeFiltre={periodeFiltre}
           />
           <AutresDepensesTable
             depenses={autresDepenses}

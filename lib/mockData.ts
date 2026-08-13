@@ -288,6 +288,8 @@ export const mockRentreesRegulieres: RentreeReguliere[] = [
     dateDebut: addDays(today, 1),
     frequence: "quotidien",
     dateFin: null,
+    modeMontant: "fixe",
+    profilSaisonnalite: null,
   },
   {
     id: "rr-2",
@@ -296,5 +298,7 @@ export const mockRentreesRegulieres: RentreeReguliere[] = [
     dateDebut: addDays(today, 15),
     frequence: "mensuel",
     dateFin: null,
+    modeMontant: "fixe",
+    profilSaisonnalite: null,
   },
 ];
