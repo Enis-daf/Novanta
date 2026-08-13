@@ -750,6 +750,7 @@ export default function Home() {
             recherche={recherche}
             tri={tri}
             filtrePeriode={fluxPeriode?.occurrencesRentreesRegulieres ?? null}
+            periodeFiltre={periodeFiltre}
           />
           <FinancementsTable
             financements={financements}
@@ -781,6 +782,7 @@ export default function Home() {
             recherche={recherche}
             tri={tri}
             filtrePeriode={fluxPeriode?.occurrencesChargesFixes ?? null}
+            periodeFiltre={periodeFiltre}
           />
           <AutresDepensesTable
             depenses={autresDepenses}

@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { parseDateISO } from "./dates";
 import {
+  detailChargeFixeSurPeriode,
   frequenceCompatible,
   montantOccurrenceChargeFixe,
   montantApercuChargeFixe,
@@ -689,5 +690,105 @@ describe("Régression : charge calculée % de CA saisonnalisé — le mois ne do
       total += montant!;
     }
     assert.equal(total, 120000);
+  });
+});
+
+describe("detailChargeFixeSurPeriode — aperçu contextuel à une plage sélectionnée (N et N')", () => {
+  test("source non saisonnalisée, une semaine complète : N' = 7000 (7 x 1000), N = 40% x 7000 = 2800", () => {
+    const ca = rentree({ id: "ca", montant: 1000, dateDebut: "2026-01-01", frequence: "quotidien" });
+    const ads = chargeFixe({
+      id: "ads",
+      datePrevue: "2026-01-01",
+      recurrence: "hebdomadaire",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    // Semaine complète du 8 janvier (2e occurrence, période complète).
+    const detail = detailChargeFixeSurPeriode(ads, ["2026-01-08"], [], [ca], FIN_LOINTAINE);
+    assert.deepEqual(detail, { montantSource: 7000, montantCharge: 2800 });
+  });
+
+  test("source saisonnalisée, sélection d'un seul mois : N' = montant du mois, N = taux x N'", () => {
+    const ca = rentree({
+      id: "ca",
+      dateDebut: "2026-01-01",
+      frequence: "mensuel",
+      modeMontant: "saisonnalise",
+      profilSaisonnalite: { montantAnnuel: 1000000, ponderationsMensuelles: Array(12).fill(70 / 11).map((p, i) => (i === 8 ? 30 : p)) },
+    });
+    const charge = chargeFixe({
+      datePrevue: "2026-01-01",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    const detail = detailChargeFixeSurPeriode(charge, ["2026-09-01"], [], [ca], FIN_LOINTAINE);
+    assert.deepEqual(detail, { montantSource: 300000, montantCharge: 120000 });
+  });
+
+  test("source saisonnalisée, charge quotidienne, sélection de plusieurs jours du même mois : les N/N' se somment", () => {
+    const ca = rentree({
+      id: "ca",
+      dateDebut: "2026-01-01",
+      frequence: "quotidien",
+      modeMontant: "saisonnalise",
+      profilSaisonnalite: { montantAnnuel: 1000000, ponderationsMensuelles: Array(12).fill(70 / 11).map((p, i) => (i === 8 ? 30 : p)) },
+    });
+    const charge = chargeFixe({
+      datePrevue: "2026-01-01",
+      recurrence: "quotidien",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    // Septembre = 120 000 € pour la charge, 30 jours -> 4000 €/jour. 3 jours sélectionnés = 12 000 €.
+    const detail = detailChargeFixeSurPeriode(charge, ["2026-09-14", "2026-09-15", "2026-09-16"], [], [ca], FIN_LOINTAINE);
+    assert.equal(detail!.montantCharge, 12000);
+    assert.equal(detail!.montantSource, 30000); // 40% x 30000 = 12000
+  });
+
+  test("aucune date sélectionnée : 0/0, jamais null (résultat valide, pas indisponible)", () => {
+    const ca = rentree({ id: "ca", montant: 1000, dateDebut: "2026-01-01", frequence: "quotidien" });
+    const ads = chargeFixe({
+      datePrevue: "2026-01-01",
+      recurrence: "hebdomadaire",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    const detail = detailChargeFixeSurPeriode(ads, [], [], [ca], FIN_LOINTAINE);
+    assert.deepEqual(detail, { montantSource: 0, montantCharge: 0 });
+  });
+
+  test("charge en mode fixe : pas de notion de source sur une plage, retourne null", () => {
+    const charge = chargeFixe({ montant: 500, modeMontant: "fixe" });
+    const detail = detailChargeFixeSurPeriode(charge, ["2026-01-01"], [], [], FIN_LOINTAINE);
+    assert.equal(detail, null);
+  });
+
+  test("une occurrence de la plage est indisponible (source invalide) : le résultat entier est null", () => {
+    const caInvalide = rentree({
+      id: "ca",
+      dateDebut: "2026-01-01",
+      frequence: "mensuel",
+      modeMontant: "saisonnalise",
+      profilSaisonnalite: { montantAnnuel: 1000000, ponderationsMensuelles: Array(12).fill(5) }, // total 60, hors tolérance
+    });
+    const charge = chargeFixe({
+      datePrevue: "2026-01-01",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 40,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    const detail = detailChargeFixeSurPeriode(charge, ["2026-09-01"], [], [caInvalide], FIN_LOINTAINE);
+    assert.equal(detail, null);
   });
 });

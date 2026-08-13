@@ -1009,6 +1009,14 @@ input[type="checkbox"] {
   color: var(--couleur-texte);
 }
 
+.rentree-saisonnalite__periode {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+  cursor: default;
+}
+
 .rentree-saisonnalite__total--invalide {
   color: var(--couleur-accent-fonce);
 }

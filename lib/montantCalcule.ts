@@ -1,5 +1,12 @@
 import { ChargeFixe, RentreeReguliere, TypeSourceCalculChargeFixe } from "./types";
-import { ajouterJours, estDateValide, FrequenceRecurrence, genererOccurrencesRecurrentes, parseDateISO } from "./dates";
+import {
+  ajouterJours,
+  estDateValide,
+  FrequenceRecurrence,
+  genererOccurrencesRecurrentes,
+  parseDateISO,
+  toISODate,
+} from "./dates";
 import { montantMoisSaisonnalise, montantOccurrenceRentreeReguliere, repartirMontantMensuel } from "./saisonnalite";
 
 function arrondirCentimes(montant: number): number {
@@ -90,38 +97,35 @@ function resoudreSourceCalcul(
   };
 }
 
+interface DetailOccurrenceChargeFixe {
+  /** Montant de la SOURCE ayant servi à calculer cette occurrence (avant application du taux). */
+  montantSource: number;
+  /** Montant de la charge pour cette occurrence (montantSource x taux / 100). */
+  montantCharge: number;
+}
+
 /**
- * Montant d'UNE occurrence précise d'une charge fixe calculée.
+ * Détail d'UNE occurrence précise d'une charge fixe calculée (charge.modeMontant === "calcule"
+ * uniquement — le mode "fixe" est traité séparément par montantOccurrenceChargeFixe, qui ne
+ * délègue jamais ici dans ce cas). Expose montantSource (avant taux) en plus de montantCharge :
+ * utilisé par montantOccurrenceChargeFixe (moteur, ne garde que montantCharge) ET par
+ * detailChargeFixeSurPeriode (aperçu contextuel filtré, a besoin des deux).
  *
- * Cas particulier — source = Rentrée régulière saisonnalisée : la saisonnalité raisonne
- * "combien pour CE mois calendaire ?", pas "combien d'occurrences de la source dans la période
- * écoulée ?". On calcule donc d'abord le montant mensuel de la source pour le mois de CETTE
- * occurrence (montantMoisSaisonnalise), on applique le taux, puis on découpe le résultat selon
- * la récurrence de la CHARGE elle-même (repartirMontantMensuel) — jamais celle de la source, et
- * jamais via la période glissante ci-dessous (qui donnerait un mois décalé/mélangé avec une
- * source à granularité plus fine, ex. CA quotidien).
- *
+ * Cas particulier — source = Rentrée régulière saisonnalisée : voir montantOccurrenceChargeFixe.
  * Cas général — toute autre source : taux % appliqué à la somme des occurrences réelles de la
- * source tombant dans la période couverte par cette occurrence — pas au montant nominal de la
- * source, et pas à un coefficient moyen. La période est [occurrence précédente + 1 jour, cette
- * occurrence] ; pour la toute première occurrence de la charge (dateOccurrencePrecedente =
- * null), la période est réduite au seul jour de l'occurrence elle-même — jamais d'occurrences
- * de source antérieures au début réel de la charge.
+ * source tombant dans la période couverte par cette occurrence.
  *
- * En mode "fixe", le montant ne dépend d'aucune période : c'est toujours charge.montant.
  * null = montant indisponible (taux/source/fréquence invalide) ; l'appelant doit exclure
  * l'occurrence du calcul.
  */
-export function montantOccurrenceChargeFixe(
+function detailOccurrenceChargeFixe(
   charge: ChargeFixe,
   dateOccurrence: Date,
   dateOccurrencePrecedente: Date | null,
   chargesFixes: ChargeFixe[],
   rentreesRegulieres: RentreeReguliere[],
   finHorizon: Date
-): number | null {
-  if (charge.modeMontant === "fixe") return charge.montant;
-
+): DetailOccurrenceChargeFixe | null {
   if (charge.tauxCalcul === null || !Number.isFinite(charge.tauxCalcul)) return null;
 
   if (charge.sourceCalculType === "rentree_reguliere" && charge.sourceCalculId) {
@@ -130,8 +134,16 @@ export function montantOccurrenceChargeFixe(
       if (!sourceRentree.profilSaisonnalite) return null;
       const montantMensuelSource = montantMoisSaisonnalise(sourceRentree.profilSaisonnalite, dateOccurrence.getMonth());
       if (montantMensuelSource === null) return null;
-      const montantMensuelCharge = arrondirCentimes((charge.tauxCalcul / 100) * montantMensuelSource);
-      return repartirMontantMensuel(montantMensuelCharge, charge.recurrence, charge.datePrevue, charge.dateFin, dateOccurrence);
+      const montantSource = repartirMontantMensuel(
+        montantMensuelSource,
+        charge.recurrence,
+        charge.datePrevue,
+        charge.dateFin,
+        dateOccurrence
+      );
+      if (montantSource === null) return null;
+      const montantCharge = arrondirCentimes((charge.tauxCalcul / 100) * montantSource);
+      return { montantSource, montantCharge };
     }
   }
 
@@ -151,7 +163,82 @@ export function montantOccurrenceChargeFixe(
     sommeSource += montantOccurrenceSource;
   }
 
-  return arrondirCentimes((charge.tauxCalcul / 100) * sommeSource);
+  const montantSource = arrondirCentimes(sommeSource);
+  return { montantSource, montantCharge: arrondirCentimes((charge.tauxCalcul / 100) * montantSource) };
+}
+
+/**
+ * Montant d'UNE occurrence précise d'une charge fixe calculée. En mode "fixe", le montant ne
+ * dépend d'aucune période : c'est toujours charge.montant. Sinon, délègue à
+ * detailOccurrenceChargeFixe et ne garde que montantCharge (voir ce commentaire pour le détail
+ * des deux cas de calcul). null = montant indisponible ; l'appelant doit exclure l'occurrence.
+ */
+export function montantOccurrenceChargeFixe(
+  charge: ChargeFixe,
+  dateOccurrence: Date,
+  dateOccurrencePrecedente: Date | null,
+  chargesFixes: ChargeFixe[],
+  rentreesRegulieres: RentreeReguliere[],
+  finHorizon: Date
+): number | null {
+  if (charge.modeMontant === "fixe") return charge.montant;
+  const detail = detailOccurrenceChargeFixe(
+    charge,
+    dateOccurrence,
+    dateOccurrencePrecedente,
+    chargesFixes,
+    rentreesRegulieres,
+    finHorizon
+  );
+  return detail ? detail.montantCharge : null;
+}
+
+/**
+ * Somme, sur un ensemble de dates d'occurrences déjà connues (ex. celles d'une charge tombant
+ * dans la plage sélectionnée par un clic sur la courbe — voir lib/periodeFiltre.ts), le montant
+ * de la charge (N) et le montant de la source ayant servi à le calculer (N'). Réutilise
+ * detailOccurrenceChargeFixe pour chaque date : aucune règle de calcul dupliquée. Les dates
+ * doivent provenir de la MÊME génération d'occurrences que celle utilisée pour produire
+ * `datesOccurrences` (genererOccurrencesRecurrentes avec les mêmes paramètres) pour que la
+ * "précédente" de chaque occurrence soit correctement retrouvée.
+ *
+ * null = au moins une occurrence de la plage est indisponible (comportement volontairement
+ * strict : un aperçu contextuel partiel serait trompeur). Un ensemble de dates vide donne 0/0
+ * (pas de null) : c'est un résultat valide, jamais un montant indisponible.
+ */
+export function detailChargeFixeSurPeriode(
+  charge: ChargeFixe,
+  datesOccurrences: string[],
+  chargesFixes: ChargeFixe[],
+  rentreesRegulieres: RentreeReguliere[],
+  finHorizon: Date
+): DetailOccurrenceChargeFixe | null {
+  if (charge.modeMontant === "fixe") return null;
+  if (datesOccurrences.length === 0) return { montantSource: 0, montantCharge: 0 };
+
+  const toutesOccurrences = genererOccurrencesRecurrentes(charge.datePrevue, charge.recurrence, charge.dateFin, finHorizon);
+  const indexParDateISO = new Map(toutesOccurrences.map((d, i) => [toISODate(d), i]));
+
+  let montantSource = 0;
+  let montantCharge = 0;
+  for (const dateIso of datesOccurrences) {
+    const index = indexParDateISO.get(dateIso);
+    if (index === undefined) continue;
+    const precedente = index > 0 ? toutesOccurrences[index - 1] : null;
+    const detail = detailOccurrenceChargeFixe(
+      charge,
+      toutesOccurrences[index],
+      precedente,
+      chargesFixes,
+      rentreesRegulieres,
+      finHorizon
+    );
+    if (!detail) return null;
+    montantSource += detail.montantSource;
+    montantCharge += detail.montantCharge;
+  }
+
+  return { montantSource: arrondirCentimes(montantSource), montantCharge: arrondirCentimes(montantCharge) };
 }
 
 const HORIZON_APERCU_JOURS = 730;

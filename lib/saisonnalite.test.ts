@@ -5,6 +5,7 @@ import {
   montantMoisBrut,
   montantMoisSaisonnalise,
   montantOccurrenceRentreeReguliere,
+  montantRentreeReguliereSurPeriode,
   normaliserPonderations,
   NOMBRE_MOIS,
   profilDepuisMontants,
@@ -296,5 +297,43 @@ describe("Édition d'un pourcentage mensuel : recalcule le montant du mois corre
       ponderationsMensuelles: profil.ponderationsMensuelles.map((p, i) => (i === 7 ? 20 : p)),
     };
     assert.equal(montantMoisBrut(profilModifie, 7), 240000); // 20% x 1 200 000
+  });
+});
+
+describe("montantRentreeReguliereSurPeriode — aperçu contextuel à une plage sélectionnée", () => {
+  test("sélection d'une seule date dans un mois donné : le montant de ce mois", () => {
+    const r = rentreeSaisonnalisee(1200000, [0, 0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 85], { frequence: "mensuel" });
+    const montant = montantRentreeReguliereSurPeriode(r, ["2026-08-01"]);
+    assert.equal(montant, 180000);
+  });
+
+  test("sélection de plusieurs dates sur deux mois différents : les montants se somment", () => {
+    // Août 15 %, septembre 8 %, montant annuel 1 200 000 -> 180 000 + 96 000 = 276 000.
+    const r = rentreeSaisonnalisee(1200000, [7.7, 7.7, 7.7, 7.7, 7.7, 7.7, 7.7, 15, 8, 7.7, 7.7, 7.7], { frequence: "mensuel" });
+    const montant = montantRentreeReguliereSurPeriode(r, ["2026-08-01", "2026-09-01"]);
+    assert.ok(montant !== null && Math.abs(montant - 276000) < 1, `montant ${montant}`);
+  });
+
+  test("mois pondéré à 0 % : contribue 0 €, jamais exclu de la somme", () => {
+    const r = rentreeSaisonnalisee(1200000, [8, 7, 6, 7, 8, 9, 10, 15, 10, 9, 10.96, 0], { frequence: "mensuel" });
+    const montant = montantRentreeReguliereSurPeriode(r, ["2026-12-01"]);
+    assert.equal(montant, 0);
+  });
+
+  test("aucune date sélectionnée : 0, jamais null", () => {
+    const r = rentreeSaisonnalisee(1200000, repartitionUniforme(), { frequence: "mensuel" });
+    assert.equal(montantRentreeReguliereSurPeriode(r, []), 0);
+  });
+
+  test("total des pondérations hors tolérance : la somme est indisponible (null), jamais une valeur inventée", () => {
+    const r = rentreeSaisonnalisee(1200000, [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5], { frequence: "mensuel" }); // total 60
+    assert.equal(montantRentreeReguliereSurPeriode(r, ["2026-08-01"]), null);
+  });
+
+  test("découpage quotidien : la somme de plusieurs jours d'un même mois reconstitue une fraction cohérente du mois", () => {
+    const r = rentreeSaisonnalisee(1200000, [0, 0, 0, 0, 0, 0, 0, 15, 0, 0, 0, 85], { frequence: "quotidien" });
+    // Août 2026 = 31 jours, montant mensuel 180 000 €.
+    const montant3jours = montantRentreeReguliereSurPeriode(r, ["2026-08-01", "2026-08-02", "2026-08-03"]);
+    assert.ok(montant3jours !== null && Math.abs(montant3jours - (180000 / 31) * 3) < 0.1, `montant ${montant3jours}`);
   });
 });

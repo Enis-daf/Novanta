@@ -3,12 +3,14 @@
 import { Fragment, useMemo } from "react";
 import { RentreeReguliere, TriMode } from "@/lib/types";
 import { formatDateCourte, trierParDate, trierParMontant } from "@/lib/dates";
+import { formatMontant } from "@/lib/format";
 import { filtrerRentreesRegulieres } from "@/lib/recherche";
-import { OccurrencesParId } from "@/lib/periodeFiltre";
+import { OccurrencesParId, PeriodeFiltre } from "@/lib/periodeFiltre";
 import {
   etatTotalPonderations,
   montantMoisBrut,
   montantOccurrenceRentreeReguliere,
+  montantRentreeReguliereSurPeriode,
   profilDepuisMontants,
   repartitionUniforme,
   totalPonderations,
@@ -23,6 +25,7 @@ interface RentreesRegulieresTableProps {
   recherche: string;
   tri: TriMode;
   filtrePeriode?: OccurrencesParId | null;
+  periodeFiltre?: PeriodeFiltre | null;
 }
 
 const NOMS_MOIS_COURTS = [
@@ -57,6 +60,7 @@ export default function RentreesRegulieresTable({
   recherche,
   tri,
   filtrePeriode,
+  periodeFiltre,
 }: RentreesRegulieresTableProps) {
   const rentreesTriees = useMemo(() => {
     const dansPeriode = filtrePeriode ? rentrees.filter((r) => filtrePeriode.has(r.id)) : rentrees;
@@ -146,6 +150,15 @@ export default function RentreesRegulieresTable({
                         }
                       />
                     </div>
+                    {periodeFiltre && occurrences && occurrences.length > 0 && etatTotal !== "invalide" && (
+                      <p
+                        className="rentree-saisonnalite__periode"
+                        title={`Occurrences dans la période : ${occurrences.map(formatDateCourte).join(", ")}`}
+                      >
+                        Sur la période du {formatDateCourte(periodeFiltre.debut)} au {formatDateCourte(periodeFiltre.fin)} :{" "}
+                        = {formatMontant(montantRentreeReguliereSurPeriode(rentree, occurrences) ?? 0)}
+                      </p>
+                    )}
                     <div className="rentree-saisonnalite__entetes">
                       <span>Mois</span>
                       <span>%</span>

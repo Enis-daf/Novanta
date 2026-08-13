@@ -1,4 +1,4 @@
-import { FrequenceRecurrence, genererOccurrencesRecurrentes } from "./dates";
+import { FrequenceRecurrence, genererOccurrencesRecurrentes, parseDateISO } from "./dates";
 import { ProfilSaisonnalite, RentreeReguliere } from "./types";
 
 export const NOMBRE_MOIS = 12;
@@ -152,4 +152,22 @@ export function montantOccurrenceRentreeReguliere(rentree: RentreeReguliere, dat
   if (montantMensuel === null) return null;
 
   return repartirMontantMensuel(montantMensuel, rentree.frequence, rentree.dateDebut, rentree.dateFin, dateOccurrence);
+}
+
+/**
+ * Somme, sur un ensemble de dates d'occurrences déjà connues (ex. celles d'une rentrée tombant
+ * dans la plage sélectionnée par un clic sur la courbe — voir lib/periodeFiltre.ts), le montant
+ * de la rentrée sur ces dates. Réutilise montantOccurrenceRentreeReguliere pour chaque date :
+ * aucune règle de calcul dupliquée. Un mois pondéré à 0 % contribue 0 € (jamais exclu de la
+ * somme). null = au moins une date est indisponible (profil incomplet ou hors tolérance) — un
+ * ensemble de dates vide donne 0 (résultat valide, pas indisponible).
+ */
+export function montantRentreeReguliereSurPeriode(rentree: RentreeReguliere, datesOccurrences: string[]): number | null {
+  let somme = 0;
+  for (const dateIso of datesOccurrences) {
+    const montant = montantOccurrenceRentreeReguliere(rentree, parseDateISO(dateIso));
+    if (montant === null) return null;
+    somme += montant;
+  }
+  return arrondirCentimes(somme);
 }

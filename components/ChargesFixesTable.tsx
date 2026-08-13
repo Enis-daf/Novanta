@@ -2,11 +2,12 @@
 
 import { useMemo } from "react";
 import { ChargeFixe, RentreeReguliere, TriMode } from "@/lib/types";
-import { formatDateCourte, trierParDate, trierParMontant } from "@/lib/dates";
+import { formatDateCourte, parseDateISO, trierParDate, trierParMontant } from "@/lib/dates";
 import { formatMontant } from "@/lib/format";
 import { filtrerChargesFixes } from "@/lib/recherche";
-import { OccurrencesParId } from "@/lib/periodeFiltre";
+import { OccurrencesParId, PeriodeFiltre } from "@/lib/periodeFiltre";
 import {
+  detailChargeFixeSurPeriode,
   libelleSourceCalcul,
   messageMontantIndisponible,
   montantApercuChargeFixe,
@@ -25,6 +26,7 @@ interface ChargesFixesTableProps {
   recherche: string;
   tri: TriMode;
   filtrePeriode?: OccurrencesParId | null;
+  periodeFiltre?: PeriodeFiltre | null;
 }
 
 export default function ChargesFixesTable({
@@ -36,6 +38,7 @@ export default function ChargesFixesTable({
   recherche,
   tri,
   filtrePeriode,
+  periodeFiltre,
 }: ChargesFixesTableProps) {
   const chargesTriees = useMemo(() => {
     const dansPeriode = filtrePeriode ? charges.filter((c) => filtrePeriode.has(c.id)) : charges;
@@ -76,6 +79,17 @@ export default function ChargesFixesTable({
               estCalculee &&
               charge.sourceCalculType === "rentree_reguliere" &&
               rentreesRegulieres.find((r) => r.id === charge.sourceCalculId)?.modeMontant === "saisonnalise";
+            // Aperçu contextuel à la plage sélectionnée sur la courbe (D-3..D+3 autour du clic) :
+            // remplace l'aperçu par défaut (2e occurrence) uniquement quand un filtre est actif ET
+            // que cette charge a des occurrences dans la plage (sinon la ligne n'est pas affichée
+            // du tout — voir filtrePeriode plus haut, qui masque déjà les lignes sans occurrence).
+            // En mode filtré, un résultat indisponible (detailPeriode = null) reste indisponible :
+            // on ne retombe jamais silencieusement sur l'aperçu par défaut, qui serait trompeur.
+            const enModeFiltre = estCalculee && !!periodeFiltre && !!occurrences && occurrences.length > 0;
+            const detailPeriode = enModeFiltre
+              ? detailChargeFixeSurPeriode(charge, occurrences!, charges, rentreesRegulieres, parseDateISO(periodeFiltre!.fin))
+              : null;
+            const montantAffiche = enModeFiltre ? (detailPeriode ? detailPeriode.montantCharge : null) : montantCalcule;
             return (
             <tr key={charge.id}>
               <td>
@@ -139,7 +153,7 @@ export default function ChargesFixesTable({
                         onChange={(type, id) => onChange(charge.id, { sourceCalculType: type, sourceCalculId: id })}
                       />
                     </div>
-                    {montantCalcule === null ? (
+                    {montantAffiche === null ? (
                       <p className="charge-calcul__indisponible">
                         {messageMontantIndisponible(charge, charges, rentreesRegulieres)}
                       </p>
@@ -147,14 +161,22 @@ export default function ChargesFixesTable({
                       <>
                         <p
                           className="charge-calcul__apercu"
-                          title={`Montant calculé : ${charge.tauxCalcul}% de ${sourceLibelle}`}
+                          title={
+                            enModeFiltre
+                              ? `Montant calculé : ${charge.tauxCalcul}% de ${sourceLibelle} (${formatMontant(
+                                  detailPeriode!.montantSource
+                                )} sur la période sélectionnée)`
+                              : `Montant calculé : ${charge.tauxCalcul}% de ${sourceLibelle}`
+                          }
                         >
-                          = {formatMontant(montantCalcule)} <IconCalculatrice />
+                          = {formatMontant(montantAffiche)} <IconCalculatrice />
                         </p>
                         <p className="charge-calcul__hint">
-                          {sourceSaisonnalisee
-                            ? `Le montant varie chaque mois selon la saisonnalité de ${sourceLibelle}.`
-                            : `Le montant se met à jour automatiquement lorsque ${sourceLibelle} change.`}
+                          {enModeFiltre
+                            ? `Sur la période du ${formatDateCourte(periodeFiltre!.debut)} au ${formatDateCourte(periodeFiltre!.fin)}.`
+                            : sourceSaisonnalisee
+                              ? `Le montant varie chaque mois selon la saisonnalité de ${sourceLibelle}.`
+                              : `Le montant se met à jour automatiquement lorsque ${sourceLibelle} change.`}
                         </p>
                       </>
                     )}
