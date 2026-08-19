@@ -210,12 +210,14 @@ export default function ChargesFixesTable({
                 />
               </td>
               <td className="col-checkbox">
-                <input
-                  type="checkbox"
-                  checked={charge.aCouper}
-                  title="Exclut cette dépense des projections sans supprimer la donnée."
-                  onChange={(e) => onChange(charge.id, { aCouper: e.target.checked })}
-                />
+                <span className="checkbox-tooltip" title="Exclut cette dépense des projections sans supprimer la donnée.">
+                  <input
+                    type="checkbox"
+                    checked={charge.aCouper}
+                    title="Exclut cette dépense des projections sans supprimer la donnée."
+                    onChange={(e) => onChange(charge.id, { aCouper: e.target.checked })}
+                  />
+                </span>
               </td>
               <td className="col-actions">
                 <button type="button" className="btn-remove" onClick={() => onRemove(charge.id)}>

@@ -126,25 +126,35 @@ export default function FacturesFournisseursTable({
                 ))}
               </td>
               <td className="col-checkbox">
-                <input
-                  type="checkbox"
-                  checked={facture.litigieuse}
+                <span
+                  className="checkbox-tooltip"
                   title="Exclut cette facture des projections car son paiement ou son encaissement est incertain."
-                  onChange={(e) => onChange(facture.id, { litigieuse: e.target.checked })}
-                />
+                >
+                  <input
+                    type="checkbox"
+                    checked={facture.litigieuse}
+                    title="Exclut cette facture des projections car son paiement ou son encaissement est incertain."
+                    onChange={(e) => onChange(facture.id, { litigieuse: e.target.checked })}
+                  />
+                </span>
               </td>
               <td className="col-checkbox">
-                <input
-                  type="checkbox"
-                  checked={facture.payee}
+                <span
+                  className="checkbox-tooltip"
                   title="Exclut cette facture des projections car elle est déjà comptée dans le Solde bancaire initial."
-                  onChange={(e) =>
-                    onChange(facture.id, {
-                      payee: e.target.checked,
-                      paidAt: e.target.checked ? new Date().toISOString() : null,
-                    })
-                  }
-                />
+                >
+                  <input
+                    type="checkbox"
+                    checked={facture.payee}
+                    title="Exclut cette facture des projections car elle est déjà comptée dans le Solde bancaire initial."
+                    onChange={(e) =>
+                      onChange(facture.id, {
+                        payee: e.target.checked,
+                        paidAt: e.target.checked ? new Date().toISOString() : null,
+                      })
+                    }
+                  />
+                </span>
               </td>
               <td className="col-actions">
                 <button
