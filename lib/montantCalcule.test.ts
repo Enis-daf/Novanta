@@ -22,6 +22,7 @@ function chargeFixe(overrides: Partial<ChargeFixe> = {}): ChargeFixe {
     tauxCalcul: null,
     sourceCalculId: null,
     sourceCalculType: null,
+    aCouper: false,
     ...overrides,
   };
 }

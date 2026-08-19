@@ -64,6 +64,7 @@ export default function ChargesFixesTable({
             <th>Date prévue</th>
             <th>Récurrence</th>
             <th>Date de fin</th>
+            <th>À couper</th>
             <th></th>
           </tr>
         </thead>
@@ -91,7 +92,7 @@ export default function ChargesFixesTable({
               : null;
             const montantAffiche = enModeFiltre ? (detailPeriode ? detailPeriode.montantCharge : null) : montantCalcule;
             return (
-            <tr key={charge.id}>
+            <tr key={charge.id} className={charge.aCouper ? "row--litigieuse" : ""}>
               <td>
                 <input
                   type="text"
@@ -206,6 +207,14 @@ export default function ChargesFixesTable({
                 <DateField
                   value={charge.dateFin ?? ""}
                   onChange={(valeur) => onChange(charge.id, { dateFin: valeur || null })}
+                />
+              </td>
+              <td className="col-checkbox">
+                <input
+                  type="checkbox"
+                  checked={charge.aCouper}
+                  title="Exclut cette charge de la projection sans supprimer la donnée."
+                  onChange={(e) => onChange(charge.id, { aCouper: e.target.checked })}
                 />
               </td>
               <td className="col-actions">

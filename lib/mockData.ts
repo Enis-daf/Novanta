@@ -212,6 +212,7 @@ export const mockChargesFixes: ChargeFixe[] = [
     tauxCalcul: null,
     sourceCalculId: null,
     sourceCalculType: null,
+    aCouper: false,
   },
   {
     id: "cf-2",
@@ -224,6 +225,7 @@ export const mockChargesFixes: ChargeFixe[] = [
     tauxCalcul: null,
     sourceCalculId: null,
     sourceCalculType: null,
+    aCouper: false,
   },
   {
     id: "cf-3",
@@ -236,6 +238,7 @@ export const mockChargesFixes: ChargeFixe[] = [
     tauxCalcul: null,
     sourceCalculId: null,
     sourceCalculType: null,
+    aCouper: false,
   },
   {
     id: "cf-4",
@@ -248,6 +251,7 @@ export const mockChargesFixes: ChargeFixe[] = [
     tauxCalcul: null,
     sourceCalculId: null,
     sourceCalculType: null,
+    aCouper: false,
   },
 ];
 

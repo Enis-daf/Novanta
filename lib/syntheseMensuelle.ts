@@ -161,6 +161,7 @@ function occurrencesChargesFixes(
 ): Occurrence[] {
   const res: Occurrence[] = [];
   for (const c of charges) {
+    if (c.aCouper) continue;
     const occurrencesCharge = genererOccurrencesRecurrentes(c.datePrevue, c.recurrence, c.dateFin, fin);
     occurrencesCharge.forEach((occ, index) => {
       if (!dansHorizon(occ, debut, fin)) return;

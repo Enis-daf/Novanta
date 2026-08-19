@@ -494,6 +494,7 @@ export default function Home() {
       tauxCalcul: null,
       sourceCalculId: null,
       sourceCalculType: null,
+      aCouper: false,
     };
     setChargesFixes((prev) => [...prev, charge]);
     if (companyId) persist(() => sauvegarderChargeFixe(companyId, charge));

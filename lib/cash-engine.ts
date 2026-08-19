@@ -82,6 +82,7 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
   }
 
   for (const charge of chargesFixes) {
+    if (charge.aCouper) continue;
     const occurrencesCharge = genererOccurrencesRecurrentes(charge.datePrevue, charge.recurrence, charge.dateFin, fin);
     occurrencesCharge.forEach((occurrence, index) => {
       const precedente = index > 0 ? occurrencesCharge[index - 1] : null;
