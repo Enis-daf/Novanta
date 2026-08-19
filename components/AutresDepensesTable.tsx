@@ -89,6 +89,7 @@ export default function AutresDepensesTable({
                 <input
                   type="checkbox"
                   checked={depense.facturee}
+                  title="Exclut cette dépense des projections pour éviter un doublon avec la facture fournisseur correspondante."
                   onChange={(e) => onChange(depense.id, { facturee: e.target.checked })}
                 />
               </td>

@@ -129,6 +129,7 @@ export default function FacturesClientsTable({
                 <input
                   type="checkbox"
                   checked={facture.litigieuse}
+                  title="Exclut cette facture des projections car son paiement ou son encaissement est incertain."
                   onChange={(e) => onChange(facture.id, { litigieuse: e.target.checked })}
                 />
               </td>
@@ -136,6 +137,7 @@ export default function FacturesClientsTable({
                 <input
                   type="checkbox"
                   checked={facture.payee}
+                  title="Exclut cette facture des projections car elle est déjà comptée dans le Solde bancaire initial."
                   onChange={(e) =>
                     onChange(facture.id, {
                       payee: e.target.checked,

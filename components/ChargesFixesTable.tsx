@@ -213,7 +213,7 @@ export default function ChargesFixesTable({
                 <input
                   type="checkbox"
                   checked={charge.aCouper}
-                  title="Exclut cette charge de la projection sans supprimer la donnée."
+                  title="Exclut cette dépense des projections sans supprimer la donnée."
                   onChange={(e) => onChange(charge.id, { aCouper: e.target.checked })}
                 />
               </td>

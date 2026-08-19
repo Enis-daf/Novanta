@@ -79,6 +79,7 @@ export default function FinancementsTable({
                 <input
                   type="checkbox"
                   checked={financement.verse}
+                  title="Exclut ce financement des projections car les fonds sont déjà comptés dans le Solde bancaire initial."
                   onChange={(e) => onChange(financement.id, { verse: e.target.checked })}
                 />
               </td>
