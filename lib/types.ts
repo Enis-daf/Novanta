@@ -37,6 +37,7 @@ export interface ChargeFixe {
   tauxCalcul: number | null; // % — non nul uniquement en mode "calcule"
   sourceCalculId: string | null; // id de la ligne source (ChargeFixe non calculée ou RentreeReguliere)
   sourceCalculType: TypeSourceCalculChargeFixe | null;
+  aCouper: boolean; // true = simulation d'exclusion ("À couper"), exclue du calcul sans supprimer la donnée
 }
 
 export interface AutreDepense {

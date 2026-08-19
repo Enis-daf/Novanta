@@ -299,3 +299,9 @@ create index if not exists idx_companies_stripe_subscription on companies(stripe
 -- comptes déjà existants gardent first_name/last_name à null, sans être bloqués.
 alter table companies add column if not exists first_name text;
 alter table companies add column if not exists last_name text;
+
+-- Migration additive et non destructive : ajoute l'état de simulation "À couper" pour les
+-- Charges fixes. Colonne nouvelle, not null avec valeur par défaut 'false' : toutes les
+-- charges fixes existantes restent incluses dans le calcul exactement comme avant. Aucune
+-- colonne existante n'est modifiée, renommée ou supprimée ; aucune ligne n'est touchée.
+alter table fixed_charges add column if not exists a_couper boolean not null default false;

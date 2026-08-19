@@ -76,11 +76,17 @@ export default function FinancementsTable({
                 />
               </td>
               <td className="col-checkbox">
-                <input
-                  type="checkbox"
-                  checked={financement.verse}
-                  onChange={(e) => onChange(financement.id, { verse: e.target.checked })}
-                />
+                <span
+                  className="checkbox-tooltip"
+                  title="Exclut ce financement des projections car les fonds sont déjà comptés dans le Solde bancaire initial."
+                >
+                  <input
+                    type="checkbox"
+                    checked={financement.verse}
+                    title="Exclut ce financement des projections car les fonds sont déjà comptés dans le Solde bancaire initial."
+                    onChange={(e) => onChange(financement.id, { verse: e.target.checked })}
+                  />
+                </span>
               </td>
               <td className="col-actions">
                 <button type="button" className="btn-remove" onClick={() => onRemove(financement.id)}>

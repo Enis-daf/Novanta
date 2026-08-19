@@ -17,7 +17,10 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: var(--couleur-fond);
+  /* Fond global derrière les panneaux uniquement : couleur en dur, volontairement distincte
+     de --couleur-fond (réutilisée ailleurs pour des survols et du texte sur fond sombre, qui
+     ne doivent pas changer). */
+  background: #fffdf3;
   color: var(--couleur-texte);
   font-family: var(--font-lexend), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
@@ -44,7 +47,7 @@ input[type="checkbox"] {
 }
 
 .cockpit__col {
-  background: #ffffff;
+  background: #fffefa;
   border: 1px solid var(--couleur-bordure);
   border-radius: 10px;
   padding: 16px;
@@ -667,6 +670,51 @@ input[type="checkbox"] {
   height: 16px;
 }
 
+/*
+ * Rend visible au survol (et au focus clavier) le contenu du même attribut "title" déjà
+ * porté par la case à cocher — pas un nouveau système de tooltip, juste un affichage fiable
+ * de ce texte existant : l'infobulle native du navigateur a un délai variable et ne s'affiche
+ * jamais au focus clavier (limitation de "title" elle-même, pas un bug de layout). Le wrapper
+ * porte lui aussi "title" (même texte que la case, jamais dupliqué manuellement dans le JSX :
+ * une seule variable interpolée aux deux endroits) afin que content: attr(title) puisse le lire
+ * — attr() ne lit que les attributs de l'élément qui porte le pseudo-élément, jamais un enfant.
+ */
+.checkbox-tooltip {
+  position: relative;
+  display: inline-flex;
+}
+
+.checkbox-tooltip::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--couleur-texte);
+  color: var(--couleur-fond);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 4px 12px rgba(3, 10, 22, 0.18);
+  z-index: 20;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+}
+
+.checkbox-tooltip:hover::after,
+.checkbox-tooltip:focus-within::after {
+  opacity: 1;
+  visibility: visible;
+}
+
 .btn-shift {
   border: 1px solid var(--couleur-bordure);
   background: #fff;
@@ -691,7 +739,7 @@ input[type="checkbox"] {
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  color: #ffffff;
+  color: #fffefa;
 }
 
 .btn-add:hover {

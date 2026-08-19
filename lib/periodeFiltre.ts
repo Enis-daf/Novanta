@@ -86,11 +86,13 @@ function itemRecurrent<T extends { id: string }>(
   montantOccurrenceDe: (item: T, dateOccurrence: Date, dateOccurrencePrecedente: Date | null) => number | null,
   signe: 1 | -1,
   debut: Date,
-  fin: Date
+  fin: Date,
+  exclu: (item: T) => boolean = () => false
 ): ResultatCategorie {
   const parId: OccurrencesParId = new Map();
   let totalSigne = 0;
   for (const item of items) {
+    if (exclu(item)) continue;
     const toutesOccurrences = genererOccurrencesRecurrentes(dateDebutDe(item), frequenceDe(item), dateFinDe(item), fin);
     const occurrencesPeriode: Date[] = [];
     toutesOccurrences.forEach((date, index) => {
@@ -137,8 +139,8 @@ export interface ParametresFluxPeriode {
 /**
  * Calcule, pour la fenêtre [debut, fin], les lignes qui contribuent réellement au
  * mouvement de trésorerie (mêmes règles d'exclusion que le moteur de calcul : pas de
- * facture payée/litigieuse, pas de ligne sans date). Purement pour l'affichage —
- * n'affecte jamais calculerProjectionCash, les KPIs ou la courbe.
+ * facture payée/litigieuse, pas de charge fixe "à couper", pas de ligne sans date).
+ * Purement pour l'affichage — n'affecte jamais calculerProjectionCash, les KPIs ou la courbe.
  */
 export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFluxPeriode {
   const debut = parseDateISO(params.debut);
@@ -185,7 +187,8 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
       montantOccurrenceChargeFixe(c, dateOccurrence, dateOccurrencePrecedente, params.chargesFixes, params.rentreesRegulieres, fin),
     -1,
     debut,
-    fin
+    fin,
+    (c) => c.aCouper
   );
   const rentreesRegulieresRes = itemRecurrent(
     params.rentreesRegulieres,

@@ -126,23 +126,35 @@ export default function FacturesClientsTable({
                 ))}
               </td>
               <td className="col-checkbox">
-                <input
-                  type="checkbox"
-                  checked={facture.litigieuse}
-                  onChange={(e) => onChange(facture.id, { litigieuse: e.target.checked })}
-                />
+                <span
+                  className="checkbox-tooltip"
+                  title="Exclut cette facture des projections car son paiement ou son encaissement est incertain."
+                >
+                  <input
+                    type="checkbox"
+                    checked={facture.litigieuse}
+                    title="Exclut cette facture des projections car son paiement ou son encaissement est incertain."
+                    onChange={(e) => onChange(facture.id, { litigieuse: e.target.checked })}
+                  />
+                </span>
               </td>
               <td className="col-checkbox">
-                <input
-                  type="checkbox"
-                  checked={facture.payee}
-                  onChange={(e) =>
-                    onChange(facture.id, {
-                      payee: e.target.checked,
-                      paidAt: e.target.checked ? new Date().toISOString() : null,
-                    })
-                  }
-                />
+                <span
+                  className="checkbox-tooltip"
+                  title="Exclut cette facture des projections car elle est déjà comptée dans le Solde bancaire initial."
+                >
+                  <input
+                    type="checkbox"
+                    checked={facture.payee}
+                    title="Exclut cette facture des projections car elle est déjà comptée dans le Solde bancaire initial."
+                    onChange={(e) =>
+                      onChange(facture.id, {
+                        payee: e.target.checked,
+                        paidAt: e.target.checked ? new Date().toISOString() : null,
+                      })
+                    }
+                  />
+                </span>
               </td>
               <td className="col-actions">
                 <button

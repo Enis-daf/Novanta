@@ -16,6 +16,7 @@ function chargeFixe(overrides: Partial<ChargeFixe> = {}): ChargeFixe {
     tauxCalcul: null,
     sourceCalculId: null,
     sourceCalculType: null,
+    aCouper: false,
     ...overrides,
   };
 }
@@ -411,5 +412,117 @@ describe("calculerSyntheseMensuelle — agrégation mensuelle avec le montant ca
     const indexAout = resultat.mois.findIndex((m) => m.cle === "2026-08");
     assert.equal(ligneRentrees.montantsParMois[indexAout], 180000);
     assert.equal(ligneCharges.montantsParMois[indexAout], -72000);
+  });
+});
+
+describe("Charge fixe \"À couper\" — simulation d'exclusion sans suppression de la donnée", () => {
+  const charge = chargeFixe({
+    id: "loyer",
+    libelle: "Loyer",
+    montant: 4200,
+    datePrevue: "2026-01-01",
+    recurrence: "mensuel",
+  });
+
+  test("charge normale (aCouper: false) : incluse dans la courbe, le point bas et le passage sous zéro", () => {
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 5000,
+      chargesFixes: [charge],
+      rentreesRegulieres: [],
+      dateDepart: "2026-01-01",
+      horizonJours: 90,
+    });
+
+    // Horizon 90 jours depuis le 1er janvier 2026 (non bissextile) atteint exactement le 1er
+    // avril : 4 échéances mensuelles tombent dans [1er janvier, 1er avril] inclus.
+    assert.equal(resultat.soldeJ90, 5000 - 4200 * 4);
+    assert.equal(resultat.pointBas, 5000 - 4200 * 4);
+  });
+
+  test("charge cochée \"À couper\" : absente de la courbe, du solde projeté, du point bas et du passage sous zéro", () => {
+    const chargeACouper = { ...charge, aCouper: true };
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 5000,
+      chargesFixes: [chargeACouper],
+      rentreesRegulieres: [],
+      dateDepart: "2026-01-01",
+      horizonJours: 90,
+    });
+
+    // Aucun débit : le solde reste plat sur tout l'horizon, jamais sous zéro.
+    assert.equal(resultat.soldeJ90, 5000);
+    assert.equal(resultat.pointBas, 5000);
+    assert.equal(resultat.datePassageSousZero, null);
+    assert.ok(resultat.serie.every((point) => point.solde === 5000));
+  });
+
+  test("décocher \"À couper\" réintègre immédiatement la charge dans le calcul (fonction pure, aucun état caché)", () => {
+    const soldeAvecCharge = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 5000,
+      chargesFixes: [{ ...charge, aCouper: false }],
+      rentreesRegulieres: [],
+      dateDepart: "2026-01-01",
+      horizonJours: 90,
+    }).soldeJ90;
+
+    const soldeCoupee = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 5000,
+      chargesFixes: [{ ...charge, aCouper: true }],
+      rentreesRegulieres: [],
+      dateDepart: "2026-01-01",
+      horizonJours: 90,
+    }).soldeJ90;
+
+    const soldeReactivee = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 5000,
+      chargesFixes: [{ ...charge, aCouper: false }],
+      rentreesRegulieres: [],
+      dateDepart: "2026-01-01",
+      horizonJours: 90,
+    }).soldeJ90;
+
+    assert.notEqual(soldeAvecCharge, soldeCoupee);
+    assert.equal(soldeReactivee, soldeAvecCharge); // décoché = identique à l'état jamais coché
+  });
+
+  test("charge cochée \"À couper\" : absente de la synthèse mensuelle", () => {
+    const resultat = calculerSyntheseMensuelle({
+      ...PARAMS_VIDES,
+      dateReleve: "2026-01-01",
+      horizonJours: 90,
+      chargesFixes: [{ ...charge, aCouper: true }],
+      rentreesRegulieres: [],
+    });
+
+    const ligneCharges = resultat.lignes.find((l) => l.libelle === "Charges fixes")!;
+    assert.ok(ligneCharges.montantsParMois.every((m) => m === 0));
+    assert.equal(ligneCharges.total, 0);
+  });
+
+  test("deux charges, une seule \"À couper\" : seule l'autre continue d'alimenter le calcul", () => {
+    const loyer = chargeFixe({ id: "loyer", montant: 4200, datePrevue: "2026-01-01", recurrence: "mensuel" });
+    const assurance = chargeFixe({
+      id: "assurance",
+      montant: 1800,
+      datePrevue: "2026-01-15",
+      recurrence: "mensuel",
+      aCouper: true,
+    });
+
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 10000,
+      chargesFixes: [loyer, assurance],
+      rentreesRegulieres: [],
+      dateDepart: "2026-01-01",
+      horizonJours: 30,
+    });
+
+    assert.equal(resultat.soldeJ90, 10000 - 4200); // seul le loyer débite, l'assurance "à couper" est ignorée
   });
 });

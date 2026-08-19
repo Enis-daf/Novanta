@@ -139,6 +139,7 @@ function chargeFixeToRow(companyId: string, c: ChargeFixe): Row {
     taux_calcul: c.tauxCalcul,
     source_calcul_id: c.sourceCalculId,
     source_calcul_type: c.sourceCalculType,
+    a_couper: c.aCouper,
   };
 }
 
@@ -155,6 +156,8 @@ function rowToChargeFixe(row: Row): ChargeFixe {
     tauxCalcul: (row.taux_calcul as number | null | undefined) ?? null,
     sourceCalculId: (row.source_calcul_id as string | null | undefined) ?? null,
     sourceCalculType: (row.source_calcul_type as ChargeFixe["sourceCalculType"] | undefined) ?? null,
+    // Colonne absente sur une ligne créée avant la migration "à couper" : reste incluse (false).
+    aCouper: Boolean(row.a_couper),
   };
 }
 

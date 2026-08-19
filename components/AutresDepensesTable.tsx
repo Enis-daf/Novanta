@@ -86,11 +86,17 @@ export default function AutresDepensesTable({
                 </select>
               </td>
               <td className="col-checkbox">
-                <input
-                  type="checkbox"
-                  checked={depense.facturee}
-                  onChange={(e) => onChange(depense.id, { facturee: e.target.checked })}
-                />
+                <span
+                  className="checkbox-tooltip"
+                  title="Exclut cette dépense des projections pour éviter un doublon avec la facture fournisseur correspondante."
+                >
+                  <input
+                    type="checkbox"
+                    checked={depense.facturee}
+                    title="Exclut cette dépense des projections pour éviter un doublon avec la facture fournisseur correspondante."
+                    onChange={(e) => onChange(depense.id, { facturee: e.target.checked })}
+                  />
+                </span>
               </td>
               <td className="col-actions">
                 <button type="button" className="btn-remove" onClick={() => onRemove(depense.id)}>
