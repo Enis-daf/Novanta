@@ -16,9 +16,15 @@ const LIBELLES_STATUT: Record<string, string> = {
   unpaid: "Impayé",
   incomplete: "Incomplet",
   incomplete_expired: "Expiré",
+  paused: "En pause — moyen de paiement requis",
 };
 
 const STATUTS_ABONNEMENT_ACTIF = new Set(["active", "trialing"]);
+// Un abonnement "paused" (essai de 30 jours terminé sans carte) a déjà un
+// stripeCustomerId et une souscription existante : le bon parcours est d'ajouter un
+// moyen de paiement via "Gérer mon abonnement" (Customer Portal), pas de recréer un
+// second abonnement via "S'abonner".
+const STATUTS_SANS_NOUVEL_ABONNEMENT = new Set(["active", "trialing", "paused"]);
 
 const LIBELLE_PLAN = "Novanta — 9,99 € / mois";
 
@@ -135,6 +141,9 @@ function BillingPageContent() {
   }
 
   const abonnementActif = company ? STATUTS_ABONNEMENT_ACTIF.has(company.subscriptionStatus ?? "") : false;
+  const peutDemarrerNouvelAbonnement = company
+    ? !STATUTS_SANS_NOUVEL_ABONNEMENT.has(company.subscriptionStatus ?? "")
+    : true;
   const finPeriode = formatDate(company?.subscriptionCurrentPeriodEnd ?? null);
 
   return (
@@ -180,8 +189,15 @@ function BillingPageContent() {
               )}
             </dl>
 
+            {company?.subscriptionStatus === "paused" && (
+              <p className="login-info">
+                Votre période d&apos;essai est terminée. Ajoutez un moyen de paiement via « Gérer mon abonnement »
+                pour retrouver l&apos;accès.
+              </p>
+            )}
+
             <div className="billing-actions">
-              {!abonnementActif && (
+              {peutDemarrerNouvelAbonnement && (
                 <button type="button" className="btn-add" onClick={handleSubscribe} disabled={actionEnCours !== null}>
                   {actionEnCours === "checkout" ? "Redirection…" : "S'abonner"}
                 </button>

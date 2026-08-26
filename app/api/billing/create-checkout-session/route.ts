@@ -55,8 +55,19 @@ export async function POST(req: NextRequest) {
       cancel_url: `${appUrl}/account/billing?canceled=true`,
       allow_promotion_codes: true,
       metadata: { company_id: company.id, user_id: user.id },
+      // Essai de 30 jours sans carte bancaire (campagne de test) : rien n'étant dû
+      // aujourd'hui, Checkout n'exige pas de moyen de paiement ("if_required"). Si le
+      // client en ajoute un quand même, il est enregistré normalement.
+      payment_method_collection: "if_required",
       subscription_data: {
         metadata: { company_id: company.id, user_id: user.id },
+        trial_period_days: 30,
+        trial_settings: {
+          // Sans moyen de paiement à la fin de l'essai : l'abonnement passe en "paused"
+          // (aucune facture générée, aucun impayé) plutôt qu'en dette ou "past_due".
+          // Il reprend quand le client ajoute une carte via le Customer Portal.
+          end_behavior: { missing_payment_method: "pause" },
+        },
       },
     });
 
