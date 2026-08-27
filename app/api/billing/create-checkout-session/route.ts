@@ -33,7 +33,21 @@ export async function POST(req: NextRequest) {
   try {
     const company = await getOrCreateCompanyForBilling(supabase, user);
 
+    // Si un stripe_customer_id est déjà enregistré, on vérifie qu'il correspond
+    // toujours à un client Stripe existant (mode test purgé, client supprimé
+    // manuellement, migration entre comptes Stripe...) avant de le réutiliser —
+    // sinon Checkout échoue avec "No such customer" pour un motif invisible côté
+    // utilisateur. Un identifiant invalide est traité exactement comme absent :
+    // un nouveau client est créé et remplace l'ancien en base.
     let customerId = company.stripeCustomerId;
+    if (customerId) {
+      try {
+        const existing = await stripe.customers.retrieve(customerId);
+        if (existing.deleted) customerId = null;
+      } catch {
+        customerId = null;
+      }
+    }
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
