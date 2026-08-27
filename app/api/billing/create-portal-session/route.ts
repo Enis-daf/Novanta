@@ -8,9 +8,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Stripe n'est pas configuré (STRIPE_SECRET_KEY manquante)." }, { status: 501 });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  // Dérivée de la requête elle-même (Host réel) — voir le même correctif dans
+  // create-checkout-session/route.ts : évite de renvoyer vers une autre URL/
+  // déploiement que celui réellement utilisé.
+  const appUrl = req.nextUrl.origin || process.env.NEXT_PUBLIC_APP_URL;
   if (!appUrl) {
-    return NextResponse.json({ error: "NEXT_PUBLIC_APP_URL n'est pas configuré." }, { status: 500 });
+    return NextResponse.json({ error: "Impossible de déterminer l'URL de l'application." }, { status: 500 });
   }
 
   const auth = await requireUser(req);

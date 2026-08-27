@@ -13,12 +13,19 @@ export async function POST(req: NextRequest) {
   }
 
   const priceId = process.env.STRIPE_PRICE_ID;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  // Dérivée de la requête elle-même (Host réel), jamais figée : contrairement à
+  // NEXT_PUBLIC_APP_URL (une seule valeur possible dans les réglages Vercel), ça
+  // correspond automatiquement à l'URL réellement utilisée — localhost:PORT en
+  // local, chaque URL de preview par branche sur Vercel, ou le domaine de prod —
+  // sans quoi le retour après Checkout renvoie vers une autre URL/déploiement
+  // (souvent main, avec une page Abonnement qui parait identique) et la session
+  // de l'utilisateur ne suit pas. NEXT_PUBLIC_APP_URL reste un filet de sécurité.
+  const appUrl = req.nextUrl.origin || process.env.NEXT_PUBLIC_APP_URL;
   if (!priceId) {
     return NextResponse.json({ error: "STRIPE_PRICE_ID n'est pas configuré." }, { status: 500 });
   }
   if (!appUrl) {
-    return NextResponse.json({ error: "NEXT_PUBLIC_APP_URL n'est pas configuré." }, { status: 500 });
+    return NextResponse.json({ error: "Impossible de déterminer l'URL de l'application." }, { status: 500 });
   }
   if (!supabaseAdminConfigured || !supabaseAdmin) {
     return NextResponse.json({ error: "Supabase (service_role) n'est pas configuré." }, { status: 500 });
@@ -33,7 +40,21 @@ export async function POST(req: NextRequest) {
   try {
     const company = await getOrCreateCompanyForBilling(supabase, user);
 
+    // Si un stripe_customer_id est déjà enregistré, on vérifie qu'il correspond
+    // toujours à un client Stripe existant (mode test purgé, client supprimé
+    // manuellement, migration entre comptes Stripe...) avant de le réutiliser —
+    // sinon Checkout échoue avec "No such customer" pour un motif invisible côté
+    // utilisateur. Un identifiant invalide est traité exactement comme absent :
+    // un nouveau client est créé et remplace l'ancien en base.
     let customerId = company.stripeCustomerId;
+    if (customerId) {
+      try {
+        const existing = await stripe.customers.retrieve(customerId);
+        if (existing.deleted) customerId = null;
+      } catch {
+        customerId = null;
+      }
+    }
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
@@ -55,8 +76,19 @@ export async function POST(req: NextRequest) {
       cancel_url: `${appUrl}/account/billing?canceled=true`,
       allow_promotion_codes: true,
       metadata: { company_id: company.id, user_id: user.id },
+      // Essai de 30 jours sans carte bancaire (campagne de test) : rien n'étant dû
+      // aujourd'hui, Checkout n'exige pas de moyen de paiement ("if_required"). Si le
+      // client en ajoute un quand même, il est enregistré normalement.
+      payment_method_collection: "if_required",
       subscription_data: {
         metadata: { company_id: company.id, user_id: user.id },
+        trial_period_days: 30,
+        trial_settings: {
+          // Sans moyen de paiement à la fin de l'essai : l'abonnement passe en "paused"
+          // (aucune facture générée, aucun impayé) plutôt qu'en dette ou "past_due".
+          // Il reprend quand le client ajoute une carte via le Customer Portal.
+          end_behavior: { missing_payment_method: "pause" },
+        },
       },
     });
 

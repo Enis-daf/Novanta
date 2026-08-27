@@ -155,7 +155,11 @@ export async function updateCompanyBilling(
 
 // Statuts Stripe qui donnent accès à l'app pour cette première version.
 const STATUTS_AVEC_ACCES = new Set(["active", "trialing"]);
-const STATUTS_SANS_ACCES = new Set(["canceled", "incomplete_expired"]);
+// "paused" : essai de 30 jours terminé sans moyen de paiement (voir
+// subscription_data.trial_settings.end_behavior dans create-checkout-session) — aucune
+// facture générée, mais l'accès doit être coupé jusqu'à ce que le client ajoute une carte
+// et que l'abonnement reprenne (webhook customer.subscription.updated).
+const STATUTS_SANS_ACCES = new Set(["canceled", "incomplete_expired", "paused"]);
 
 // past_due / unpaid et tout autre statut non listé : on ne change pas access_enabled
 // (pas de blocage brutal pour cette première version, voir l'étape 8 du plan).
