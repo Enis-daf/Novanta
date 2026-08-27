@@ -13,12 +13,19 @@ export async function POST(req: NextRequest) {
   }
 
   const priceId = process.env.STRIPE_PRICE_ID;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  // Dérivée de la requête elle-même (Host réel), jamais figée : contrairement à
+  // NEXT_PUBLIC_APP_URL (une seule valeur possible dans les réglages Vercel), ça
+  // correspond automatiquement à l'URL réellement utilisée — localhost:PORT en
+  // local, chaque URL de preview par branche sur Vercel, ou le domaine de prod —
+  // sans quoi le retour après Checkout renvoie vers une autre URL/déploiement
+  // (souvent main, avec une page Abonnement qui parait identique) et la session
+  // de l'utilisateur ne suit pas. NEXT_PUBLIC_APP_URL reste un filet de sécurité.
+  const appUrl = req.nextUrl.origin || process.env.NEXT_PUBLIC_APP_URL;
   if (!priceId) {
     return NextResponse.json({ error: "STRIPE_PRICE_ID n'est pas configuré." }, { status: 500 });
   }
   if (!appUrl) {
-    return NextResponse.json({ error: "NEXT_PUBLIC_APP_URL n'est pas configuré." }, { status: 500 });
+    return NextResponse.json({ error: "Impossible de déterminer l'URL de l'application." }, { status: 500 });
   }
   if (!supabaseAdminConfigured || !supabaseAdmin) {
     return NextResponse.json({ error: "Supabase (service_role) n'est pas configuré." }, { status: 500 });
