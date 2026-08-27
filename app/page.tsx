@@ -18,6 +18,7 @@ import BarreRecherche from "@/components/BarreRecherche";
 import BandeauPeriodeFiltre from "@/components/BandeauPeriodeFiltre";
 import ControleMensuel from "@/components/ControleMensuel";
 import LoginForm from "@/components/LoginForm";
+import IconTelechargement from "@/components/IconTelechargement";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 import { calculerProjectionCash } from "@/lib/cash-engine";
@@ -133,6 +134,7 @@ export default function Home() {
   const [recherche, setRecherche] = useState("");
   const [tri, setTri] = useState<TriMode>("date");
   const [dateClicCourbe, setDateClicCourbe] = useState<string | null>(null);
+  const [exportEnCours, setExportEnCours] = useState(false);
 
   const dateDepart = dateReleve;
 
@@ -334,6 +336,52 @@ export default function Home() {
 
   const handleClicCourbe = (date: string) => setDateClicCourbe(date);
   const handleRevenirVueGenerale = () => setDateClicCourbe(null);
+
+  // Exporte exactement ce qui est actuellement visible dans le panneau droit (recherche, tri,
+  // filtre de période) : réutilise les mêmes états que ceux passés aux tableaux ci-dessous,
+  // aucune nouvelle logique de filtrage. L'onglet Synthèse reprend `resultat`/`syntheseMensuelle`
+  // tels quels (jamais recalculés), indépendants des filtres — comme le panneau gauche.
+  const handleExporterExcel = async () => {
+    setExportEnCours(true);
+    try {
+      // Chargement différé au clic : evite d'alourdir le chargement initial de la page pour
+      // tous les utilisateurs avec la librairie Excel (~250 Ko), non nécessaire tant que
+      // personne n'exporte (même principe que le chargement différé d'ImportFactures).
+      const { genererExportExcel, nomFichierExportExcel } = await import("@/lib/exportExcel");
+      const blob = await genererExportExcel({
+        recherche,
+        tri,
+        soldeInitial,
+        dateReleve,
+        horizonJours,
+        resultat,
+        syntheseMensuelle,
+        facturesClients,
+        facturesFournisseurs,
+        chargesFixes,
+        autresDepenses,
+        financements,
+        rentreesRegulieres,
+        filtresParCategorie: {
+          facturesClients: fluxPeriode?.idsFacturesClients ?? null,
+          facturesFournisseurs: fluxPeriode?.idsFacturesFournisseurs ?? null,
+          chargesFixes: fluxPeriode?.occurrencesChargesFixes ?? null,
+          autresDepenses: fluxPeriode?.idsAutresDepenses ?? null,
+          financements: fluxPeriode?.idsFinancements ?? null,
+          rentreesRegulieres: fluxPeriode?.occurrencesRentreesRegulieres ?? null,
+        },
+        periodeFiltre,
+      });
+      const url = URL.createObjectURL(blob);
+      const lien = document.createElement("a");
+      lien.href = url;
+      lien.download = nomFichierExportExcel();
+      lien.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExportEnCours(false);
+    }
+  };
 
   // Contrôle mensuel : totaux Novanta en lecture seule sur les 3 derniers mois calendaires
   // complets, indépendant de dateReleve/horizonJours. N'affecte jamais resultat/syntheseMensuelle.
@@ -724,6 +772,14 @@ export default function Home() {
               <option value="montant">Montant le plus élevé</option>
             </select>
           </div>
+          <button
+            type="button"
+            className="btn-secondaire btn-export"
+            onClick={handleExporterExcel}
+            disabled={exportEnCours}
+          >
+            {exportEnCours ? "Export…" : "Exporter vers Excel"} <IconTelechargement />
+          </button>
         </div>
         {recherche && (
           <p className="recherche-resume">

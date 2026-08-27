@@ -1097,6 +1097,12 @@ input[type="checkbox"] {
   color: var(--couleur-texte);
 }
 
+.btn-export {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .btn-secondaire:hover {
   background: var(--couleur-fond);
 }
