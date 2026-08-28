@@ -21,6 +21,7 @@ import LoginForm from "@/components/LoginForm";
 import IconTelechargement from "@/components/IconTelechargement";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
+const ImportHistoriqueBancaire = dynamic(() => import("@/components/ImportHistoriqueBancaire"), { ssr: false });
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
@@ -66,6 +67,7 @@ import {
   chargerOuInitialiserDonnees,
   sauvegarderAutreDepense,
   sauvegarderChargeFixe,
+  importerChargesFixes,
   importerFacturesClients,
   importerFacturesFournisseurs,
   sauvegarderDateReleve,
@@ -492,6 +494,12 @@ export default function Home() {
     }
   };
 
+  const handleImporterChargesFixesDetectees = (nouvellesChargesFixes: ChargeFixe[]) => {
+    if (nouvellesChargesFixes.length === 0) return;
+    setChargesFixes((prev) => [...prev, ...nouvellesChargesFixes]);
+    if (companyId) persist(() => importerChargesFixes(companyId, nouvellesChargesFixes));
+  };
+
   const handleChangeChargeFixe = (id: string, patch: Partial<ChargeFixe>) => {
     setChargesFixes((prev) => {
       const courante = prev.find((c) => c.id === id);
@@ -850,6 +858,10 @@ export default function Home() {
             tri={tri}
             filtrePeriode={fluxPeriode?.idsAutresDepenses ?? null}
           />
+        </SectionRepliable>
+
+        <SectionRepliable titre="Identifier mes charges fixes" ouvertParDefaut={false}>
+          <ImportHistoriqueBancaire onValider={handleImporterChargesFixesDetectees} />
         </SectionRepliable>
 
         <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>
