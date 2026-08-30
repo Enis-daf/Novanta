@@ -190,7 +190,7 @@ describe("detecterChargesRecurrentes — RÉCURRENCE = IDENTITÉ + CADENCE (mont
     ];
     const candidats = detecterChargesRecurrentes(transactions);
     assert.equal(candidats.length, 2);
-    const libelles = candidats.map((c) => c.libellePropose).join(" | ");
+    const libelles = candidats.map((c) => c.libellePropose.toUpperCase()).join(" | ");
     assert.ok(libelles.includes("DHELLEMMES"));
     assert.ok(libelles.includes("MENTZ"));
   });
@@ -229,9 +229,122 @@ describe("detecterChargesRecurrentes — retrait du bruit corpus (tag interne in
     ];
 
     const candidats = detecterChargesRecurrentes(transactions);
-    const salaireAudrey = candidats.find((c) => c.libellePropose.includes("MENTZ"));
+    const salaireAudrey = candidats.find((c) => c.libellePropose.toUpperCase().includes("MENTZ"));
     assert.ok(salaireAudrey, "la série de salaire d'Audrey Mentz doit être détectée malgré le tag incohérent");
     assert.equal(salaireAudrey?.nombreOccurrences, 3);
     assert.equal(salaireAudrey?.frequence, "mensuel");
+  });
+});
+
+describe("detecterChargesRecurrentes — libellé proposé (proposedLabel), jamais le libellé bancaire brut", () => {
+  test("A. « VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Juillet » → « Salaire Benjamin Houvier »", () => {
+    const transactions = [
+      transactionBrute("2026-05-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Mai", -2075),
+      transactionBrute("2026-06-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Juin", -2075),
+      transactionBrute("2026-07-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Juillet", -2075),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].libellePropose, "Salaire Benjamin Houvier");
+  });
+
+  test("B. mai / juin / juillet sur le même bénéficiaire → un seul candidat, un seul libellé", () => {
+    const transactions = [
+      transactionBrute("2026-05-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Mai", -2075),
+      transactionBrute("2026-06-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Juin", -2075),
+      transactionBrute("2026-07-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Juillet", -2075),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].nombreOccurrences, 3);
+  });
+
+  test("C. « SCI LES ATELIERS ... Loyer OCTOBRE » → « Loyer SCI Les Ateliers »", () => {
+    const transactions = [
+      transactionBrute(
+        "2025-10-06",
+        "VIREMENT EMIS WEB SCI LES ATELIERS DU Loyer OCTOBRE bureaux atelier VAYRAC",
+        -1092
+      ),
+      transactionBrute("2025-11-05", "VIREMENT EMIS WEB SCI LES ATELIERS DU Loyer Juin", -1092),
+      transactionBrute(
+        "2025-12-05",
+        "VIREMENT EMIS VIR INST vers SCI LES ATELIERS D Loyer decembre bureaux atelier Vayrac",
+        -1092
+      ),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].libellePropose, "Loyer SCI Les Ateliers");
+  });
+
+  test("D. « SAS CELAUR VALLEE Loyer 735,56 » → « Loyer SAS Celaur Vallee »", () => {
+    const transactions = [
+      transactionBrute("2026-04-03", "VIREMENT EMIS VIR INST vers SAS CELAUR VALLEE Loyer", -735.0),
+      transactionBrute("2026-05-05", "VIREMENT EMIS WEB SAS CELAUR VALLEE Loyer Mai", -735.56),
+      transactionBrute("2026-06-03", "VIREMENT EMIS VIR INST vers SAS CELAUR VALLEE loyer Juin", -735.56),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    // Sans restitution d'accent : le libellé bancaire source ("VALLEE") ne comporte déjà aucun
+    // accent, et il n'existe pas de règle déterministe fiable pour le réintroduire sans dictionnaire.
+    assert.equal(candidats[0].libellePropose, "Loyer SAS Celaur Vallee");
+  });
+
+  test("E. « COTISATION Offre Compte Composer Pro Facture N°... » → « Cotisation Offre Compte Composer Pro »", () => {
+    const transactions = [
+      transactionBrute("2026-01-21", "COTISATION Offre Compte à composer Pro Facture N°2611111111111", -16.5),
+      transactionBrute("2026-02-21", "COTISATION Offre Compte à composer Pro Facture N°2622222222222", -29.65),
+      transactionBrute("2026-03-21", "COTISATION Offre Compte à composer Pro Facture N°2623300289819", -42.8),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].libellePropose, "Cotisation Offre Compte Composer Pro");
+  });
+
+  test("F. « PRLV SEPA SHOPIFY 928374 » → « Shopify »", () => {
+    const transactions = [
+      transactionBrute("2026-02-02", "PRLV SEPA SHOPIFY 928374", -39.17),
+      transactionBrute("2026-03-02", "PRLV SEPA SHOPIFY 175633", -38.42),
+      transactionBrute("2026-04-02", "PRLV SEPA SHOPIFY 002841", -39.03),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].libellePropose, "Shopify");
+  });
+
+  test("G. les numéros de facture différents entre occurrences n'apparaissent jamais dans le libellé proposé", () => {
+    const transactions = [
+      transactionBrute("2026-01-21", "COTISATION Offre Compte à composer Pro Facture N°2611111111111", -16.5),
+      transactionBrute("2026-02-21", "COTISATION Offre Compte à composer Pro Facture N°2622222222222", -29.65),
+      transactionBrute("2026-03-21", "COTISATION Offre Compte à composer Pro Facture N°2623300289819", -42.8),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(/\d/.test(candidats[0].libellePropose), false);
+  });
+
+  test("H. les mois différents entre occurrences n'apparaissent jamais dans le libellé proposé", () => {
+    const transactions = [
+      transactionBrute("2026-05-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Mai", -2075),
+      transactionBrute("2026-06-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Juin", -2075),
+      transactionBrute("2026-07-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Juillet", -2075),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    const libelleMinuscule = candidats[0].libellePropose.toLowerCase();
+    for (const mois of ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout"]) {
+      assert.equal(libelleMinuscule.includes(mois), false, `« ${mois} » ne doit pas apparaître dans le libellé`);
+    }
+  });
+
+  test("ne retombe jamais sur le libellé bancaire brut complet (préfixes bancaires absents)", () => {
+    const transactions = [
+      transactionBrute("2026-05-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Mai", -2075),
+      transactionBrute("2026-06-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Juin", -2075),
+      transactionBrute("2026-07-28", "VIREMENT EMIS VIR INST vers Benjamin HOUVIER Salaire Juillet", -2075),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    for (const motInterdit of ["VIREMENT", "EMIS", "VIR INST", "vers"]) {
+      assert.equal(candidats[0].libellePropose.toUpperCase().includes(motInterdit.toUpperCase()), false);
+    }
   });
 });

@@ -142,6 +142,87 @@ function signatureIdentite(labelNormalized: string, frequenceTokens: Map<string,
   return tokens.slice(0, CAP_TOKENS_IDENTITE).join(" ");
 }
 
+// ---------------------------------------------------------------------------------------------
+// Construction du libellé métier proposé (proposedLabel) : jamais le libellé bancaire brut d'une
+// occurrence, même la plus récente. Dérivé de l'ENSEMBLE des occurrences du groupe : seuls les
+// tokens présents de façon stable dans le groupe (le "QUI" + un éventuel mot métier) survivent —
+// tout ce qui varie d'une occurrence à l'autre (mois déjà retirés en amont, mais aussi troncatures
+// bancaires incohérentes, numéros, tags) disparaît naturellement, sans liste figée par bénéficiaire.
+// ---------------------------------------------------------------------------------------------
+
+// Mots métier explicitement présents dans le libellé bancaire, jamais déduits/inventés : s'ils sont
+// là, ils sont mis en tête du libellé proposé ("Salaire Benjamin Houvier" plutôt que
+// "Benjamin Houvier Salaire"). Ne sert jamais à catégoriser comptablement — uniquement à ordonner
+// un libellé déjà présent dans le texte source.
+const MOTS_METIER = new Set(["SALAIRE", "LOYER", "COTISATION", "ASSURANCE", "ABONNEMENT"]);
+
+// Raisons sociales françaises courantes, conservées en majuscules dans le libellé proposé (le reste
+// passe en casse "Titre"). Liste générique et standard — jamais un nom de bénéficiaire du fichier.
+const ACRONYMES_LEGAUX = new Set(["SCI", "SAS", "SARL", "SASU", "EURL", "SNC", "SCOP", "GIE", "SA"]);
+
+// Un token générique (nom, mot descriptif) doit être présent dans la quasi-totalité des occurrences
+// du groupe pour survivre dans le libellé proposé — un mois, un numéro, un fragment de troncature
+// isolé (ex: "AO" d'un "AOUT" mal coupé) n'apparaît que sur 1 occurrence et est donc écarté.
+const SEUIL_STABILITE_GENERIQUE = 0.9;
+// Un mot métier connu (voir MOTS_METIER) est conservé dès qu'il apparaît sur une bonne partie des
+// occurrences : une transaction occasionnelle de nature différente (ex: une "régularisation de
+// charges" au milieu d'une série de loyers) ne doit pas lui faire perdre sa place.
+const SEUIL_STABILITE_MOT_METIER = 0.4;
+
+function dedupliquerConsecutifs(tokens: string[]): string[] {
+  return tokens.filter((t, i) => i === 0 || t !== tokens[i - 1]);
+}
+
+/** Casse "Titre" (Majuscule initiale, reste en minuscules) sauf raison sociale connue, conservée en capitales. */
+function mettreEnFormeLisible(tokens: string[]): string {
+  return tokens.map((t) => (ACRONYMES_LEGAUX.has(t) ? t : t.charAt(0) + t.slice(1).toLowerCase())).join(" ");
+}
+
+/**
+ * Construit le libellé métier proposé à partir de TOUTES les occurrences du groupe (jamais d'une
+ * seule occurrence choisie arbitrairement). Retourne null si aucun token n'est assez stable —
+ * l'appelant retombe alors sur la signature d'identité déjà validée, jamais sur le libellé brut.
+ */
+function construireLibelleMetier(
+  occurrencesTriees: NormalizedBankTransaction[],
+  frequenceTokensCorpus: Map<string, number>
+): string | null {
+  const tokensParOccurrence = occurrencesTriees.map((o) =>
+    o.labelNormalized.split(" ").filter((t) => t && (frequenceTokensCorpus.get(t) ?? 0) <= SEUIL_FREQUENCE_BRUIT)
+  );
+  const nombreOccurrences = tokensParOccurrence.length;
+
+  const frequenceGroupe = new Map<string, number>();
+  for (const tokens of tokensParOccurrence) {
+    for (const token of new Set(tokens)) frequenceGroupe.set(token, (frequenceGroupe.get(token) ?? 0) + 1);
+  }
+
+  const estStable = (token: string): boolean => {
+    const ratio = (frequenceGroupe.get(token) ?? 0) / nombreOccurrences;
+    return ratio >= (MOTS_METIER.has(token) ? SEUIL_STABILITE_MOT_METIER : SEUIL_STABILITE_GENERIQUE);
+  };
+
+  // Ordre naturel pris sur l'occurrence la plus récente porteuse d'au moins un token stable (garde-
+  // fou pour le cas rare où la toute dernière occurrence serait, par accident, entièrement bruitée).
+  let tokensRetenus: string[] = [];
+  for (let i = tokensParOccurrence.length - 1; i >= 0; i--) {
+    const filtres = dedupliquerConsecutifs(tokensParOccurrence[i].filter(estStable));
+    if (filtres.length > 0) {
+      tokensRetenus = filtres;
+      break;
+    }
+  }
+  if (tokensRetenus.length === 0) return null;
+
+  const indexMotMetier = tokensRetenus.findIndex((t) => MOTS_METIER.has(t));
+  if (indexMotMetier > 0) {
+    const [mot] = tokensRetenus.splice(indexMotMetier, 1);
+    tokensRetenus.unshift(mot);
+  }
+
+  return mettreEnFormeLisible(tokensRetenus);
+}
+
 export function detecterChargesRecurrentes(transactions: NormalizedBankTransaction[]): RecurringChargeCandidate[] {
   // Les charges récurrentes ne sont recherchées que parmi les débits (montants négatifs).
   const debits = transactions.filter((t) => t.signedAmount < 0 && t.labelNormalized);
@@ -185,9 +266,13 @@ export function detecterChargesRecurrentes(transactions: NormalizedBankTransacti
         : ajouterMois(parseDateISO(derniereOccurrence), 1)
     );
 
+    // Jamais le libellé bancaire brut : libellé métier dérivé des occurrences, avec repli sur la
+    // signature d'identité (déjà propre) plutôt que sur labelOriginal si rien n'est assez stable.
+    const libellePropose = construireLibelleMetier(triees, frequenceTokens) ?? mettreEnFormeLisible(cle.split(" "));
+
     candidats.push({
       id: cle,
-      libellePropose: triees[triees.length - 1].labelOriginal.trim(),
+      libellePropose,
       // Médiane pour stable ET variable : règle unique, simple et explicite (pas de prévision
       // statistique) — robuste aux anomalies ponctuelles, toujours modifiable par l'utilisateur.
       montantPropose: montantMedian,

@@ -66,4 +66,26 @@ describe("normaliserLibelleBancaire", () => {
     // seule retire uniquement le préfixe structurel et le numéro de carte, rien d'autre.
     assert.equal(normaliserLibelleBancaire("PAIEMENT PAR CARTE X1361 CHRONOPOST Paris 26/08"), "CHRONOPOST PARIS 26 08");
   });
+
+  test("retire un token structurel répété au milieu du libellé, pas seulement en tête", () => {
+    // Cas réel Pennylane : "virement"/"VIREMENT" réapparaît deux fois, dont une fois au milieu de
+    // la description elle-même — les deux occurrences doivent disparaître, pas seulement la tête.
+    assert.equal(
+      normaliserLibelleBancaire("PRELEVEMENT Frais virement SEPA Instantane VIREMENT DE 7620 euros"),
+      "FRAIS INSTANTANE 7620 EUROS"
+    );
+  });
+
+  test("retire le connecteur générique « à » sans toucher à « les » (peut faire partie d'une raison sociale)", () => {
+    assert.equal(normaliserLibelleBancaire("Offre Compte à composer Pro"), "OFFRE COMPTE COMPOSER PRO");
+    assert.equal(normaliserLibelleBancaire("SCI LES ATELIERS"), "SCI LES ATELIERS");
+  });
+
+  test('retire "Facture N°..." et un numéro de facture nu', () => {
+    assert.equal(
+      normaliserLibelleBancaire("COTISATION Offre Compte Composer Pro Facture N°2623300289819"),
+      "COTISATION OFFRE COMPTE COMPOSER PRO"
+    );
+    assert.equal(normaliserLibelleBancaire("SAS VISSERIE SERVICE facture facture 842"), "SAS VISSERIE SERVICE");
+  });
 });
