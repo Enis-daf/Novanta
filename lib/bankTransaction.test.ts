@@ -9,7 +9,7 @@ describe("normaliserLibelleBancaire", () => {
     const c = normaliserLibelleBancaire("PRLV SEPA ADOBE SYSTEMS IRELAND 92JD03");
     assert.equal(a, b);
     assert.equal(b, c);
-    assert.equal(a, "PRLV SEPA ADOBE SYSTEMS IRELAND");
+    assert.equal(a, "ADOBE SYSTEMS IRELAND");
   });
 
   test("insensible à la casse et aux accents", () => {
@@ -27,5 +27,43 @@ describe("normaliserLibelleBancaire", () => {
 
   test("chaîne vide reste vide", () => {
     assert.equal(normaliserLibelleBancaire(""), "");
+  });
+
+  test('retire le préfixe structurel "VIREMENT EMIS WEB"', () => {
+    assert.equal(normaliserLibelleBancaire("VIREMENT EMIS WEB SCI LES ATELIERS Loyer"), "SCI LES ATELIERS LOYER");
+  });
+
+  test('retire le préfixe structurel "VIREMENT EMIS VIR INST vers"', () => {
+    assert.equal(
+      normaliserLibelleBancaire("VIREMENT EMIS VIR INST vers SCI LES ATELIERS Loyer"),
+      "SCI LES ATELIERS LOYER"
+    );
+  });
+
+  test("les deux formulations de virement produisent la même signature", () => {
+    const a = normaliserLibelleBancaire("VIREMENT EMIS WEB SCI LES ATELIERS DU Loyer OCTOBRE bureaux atelier VAYRAC");
+    const b = normaliserLibelleBancaire("VIREMENT EMIS VIR INST vers SCI LES ATELIERS D LOYER bureaux atelier VAYRAC");
+    // Les deux commencent par les 3 mêmes tokens d'identité une fois le préfixe et le mois retirés.
+    assert.equal(a.split(" ").slice(0, 3).join(" "), b.split(" ").slice(0, 3).join(" "));
+    assert.equal(a.split(" ").slice(0, 3).join(" "), "SCI LES ATELIERS");
+  });
+
+  test("retire un mois en toutes lettres au milieu du libellé", () => {
+    assert.equal(normaliserLibelleBancaire("Louis DHELLEMMES Salaire Juillet"), "LOUIS DHELLEMMES SALAIRE");
+    assert.equal(normaliserLibelleBancaire("Louis DHELLEMMES Salaire Juin"), "LOUIS DHELLEMMES SALAIRE");
+  });
+
+  test("retire une année à 4 chiffres isolée", () => {
+    assert.equal(normaliserLibelleBancaire("ABONNEMENT REVUE 2026"), "ABONNEMENT REVUE");
+  });
+
+  test("retire la civilité générique M./Mme et conserve le nom", () => {
+    assert.equal(normaliserLibelleBancaire("VIREMENT EMIS WEB M. ou Mme LECOCQ Remboursement"), "LECOCQ REMBOURSEMENT");
+  });
+
+  test("retire le numéro de carte après PAIEMENT PAR CARTE", () => {
+    // Le plafonnage à N tokens d'identité se fait dans le détecteur, pas ici : la normalisation
+    // seule retire uniquement le préfixe structurel et le numéro de carte, rien d'autre.
+    assert.equal(normaliserLibelleBancaire("PAIEMENT PAR CARTE X1361 CHRONOPOST Paris 26/08"), "CHRONOPOST PARIS 26 08");
   });
 });

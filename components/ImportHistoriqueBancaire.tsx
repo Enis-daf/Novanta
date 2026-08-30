@@ -223,6 +223,9 @@ export default function ImportHistoriqueBancaire({ onValider }: ImportHistorique
                           value={c.montant}
                           onChange={(e) => patchCandidat(c.id, { montant: Number(e.target.value) })}
                         />
+                        <p className="occurrences-periode">
+                          {c.source.profilMontant === "stable" ? "Montant stable" : "Montant variable"}
+                        </p>
                       </td>
                       <td>
                         <select
