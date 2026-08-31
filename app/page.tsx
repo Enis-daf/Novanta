@@ -22,6 +22,7 @@ import IconTelechargement from "@/components/IconTelechargement";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 const ImportHistoriqueBancaire = dynamic(() => import("@/components/ImportHistoriqueBancaire"), { ssr: false });
+const VerifierMesDonnees = dynamic(() => import("@/components/VerifierMesDonnees"), { ssr: false });
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
@@ -862,6 +863,19 @@ export default function Home() {
 
         <SectionRepliable titre="Identifier mes charges fixes" ouvertParDefaut={false}>
           <ImportHistoriqueBancaire onValider={handleImporterChargesFixesDetectees} />
+        </SectionRepliable>
+
+        <SectionRepliable titre="Vérifier mes données" ouvertParDefaut={false}>
+          <VerifierMesDonnees
+            facturesClients={facturesClients}
+            facturesFournisseurs={facturesFournisseurs}
+            autresDepenses={autresDepenses}
+            financements={financements}
+            onChangeFactureClient={handleChangeFactureClient}
+            onChangeFactureFournisseur={handleChangeFactureFournisseur}
+            onChangeAutreDepense={handleChangeAutreDepense}
+            onChangeFinancement={handleChangeFinancement}
+          />
         </SectionRepliable>
 
         <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>

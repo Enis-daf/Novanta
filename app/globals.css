@@ -1175,6 +1175,56 @@ input[type="checkbox"] {
   font-weight: 700;
 }
 
+.consistency-groupe {
+  margin-top: 18px;
+}
+
+.consistency-groupe h5 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+}
+
+.consistency-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.consistency-item {
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.consistency-item__ligne {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.consistency-item__message {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.consistency-item__badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--couleur-texte-secondaire);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 4px;
+}
+
 .login-screen {
   min-height: 100vh;
   display: flex;
