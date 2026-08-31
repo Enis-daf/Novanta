@@ -398,6 +398,13 @@ export async function sauvegarderChargeFixe(companyId: string, charge: ChargeFix
   await upsertOne("fixed_charges", chargeFixeToRow(companyId, charge));
 }
 
+export async function importerChargesFixes(companyId: string, charges: ChargeFixe[]): Promise<void> {
+  await insertMany(
+    "fixed_charges",
+    charges.map((c) => chargeFixeToRow(companyId, c))
+  );
+}
+
 export async function supprimerChargeFixe(id: string): Promise<void> {
   await deleteOne("fixed_charges", id);
 }

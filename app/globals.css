@@ -1135,6 +1135,46 @@ input[type="checkbox"] {
   margin-top: 10px;
 }
 
+.import-bancaire-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.import-bancaire-intro p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+  max-width: 560px;
+}
+
+.import-bancaire-info {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  font-style: italic;
+}
+
+.diagnostic-colonnes {
+  list-style: none;
+  margin: 8px 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.diagnostic-ok span {
+  color: #0a8f5f;
+  font-weight: 700;
+}
+
+.diagnostic-echec span {
+  color: var(--couleur-accent-fonce);
+  font-weight: 700;
+}
+
 .login-screen {
   min-height: 100vh;
   display: flex;
