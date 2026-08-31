@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { detecterChargesRecurrentes } from "./bankRecurringDetector";
+import { detecterChargesRecurrentes, trierCandidatsPourAffichage, RecurringChargeCandidate } from "./bankRecurringDetector";
 import { NormalizedBankTransaction, normaliserLibelleBancaire } from "./bankTransaction";
 
 function transactionBrute(date: string, labelOriginal: string, signedAmount: number): NormalizedBankTransaction {
@@ -433,5 +433,85 @@ describe("detecterChargesRecurrentes — le nom du marchand gagne contre les ré
     const candidats = detecterChargesRecurrentes(transactions);
     assert.equal(candidats.length, 1);
     assert.equal(candidats[0].libellePropose, "Charge récurrente à nommer");
+  });
+});
+
+describe("trierCandidatsPourAffichage — tri purement visuel de l'écran de validation", () => {
+  function candidat(libellePropose: string, montantPropose: number): RecurringChargeCandidate {
+    return {
+      id: libellePropose,
+      libellePropose,
+      montantPropose,
+      profilMontant: "stable",
+      frequence: "mensuel",
+      derniereOccurrence: "2026-08-01",
+      prochaineOccurrenceEstimee: "2026-09-01",
+      nombreOccurrences: 3,
+      montantMin: montantPropose,
+      montantMax: montantPropose,
+      occurrences: [],
+    };
+  }
+
+  test("trie par montant proposé décroissant", () => {
+    const candidats = [candidat("Shopify", 39), candidat("Loyer", 1092), candidat("OpenAI", 17)];
+    const trie = trierCandidatsPourAffichage(candidats);
+    assert.deepEqual(
+      trie.map((c) => c.libellePropose),
+      ["Loyer", "Shopify", "OpenAI"]
+    );
+  });
+
+  test("à égalité de montant, trie par libellé par ordre alphabétique", () => {
+    const candidats = [candidat("Zeta Fournitures", 100), candidat("Alpha Telecom", 100)];
+    const trie = trierCandidatsPourAffichage(candidats);
+    assert.deepEqual(
+      trie.map((c) => c.libellePropose),
+      ["Alpha Telecom", "Zeta Fournitures"]
+    );
+  });
+
+  test("reproduit exactement l'exemple de la spec produit", () => {
+    const candidats = [
+      candidat("Shopify", 39),
+      candidat("Pennylane", 58.8),
+      candidat("Loyer SAS Celaur Vallée", 735),
+      candidat("OpenAI", 17),
+      candidat("Loyer", 1092),
+    ];
+    const trie = trierCandidatsPourAffichage(candidats);
+    assert.deepEqual(
+      trie.map((c) => c.libellePropose),
+      ["Loyer", "Loyer SAS Celaur Vallée", "Pennylane", "Shopify", "OpenAI"]
+    );
+  });
+
+  test("ne mute jamais le tableau reçu en entrée", () => {
+    const candidats = [candidat("Shopify", 39), candidat("Loyer", 1092)];
+    const original = [...candidats];
+    trierCandidatsPourAffichage(candidats);
+    assert.deepEqual(candidats, original);
+  });
+
+  test("n'affecte pas l'ordre interne du moteur de détection (nombreOccurrences)", () => {
+    // Le moteur trie par nombre d'occurrences ; ce test vérifie que detecterChargesRecurrentes
+    // n'est pas modifié et garde son propre ordre, indépendamment du tri d'affichage.
+    const transactions = [
+      transactionBrute("2026-05-05", "PRLV NETFLIX PREMIUM", -1000),
+      transactionBrute("2026-06-05", "PRLV NETFLIX PREMIUM", -1000),
+      transactionBrute("2026-07-05", "PRLV NETFLIX PREMIUM", -1000),
+      transactionBrute("2026-08-05", "PRLV NETFLIX PREMIUM", -1000),
+      transactionBrute("2026-02-05", "PRLV BUREAU CENTRAL", -5000),
+      transactionBrute("2026-03-05", "PRLV BUREAU CENTRAL", -5000),
+      transactionBrute("2026-04-05", "PRLV BUREAU CENTRAL", -5000),
+    ];
+    const candidatsMoteur = detecterChargesRecurrentes(transactions);
+    // Le moteur trie par occurrences décroissantes : 4 occurrences (Netflix) avant 3 (Bureau
+    // Central), malgré son montant plus faible.
+    assert.equal(candidatsMoteur[0].libellePropose, "Netflix Premium");
+
+    const pourAffichage = trierCandidatsPourAffichage(candidatsMoteur);
+    // À l'affichage : le montant le plus élevé (Bureau Central, 5000€) passe en premier.
+    assert.equal(pourAffichage[0].libellePropose, "Bureau Central");
   });
 });

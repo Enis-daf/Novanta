@@ -382,3 +382,16 @@ export function detecterChargesRecurrentes(transactions: NormalizedBankTransacti
     (a, b) => b.nombreOccurrences - a.nombreOccurrences || a.libellePropose.localeCompare(b.libellePropose)
   );
 }
+
+/**
+ * Tri purement VISUEL pour l'écran de validation — n'est jamais appelé par detecterChargesRecurrentes
+ * ci-dessus et ne change donc rien au moteur de détection ni à ses règles (l'ordre interne du moteur,
+ * par nombre d'occurrences, reste inchangé et continue de déterminer l'ordre "id" stable). Montant
+ * proposé décroissant ; à égalité, libellé proposé par ordre alphabétique. Ne mute jamais le tableau
+ * reçu.
+ */
+export function trierCandidatsPourAffichage(candidats: RecurringChargeCandidate[]): RecurringChargeCandidate[] {
+  return [...candidats].sort(
+    (a, b) => b.montantPropose - a.montantPropose || a.libellePropose.localeCompare(b.libellePropose)
+  );
+}
