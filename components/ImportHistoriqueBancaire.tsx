@@ -5,7 +5,12 @@ import { ChargeFixe } from "@/lib/types";
 import { formatMontant } from "@/lib/format";
 import { formatDateCourte } from "@/lib/dates";
 import { ErreurImportBancaire, ResultatAnalyseBancaire, analyserFichierBancaireXlsx } from "@/lib/bankXlsxAdapter";
-import { FrequenceDetectee, RecurringChargeCandidate, detecterChargesRecurrentes } from "@/lib/bankRecurringDetector";
+import {
+  FrequenceDetectee,
+  RecurringChargeCandidate,
+  detecterChargesRecurrentes,
+  trierCandidatsPourAffichage,
+} from "@/lib/bankRecurringDetector";
 import DateField from "./DateField";
 
 interface ImportHistoriqueBancaireProps {
@@ -58,7 +63,11 @@ export default function ImportHistoriqueBancaire({ onValider }: ImportHistorique
     try {
       const analyse = await analyserFichierBancaireXlsx(fichier);
       setResultat(analyse);
-      setCandidats(detecterChargesRecurrentes(analyse.transactions).map(candidatVersBrouillon));
+      // Tri purement visuel sur l'écran de validation (montant proposé décroissant, puis libellé) —
+      // le moteur de détection lui-même (detecterChargesRecurrentes) et son propre ordre interne ne
+      // sont pas modifiés.
+      const candidatsDetectes = trierCandidatsPourAffichage(detecterChargesRecurrentes(analyse.transactions));
+      setCandidats(candidatsDetectes.map(candidatVersBrouillon));
     } catch (err) {
       setErreur(
         err instanceof ErreurImportBancaire
