@@ -15,9 +15,10 @@ export interface NormalizedBankTransaction {
 }
 
 /**
- * Formulations bancaires purement structurelles (ne portent jamais d'identité de bénéficiaire) et
- * civilités génériques. Générique et standard sur tout export bancaire français — pas spécifique à
- * un client — donc retiré sans risque de fusionner deux bénéficiaires différents.
+ * Formulations bancaires purement structurelles (ne portent jamais d'identité de bénéficiaire),
+ * civilités génériques et marqueurs de routage bancaire (XR, ICS, IBAN, BIC...). Générique et
+ * standard sur tout export bancaire français — pas spécifique à un client — donc retiré sans risque
+ * de fusionner deux bénéficiaires différents.
  */
 const PREFIXES_STRUCTURELS = new Set([
   "VIREMENT",
@@ -39,6 +40,10 @@ const PREFIXES_STRUCTURELS = new Set([
   "MONSIEUR",
   "MADAME",
   "OU",
+  "XR",
+  "ICS",
+  "IBAN",
+  "BIC",
 ]);
 
 const MOIS_LETTRES = new Set([
@@ -61,6 +66,22 @@ const MOIS_LETTRES = new Set([
 // sont exclus car ils peuvent faire partie intégrante d'une raison sociale (ex: "SCI Les Ateliers").
 const CONNECTEURS_GENERIQUES = new Set(["A", "AU", "AUX", "DE", "DU", "ET"]);
 
+// Qualificatifs juridiques/géographiques génériques : n'apportent aucune valeur d'identification une
+// fois qu'un nom de marque/enseigne est déjà présent (ex: "AMAZON BUSINESS EU SARL-SUCCURSA" → le nom
+// utile est "Amazon Business", pas sa filiale/zone géographique). Liste générique standard, jamais
+// un nom de bénéficiaire.
+const QUALIFICATIFS_GENERIQUES = new Set([
+  "EU",
+  "EUROPE",
+  "INTERNATIONAL",
+  "GROUP",
+  "GROUPE",
+  "HOLDING",
+  "SUCCURSALE",
+  "SUCCURSA",
+  "FILIALE",
+]);
+
 /**
  * Retire les tokens purement structurels (ex: numéro de carte "X1234"), PARTOUT dans le libellé —
  * pas seulement en tête. Certains libellés bancaires répètent ce vocabulaire au milieu de la chaîne
@@ -79,6 +100,11 @@ function retirerMoisEtAnnees(tokens: string[]): string[] {
 /** Retire les connecteurs génériques (voir CONNECTEURS_GENERIQUES), partout dans le libellé. */
 function retirerConnecteurs(tokens: string[]): string[] {
   return tokens.filter((t) => !CONNECTEURS_GENERIQUES.has(t));
+}
+
+/** Retire les qualificatifs juridiques/géographiques génériques (voir QUALIFICATIFS_GENERIQUES). */
+function retirerQualificatifsGeneriques(tokens: string[]): string[] {
+  return tokens.filter((t) => !QUALIFICATIFS_GENERIQUES.has(t));
 }
 
 /**
@@ -101,38 +127,69 @@ function retirerNumeroFacture(tokens: string[]): string[] {
 }
 
 /**
- * Retire jusqu'à 2 tokens finaux s'ils ressemblent fortement à une référence technique variable
- * (mélange lettres+chiffres, ou purement numérique et long) — reste conservateur pour ne jamais
- * retirer un token qui porterait une vraie identité.
+ * Retire, dans le texte BRUT (avant tokenisation, tant que les tirets sont encore présents), les
+ * références multi-blocs entièrement numériques du type "407-2682920-5134736" (numéro de commande /
+ * référence de paiement) : au moins 3 blocs de chiffres séparés par des tirets. Un bloc isolé comme
+ * "407" ne ressemble à rien de technique pris seul (trop court) ; c'est la STRUCTURE de la référence
+ * complète (plusieurs blocs numériques accolés par des tirets) qui la trahit.
  */
-function retirerReferencesFinales(tokens: string[]): string[] {
-  const resultat = [...tokens];
-  let retires = 0;
-  while (resultat.length > 1 && retires < 2) {
-    const dernier = resultat[resultat.length - 1];
-    const ressembleReferenceTechnique =
-      (/\d/.test(dernier) && /[A-Z]/.test(dernier) && dernier.length >= 5) || /^\d{6,}$/.test(dernier);
-    if (!ressembleReferenceTechnique) break;
-    resultat.pop();
-    retires++;
+function retirerReferencesMultiBlocs(texte: string): string {
+  return texte.replace(/\b\d+(?:-\d+){2,}\b/g, " ");
+}
+
+const VOYELLES = new Set(["A", "E", "I", "O", "U", "Y"]);
+
+/**
+ * Un token ressemble à une référence technique (à retirer partout, jamais seulement en fin de
+ * chaîne) s'il correspond à l'un de ces motifs structurels :
+ *  - un seul caractère (ex: "S", "C" — initiales issues d'abréviations bancaires type "S.C.A.") :
+ *    jamais un mot ni un nom exploitable ;
+ *  - mélange de lettres ET de chiffres, longueur ≥ 5 (ex: "6SI0036K3D5UQ74P", "YYNSV0") ;
+ *  - purement numérique, longueur ≥ 6 (ex: "0000000000000002054") ;
+ *  - purement alphabétique mais avec une proportion de voyelles anormalement basse (< 25 %) sur au
+ *    moins 8 caractères (ex: "DRDMLLAHUPGRSPYGNPOW") — signature d'un code de routage bancaire
+ *    plutôt que d'un mot naturel, sans dictionnaire ni IA : uniquement une statistique de caractères
+ *    (un vrai mot, même long comme "TELECOMMUNICATIONS", a toujours une proportion de voyelles
+ *    normale et n'est donc jamais retiré par cette règle).
+ * Exporté pour être réutilisé comme garde-fou final (ne jamais proposer un libellé entièrement
+ * technique) et pour les tests.
+ */
+export function ressembleReferenceTechnique(token: string): boolean {
+  if (!token) return false;
+  if (token.length === 1) return true;
+  const contientChiffre = /\d/.test(token);
+  const contientLettre = /[A-Z]/.test(token);
+  if (contientChiffre && contientLettre && token.length >= 5) return true;
+  if (contientChiffre && !contientLettre && token.length >= 6) return true;
+  if (!contientChiffre && contientLettre && token.length >= 8) {
+    const voyelles = [...token].filter((c) => VOYELLES.has(c)).length;
+    if (voyelles / token.length < 0.25) return true;
   }
-  return resultat;
+  return false;
+}
+
+/** Retire, PARTOUT dans le libellé, tout token ressemblant à une référence technique (voir ci-dessus). */
+function retirerTokensTechniques(tokens: string[]): string[] {
+  return tokens.filter((t) => !ressembleReferenceTechnique(t));
 }
 
 /**
  * Normalisation déterministe d'un libellé bancaire, utilisée pour rapprocher les occurrences
  * d'un même bénéficiaire malgré des formulations bancaires variables (préfixes "VIREMENT EMIS",
  * "PRLV SEPA"...), des mois en toutes lettres ("Loyer Juillet" / "Loyer Août"...), des connecteurs
- * français génériques ("à", "du"...), des numéros de facture ("Facture N°...") et des références
- * techniques variables (ex : "PRLV SEPA ADOBE SYSTEMS IRELAND 8J2K39" / "...KJ29DK" / "...92JD03"
- * → même signature).
+ * français génériques ("à", "du"...), des qualificatifs juridiques/géographiques génériques ("EU",
+ * "Succursale"...), des numéros de facture ("Facture N°...") et des références techniques (numéros
+ * de commande multi-blocs, identifiants alphanumériques longs, codes de routage bancaire type
+ * "XR:...", IBAN-like "LU39ZZZ...").
  *
  * Reste volontairement conservatrice : aucune tentative de compréhension sémantique (pas de NLP,
- * pas d'IA), uniquement des règles de nettoyage génériques et déterministes — jamais spécifiques à
- * un bénéficiaire précis.
+ * pas d'IA), uniquement des règles de nettoyage génériques et déterministes (listes de mots
+ * structurels + statistiques de caractères) — jamais spécifiques à un bénéficiaire précis.
  */
 export function normaliserLibelleBancaire(labelOriginal: string): string {
-  const nettoye = labelOriginal
+  const sansReferencesMultiBlocs = retirerReferencesMultiBlocs(labelOriginal);
+
+  const nettoye = sansReferencesMultiBlocs
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toUpperCase()
@@ -146,8 +203,9 @@ export function normaliserLibelleBancaire(labelOriginal: string): string {
   tokens = retirerTokensStructurels(tokens);
   tokens = retirerMoisEtAnnees(tokens);
   tokens = retirerConnecteurs(tokens);
+  tokens = retirerQualificatifsGeneriques(tokens);
   tokens = retirerNumeroFacture(tokens);
-  tokens = retirerReferencesFinales(tokens);
+  tokens = retirerTokensTechniques(tokens);
 
   return tokens.join(" ");
 }

@@ -207,19 +207,39 @@ describe("detecterChargesRecurrentes — RÉCURRENCE = IDENTITÉ + CADENCE (mont
 describe("detecterChargesRecurrentes — retrait du bruit corpus (tag interne inséré de façon incohérente)", () => {
   test("un tag d'entreprise fréquent mais positionné de façon incohérente n'empêche pas le regroupement sur un corpus assez grand", () => {
     // Reproduit un cas réel observé sur un export Pennylane : le tag propre à l'entreprise ("MYCO")
-    // apparaît sur beaucoup de ses propres virements sortants, mais à une position incohérente
-    // (avant ou après le mot "Salaire", ou absent) — sans retrait par fréquence, les 3 occurrences
-    // produiraient 2 signatures différentes et jamais 3 occurrences groupées.
+    // apparaît sur beaucoup de ses propres virements sortants, mais à une position ABSOLUE
+    // incohérente d'une occurrence à l'autre (parfois juste après le nom, parfois plus loin, parfois
+    // absent) — sans retrait par fréquence+position, les occurrences d'Audrey produiraient 2
+    // signatures différentes et ne se regrouperaient jamais.
     // Le corpus doit être assez grand pour que la fréquence des tokens d'identité d'Audrey
     // (3 occurrences) reste elle-même bien en dessous du seuil de bruit, sans quoi ce sont eux
     // qu'on retirerait à tort.
-    const remplissage: NormalizedBankTransaction[] = Array.from({ length: 50 }, (_, i) =>
-      transactionBrute(
+    // Noms de remplissage volontairement alphabétiques (pas de suffixe numérique type
+    // "FOURNISSEUR0") pour ne pas déclencher la détection de référence technique
+    // (mélange lettres+chiffres) — ce n'est pas ce que ce test vérifie. Le tag "MYCO" est inséré à
+    // des positions ABSOLUES différentes selon les lignes (comme dans le fichier réel, où sa position
+    // varie selon la longueur du nom du bénéficiaire) : un simple mot toujours en tête (comme
+    // "AMAZON" dans un autre test) ne doit jamais être confondu avec ce cas.
+    const NOMS_REMPLISSAGE = [
+      "ALPHA", "BETA", "GAMMA", "DELTA", "EPSILON", "ZETA", "ETA", "THETA", "IOTA", "KAPPA",
+      "LAMBDA", "MU", "NU", "XI", "OMICRON", "RHO", "SIGMA", "TAU", "PHI", "CHI",
+      "PSI", "OMEGA", "AXIOME", "BORNE", "CADRE", "DIGNE", "ETOILE", "FIBRE", "GALET", "HAVRE",
+      "IMAGE", "JARDIN", "KIOSQUE", "LUEUR", "MARGE", "NOYAU", "PIVOT", "QUARTZ", "RIVAGE", "SOCLE",
+      "TRAME", "UNITE", "VOILE", "WAGON", "XENON", "YACHT", "ZEPHYR", "ANCRE", "BRISE", "CORAIL",
+    ];
+    const remplissage: NormalizedBankTransaction[] = NOMS_REMPLISSAGE.map((nom, i) => {
+      const libelle =
+        i % 3 === 0
+          ? `VIREMENT EMIS WEB FOURNISSEUR${nom} MYCO Facture ponctuelle` // MYCO position 1
+          : i % 3 === 1
+            ? `VIREMENT EMIS WEB FOURNISSEUR${nom} Reference Facture MYCO ponctuelle` // MYCO position 3
+            : `VIREMENT EMIS WEB FOURNISSEUR${nom} Facture ponctuelle`; // sans MYCO
+      return transactionBrute(
         `2026-0${(i % 6) + 1}-${String(10 + (i % 15)).padStart(2, "0")}`,
-        i % 5 === 0 ? `VIREMENT EMIS WEB FOURNISSEUR${i} MYCO Facture ponctuelle` : `VIREMENT EMIS WEB FOURNISSEUR${i} Facture ponctuelle`,
+        libelle,
         -(10 + i)
-      )
-    );
+      );
+    });
 
     const transactions: NormalizedBankTransaction[] = [
       ...remplissage,
@@ -346,5 +366,72 @@ describe("detecterChargesRecurrentes — libellé proposé (proposedLabel), jama
     for (const motInterdit of ["VIREMENT", "EMIS", "VIR INST", "vers"]) {
       assert.equal(candidats[0].libellePropose.toUpperCase().includes(motInterdit.toUpperCase()), false);
     }
+  });
+});
+
+describe("detecterChargesRecurrentes — le nom du marchand gagne contre les références techniques", () => {
+  test("A/B. cas réel Amazon Business : mêmes références techniques, numéros de commande différents → toujours « Amazon Business »", () => {
+    const transactions = [
+      transactionBrute(
+        "2026-06-30",
+        "PRELEVEMENT AMAZON BUSINESS EU SARL-SUCCURSA 407-3171735-8841930 AMZNBusiness 79IFR7Z90BF04BH0 XR:DRDMLLAHUPGRSPYGNPOW+YYNSV0 LU39ZZZ0000000000000002054",
+        -84.7
+      ),
+      transactionBrute(
+        "2026-07-31",
+        "PRELEVEMENT AMAZON BUSINESS EU SARL-SUCCURSA 407-2682920-5134736 AMZNBusiness 6SI0036K3D5UQ74P XR:DRDMLLAHUPGRSPYGNPOW+YYNSV0 LU39ZZZ0000000000000002054",
+        -274.99
+      ),
+      transactionBrute(
+        "2026-08-26",
+        "PRELEVEMENT AMAZON BUSINESS EU SARL-SUCCURSA 407-9012345-6789012 AMZNBusiness YP603Z7GQENYFA24 XR:DRDMLLAHUPGRSPYGNPOW+YYNSV0 LU39ZZZ0000000000000002054",
+        -62.9
+      ),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].libellePropose, "Amazon Business");
+    assert.equal(candidats[0].nombreOccurrences, 3);
+  });
+
+  test("C/D/E. aucun résidu technique dans le libellé (XR:, LU...ZZZ..., chaîne alphanumérique longue)", () => {
+    const transactions = [
+      transactionBrute(
+        "2026-06-30",
+        "PRELEVEMENT AMAZON BUSINESS EU SARL-SUCCURSA 407-3171735-8841930 AMZNBusiness 79IFR7Z90BF04BH0 XR:DRDMLLAHUPGRSPYGNPOW+YYNSV0 LU39ZZZ0000000000000002054",
+        -84.7
+      ),
+      transactionBrute(
+        "2026-07-31",
+        "PRELEVEMENT AMAZON BUSINESS EU SARL-SUCCURSA 407-2682920-5134736 AMZNBusiness 6SI0036K3D5UQ74P XR:DRDMLLAHUPGRSPYGNPOW+YYNSV0 LU39ZZZ0000000000000002054",
+        -274.99
+      ),
+      transactionBrute(
+        "2026-08-26",
+        "PRELEVEMENT AMAZON BUSINESS EU SARL-SUCCURSA 407-9012345-6789012 AMZNBusiness YP603Z7GQENYFA24 XR:DRDMLLAHUPGRSPYGNPOW+YYNSV0 LU39ZZZ0000000000000002054",
+        -62.9
+      ),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    const libelle = candidats[0].libellePropose;
+    assert.equal(/\d/.test(libelle), false); // aucun numéro de commande / IBAN-like
+    assert.equal(libelle.toUpperCase().includes("XR"), false); // marqueur de routage retiré
+    assert.equal(libelle.toUpperCase().includes("LU39ZZZ"), false); // identifiant IBAN-like retiré
+    assert.equal(libelle.toUpperCase().includes("DRDMLLAHUPGRSPYGNPOW"), false); // chaîne technique retirée
+  });
+
+  test("F. si le seul contenu restant est technique, ne jamais le proposer comme libellé (repli neutre)", () => {
+    // Simule un labelNormalized resté entièrement technique — garde-fou défensif : dans le cas réel,
+    // la normalisation partagée (bankTransaction.ts) retire déjà ces tokens en amont, mais ce test
+    // vérifie explicitement que le détecteur ne proposerait jamais une chaîne technique en dernier
+    // recours, quelle qu'en soit la cause.
+    const transactions = [
+      transaction("2026-02-05", "6SI0036K3D5UQ74P LU39ZZZ0000000000000002054", -84.7),
+      transaction("2026-03-05", "6SI0036K3D5UQ74P LU39ZZZ0000000000000002054", -84.7),
+      transaction("2026-04-05", "6SI0036K3D5UQ74P LU39ZZZ0000000000000002054", -84.7),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].libellePropose, "Charge récurrente à nommer");
   });
 });

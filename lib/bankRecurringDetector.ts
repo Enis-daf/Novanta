@@ -1,5 +1,5 @@
 import { ajouterJours, ajouterMois, parseDateISO, toISODate } from "./dates";
-import { NormalizedBankTransaction } from "./bankTransaction";
+import { NormalizedBankTransaction, ressembleReferenceTechnique } from "./bankTransaction";
 
 /**
  * Moteur de détection des dépenses récurrentes. Ne dépend QUE de NormalizedBankTransaction[] —
@@ -38,6 +38,12 @@ export interface RecurringChargeCandidate {
 }
 
 const OCCURRENCES_MINIMUM = 3;
+
+// Utilisé uniquement quand ni le libellé métier ni la signature d'identité ne comportent le moindre
+// token exploitable (tout ce qui reste est une référence technique) — jamais une chaîne bancaire ou
+// un identifiant technique n'est proposé comme nom de Charge fixe. Le champ reste entièrement
+// modifiable par l'utilisateur avant création.
+const LIBELLE_NEUTRE_PAR_DEFAUT = "Charge récurrente à nommer";
 
 // Tokens présents dans une très large proportion des débits (ex: le nom propre de l'entreprise
 // elle-même, apposé de façon incohérente par la banque sur ses propres virements sortants — ou des
@@ -110,23 +116,59 @@ function detecterFrequence(datesTriees: string[]): FrequenceDetectee | null {
 // (bankTransaction.ts) nettoient le libellé.
 const TAILLE_MIN_CORPUS_POUR_BRUIT = 20;
 
-/** Fréquence (proportion de transactions distinctes contenant le token) de chaque token du corpus fourni. */
-function calculerFrequenceTokens(labelsNormalizes: string[]): Map<string, number> {
+// Un token très fréquent à l'échelle du corpus n'est pas forcément du bruit : un nom de marchand
+// réel (ex: "AMAZON", ou son second mot "PAYMENTS" dans "Amazon Payments Europe") peut être encore
+// plus fréquent qu'un tag interne (ex: "QANNT", le nom de l'entreprise elle-même) si l'utilisateur a
+// de nombreuses relations récurrentes différentes avec la même enseigne — la seule fréquence ne
+// permet donc pas de les distinguer. En revanche, un mot faisant partie intégrante d'un nom de
+// marchand occupe toujours la MÊME position dans son libellé (le 1er mot d'une marque est toujours
+// en position 0, son 2e mot toujours en position 1...), alors qu'un tag interne est inséré à des
+// positions incohérentes d'une occurrence à l'autre. En dessous de ce ratio de présence à sa
+// position la plus fréquente, un token fréquent est traité comme du bruit ; au-dessus, il est
+// toujours conservé, quelle que soit sa fréquence globale.
+const SEUIL_RATIO_POSITION_DOMINANTE = 0.7;
+
+interface StatistiquesToken {
+  frequence: number; // proportion de transactions distinctes contenant le token
+  ratioPositionDominante: number; // proportion de ces apparitions à sa position la plus fréquente
+}
+
+/** Statistiques de fréquence et de position de chaque token du corpus fourni (voir SEUIL_RATIO_POSITION_DOMINANTE). */
+function calculerStatistiquesTokens(labelsNormalizes: string[]): Map<string, StatistiquesToken> {
   if (labelsNormalizes.length < TAILLE_MIN_CORPUS_POUR_BRUIT) return new Map();
 
   const occurrencesParToken = new Map<string, number>();
+  const positionsParToken = new Map<string, Map<number, number>>();
   for (const label of labelsNormalizes) {
-    const tokensUniques = new Set(label.split(" ").filter(Boolean));
-    for (const token of tokensUniques) {
+    const tokens = label.split(" ").filter(Boolean);
+    const dejaVus = new Set<string>();
+    tokens.forEach((token, position) => {
+      if (dejaVus.has(token)) return; // ne compter qu'une fois par libellé, à sa PREMIÈRE position
+      dejaVus.add(token);
       occurrencesParToken.set(token, (occurrencesParToken.get(token) ?? 0) + 1);
-    }
+      const positions = positionsParToken.get(token) ?? new Map<number, number>();
+      positions.set(position, (positions.get(position) ?? 0) + 1);
+      positionsParToken.set(token, positions);
+    });
   }
   const total = labelsNormalizes.length || 1;
-  const frequences = new Map<string, number>();
+  const statistiques = new Map<string, StatistiquesToken>();
   for (const [token, occurrences] of occurrencesParToken) {
-    frequences.set(token, occurrences / total);
+    const positions = positionsParToken.get(token);
+    const maxAUnePosition = positions ? Math.max(...positions.values()) : 0;
+    statistiques.set(token, {
+      frequence: occurrences / total,
+      ratioPositionDominante: maxAUnePosition / occurrences,
+    });
   }
-  return frequences;
+  return statistiques;
+}
+
+/** Un token très fréquent est du bruit corpus SAUF s'il occupe une position stable (voir SEUIL_RATIO_POSITION_DOMINANTE). */
+function estBruitCorpus(token: string, statistiquesTokens: Map<string, StatistiquesToken>): boolean {
+  const stats = statistiquesTokens.get(token);
+  if (!stats || stats.frequence <= SEUIL_FREQUENCE_BRUIT) return false;
+  return stats.ratioPositionDominante < SEUIL_RATIO_POSITION_DOMINANTE;
 }
 
 /**
@@ -135,10 +177,8 @@ function calculerFrequenceTokens(labelsNormalizes: string[]): Map<string, number
  * restants. C'est le "QUI/QUOI" de la récurrence — la cadence et le montant sont évalués séparément
  * une fois les occurrences regroupées par cette signature.
  */
-function signatureIdentite(labelNormalized: string, frequenceTokens: Map<string, number>): string {
-  const tokens = labelNormalized
-    .split(" ")
-    .filter((token) => token && (frequenceTokens.get(token) ?? 0) <= SEUIL_FREQUENCE_BRUIT);
+function signatureIdentite(labelNormalized: string, statistiquesTokens: Map<string, StatistiquesToken>): string {
+  const tokens = labelNormalized.split(" ").filter((token) => token && !estBruitCorpus(token, statistiquesTokens));
   return tokens.slice(0, CAP_TOKENS_IDENTITE).join(" ");
 }
 
@@ -173,6 +213,34 @@ function dedupliquerConsecutifs(tokens: string[]): string[] {
   return tokens.filter((t, i) => i === 0 || t !== tokens[i - 1]);
 }
 
+/**
+ * Une raison sociale (SCI, SAS, SARL...) n'est utile que lorsqu'elle précède le nom qu'elle
+ * qualifie ("SCI Les Ateliers") — convention française usuelle. Trouvée plus loin dans le libellé
+ * (ex: "...EU SARL-SUCCURSA" après une enseigne déjà identifiable comme "Amazon Business"), elle ne
+ * qualifie plus rien de nouveau et est retirée.
+ */
+function retirerAcronymesTardifs(tokens: string[]): string[] {
+  return tokens.filter((t, i) => !ACRONYMES_LEGAUX.has(t) || i < 2);
+}
+
+/**
+ * Retire les tokens qui ne sont qu'une variante concaténée d'un token déjà retenu (ex:
+ * "AMZNBUSINESS" alors que "BUSINESS" est déjà présent séparément) : le plus long des deux, dès lors
+ * qu'il contient l'autre comme sous-chaîne, est redondant — reconnaissance déterministe sans IA
+ * d'un même marchand écrit sous deux formes.
+ */
+function retirerRedondancesSousChaines(tokens: string[]): string[] {
+  const aSupprimer = new Set<number>();
+  for (let i = 0; i < tokens.length; i++) {
+    for (let j = 0; j < tokens.length; j++) {
+      if (i !== j && tokens[j].length < tokens[i].length && tokens[i].includes(tokens[j])) {
+        aSupprimer.add(i);
+      }
+    }
+  }
+  return tokens.filter((_, i) => !aSupprimer.has(i));
+}
+
 /** Casse "Titre" (Majuscule initiale, reste en minuscules) sauf raison sociale connue, conservée en capitales. */
 function mettreEnFormeLisible(tokens: string[]): string {
   return tokens.map((t) => (ACRONYMES_LEGAUX.has(t) ? t : t.charAt(0) + t.slice(1).toLowerCase())).join(" ");
@@ -182,13 +250,18 @@ function mettreEnFormeLisible(tokens: string[]): string {
  * Construit le libellé métier proposé à partir de TOUTES les occurrences du groupe (jamais d'une
  * seule occurrence choisie arbitrairement). Retourne null si aucun token n'est assez stable —
  * l'appelant retombe alors sur la signature d'identité déjà validée, jamais sur le libellé brut.
+ *
+ * Le retrait de bruit corpus (voir estBruitCorpus) s'applique ici aussi, mais grâce au ratio de
+ * présence en tête, un nom de marchand réel très fréquent (ex: "AMAZON", présent dans plusieurs
+ * relations récurrentes différentes) n'est jamais retiré à tort — seul un tag interne inséré à des
+ * positions incohérentes (ex: "QANNT") l'est.
  */
 function construireLibelleMetier(
   occurrencesTriees: NormalizedBankTransaction[],
-  frequenceTokensCorpus: Map<string, number>
+  statistiquesTokens: Map<string, StatistiquesToken>
 ): string | null {
   const tokensParOccurrence = occurrencesTriees.map((o) =>
-    o.labelNormalized.split(" ").filter((t) => t && (frequenceTokensCorpus.get(t) ?? 0) <= SEUIL_FREQUENCE_BRUIT)
+    o.labelNormalized.split(" ").filter((t) => t && !estBruitCorpus(t, statistiquesTokens))
   );
   const nombreOccurrences = tokensParOccurrence.length;
 
@@ -214,6 +287,18 @@ function construireLibelleMetier(
   }
   if (tokensRetenus.length === 0) return null;
 
+  tokensRetenus = retirerAcronymesTardifs(tokensRetenus);
+  tokensRetenus = retirerRedondancesSousChaines(tokensRetenus);
+
+  // Garde-fou final : même stable dans le groupe, un token qui ressemble structurellement à une
+  // référence technique (ex: un numéro de sous-compte marchand réutilisé sur toute la série) ne
+  // doit jamais se retrouver seul à composer le libellé. Un nom de marchand identifiable gagne
+  // toujours contre une référence technique — et si tout ce qui reste est technique, on préfère ne
+  // rien proposer plutôt qu'une chaîne illisible (voir le repli neutre dans l'appelant).
+  const tokensUtiles = tokensRetenus.filter((t) => !ressembleReferenceTechnique(t));
+  if (tokensUtiles.length === 0) return null;
+  tokensRetenus = tokensUtiles;
+
   const indexMotMetier = tokensRetenus.findIndex((t) => MOTS_METIER.has(t));
   if (indexMotMetier > 0) {
     const [mot] = tokensRetenus.splice(indexMotMetier, 1);
@@ -227,11 +312,11 @@ export function detecterChargesRecurrentes(transactions: NormalizedBankTransacti
   // Les charges récurrentes ne sont recherchées que parmi les débits (montants négatifs).
   const debits = transactions.filter((t) => t.signedAmount < 0 && t.labelNormalized);
 
-  const frequenceTokens = calculerFrequenceTokens(debits.map((t) => t.labelNormalized));
+  const statistiquesTokens = calculerStatistiquesTokens(debits.map((t) => t.labelNormalized));
 
   const groupes = new Map<string, NormalizedBankTransaction[]>();
   for (const transaction of debits) {
-    const cle = signatureIdentite(transaction.labelNormalized, frequenceTokens);
+    const cle = signatureIdentite(transaction.labelNormalized, statistiquesTokens);
     if (!cle) continue;
     const liste = groupes.get(cle) ?? [];
     liste.push(transaction);
@@ -267,8 +352,14 @@ export function detecterChargesRecurrentes(transactions: NormalizedBankTransacti
     );
 
     // Jamais le libellé bancaire brut : libellé métier dérivé des occurrences, avec repli sur la
-    // signature d'identité (déjà propre) plutôt que sur labelOriginal si rien n'est assez stable.
-    const libellePropose = construireLibelleMetier(triees, frequenceTokens) ?? mettreEnFormeLisible(cle.split(" "));
+    // signature d'identité (déjà propre) plutôt que sur labelOriginal si rien n'est assez stable —
+    // et sur un libellé neutre si même la signature d'identité s'avère entièrement technique.
+    const tokensIdentite = cle.split(" ");
+    const libellePropose =
+      construireLibelleMetier(triees, statistiquesTokens) ??
+      (tokensIdentite.every((t) => ressembleReferenceTechnique(t))
+        ? LIBELLE_NEUTRE_PAR_DEFAUT
+        : mettreEnFormeLisible(tokensIdentite));
 
     candidats.push({
       id: cle,

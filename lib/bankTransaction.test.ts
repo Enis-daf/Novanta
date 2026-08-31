@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { normaliserLibelleBancaire } from "./bankTransaction";
+import { normaliserLibelleBancaire, ressembleReferenceTechnique } from "./bankTransaction";
 
 describe("normaliserLibelleBancaire", () => {
   test("regroupe des variantes du même prélèvement avec référence technique variable", () => {
@@ -87,5 +87,72 @@ describe("normaliserLibelleBancaire", () => {
       "COTISATION OFFRE COMPTE COMPOSER PRO"
     );
     assert.equal(normaliserLibelleBancaire("SAS VISSERIE SERVICE facture facture 842"), "SAS VISSERIE SERVICE");
+  });
+
+  test("retire une référence multi-blocs (numéro de commande type 407-2682920-5134736)", () => {
+    assert.equal(
+      normaliserLibelleBancaire("AMAZON BUSINESS 407-2682920-5134736 EQUIPEMENT"),
+      "AMAZON BUSINESS EQUIPEMENT"
+    );
+  });
+
+  test("retire le marqueur de routage « XR: » et le code qui suit", () => {
+    assert.equal(
+      normaliserLibelleBancaire("AMAZON BUSINESS XR:DRDMLLAHUPGRSPYGNPOW+YYNSV0"),
+      "AMAZON BUSINESS"
+    );
+  });
+
+  test("retire un identifiant IBAN-like « LU39ZZZ... »", () => {
+    assert.equal(
+      normaliserLibelleBancaire("AMAZON BUSINESS LU39ZZZ0000000000000002054"),
+      "AMAZON BUSINESS"
+    );
+  });
+
+  test("retire une longue chaîne alphanumérique technique", () => {
+    assert.equal(normaliserLibelleBancaire("AMAZON BUSINESS 6SI0036K3D5UQ74P"), "AMAZON BUSINESS");
+  });
+
+  test("retire les qualificatifs génériques EU/Succursale une fois la marque déjà identifiée", () => {
+    assert.equal(normaliserLibelleBancaire("AMAZON BUSINESS EU SARL-SUCCURSA"), "AMAZON BUSINESS SARL");
+  });
+
+  test("cas réel complet : PRELEVEMENT AMAZON BUSINESS EU SARL-SUCCURSA ... → plus aucun résidu technique", () => {
+    // Le retrait de "SARL" en position tardive (le nom de marque étant déjà identifiable avant lui)
+    // est géré au niveau du libellé métier proposé (bankRecurringDetector.ts), pas ici : cette
+    // fonction ne garantit que l'absence de toute référence technique — vérifié ci-dessous.
+    const resultat = normaliserLibelleBancaire(
+      "PRELEVEMENT AMAZON BUSINESS EU SARL-SUCCURSA 407-2682920-5134736 AMZNBusiness 6SI0036K3D5UQ74P XR:DRDMLLAHUPGRSPYGNPOW+YYNSV0 LU39ZZZ0000000000000002054"
+    );
+    assert.equal(resultat, "AMAZON BUSINESS SARL AMZNBUSINESS");
+    // Aucun résidu technique : ni référence de commande, ni marqueur de routage, ni identifiant IBAN-like.
+    assert.equal(/\d/.test(resultat), false);
+  });
+
+  describe("ressembleReferenceTechnique", () => {
+    test("mélange lettres/chiffres assez long -> technique", () => {
+      assert.equal(ressembleReferenceTechnique("6SI0036K3D5UQ74P"), true);
+      assert.equal(ressembleReferenceTechnique("YYNSV0"), true);
+    });
+
+    test("nombre pur assez long -> technique", () => {
+      assert.equal(ressembleReferenceTechnique("0000000000000002054"), true);
+    });
+
+    test("lettres pures avec très peu de voyelles -> technique (code de routage)", () => {
+      assert.equal(ressembleReferenceTechnique("DRDMLLAHUPGRSPYGNPOW"), true);
+    });
+
+    test("mot réel, même long -> jamais technique", () => {
+      assert.equal(ressembleReferenceTechnique("INTERNATIONAL"), false);
+      assert.equal(ressembleReferenceTechnique("TELECOMMUNICATIONS"), false);
+      assert.equal(ressembleReferenceTechnique("AMZNBUSINESS"), false);
+    });
+
+    test("token court -> jamais technique", () => {
+      assert.equal(ressembleReferenceTechnique("PARIS"), false);
+      assert.equal(ressembleReferenceTechnique("SARL"), false);
+    });
   });
 });
