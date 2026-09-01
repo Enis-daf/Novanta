@@ -166,7 +166,7 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
     params.autresDepenses,
     (d) => d.datePrevue,
     -1,
-    (d) => d.facturee,
+    (d) => d.facturee || d.payee,
     debut,
     fin
   );

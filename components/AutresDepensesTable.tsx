@@ -50,12 +50,13 @@ export default function AutresDepensesTable({
             <th>Date prévue</th>
             <th>Type</th>
             <th>Facturée</th>
+            <th>Payée</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {depensesTriees.map((depense) => (
-            <tr key={depense.id} className={depense.facturee ? "row--litigieuse" : ""}>
+            <tr key={depense.id} className={depense.facturee || depense.payee ? "row--litigieuse" : ""}>
               <td>
                 <input
                   type="text"
@@ -95,6 +96,19 @@ export default function AutresDepensesTable({
                     checked={depense.facturee}
                     title="Exclut cette dépense des projections pour éviter un doublon avec la facture fournisseur correspondante."
                     onChange={(e) => onChange(depense.id, { facturee: e.target.checked })}
+                  />
+                </span>
+              </td>
+              <td className="col-checkbox">
+                <span
+                  className="checkbox-tooltip"
+                  title="Exclut cette dépense des projections car elle est déjà comptée dans le Solde bancaire initial."
+                >
+                  <input
+                    type="checkbox"
+                    checked={depense.payee}
+                    title="Exclut cette dépense des projections car elle est déjà comptée dans le Solde bancaire initial."
+                    onChange={(e) => onChange(depense.id, { payee: e.target.checked })}
                   />
                 </span>
               </td>

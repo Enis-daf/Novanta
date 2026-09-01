@@ -47,6 +47,7 @@ export interface AutreDepense {
   datePrevue: string; // YYYY-MM-DD
   type: "certaine" | "probable";
   facturee: boolean; // true = remplacée par une vraie facture fournisseur, exclue du calcul
+  payee: boolean; // true = déjà comptée dans le solde bancaire initial, exclue du calcul (raison distincte de facturee)
 }
 
 export interface Financement {

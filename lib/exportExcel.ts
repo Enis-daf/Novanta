@@ -312,6 +312,7 @@ function construireFeuilleAutresDepenses(classeur: ExcelJS.Workbook, params: Par
     { header: "Date", key: "date", width: 14, style: { numFmt: FMT_DATE } },
     { header: "Type", key: "type", width: 12 },
     { header: "Facturée", key: "facturee", width: 12 },
+    { header: "Payée", key: "payee", width: 12 },
   ]);
   for (const d of lignesAutresDepensesVisibles(params)) {
     feuille.addRow({
@@ -320,6 +321,7 @@ function construireFeuilleAutresDepenses(classeur: ExcelJS.Workbook, params: Par
       date: dateOuNull(d.datePrevue),
       type: LABELS_TYPE_DEPENSE[d.type],
       facturee: ouiNon(d.facturee),
+      payee: ouiNon(d.payee),
     });
   }
 }

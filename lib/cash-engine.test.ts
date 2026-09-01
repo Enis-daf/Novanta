@@ -2,7 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { calculerProjectionCash } from "./cash-engine";
 import { calculerSyntheseMensuelle } from "./syntheseMensuelle";
-import { ChargeFixe, RentreeReguliere } from "./types";
+import { AutreDepense, ChargeFixe, RentreeReguliere } from "./types";
 
 function chargeFixe(overrides: Partial<ChargeFixe> = {}): ChargeFixe {
   return {
@@ -31,6 +31,19 @@ function rentree(overrides: Partial<RentreeReguliere> = {}): RentreeReguliere {
     dateFin: null,
     modeMontant: "fixe",
     profilSaisonnalite: null,
+    ...overrides,
+  };
+}
+
+function autreDepense(overrides: Partial<AutreDepense> = {}): AutreDepense {
+  return {
+    id: "ad-1",
+    libelle: "Dépense",
+    montant: 0,
+    datePrevue: "2026-01-01",
+    type: "certaine",
+    facturee: false,
+    payee: false,
     ...overrides,
   };
 }
@@ -524,5 +537,63 @@ describe("Charge fixe \"À couper\" — simulation d'exclusion sans suppression 
     });
 
     assert.equal(resultat.soldeJ90, 10000 - 4200); // seul le loyer débite, l'assurance "à couper" est ignorée
+  });
+});
+
+describe("Autre dépense — exclusion par Facturée et/ou Payée (comportement identique, raisons distinctes)", () => {
+  test("A. ni Facturée ni Payée : la dépense est incluse dans la projection", () => {
+    const depense = autreDepense({ montant: 1000, datePrevue: "2026-01-10" });
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 10000,
+      chargesFixes: [],
+      rentreesRegulieres: [],
+      autresDepenses: [depense],
+      dateDepart: "2026-01-01",
+      horizonJours: 30,
+    });
+    assert.equal(resultat.soldeJ90, 10000 - 1000);
+  });
+
+  test("B. Facturée = true, Payée = false : exclue de la projection", () => {
+    const depense = autreDepense({ montant: 1000, datePrevue: "2026-01-10", facturee: true });
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 10000,
+      chargesFixes: [],
+      rentreesRegulieres: [],
+      autresDepenses: [depense],
+      dateDepart: "2026-01-01",
+      horizonJours: 30,
+    });
+    assert.equal(resultat.soldeJ90, 10000);
+  });
+
+  test("C. Facturée = false, Payée = true : exclue de la projection", () => {
+    const depense = autreDepense({ montant: 1000, datePrevue: "2026-01-10", payee: true });
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 10000,
+      chargesFixes: [],
+      rentreesRegulieres: [],
+      autresDepenses: [depense],
+      dateDepart: "2026-01-01",
+      horizonJours: 30,
+    });
+    assert.equal(resultat.soldeJ90, 10000);
+  });
+
+  test("D. Facturée = true ET Payée = true : exclue de la projection (le cas des deux cochées n'est jamais bloqué)", () => {
+    const depense = autreDepense({ montant: 1000, datePrevue: "2026-01-10", facturee: true, payee: true });
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 10000,
+      chargesFixes: [],
+      rentreesRegulieres: [],
+      autresDepenses: [depense],
+      dateDepart: "2026-01-01",
+      horizonJours: 30,
+    });
+    assert.equal(resultat.soldeJ90, 10000);
   });
 });

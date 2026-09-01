@@ -585,6 +585,7 @@ export default function Home() {
       datePrevue: "",
       type: "certaine",
       facturee: false,
+      payee: false,
     };
     setAutresDepenses((prev) => [...prev, depense]);
     if (companyId) persist(() => sauvegarderAutreDepense(companyId, depense));

@@ -131,7 +131,8 @@ function occurrencesFinancements(financements: Financement[], debut: Date, fin: 
 function occurrencesAutresDepenses(depenses: AutreDepense[], debut: Date, fin: Date): Occurrence[] {
   const res: Occurrence[] = [];
   for (const d of depenses) {
-    if (d.facturee) continue;
+    // Facturée et Payée sont deux raisons distinctes d'exclusion, comportement identique.
+    if (d.facturee || d.payee) continue;
     if (!estDateValide(d.datePrevue)) continue;
     const date = parseDateISO(d.datePrevue);
     if (!dansHorizon(date, debut, fin)) continue;

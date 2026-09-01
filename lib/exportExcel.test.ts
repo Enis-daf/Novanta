@@ -109,6 +109,7 @@ function autreDepense(overrides: Partial<AutreDepense> = {}): AutreDepense {
     datePrevue: "2026-01-01",
     type: "certaine",
     facturee: false,
+    payee: false,
     ...overrides,
   };
 }
@@ -241,12 +242,27 @@ describe("Lignes exclues du calcul — restent exportées si visibles", () => {
 
     const ad = classeur.getWorksheet("Autres dépenses")!;
     assert.equal(ad.getRow(2).getCell(5).value, "Oui"); // colonne 5 = Facturée
+    assert.equal(ad.getRow(2).getCell(6).value, "Non"); // colonne 6 = Payée
 
     const fi = classeur.getWorksheet("Financements")!;
     assert.equal(fi.getRow(2).getCell(4).value, "Oui"); // colonne 4 = Versé
 
     const cf = classeur.getWorksheet("Charges fixes")!;
     assert.equal(cf.getRow(2).getCell(6).value, "Oui"); // colonne 6 = À couper
+  });
+
+  test("Autre dépense Facturée ET Payée à la fois : les deux colonnes valent Oui, la ligne reste exportée", async () => {
+    const params = baseParams({
+      autresDepenses: [autreDepense({ facturee: true, payee: true })],
+    });
+    const classeur = await chargerClasseur(await genererExportExcel(params));
+    const ad = classeur.getWorksheet("Autres dépenses")!;
+    assert.equal(ad.getCell("A1").value, "Libellé");
+    assert.equal(ad.getCell("E1").value, "Facturée");
+    assert.equal(ad.getCell("F1").value, "Payée");
+    assert.equal(ad.rowCount, 2);
+    assert.equal(ad.getRow(2).getCell(5).value, "Oui");
+    assert.equal(ad.getRow(2).getCell(6).value, "Oui");
   });
 });
 
