@@ -1390,3 +1390,38 @@ input[type="checkbox"] {
   gap: 10px;
   margin-top: 6px;
 }
+
+.pennylane-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+  width: fit-content;
+}
+
+.pennylane-aide {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  margin: 0;
+}
+
+.pennylane-champ {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pennylane-champ label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+}
+
+.pennylane-champ input {
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 14px;
+}
