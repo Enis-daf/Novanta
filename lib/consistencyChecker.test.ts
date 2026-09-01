@@ -247,6 +247,61 @@ describe("controlerCoherence — autres dépenses", () => {
     assert.equal(issues[0].severity, "informational");
     assert.equal(issues[0].actionPossible, null);
   });
+
+  test("dépense non payée avec mouvement bancaire débit correspondant (tiers + date) : proposer Payée", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        autresDepenses: [autreDepense({ libelle: "MatPro", montant: 300, datePrevue: "2026-08-19", payee: false })],
+        transactions: [tx("2026-08-19", "VIR MATPRO", -300)],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "other_expense_maybe_paid");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].entityType, "autre_depense");
+    assert.equal(issues[0].actionPossible?.label, "Marquer comme Payée");
+  });
+
+  test("dépense déjà Payée : aucune nouvelle proposition, même avec un mouvement correspondant", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        autresDepenses: [autreDepense({ libelle: "MatPro", montant: 300, datePrevue: "2026-08-19", payee: true })],
+        transactions: [tx("2026-08-19", "VIR MATPRO", -300)],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "other_expense_maybe_paid").length, 0);
+  });
+
+  test("un mouvement bancaire ne propose jamais Facturée, et une facture fournisseur ne propose jamais Payée : les deux mécanismes restent séparés", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        autresDepenses: [autreDepense({ libelle: "Kubii", montant: 300, datePrevue: "2026-08-19", facturee: false, payee: false })],
+        facturesFournisseurs: [factureFournisseur({ fournisseur: "Kubii", montant: 300 })],
+        transactions: [tx("2026-08-19", "VIR KUBII", -300)],
+      })
+    );
+    const invoiced = issuesDeType(resultat.issues, "other_expense_maybe_invoiced");
+    const paid = issuesDeType(resultat.issues, "other_expense_maybe_paid");
+    assert.equal(invoiced.length, 1);
+    assert.equal(invoiced[0].actionPossible?.label, "Marquer comme Facturée");
+    assert.equal(paid.length, 1);
+    assert.equal(paid[0].actionPossible?.label, "Marquer comme Payée");
+  });
+
+  test("bénéficie automatiquement du paiement fractionné agrégé (même moteur que les factures)", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        autresDepenses: [autreDepense({ libelle: "Grosse Réparation", montant: 9000, datePrevue: "2026-08-19", payee: false })],
+        transactions: [
+          tx("2026-08-19", "VIR GROSSE REPARATION ACOMPTE", -6000),
+          tx("2026-08-20", "VIR GROSSE REPARATION SOLDE", -3000),
+        ],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "other_expense_maybe_paid");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].severity, "strong");
+    assert.equal(issues[0].transactions.length, 2);
+  });
 });
 
 describe("controlerCoherence — financements", () => {
