@@ -33,6 +33,21 @@ function cle(): Buffer {
   return tampon;
 }
 
+/**
+ * Vérification NON destructive (ne lève jamais) de la présence et du format de la clé de
+ * chiffrement — à appeler avant tout appel Pennylane, pour échouer proprement (config serveur
+ * manquante) plutôt que de laisser un chiffrement échouer après un appel API déjà effectué.
+ */
+export function cleChiffrementConfiguree(): boolean {
+  const brute = process.env.PENNYLANE_TOKEN_ENCRYPTION_KEY;
+  if (!brute) return false;
+  try {
+    return Buffer.from(brute, "base64").length === 32;
+  } catch {
+    return false;
+  }
+}
+
 export function chiffrerTokenPennylane(clair: string): string {
   const iv = randomBytes(LONGUEUR_IV);
   const cipher = createCipheriv(ALGORITHME, cle(), iv);

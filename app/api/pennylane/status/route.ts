@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabaseServer";
 import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseAdmin";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
-import { obtenirStatutPennylane } from "@/lib/pennylaneRepository";
+import { obtenirStatutPennylane, resumeErreurSupabaseSansSecret } from "@/lib/pennylaneRepository";
 
 // État visible du navigateur uniquement : connected, dernière utilisation, code d'erreur éventuel.
 // Ne renvoie jamais le token, même chiffré. La company est toujours dérivée de l'utilisateur
@@ -20,10 +20,14 @@ export async function GET(req: NextRequest) {
 
   try {
     const company = await getOrCreateCompanyForBilling(supabase, user);
+    if (!company?.id) {
+      console.error(`[pennylane/status] company_id introuvable pour l'utilisateur ${user.id}`);
+      return NextResponse.json({ error: "Impossible de déterminer votre société. Reconnectez-vous." }, { status: 500 });
+    }
     const statut = await obtenirStatutPennylane(supabaseAdmin, company.id);
     return NextResponse.json(statut);
   } catch (error) {
-    console.error("[pennylane/status] échec", error);
+    console.error(`[pennylane/status] échec ${resumeErreurSupabaseSansSecret(error)}`);
     return NextResponse.json({ error: "Impossible de récupérer l'état de la connexion Pennylane." }, { status: 500 });
   }
 }

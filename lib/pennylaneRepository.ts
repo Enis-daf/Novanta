@@ -20,6 +20,23 @@ export interface PennylaneConnectionStatus {
 
 type Row = Record<string, unknown>;
 
+/**
+ * Résume une erreur Supabase/Postgres en un message sûr pour les logs serveur : ne contient
+ * jamais le token (ni en clair ni chiffré), ni aucune valeur de ligne — uniquement code/message/
+ * détail structurels renvoyés par Postgres (nom de table/colonne/contrainte). Distingue en
+ * particulier le cas "la migration pennylane_connections n'a pas été appliquée" (relation
+ * inexistante, code Postgres 42P01), très facile à confondre avec une autre erreur DB sans ce
+ * classement explicite.
+ */
+export function resumeErreurSupabaseSansSecret(error: unknown): string {
+  const err = error as { code?: string; message?: string } | null;
+  const code = err?.code ?? "inconnu";
+  if (code === "42P01" || (err?.message ?? "").toLowerCase().includes("does not exist")) {
+    return `code=${code} table pennylane_connections introuvable — la migration 20260901_pennylane_connections.sql a-t-elle été appliquée sur cette base ?`;
+  }
+  return `code=${code} message=${err?.message ?? "inconnu"}`;
+}
+
 /** État visible du navigateur : jamais le token, jamais token_ciphertext dans le select. */
 const COLONNES_STATUT = "status, last_tested_at, last_error_code";
 
