@@ -170,6 +170,7 @@ function autreDepenseToRow(companyId: string, d: AutreDepense): Row {
     date_prevue: dateOuNull(d.datePrevue),
     type: d.type,
     facturee: d.facturee,
+    payee: d.payee,
   };
 }
 
@@ -181,6 +182,8 @@ function rowToAutreDepense(row: Row): AutreDepense {
     datePrevue: (row.date_prevue as string | null) ?? "",
     type: row.type as AutreDepense["type"],
     facturee: Boolean(row.facturee),
+    // Colonne absente sur une ligne créée avant la migration "Payée" : reste incluse (false).
+    payee: Boolean(row.payee),
   };
 }
 

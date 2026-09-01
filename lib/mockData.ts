@@ -263,6 +263,7 @@ export const mockAutresDepenses: AutreDepense[] = [
     datePrevue: addDays(today, 10),
     type: "certaine",
     facturee: false,
+    payee: false,
   },
   {
     id: "ad-2",
@@ -271,6 +272,7 @@ export const mockAutresDepenses: AutreDepense[] = [
     datePrevue: addDays(today, 50),
     type: "probable",
     facturee: false,
+    payee: false,
   },
 ];
 

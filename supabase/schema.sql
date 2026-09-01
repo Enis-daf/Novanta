@@ -158,6 +158,10 @@ alter table other_expenses alter column date_prevue drop not null;
 -- Migration additive : "Facturée" (remplacée par une vraie facture fournisseur, exclue du calcul).
 alter table other_expenses add column if not exists facturee boolean not null default false;
 
+-- Migration additive : "Payée" (déjà comptée dans le solde bancaire initial, exclue du calcul).
+-- Raison distincte de "facturee" mais même comportement d'exclusion des projections.
+alter table other_expenses add column if not exists payee boolean not null default false;
+
 create table if not exists financings (
   id uuid primary key default gen_random_uuid(),
   company_id uuid not null references companies(id) on delete cascade,

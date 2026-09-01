@@ -93,7 +93,8 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
   }
 
   for (const depense of autresDepenses) {
-    if (depense.facturee) continue;
+    // Facturée et Payée sont deux raisons distinctes d'exclusion, comportement identique.
+    if (depense.facturee || depense.payee) continue;
     enregistrerFlux(depense.datePrevue, -depense.montant);
   }
 
