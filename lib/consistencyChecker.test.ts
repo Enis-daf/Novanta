@@ -55,6 +55,7 @@ function autreDepense(overrides: Partial<AutreDepense> = {}): AutreDepense {
     datePrevue: "2026-08-19",
     type: "certaine",
     facturee: false,
+    payee: false,
     ...overrides,
   };
 }
