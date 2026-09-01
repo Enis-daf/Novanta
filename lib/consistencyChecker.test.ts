@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   controlerCoherence,
   filtrerTransactionsRecentes,
+  trierIssuesParImpact,
   ConsistencyIssue,
   ParametresControleCoherence,
 } from "./consistencyChecker";
@@ -342,5 +343,305 @@ describe("controlerCoherence — métadonnées de résultat", () => {
     const resultat = controlerCoherence(parametresVides({ transactions: [tx("2026-01-01", "ANCIEN", -10)] }));
     assert.equal(resultat.transactionsAnalysees, 0);
     assert.equal(resultat.periodeAnalysee, null);
+  });
+});
+
+describe("CAS A — paiement fractionné en plusieurs transactions", () => {
+  test("facture Payée, réglée en 2 virements (66 000 + 7 000) au même tiers/référence : aucune anomalie", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        facturesFournisseurs: [
+          factureFournisseur({
+            id: "ff-frac",
+            fournisseur: "MegaCorp Industries",
+            facture: "FA2607-0090",
+            montant: 73000,
+            payee: true,
+            paidAt: "2026-08-15T10:00:00.000Z",
+          }),
+        ],
+        transactions: [
+          tx("2026-08-15", "VIR MEGACORP INDUSTRIES FA2607-0090 ACOMPTE", -66000),
+          tx("2026-08-16", "VIR MEGACORP INDUSTRIES FA2607-0090 SOLDE", -7000),
+        ],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "invoice_paid_but_unmatched").length, 0);
+  });
+
+  test("même cas mais la facture n'est pas encore marquée Payée : propose Payée avec les 2 mouvements agrégés", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        facturesFournisseurs: [
+          factureFournisseur({ id: "ff-frac2", fournisseur: "MegaCorp Industries", facture: "FA2607-0090", montant: 73000, payee: false }),
+        ],
+        transactions: [
+          tx("2026-08-15", "VIR MEGACORP INDUSTRIES FA2607-0090 ACOMPTE", -66000),
+          tx("2026-08-16", "VIR MEGACORP INDUSTRIES FA2607-0090 SOLDE", -7000),
+        ],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "invoice_maybe_paid");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].severity, "strong");
+    assert.equal(issues[0].transactions.length, 2);
+  });
+
+  test("2 montants qui s'additionnent au bon total mais SANS aucun lien de tiers/référence : jamais rapproché", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        facturesFournisseurs: [
+          factureFournisseur({ id: "ff-coincidence", fournisseur: "Boulangerie du Coin", facture: "FA-9999", montant: 73000, payee: false }),
+        ],
+        transactions: [tx("2026-08-15", "VIR SEPA XR ZZZ01", -66000), tx("2026-08-16", "PRLV SFR MOBILE", -7000)],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "invoice_maybe_paid").length, 0);
+  });
+
+  test("3 virements dont la somme correspond, même tiers : reconnu (triplet)", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        facturesFournisseurs: [
+          factureFournisseur({ id: "ff-triplet", fournisseur: "MegaCorp Industries", facture: "FA2607-0090", montant: 73000, payee: false }),
+        ],
+        transactions: [
+          tx("2026-08-14", "VIR MEGACORP INDUSTRIES FA2607-0090", -30000),
+          tx("2026-08-15", "VIR MEGACORP INDUSTRIES FA2607-0090", -36000),
+          tx("2026-08-16", "VIR MEGACORP INDUSTRIES FA2607-0090", -7000),
+        ],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "invoice_maybe_paid");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].transactions.length, 3);
+  });
+});
+
+describe("CAS B — fenêtre J-30 : absence de match hors fenêtre = aucune conclusion", () => {
+  test("aujourd'hui 01/09/2026, facture payée le 07/07/2026, aucune transaction analysée en juillet : aucune anomalie", () => {
+    const resultat = controlerCoherence({
+      transactions: [],
+      facturesClients: [],
+      facturesFournisseurs: [
+        factureFournisseur({
+          dateEcheance: "2026-07-07",
+          datePaiementPrevue: "2026-07-07",
+          payee: true,
+          paidAt: "2026-07-07T10:00:00.000Z",
+        }),
+      ],
+      autresDepenses: [],
+      financements: [],
+      dateReference: "2026-09-01",
+    });
+    assert.equal(issuesDeType(resultat.issues, "invoice_paid_but_unmatched").length, 0);
+  });
+
+  test("échéance réelle hors fenêtre (07/07) MAIS la case a été cochée aujourd'hui (paidAt récent) : toujours aucune anomalie — paidAt seul ne suffit pas à prouver que la fenêtre couvre le paiement", () => {
+    const resultat = controlerCoherence({
+      transactions: [],
+      facturesClients: [],
+      facturesFournisseurs: [
+        factureFournisseur({
+          dateEcheance: "2026-07-07",
+          datePaiementPrevue: "2026-07-07",
+          payee: true,
+          paidAt: "2026-09-01T09:00:00.000Z", // coché aujourd'hui, mais la facture était déjà réglée en juillet
+        }),
+      ],
+      autresDepenses: [],
+      financements: [],
+      dateReference: "2026-09-01",
+    });
+    assert.equal(issuesDeType(resultat.issues, "invoice_paid_but_unmatched").length, 0);
+  });
+
+  test("toutes les dates pertinentes tombent dans la fenêtre, aucun mouvement trouvé : l'anomalie reste générée (ne pas sur-corriger)", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        facturesFournisseurs: [
+          factureFournisseur({
+            dateEcheance: "2026-08-19",
+            datePaiementPrevue: "2026-08-19",
+            payee: true,
+            paidAt: "2026-08-19T10:00:00.000Z",
+          }),
+        ],
+        transactions: [],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "invoice_paid_but_unmatched");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].severity, "informational");
+  });
+});
+
+describe("CAS C — rapprochement de référence partielle (suffixe) + tiers", () => {
+  test("TILLIERES / FA2607-0070 : la banque ne garde que le suffixe '0070' et répète le tiers — reconnu, aucune anomalie", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        facturesFournisseurs: [
+          factureFournisseur({
+            fournisseur: "TILLIERES O&M Sem2",
+            facture: "FA2607-0070",
+            montant: 4500,
+            dateEcheance: "2026-08-19",
+            datePaiementPrevue: "2026-08-19",
+            payee: true,
+            paidAt: "2026-08-19T10:00:00.000Z",
+          }),
+        ],
+        transactions: [
+          tx(
+            "2026-08-19",
+            "VIREMENT EN VOTRE FAVEUR FERME EOLIENNE TILLIERES TILLIER TILLIERES QANNT 0070 060726 TILLIERES QANNT 0070 060726",
+            -4500
+          ),
+        ],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "invoice_paid_but_unmatched").length, 0);
+  });
+
+  test("le suffixe seul, SANS aucun token de tiers compatible, ne suffit jamais à rapprocher", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        facturesFournisseurs: [
+          factureFournisseur({ fournisseur: "TILLIERES O&M Sem2", facture: "FA2607-0070", montant: 4500, payee: false }),
+        ],
+        // "0070" apparaît par pure coïncidence dans un libellé totalement sans rapport
+        transactions: [tx("2026-08-19", "PRLV EDF ENERGIE REF 0070 CONTRAT", -4500)],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "invoice_maybe_paid").length, 0);
+  });
+
+  test("deux fournisseurs différents portant chacun le même suffixe de référence, une seule transaction : seule la bonne facture est proposée", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        facturesFournisseurs: [
+          factureFournisseur({ id: "ff-x", fournisseur: "TILLIERES O&M Sem2", facture: "FA2607-0070", montant: 4500, payee: false }),
+          factureFournisseur({ id: "ff-y", fournisseur: "Noxbat", facture: "FA9999-0070", montant: 4500, payee: false }),
+        ],
+        transactions: [tx("2026-08-19", "VIR TILLIERES QANNT 0070", -4500)],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "invoice_maybe_paid");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].entityId, "ff-x");
+  });
+});
+
+describe("CAS D — financements : terminologie de déblocage de prêt", () => {
+  test("prêt FOSTER Crédit Agricole / 'REALISATION DE PRET ... DEBLOCAGE' : reconnu sans exiger 'CREDIT AGRICOLE' dans le libellé bancaire", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [
+          financement({ libelle: "prêt FOSTER CREDIT AGRICOLE Languedoc", montant: 100000, dateEncaissementPrevue: "2026-08-19", verse: false }),
+        ],
+        transactions: [tx("2026-08-19", "REALISATION DE PRET 00007331996 DEBLOCAGE 03/08/26", 100000)],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "financing_maybe_received");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].severity, "strong");
+    assert.equal(issues[0].actionPossible?.label, "Marquer comme Versé");
+  });
+
+  test("terminologie de prêt présente mais montant incompatible : pas de match", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [financement({ libelle: "Prêt X", montant: 100000, dateEncaissementPrevue: "2026-08-19", verse: false })],
+        transactions: [tx("2026-08-19", "REALISATION DE PRET DEBLOCAGE", 5000)],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "financing_maybe_received").length, 0);
+  });
+
+  test("un crédit du bon montant SANS terminologie de prêt et sans tiers compatible : pas de match (le montant seul ne suffit jamais)", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [financement({ libelle: "prêt FOSTER CREDIT AGRICOLE Languedoc", montant: 100000, dateEncaissementPrevue: "2026-08-19", verse: false })],
+        transactions: [tx("2026-08-19", "VIR CLIENT DIVERS FACTURE", 100000)],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "financing_maybe_received").length, 0);
+  });
+});
+
+describe("CAS E — faux match sur montant seul (régression)", () => {
+  test("deux factures au même montant, une seule transaction sans tiers/référence identifiable pour aucune des deux : ne rapproche ni l'une ni l'autre", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        facturesFournisseurs: [
+          factureFournisseur({ id: "ff-e1", fournisseur: "Société Un", facture: "FA-E1", montant: 3000, payee: false }),
+          factureFournisseur({ id: "ff-e2", fournisseur: "Société Deux", facture: "FA-E2", montant: 3000, payee: false }),
+        ],
+        transactions: [tx("2026-08-19", "VIR SEPA REF INCONNUE", -3000)],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "invoice_maybe_paid").length, 0);
+  });
+});
+
+describe("trierIssuesParImpact — tri purement visuel par impact cash décroissant", () => {
+  function issue(montant: number, date: string | null, libelle: string): ConsistencyIssue {
+    return {
+      id: `${libelle}-${montant}`,
+      type: "invoice_maybe_paid",
+      severity: "strong",
+      entityType: "facture_fournisseur",
+      entityId: "x",
+      transactions: [],
+      message: "m",
+      raison: "r",
+      actionPossible: null,
+      donneesAffichage: { libelle, montant, date },
+    };
+  }
+
+  test("trie par montant absolu décroissant, quel que soit le signe", () => {
+    const issues = [issue(-500, "2026-08-01", "A"), issue(2000, "2026-08-01", "B"), issue(-1000, "2026-08-01", "C")];
+    const tries = trierIssuesParImpact(issues);
+    assert.deepEqual(tries.map((i) => i.donneesAffichage.libelle), ["B", "C", "A"]);
+  });
+
+  test("à montant égal : date la plus récente d'abord", () => {
+    const issues = [issue(1000, "2026-08-01", "Ancienne"), issue(1000, "2026-08-20", "Récente")];
+    const tries = trierIssuesParImpact(issues);
+    assert.deepEqual(tries.map((i) => i.donneesAffichage.libelle), ["Récente", "Ancienne"]);
+  });
+
+  test("à montant et date égaux : libellé alphabétique", () => {
+    const issues = [issue(1000, "2026-08-01", "Zèbre"), issue(1000, "2026-08-01", "Alpha")];
+    const tries = trierIssuesParImpact(issues);
+    assert.deepEqual(tries.map((i) => i.donneesAffichage.libelle), ["Alpha", "Zèbre"]);
+  });
+
+  test("ne mute pas le tableau d'origine", () => {
+    const issues = [issue(500, "2026-08-01", "A"), issue(2000, "2026-08-01", "B")];
+    const original = [...issues];
+    trierIssuesParImpact(issues);
+    assert.deepEqual(issues, original);
+  });
+
+  test("purement visuel : controlerCoherence lui-même n'est pas trié en interne (ordre par type de contrôle)", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        facturesFournisseurs: [factureFournisseur({ montant: 500, facture: "FA2607-0077" })],
+        transactions: [
+          tx("2026-08-19", "VIR NOXBAT FA2607-0077", -500),
+          tx("2026-08-19", "VIR BPIFRANCE PRET", 20000),
+        ],
+        financements: [financement({ libelle: "Prêt Bpifrance", montant: 20000, verse: false })],
+      })
+    );
+    // le résultat brut n'est pas garanti trié par montant (la facture à 500 sort avant le financement
+    // à 20000 car controlerFacturesFournisseurs est appelé avant controlerFinancements)
+    assert.equal(resultat.issues[0].donneesAffichage.montant, 500);
+    // trierIssuesParImpact, lui, remet bien le plus gros montant en premier
+    const tries = trierIssuesParImpact(resultat.issues);
+    assert.equal(tries[0].donneesAffichage.montant, 20000);
   });
 });

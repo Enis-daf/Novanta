@@ -100,6 +100,45 @@ function referenceTrouveeDansLibelle(labelOriginal: string, reference: string): 
 }
 
 /**
+ * Extrait le suffixe numérique discriminant d'une référence de facture ("FA2607-0070" -> "0070") :
+ * le dernier bloc de la référence, si c'est un bloc purement numérique d'au moins
+ * LONGUEUR_MIN_REFERENCE chiffres. Les banques retirent souvent le préfixe ("FA"), les tirets, et
+ * ne conservent que la fin du numéro — ce suffixe reste le signal le plus discriminant disponible.
+ * null si la référence n'a pas de suffixe numérique exploitable (évite les faux positifs sur des
+ * références trop courtes ou non numériques).
+ */
+function extraireSuffixeReference(reference: string): string | null {
+  const tokens = normaliserTexteRapprochement(reference).split(" ").filter(Boolean);
+  const dernier = tokens[tokens.length - 1];
+  if (dernier && /^\d+$/.test(dernier) && dernier.length >= LONGUEUR_MIN_REFERENCE) return dernier;
+  return null;
+}
+
+/** Le suffixe est retrouvé comme TOKEN ENTIER du libellé bancaire (pas une simple sous-chaîne : évite
+ * qu'un suffixe de 4 chiffres matche par coïncidence à l'intérieur d'un plus grand nombre non lié,
+ * comme une date bancaire "060726"). */
+function suffixeTrouveDansLibelle(labelOriginal: string, suffixe: string): boolean {
+  return new Set(normaliserTexteRapprochement(labelOriginal).split(" ")).has(suffixe);
+}
+
+const LONGUEUR_MIN_TOKEN_TIERS_LEGER = 3;
+
+/**
+ * Version faible de la comparaison de tiers : au moins UN token significatif (longueur ≥ 3) du
+ * tiers Novanta se retrouve dans le libellé bancaire. Volontairement plus permissif que
+ * libellesSuffisammentSimilaires — jamais utilisé seul comme preuve de rapprochement, uniquement
+ * combiné à un autre signal fort (suffixe de référence, ou agrégation de montants).
+ */
+function auMoinsUnTokenTiersTrouve(tiers: string, labelOriginal: string): boolean {
+  const tokensTiers = normaliserTexteRapprochement(tiers)
+    .split(" ")
+    .filter((t) => t.length >= LONGUEUR_MIN_TOKEN_TIERS_LEGER);
+  if (tokensTiers.length === 0) return false;
+  const tokensBanque = new Set(normaliserTexteRapprochement(labelOriginal).split(" "));
+  return tokensTiers.some((t) => tokensBanque.has(t));
+}
+
+/**
  * Un tiers (ou un libellé Novanta) est jugé "suffisamment similaire" à un texte bancaire si
  * STRICTEMENT PLUS de la moitié de ses tokens significatifs (longueur ≥ 2) s'y retrouvent tels
  * quels — tolère un tiers enregistré différemment ("Noxbat" vs "VIR NOXBAT FA2607-0077") sans
@@ -127,17 +166,89 @@ function dateCoherente(dateTransaction: string, dateAttendue: string | null): bo
   return ecart <= TOLERANCE_JOURS_DATE;
 }
 
-type NiveauCorrespondance = "tres_fort" | "fort" | "possible";
+// EXACT/TRÈS FORT : référence complète retrouvée. FORT : tiers fortement compatible (majorité
+// stricte des tokens), ou référence partielle (suffixe discriminant) + tiers léger. AGRÉGÉ FORT :
+// somme de 2 ou 3 transactions compatible + signal fort de tiers/référence sur chacune. MÉTIER
+// FORT : règle spécifique à un type d'objet (ex. terminologie de déblocage de prêt pour un
+// financement — voir meilleureCorrespondanceFinancement). POSSIBLE : tiers seul, date incohérente.
+type NiveauCorrespondance = "tres_fort" | "fort" | "agrege_fort" | "metier_fort" | "possible";
+
+const ORDRE_NIVEAU: Record<NiveauCorrespondance, number> = {
+  tres_fort: 5,
+  fort: 4,
+  metier_fort: 4,
+  agrege_fort: 3,
+  possible: 1,
+};
 
 interface Correspondance {
-  transaction: NormalizedBankTransaction;
+  transactions: NormalizedBankTransaction[]; // presque toujours 1 ; plusieurs pour un paiement fractionné (agrege_fort)
   niveau: NiveauCorrespondance;
   raison: string;
+}
+
+function meilleureDe(a: Correspondance | null, b: Correspondance | null): Correspondance | null {
+  if (!a) return b;
+  if (!b) return a;
+  return ORDRE_NIVEAU[b.niveau] > ORDRE_NIVEAU[a.niveau] ? b : a;
+}
+
+// Recherche combinatoire volontairement bornée : ne s'applique qu'à un petit nombre de transactions
+// ayant déjà un signal de tiers/référence avec la facture (jamais sur l'ensemble des transactions de
+// la fenêtre), pour rester à la fois rapide et fiable — une somme de montants seule ne prouve rien.
+const MAX_CANDIDATS_POUR_AGREGATION = 8;
+
+/** Transactions qui partagent déjà un signal (référence complète, suffixe, ou tiers) avec la cible. */
+function candidatsAvecSignal(
+  transactionsCandidates: NormalizedBankTransaction[],
+  tiers: string,
+  reference: string | null
+): NormalizedBankTransaction[] {
+  const suffixe = reference ? extraireSuffixeReference(reference) : null;
+  return transactionsCandidates.filter((t) => {
+    if (reference && referenceTrouveeDansLibelle(t.labelOriginal, reference)) return true;
+    if (suffixe && suffixeTrouveDansLibelle(t.labelOriginal, suffixe)) return true;
+    if (libellesSuffisammentSimilaires(tiers, t.labelOriginal)) return true;
+    if (auMoinsUnTokenTiersTrouve(tiers, t.labelOriginal)) return true;
+    return false;
+  });
+}
+
+/**
+ * Cherche si la somme de 2 (puis 3) transactions parmi les candidats correspond au montant attendu —
+ * pour les factures payées en plusieurs virements (ex. 73 000 € réglés en 66 000 € + 7 000 €). Ne
+ * reçoit que des candidats déjà filtrés par candidatsAvecSignal : une somme de montants seule,
+ * sans lien de tiers/référence, n'est jamais considérée comme une correspondance.
+ */
+function trouverCorrespondanceAgregee(
+  candidats: NormalizedBankTransaction[],
+  montantAttendu: number
+): NormalizedBankTransaction[] | null {
+  const n = candidats.length;
+  if (n < 2 || n > MAX_CANDIDATS_POUR_AGREGATION) return null;
+
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (montantsCompatibles(candidats[i].signedAmount + candidats[j].signedAmount, montantAttendu)) {
+        return [candidats[i], candidats[j]];
+      }
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      for (let k = j + 1; k < n; k++) {
+        const somme = candidats[i].signedAmount + candidats[j].signedAmount + candidats[k].signedAmount;
+        if (montantsCompatibles(somme, montantAttendu)) return [candidats[i], candidats[j], candidats[k]];
+      }
+    }
+  }
+  return null;
 }
 
 /**
  * Cherche, parmi les transactions fournies, la MEILLEURE correspondance pour un montant/tiers/
  * référence/date attendus — jamais uniquement sur le montant (voir hiérarchie dans le module).
+ * Gère aussi bien une transaction unique qu'un paiement fractionné en 2 ou 3 transactions.
  */
 function meilleureCorrespondance(
   transactionsCandidates: NormalizedBankTransaction[],
@@ -146,8 +257,8 @@ function meilleureCorrespondance(
   reference: string | null,
   dateAttendue: string | null
 ): Correspondance | null {
-  const ordre: Record<NiveauCorrespondance, number> = { tres_fort: 3, fort: 2, possible: 1 };
   let meilleure: Correspondance | null = null;
+  const suffixe = reference ? extraireSuffixeReference(reference) : null;
 
   for (const transaction of transactionsCandidates) {
     if (!montantsCompatibles(transaction.signedAmount, montantAttendu)) continue;
@@ -155,17 +266,80 @@ function meilleureCorrespondance(
     const refOk = !!reference && referenceTrouveeDansLibelle(transaction.labelOriginal, reference);
     let candidate: Correspondance;
     if (refOk) {
-      candidate = { transaction, niveau: "tres_fort", raison: "Numéro de facture retrouvé dans le libellé bancaire." };
+      candidate = {
+        transactions: [transaction],
+        niveau: "tres_fort",
+        raison: "Numéro de facture retrouvé dans le libellé bancaire.",
+      };
+    } else if (suffixe && suffixeTrouveDansLibelle(transaction.labelOriginal, suffixe) && auMoinsUnTokenTiersTrouve(tiers, transaction.labelOriginal)) {
+      // Référence partielle (suffixe discriminant, ex. "0070") + tiers compatible : le suffixe seul
+      // ne suffit jamais, il doit toujours être combiné à un signal de tiers.
+      candidate = {
+        transactions: [transaction],
+        niveau: "fort",
+        raison: "Référence partielle et tiers compatibles retrouvés dans le libellé bancaire.",
+      };
     } else {
       const tiersOk = libellesSuffisammentSimilaires(tiers, transaction.labelOriginal);
       if (!tiersOk) continue;
       const dateOk = dateCoherente(transaction.date, dateAttendue);
       candidate = dateOk
-        ? { transaction, niveau: "fort", raison: "Tiers similaire et date cohérente avec le mouvement bancaire." }
-        : { transaction, niveau: "possible", raison: "Tiers similaire retrouvé dans le libellé bancaire." };
+        ? { transactions: [transaction], niveau: "fort", raison: "Tiers similaire et date cohérente avec le mouvement bancaire." }
+        : { transactions: [transaction], niveau: "possible", raison: "Tiers similaire retrouvé dans le libellé bancaire." };
     }
 
-    if (!meilleure || ordre[candidate.niveau] > ordre[meilleure.niveau]) meilleure = candidate;
+    meilleure = meilleureDe(meilleure, candidate);
+  }
+
+  // Paiement fractionné : seulement si aucune transaction unique ne donne déjà un match solide
+  // (tres_fort/fort) — inutile et coûteux de chercher une somme quand une seule transaction suffit.
+  if (!meilleure || meilleure.niveau === "possible") {
+    const signales = candidatsAvecSignal(transactionsCandidates, tiers, reference);
+    const combinaison = trouverCorrespondanceAgregee(signales, montantAttendu);
+    if (combinaison) {
+      meilleure = meilleureDe(meilleure, {
+        transactions: combinaison,
+        niveau: "agrege_fort",
+        raison: `Somme de ${combinaison.length} mouvements bancaires correspondant au montant, avec tiers/référence cohérents.`,
+      });
+    }
+  }
+
+  return meilleure;
+}
+
+const TERMES_FINANCEMENT = ["PRET", "EMPRUNT", "DEBLOCAGE"]; // comparés après normalisation (accents/casse déjà retirés)
+
+/** Le libellé bancaire contient un terme explicite et déterministe de déblocage de prêt/financement. */
+function libelleBancaireEvoqueUnFinancement(labelOriginal: string): boolean {
+  const tokens = new Set(normaliserTexteRapprochement(labelOriginal).split(" "));
+  return TERMES_FINANCEMENT.some((terme) => tokens.has(terme));
+}
+
+/**
+ * Règle métier dédiée aux financements (MÉTIER FORT) : le libellé Novanta décrit souvent la banque,
+ * le projet ou un nom interne — pas le libellé bancaire du déblocage — donc la similarité de tiers
+ * n'est pas fiable ici. Un crédit + montant + date cohérents + terminologie explicite de prêt/
+ * déblocage suffit, sans exiger que le libellé Novanta apparaisse dans le libellé bancaire.
+ */
+function meilleureCorrespondanceFinancement(
+  transactionsCandidates: NormalizedBankTransaction[],
+  montantAttendu: number,
+  libelle: string,
+  dateAttendue: string | null
+): Correspondance | null {
+  let meilleure = meilleureCorrespondance(transactionsCandidates, montantAttendu, libelle, null, dateAttendue);
+
+  for (const transaction of transactionsCandidates) {
+    if (!montantsCompatibles(transaction.signedAmount, montantAttendu)) continue;
+    if (!dateCoherente(transaction.date, dateAttendue)) continue;
+    if (!libelleBancaireEvoqueUnFinancement(transaction.labelOriginal)) continue;
+
+    meilleure = meilleureDe(meilleure, {
+      transactions: [transaction],
+      niveau: "metier_fort",
+      raison: "Libellé bancaire typique d'un déblocage de prêt/financement, montant et date cohérents.",
+    });
   }
 
   return meilleure;
@@ -178,6 +352,8 @@ function versConsistencyIssueTransaction(t: NormalizedBankTransaction): Consiste
 const SEVERITE_PAR_NIVEAU: Record<NiveauCorrespondance, ConsistencySeverity> = {
   tres_fort: "strong",
   fort: "strong",
+  agrege_fort: "strong",
+  metier_fort: "strong",
   possible: "possible",
 };
 
@@ -209,7 +385,7 @@ function controlerFacturesFournisseurs(
       severity: SEVERITE_PAR_NIVEAU[correspondance.niveau],
       entityType: "facture_fournisseur",
       entityId: facture.id,
-      transactions: [versConsistencyIssueTransaction(correspondance.transaction)],
+      transactions: correspondance.transactions.map(versConsistencyIssueTransaction),
       message: `Facture potentiellement déjà payée : ${facture.fournisseur} — ${facture.facture || "sans référence"}.`,
       raison: correspondance.raison,
       actionPossible: { label: "Marquer comme Payée" },
@@ -244,7 +420,7 @@ function controlerFacturesClients(
       severity: SEVERITE_PAR_NIVEAU[correspondance.niveau],
       entityType: "facture_client",
       entityId: facture.id,
-      transactions: [versConsistencyIssueTransaction(correspondance.transaction)],
+      transactions: correspondance.transactions.map(versConsistencyIssueTransaction),
       message: `Facture potentiellement déjà encaissée : ${facture.client} — ${facture.facture || "sans référence"}.`,
       raison: correspondance.raison,
       actionPossible: { label: "Marquer comme Payée" },
@@ -260,6 +436,29 @@ function controlerFacturesClients(
  * paiement peut être antérieur à la fenêtre, sur un autre compte, groupé, ou libellé différemment)
  * — signal informationnel uniquement, jamais présenté comme une erreur certaine, jamais d'action.
  */
+/**
+ * Toutes les dates Novanta potentiellement pertinentes pour juger si le paiement d'une facture
+ * fournisseur peut être vérifié dans la fenêtre analysée. paidAt n'est PAS la date réelle du
+ * paiement : c'est le moment où la case "Payée" a été cochée dans l'app (import, rattrapage, clic
+ * tardif...), qui peut très bien tomber dans la fenêtre alors que le paiement réel est bien plus
+ * ancien. datePaiementPrevue/dateEcheance sont la date métier propre à la facture.
+ */
+function datesPertinentesFournisseur(facture: FactureFournisseur): string[] {
+  const dates: string[] = [];
+  if (facture.datePaiementPrevue) dates.push(facture.datePaiementPrevue);
+  if (facture.dateEcheance) dates.push(facture.dateEcheance);
+  if (facture.paidAt) dates.push(facture.paidAt.slice(0, 10));
+  return dates;
+}
+
+function datesPertinentesClient(facture: FactureClient): string[] {
+  const dates: string[] = [];
+  if (facture.dateEncaissementAnticipee) dates.push(facture.dateEncaissementAnticipee);
+  if (facture.dateEcheance) dates.push(facture.dateEcheance);
+  if (facture.paidAt) dates.push(facture.paidAt.slice(0, 10));
+  return dates;
+}
+
 function controlerFacturesPayeesSansMouvement(
   facturesClients: FactureClient[],
   facturesFournisseurs: FactureFournisseur[],
@@ -273,9 +472,11 @@ function controlerFacturesPayeesSansMouvement(
   const fenetreDebut = decalerDateISO(dateReference, -(FENETRE_JOURS - 1));
 
   for (const facture of facturesFournisseurs) {
-    if (!facture.payee || !facture.paidAt) continue;
-    const paidAtDate = facture.paidAt.slice(0, 10);
-    if (paidAtDate < fenetreDebut || paidAtDate > dateReference) continue; // coché hors fenêtre : rien à vérifier ici
+    if (!facture.payee) continue;
+    const dates = datesPertinentesFournisseur(facture);
+    // Aucune date fiable, OU au moins une date pertinente connue tombe hors fenêtre : la fenêtre de
+    // 30 jours ne peut techniquement pas trancher — absence de match hors fenêtre = aucune conclusion.
+    if (dates.length === 0 || dates.some((d) => d < fenetreDebut || d > dateReference)) continue;
     const correspondance = meilleureCorrespondance(debits, -Math.abs(facture.montant), facture.fournisseur, facture.facture, null);
     if (correspondance) continue;
 
@@ -294,9 +495,9 @@ function controlerFacturesPayeesSansMouvement(
   }
 
   for (const facture of facturesClients) {
-    if (!facture.payee || !facture.paidAt) continue;
-    const paidAtDate = facture.paidAt.slice(0, 10);
-    if (paidAtDate < fenetreDebut || paidAtDate > dateReference) continue;
+    if (!facture.payee) continue;
+    const dates = datesPertinentesClient(facture);
+    if (dates.length === 0 || dates.some((d) => d < fenetreDebut || d > dateReference)) continue;
     const correspondance = meilleureCorrespondance(credits, Math.abs(facture.montant), facture.client, facture.facture, null);
     if (correspondance) continue;
 
@@ -378,11 +579,10 @@ function controlerFinancements(
 
   for (const financement of financements) {
     if (!financement.verse) {
-      const correspondance = meilleureCorrespondance(
+      const correspondance = meilleureCorrespondanceFinancement(
         credits,
         Math.abs(financement.montant),
         financement.libelle,
-        null,
         financement.dateEncaissementPrevue || null
       );
       if (!correspondance) continue;
@@ -393,7 +593,7 @@ function controlerFinancements(
         severity: SEVERITE_PAR_NIVEAU[correspondance.niveau],
         entityType: "financement",
         entityId: financement.id,
-        transactions: [versConsistencyIssueTransaction(correspondance.transaction)],
+        transactions: correspondance.transactions.map(versConsistencyIssueTransaction),
         message: `Ce financement (${financement.libelle}) semble avoir été versé.`,
         raison: correspondance.raison,
         actionPossible: { label: "Marquer comme Versé" },
@@ -409,7 +609,7 @@ function controlerFinancements(
       financement.dateEncaissementPrevue >= fenetreDebut &&
       financement.dateEncaissementPrevue <= dateReference
     ) {
-      const correspondance = meilleureCorrespondance(credits, Math.abs(financement.montant), financement.libelle, null, null);
+      const correspondance = meilleureCorrespondanceFinancement(credits, Math.abs(financement.montant), financement.libelle, null);
       if (correspondance) continue;
 
       issues.push({
@@ -516,4 +716,22 @@ export function controlerCoherence(params: ParametresControleCoherence): Resulta
         ? { debut: decalerDateISO(dateReference, -(FENETRE_JOURS - 1)), fin: dateReference }
         : null,
   };
+}
+
+/**
+ * Tri purement visuel de l'écran de validation (impact cash décroissant, montant absolu — le sens
+ * débit/crédit n'importe pas ici) ; à montant égal, date la plus récente d'abord, puis libellé.
+ * N'est PAS appelé par controlerCoherence lui-même : celui-ci conserve son propre ordre interne
+ * (par type de contrôle), qui n'a aucune signification métier à préserver à l'affichage.
+ */
+export function trierIssuesParImpact(issues: ConsistencyIssue[]): ConsistencyIssue[] {
+  return [...issues].sort((a, b) => {
+    const impactA = Math.abs(a.donneesAffichage.montant);
+    const impactB = Math.abs(b.donneesAffichage.montant);
+    if (impactB !== impactA) return impactB - impactA;
+    const dateA = a.donneesAffichage.date ?? "";
+    const dateB = b.donneesAffichage.date ?? "";
+    if (dateB !== dateA) return dateB.localeCompare(dateA); // la plus récente d'abord
+    return a.donneesAffichage.libelle.localeCompare(b.donneesAffichage.libelle);
+  });
 }

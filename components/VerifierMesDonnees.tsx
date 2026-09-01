@@ -5,7 +5,13 @@ import { AutreDepense, FactureClient, FactureFournisseur, Financement } from "@/
 import { formatMontant } from "@/lib/format";
 import { formatDateCourte } from "@/lib/dates";
 import { ErreurImportBancaire, ResultatAnalyseBancaire, analyserFichierBancaireXlsx } from "@/lib/bankXlsxAdapter";
-import { ConsistencyIssue, ConsistencyIssueType, ResultatControleCoherence, controlerCoherence } from "@/lib/consistencyChecker";
+import {
+  ConsistencyIssue,
+  ConsistencyIssueType,
+  ResultatControleCoherence,
+  controlerCoherence,
+  trierIssuesParImpact,
+} from "@/lib/consistencyChecker";
 
 interface VerifierMesDonneesProps {
   facturesClients: FactureClient[];
@@ -99,8 +105,10 @@ export default function VerifierMesDonnees({
     }
   };
 
+  // Tri purement visuel (impact cash décroissant) — le moteur controlerCoherence lui-même n'est pas
+  // réordonné, voir trierIssuesParImpact dans lib/consistencyChecker.ts.
   const issuesVisibles = useMemo(
-    () => (resultat ? resultat.issues.filter((i) => !ignorees.has(i.id)) : []),
+    () => (resultat ? trierIssuesParImpact(resultat.issues.filter((i) => !ignorees.has(i.id))) : []),
     [resultat, ignorees]
   );
 
