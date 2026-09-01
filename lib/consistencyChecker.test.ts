@@ -570,6 +570,115 @@ describe("CAS D — financements : terminologie de déblocage de prêt", () => {
   });
 });
 
+describe("Financements — cas FOSTER exact (spec) + terminologie élargie + ambiguïté multi-financements", () => {
+  test("prêt FOSTER CREDIT AGRICOLE Languedoc / REALISATION DE PRET 00007331996 DEBLOCAGE 03/08/26, Versé=false : proposer Marquer comme Versé", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [
+          financement({ libelle: "prêt FOSTER CREDIT AGRICOLE Languedoc", montant: 200000, dateEncaissementPrevue: "2026-08-02", verse: false }),
+        ],
+        transactions: [tx("2026-08-03", "REALISATION DE PRET 00007331996 DEBLOCAGE 03/08/26", 200000)],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "financing_maybe_received");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].severity, "strong");
+    assert.equal(issues[0].actionPossible?.label, "Marquer comme Versé");
+  });
+
+  test("même cas mais Versé=true : aucune anomalie (le mouvement correspondant est bien retrouvé)", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [
+          financement({ libelle: "prêt FOSTER CREDIT AGRICOLE Languedoc", montant: 200000, dateEncaissementPrevue: "2026-08-02", verse: true }),
+        ],
+        transactions: [tx("2026-08-03", "REALISATION DE PRET 00007331996 DEBLOCAGE 03/08/26", 200000)],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "financing_received_but_unmatched").length, 0);
+  });
+
+  test("A. même montant mais libellé 'VIREMENT CLIENT' : pas classé automatiquement comme prêt", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [financement({ libelle: "prêt FOSTER CREDIT AGRICOLE Languedoc", montant: 200000, verse: false })],
+        transactions: [tx("2026-08-19", "VIREMENT CLIENT FACTURE DIVERS", 200000)],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "financing_maybe_received").length, 0);
+  });
+
+  test("B. 'REALISATION DE PRET' mais mauvais montant : pas de match fort", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [financement({ libelle: "prêt FOSTER CREDIT AGRICOLE Languedoc", montant: 200000, verse: false })],
+        transactions: [tx("2026-08-19", "REALISATION DE PRET 00099999 DEBLOCAGE", 50000)],
+      })
+    );
+    assert.equal(issuesDeType(resultat.issues, "financing_maybe_received").length, 0);
+  });
+
+  test("C. deux financements de même montant : la transaction unique ne les matche pas tous les deux en 'fort' — ramené à 'possible'", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [
+          financement({ id: "fin-un", libelle: "Prêt Un", montant: 50000, verse: false }),
+          financement({ id: "fin-deux", libelle: "Prêt Deux", montant: 50000, verse: false }),
+        ],
+        transactions: [tx("2026-08-19", "REALISATION DE PRET DEBLOCAGE", 50000)],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "financing_maybe_received");
+    assert.equal(issues.length, 2); // les deux sont remontés, mais aucun n'est affirmé "fort"
+    assert.ok(issues.every((i) => i.severity === "possible"));
+  });
+
+  test("terminologie élargie : 'MISE A DISPOSITION' est reconnue comme un déblocage de financement", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [financement({ libelle: "Emprunt Société Générale", montant: 30000, verse: false })],
+        transactions: [tx("2026-08-19", "MISE A DISPOSITION DE FONDS REF 4471982", 30000)],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "financing_maybe_received");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].severity, "strong");
+  });
+
+  test("terminologie élargie : 'CREDIT' seul (montant + date cohérents) suffit", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [financement({ libelle: "Financement BNP", montant: 45000, verse: false })],
+        transactions: [tx("2026-08-19", "CREDIT COMPTE COURTAGE REF 8823", 45000)],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "financing_maybe_received");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].severity, "strong");
+  });
+
+  test("un match par tiers/référence n'est jamais requalifié 'possible', même si un autre financement (par simple terminologie) cible la même transaction", () => {
+    const resultat = controlerCoherence(
+      parametresVides({
+        financements: [
+          // Cite explicitement "BPIFRANCE" : signal de tiers propre à CETTE ligne, pas seulement la
+          // terminologie générique — reste "fort" quoi qu'il arrive.
+          financement({ id: "fin-nomme", libelle: "Prêt Bpifrance Innovation", montant: 50000, verse: false }),
+          // Aucun signal propre : ne matche que via la terminologie générique partagée avec l'autre —
+          // ambigu, ramené à "possible".
+          financement({ id: "fin-autre", libelle: "Avance associé", montant: 50000, verse: false }),
+        ],
+        transactions: [tx("2026-08-19", "VIR BPIFRANCE INNOVATION PRET", 50000)],
+      })
+    );
+    const issues = issuesDeType(resultat.issues, "financing_maybe_received");
+    const nomme = issues.find((i) => i.entityId === "fin-nomme");
+    const autre = issues.find((i) => i.entityId === "fin-autre");
+    assert.equal(nomme?.severity, "strong");
+    assert.equal(autre?.severity, "possible");
+  });
+});
+
 describe("CAS E — faux match sur montant seul (régression)", () => {
   test("deux factures au même montant, une seule transaction sans tiers/référence identifiable pour aucune des deux : ne rapproche ni l'une ni l'autre", () => {
     const resultat = controlerCoherence(

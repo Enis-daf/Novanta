@@ -308,12 +308,20 @@ function meilleureCorrespondance(
   return meilleure;
 }
 
-const TERMES_FINANCEMENT = ["PRET", "EMPRUNT", "DEBLOCAGE"]; // comparés après normalisation (accents/casse déjà retirés)
+// Sémantique bancaire déterministe de type "loan_disbursement" — termes seuls ET locutions de
+// plusieurs mots, comparés après normalisation (accents/casse déjà retirés par
+// normaliserTexteRapprochement). "PRET" couvre déjà "RÉALISATION DE PRÊT"/"RÉALISATION PRET"/"PRÊT"
+// (le token suffit, la formulation exacte autour n'a pas besoin d'être listée séparément).
+const TERMES_FINANCEMENT = ["PRET", "EMPRUNT", "DEBLOCAGE", "CREDIT", "MISE A DISPOSITION"];
 
-/** Le libellé bancaire contient un terme explicite et déterministe de déblocage de prêt/financement. */
+/**
+ * Le libellé bancaire contient un terme explicite de déblocage de prêt/financement — recherché comme
+ * mot ou locution entière (bornée par des espaces), jamais comme sous-chaîne brute, pour éviter un
+ * faux positif à l'intérieur d'un mot plus long non lié.
+ */
 function libelleBancaireEvoqueUnFinancement(labelOriginal: string): boolean {
-  const tokens = new Set(normaliserTexteRapprochement(labelOriginal).split(" "));
-  return TERMES_FINANCEMENT.some((terme) => tokens.has(terme));
+  const normalise = ` ${normaliserTexteRapprochement(labelOriginal)} `;
+  return TERMES_FINANCEMENT.some((terme) => normalise.includes(` ${terme} `));
 }
 
 /**
@@ -577,30 +585,54 @@ function controlerFinancements(
   const issues: ConsistencyIssue[] = [];
   const fenetreDebut = decalerDateISO(dateReference, -(FENETRE_JOURS - 1));
 
-  for (const financement of financements) {
-    if (!financement.verse) {
-      const correspondance = meilleureCorrespondanceFinancement(
-        credits,
-        Math.abs(financement.montant),
-        financement.libelle,
-        financement.dateEncaissementPrevue || null
-      );
-      if (!correspondance) continue;
+  const nonVerses = financements.filter((f) => !f.verse);
+  // Pré-calcule la correspondance de chaque financement non versé : nécessaire pour détecter les cas
+  // ambigus (deux financements de même montant qui revendiqueraient la MÊME transaction via la seule
+  // règle terminologique, sans aucun signal discriminant de tiers/référence pour trancher entre eux).
+  const correspondances = new Map(
+    nonVerses.map((f) => [
+      f.id,
+      meilleureCorrespondanceFinancement(credits, Math.abs(f.montant), f.libelle, f.dateEncaissementPrevue || null),
+    ])
+  );
 
-      issues.push({
-        id: `financing_maybe_received:${financement.id}`,
-        type: "financing_maybe_received",
-        severity: SEVERITE_PAR_NIVEAU[correspondance.niveau],
-        entityType: "financement",
-        entityId: financement.id,
-        transactions: correspondance.transactions.map(versConsistencyIssueTransaction),
-        message: `Ce financement (${financement.libelle}) semble avoir été versé.`,
-        raison: correspondance.raison,
-        actionPossible: { label: "Marquer comme Versé" },
-        donneesAffichage: { libelle: financement.libelle, montant: financement.montant, date: financement.dateEncaissementPrevue || null },
+  for (const financement of nonVerses) {
+    const correspondance = correspondances.get(financement.id) ?? null;
+    if (!correspondance) continue;
+
+    // Ambiguïté : la règle terminologique (metier_fort) ne s'appuie sur aucun tiers/référence propre à
+    // CE financement — si un AUTRE financement non versé revendique la même transaction (par
+    // terminologie ou par tiers/référence), ce match-ci n'est pas affirmable : une transaction
+    // bancaire ne doit jamais satisfaire plusieurs financements sans justification propre. Un match
+    // par référence/tiers (les autres niveaux) a, lui, une justification propre à sa propre ligne et
+    // n'est donc jamais remis en cause ici, même si un autre financement cible la même transaction.
+    const transactionCible = correspondance.transactions[0];
+    const ambigu =
+      correspondance.niveau === "metier_fort" &&
+      nonVerses.some((autre) => {
+        if (autre.id === financement.id) return false;
+        const autreCorrespondance = correspondances.get(autre.id) ?? null;
+        return autreCorrespondance != null && autreCorrespondance.transactions[0] === transactionCible;
       });
-      continue;
-    }
+
+    issues.push({
+      id: `financing_maybe_received:${financement.id}`,
+      type: "financing_maybe_received",
+      severity: ambigu ? "possible" : SEVERITE_PAR_NIVEAU[correspondance.niveau],
+      entityType: "financement",
+      entityId: financement.id,
+      transactions: correspondance.transactions.map(versConsistencyIssueTransaction),
+      message: `Ce financement (${financement.libelle}) semble avoir été versé.`,
+      raison: ambigu
+        ? "Plusieurs financements de même montant pourraient correspondre à ce même mouvement bancaire : à vérifier avant de valider."
+        : correspondance.raison,
+      actionPossible: { label: "Marquer comme Versé" },
+      donneesAffichage: { libelle: financement.libelle, montant: financement.montant, date: financement.dateEncaissementPrevue || null },
+    });
+  }
+
+  for (const financement of financements) {
+    if (!financement.verse) continue;
 
     // Versé = true : l'absence de crédit récent ne prouve rien (versement antérieur à la fenêtre,
     // autre compte...) — uniquement si la date prévue tombe dans la fenêtre analysée, sinon hors sujet.
