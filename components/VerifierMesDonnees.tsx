@@ -38,6 +38,10 @@ const LIBELLES_TYPE: Record<ConsistencyIssueType, { singulier: string; pluriel: 
     singulier: "dépense facturée à vérifier",
     pluriel: "dépenses facturées à vérifier",
   },
+  other_expense_maybe_paid: {
+    singulier: "dépense potentiellement déjà payée",
+    pluriel: "dépenses potentiellement déjà payées",
+  },
   financing_maybe_received: { singulier: "financement à vérifier", pluriel: "financements à vérifier" },
   financing_received_but_unmatched: { singulier: "financement à vérifier", pluriel: "financements à vérifier" },
   bank_duplicate_candidate: { singulier: "doublon bancaire potentiel", pluriel: "doublons bancaires potentiels" },
@@ -135,6 +139,8 @@ export default function VerifierMesDonnees({
       onChangeFactureClient(issue.entityId, { payee: true, paidAt: new Date().toISOString() });
     } else if (issue.type === "other_expense_maybe_invoiced") {
       onChangeAutreDepense(issue.entityId, { facturee: true });
+    } else if (issue.type === "other_expense_maybe_paid") {
+      onChangeAutreDepense(issue.entityId, { payee: true });
     } else if (issue.type === "financing_maybe_received") {
       onChangeFinancement(issue.entityId, { verse: true });
     }

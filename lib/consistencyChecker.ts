@@ -21,6 +21,7 @@ export type ConsistencyIssueType =
   | "invoice_paid_but_unmatched"
   | "other_expense_maybe_invoiced"
   | "other_expense_invoiced_but_missing_invoice"
+  | "other_expense_maybe_paid"
   | "financing_maybe_received"
   | "financing_received_but_unmatched"
   | "bank_duplicate_candidate";
@@ -573,6 +574,44 @@ function controlerAutresDepenses(depenses: AutreDepense[], facturesFournisseurs:
 }
 
 // --------------------------------------------------------------------------------------------
+// Autres dépenses : rapprochement bancaire pour "Payée" — mécanisme strictement distinct de
+// controlerAutresDepenses ci-dessus (qui ne touche jamais payee, uniquement facturee). Un mouvement
+// bancaire ne peut jamais proposer "Marquer comme Facturée", et une facture fournisseur ne peut
+// jamais proposer "Marquer comme Payée". Bénéficie automatiquement des mêmes règles de matching que
+// les factures (référence partielle, paiement fractionné agrégé...) via meilleureCorrespondance.
+// --------------------------------------------------------------------------------------------
+
+function controlerAutresDepensesPayees(
+  depenses: AutreDepense[],
+  transactionsRecentes: NormalizedBankTransaction[]
+): ConsistencyIssue[] {
+  const debits = transactionsRecentes.filter((t) => t.signedAmount < 0);
+  const issues: ConsistencyIssue[] = [];
+
+  for (const depense of depenses) {
+    if (depense.payee) continue;
+    // Pas de référence de facture pour une Autre dépense : correspondance au mieux "fort" (tiers + date).
+    const correspondance = meilleureCorrespondance(debits, -Math.abs(depense.montant), depense.libelle, null, depense.datePrevue || null);
+    if (!correspondance) continue;
+
+    issues.push({
+      id: `other_expense_maybe_paid:${depense.id}`,
+      type: "other_expense_maybe_paid",
+      severity: SEVERITE_PAR_NIVEAU[correspondance.niveau],
+      entityType: "autre_depense",
+      entityId: depense.id,
+      transactions: correspondance.transactions.map(versConsistencyIssueTransaction),
+      message: `Cette dépense (${depense.libelle}) semble déjà avoir été payée.`,
+      raison: correspondance.raison,
+      actionPossible: { label: "Marquer comme Payée" },
+      donneesAffichage: { libelle: depense.libelle, montant: depense.montant, date: depense.datePrevue || null },
+    });
+  }
+
+  return issues;
+}
+
+// --------------------------------------------------------------------------------------------
 // Financements : Versé = false (crédit trouvé) / Versé = true (aucun crédit récent, signal faible).
 // --------------------------------------------------------------------------------------------
 
@@ -735,6 +774,7 @@ export function controlerCoherence(params: ParametresControleCoherence): Resulta
       dateReference
     ),
     ...controlerAutresDepenses(params.autresDepenses, params.facturesFournisseurs),
+    ...controlerAutresDepensesPayees(params.autresDepenses, transactionsRecentes),
     ...controlerFinancements(params.financements, transactionsRecentes, dateReference),
     ...controlerDoublonsBancaires(transactionsRecentes),
   ];
