@@ -269,6 +269,70 @@ function mettreEnFormeLisible(tokens: string[]): string {
   return tokens.map((t) => (ACRONYMES_LEGAUX.has(t) ? t : t.charAt(0) + t.slice(1).toLowerCase())).join(" ");
 }
 
+// Longueur maximale de la phrase-cœur recherchée par extraireCoeurRepete — volontairement courte
+// (nom + éventuellement un second mot indissociable, ex. "SECTOR ALARM") : au-delà, ce n'est plus
+// un nom court et distinctif mais une description complète, ce qui n'est plus l'objectif ici.
+const LONGUEUR_MAX_COEUR_REPETE = 3;
+
+/**
+ * Cherche, DANS LES TOKENS D'UNE SEULE occurrence (déjà filtrés aux tokens stables du groupe), un
+ * token qui s'y répète (les libellés bancaires réels répètent souvent le nom du créancier — raison
+ * sociale + libellé commercial — dans une même ligne, ex. "SECTOR ALARM SAS-SECTOR ALARM",
+ * "SACEM SOC AUTEUR COMPOSITEUR ... SACEM"). Un libellé stable mais SANS répétition interne
+ * (immense majorité des cas : "OVH", "Shopify", "Amazon Business"...) ne contient par construction
+ * aucun token de fréquence ≥ 2 ici — l'appelant retombe alors sur la liste complète des tokens
+ * stables, comportement inchangé.
+ *
+ * Le token le plus répété sert de point de départ ; à égalité de répétition, celui qui apparaît en
+ * premier dans le libellé (une banque place généralement le nom du créancier avant les qualificatifs
+ * qui le décrivent). La phrase est ensuite étendue d'un token à la fois — à droite puis à gauche —
+ * UNIQUEMENT si ce token voisin est EXACTEMENT LE MÊME à CHACUNE des occurrences du motif de départ :
+ * c'est ce qui distingue une vraie extension du nom ("SECTOR" toujours suivi de "ALARM" → phrase
+ * "SECTOR ALARM") d'un voisinage accidentel qui varie ("SACEM" suivi tantôt de "SOC", tantôt de
+ * "01"/"SEL" → l'extension s'arrête, "SACEM" reste seul). Retourne null si aucun token ne se répète.
+ */
+function extraireCoeurRepete(tokens: string[]): string[] | null {
+  const positionsParToken = new Map<string, number[]>();
+  tokens.forEach((token, i) => {
+    const positions = positionsParToken.get(token) ?? [];
+    positions.push(i);
+    positionsParToken.set(token, positions);
+  });
+
+  let seedPositions: number[] | null = null;
+  for (const positions of positionsParToken.values()) {
+    if (positions.length < 2) continue;
+    if (
+      !seedPositions ||
+      positions.length > seedPositions.length ||
+      (positions.length === seedPositions.length && positions[0] < seedPositions[0])
+    ) {
+      seedPositions = positions;
+    }
+  }
+  if (!seedPositions) return null;
+
+  let debut = 0; // nombre de tokens ajoutés AVANT le token de départ
+  let fin = 0; // nombre de tokens ajoutés APRÈS le token de départ
+
+  while (debut + fin + 1 < LONGUEUR_MAX_COEUR_REPETE) {
+    const indexSuivants = seedPositions.map((p) => p + fin + 1);
+    if (indexSuivants.every((i) => i < tokens.length) && new Set(indexSuivants.map((i) => tokens[i])).size === 1) {
+      fin++;
+      continue;
+    }
+    const indexPrecedents = seedPositions.map((p) => p - debut - 1);
+    if (indexPrecedents.every((i) => i >= 0) && new Set(indexPrecedents.map((i) => tokens[i])).size === 1) {
+      debut++;
+      continue;
+    }
+    break;
+  }
+
+  const [premierePos] = seedPositions;
+  return tokens.slice(premierePos - debut, premierePos + fin + 1);
+}
+
 /**
  * Construit le libellé métier proposé à partir de TOUTES les occurrences du groupe (jamais d'une
  * seule occurrence choisie arbitrairement). Retourne null si aucun token n'est assez stable —
@@ -309,6 +373,14 @@ function construireLibelleMetier(
     }
   }
   if (tokensRetenus.length === 0) return null;
+
+  // Si le nom du créancier est répété dans le libellé (très fréquent en pratique), préférer ce
+  // cœur court et distinctif à la concaténation de tous les tokens stables — qui inclurait aussi
+  // tout le contexte administratif environnant, lui aussi stable si le format bancaire ne varie
+  // pas d'un mois à l'autre (voir extraireCoeurRepete). Sans répétition (cas normal), rien ne
+  // change : la liste complète des tokens stables reste utilisée comme avant.
+  const coeurRepete = extraireCoeurRepete(tokensRetenus);
+  if (coeurRepete) tokensRetenus = coeurRepete;
 
   tokensRetenus = retirerAcronymesTardifs(tokensRetenus);
   tokensRetenus = retirerRedondancesSousChaines(tokensRetenus);

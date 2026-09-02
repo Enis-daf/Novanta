@@ -44,6 +44,13 @@ const PREFIXES_STRUCTURELS = new Set([
   "ICS",
   "IBAN",
   "BIC",
+  // Vocabulaire administratif du mandat/prélèvement SEPA — jamais un nom de créancier, quel que
+  // soit le fournisseur (RUM = "Référence Unique de Mandat", REF/SIRET/MANDAT génériques à toute
+  // référence bancaire ou d'entreprise).
+  "REF",
+  "RUM",
+  "SIRET",
+  "MANDAT",
 ]);
 
 const MOIS_LETTRES = new Set([

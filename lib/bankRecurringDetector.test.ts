@@ -497,6 +497,96 @@ describe("detecterChargesRecurrentes — libellé proposé (proposedLabel), jama
   });
 });
 
+// Régression client : le libellé proposé conservait trop de contexte administratif/technique stable
+// (le format bancaire ne variant pas d'un mois à l'autre, tout y était "stable" au sens de
+// estStable). Fixtures anonymisées reproduisant les patterns réels (créancier répété dans le
+// libellé, jamais les données du client).
+describe("detecterChargesRecurrentes — proposedLabel court et distinctif quand le créancier est répété dans le libellé", () => {
+  test("cas type EDF : nom répété non consécutivement au milieu d'un contexte administratif stable → nom court retenu", () => {
+    const transactions = [
+      transactionBrute(
+        "2026-03-03",
+        "Prelevement - ENERGIE DISTRIBUTION - EN - LCP ALTERNATIVES Ref EN:0324103006 RUM:MA9700016 E FELIX",
+        -140.81
+      ),
+      transactionBrute(
+        "2026-04-01",
+        "Prelevement - ENERGIE DISTRIBUTION - EN - LCP ALTERNATIVES Ref EN:0324103006 RUM:MA9700016 E FELIX",
+        -147.49
+      ),
+      transactionBrute(
+        "2026-06-01",
+        "Prelevement - ENERGIE DISTRIBUTION - EN - LCP ALTERNATIVES Ref EN:0324103006 RUM:MA9700016 E FELIX",
+        -166.72
+      ),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].libellePropose, "En");
+  });
+
+  test("cas type Sector Alarm : phrase de 2 mots répétée (raison sociale + libellé commercial) → phrase entière retenue, pas un seul des deux mots", () => {
+    const transactions = [
+      transactionBrute("2026-01-30", "Prelevement - Alarme Maison SAS-ALARME MAISON - SFR-01255852", -47.88),
+      transactionBrute("2026-03-02", "Prelevement - Alarme Maison SAS-ALARME MAISON - Alarme Maison - SFR-01343317", -47.88),
+      transactionBrute("2026-03-30", "Prelevement - Alarme Maison SAS-ALARME MAISON - Alarme Maison - SFR-01447916", -47.88),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].libellePropose, "Alarme Maison");
+  });
+
+  test("cas type SACEM : un mot court répété ET une locution descriptive répétée séparément → le mot court gagne (le plus distinctif, pas le plus long)", () => {
+    const transactions = [
+      transactionBrute(
+        "2026-02-10",
+        "Prelevement - SOCPRO Soc Auteur Compositeur Edi Soc Auteur Compositeur SOCPRO Sel",
+        -15.15
+      ),
+      transactionBrute(
+        "2026-04-10",
+        "Prelevement - SOCPRO Soc Auteur Compositeur Edi Soc Auteur Compositeur SOCPRO Sel",
+        -15.15
+      ),
+      transactionBrute(
+        "2026-06-10",
+        "Prelevement - SOCPRO Soc Auteur Compositeur Edi Soc Auteur Compositeur SOCPRO Sel",
+        -15.15
+      ),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].libellePropose, "Socpro");
+  });
+
+  test("aucune répétition dans le libellé (cas normal, immense majorité) : comportement inchangé, tous les tokens stables conservés", () => {
+    const transactions = [
+      transactionBrute("2026-05-05", "PRLV SEPA OVH HEBERGEMENT WEB", -12.99),
+      transactionBrute("2026-06-05", "PRLV SEPA OVH HEBERGEMENT WEB", -12.99),
+      transactionBrute("2026-07-05", "PRLV SEPA OVH HEBERGEMENT WEB", -12.99),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].libellePropose, "Ovh Hebergement");
+  });
+
+  test("mots administratifs génériques (REF/RUM/SIRET/MANDAT) toujours absents du libellé proposé, même sans répétition de créancier", () => {
+    const transactions = [
+      // Le préfixe stable ("FOURNISSEUR DIVERS SARL") occupe les 3 tokens de la signature d'identité
+      // (CAP_TOKENS_IDENTITE) : les valeurs de référence qui varient (AAA/DDD/GGG...) n'y entrent
+      // jamais, les occurrences se regroupent donc bien malgré des références différentes.
+      transactionBrute("2026-05-05", "Prelevement - FOURNISSEUR DIVERS SARL - REF:AAA RUM:BBB SIRET:123456 MANDAT:CCC", -50),
+      transactionBrute("2026-06-05", "Prelevement - FOURNISSEUR DIVERS SARL - REF:DDD RUM:EEE SIRET:123456 MANDAT:FFF", -50),
+      transactionBrute("2026-07-05", "Prelevement - FOURNISSEUR DIVERS SARL - REF:GGG RUM:HHH SIRET:123456 MANDAT:III", -50),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    for (const motInterdit of ["REF", "RUM", "SIRET", "MANDAT"]) {
+      assert.equal(candidats[0].libellePropose.toUpperCase().includes(motInterdit), false);
+    }
+  });
+});
+
 describe("detecterChargesRecurrentes — le nom du marchand gagne contre les références techniques", () => {
   test("A/B. cas réel Amazon Business : mêmes références techniques, numéros de commande différents → toujours « Amazon Business »", () => {
     const transactions = [
