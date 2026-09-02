@@ -2,9 +2,10 @@
 
 import { ChangeEvent, useRef, useState } from "react";
 import { ChargeFixe } from "@/lib/types";
+import { NormalizedBankTransaction } from "@/lib/bankTransaction";
 import { formatMontant } from "@/lib/format";
 import { formatDateCourte } from "@/lib/dates";
-import { ErreurImportBancaire, ResultatAnalyseBancaire, analyserFichierBancaireXlsx } from "@/lib/bankXlsxAdapter";
+import { ErreurImportBancaire, analyserFichierBancaireXlsx } from "@/lib/bankXlsxAdapter";
 import {
   FrequenceDetectee,
   RecurringChargeCandidate,
@@ -15,6 +16,8 @@ import DateField from "./DateField";
 
 interface ImportHistoriqueBancaireProps {
   onValider: (chargesFixes: ChargeFixe[]) => void;
+  pennylaneConnecte?: boolean;
+  accessToken?: string | null;
 }
 
 interface CandidatBrouillon {
@@ -25,6 +28,15 @@ interface CandidatBrouillon {
   frequence: FrequenceDetectee;
   prochaineOccurrence: string;
   source: RecurringChargeCandidate;
+}
+
+// Résumé de la période analysée, indépendant de la source (XLSX ou Pennylane) — alimente le même
+// bandeau d'aperçu et le même écran de validation des candidats, quelle que soit l'origine des
+// transactions : detecterChargesRecurrentes() ne sait jamais d'où elles viennent.
+interface ApercuAnalyse {
+  nombreTransactions: number;
+  periode: { debut: string; fin: string } | null;
+  infoComplementaire: string | null;
 }
 
 function candidatVersBrouillon(candidat: RecurringChargeCandidate): CandidatBrouillon {
@@ -39,18 +51,43 @@ function candidatVersBrouillon(candidat: RecurringChargeCandidate): CandidatBrou
   };
 }
 
-export default function ImportHistoriqueBancaire({ onValider }: ImportHistoriqueBancaireProps) {
+function periodeDepuisTransactions(transactions: NormalizedBankTransaction[]): { debut: string; fin: string } | null {
+  if (transactions.length === 0) return null;
+  const dates = transactions.map((t) => t.date).sort();
+  return { debut: dates[0], fin: dates[dates.length - 1] };
+}
+
+export default function ImportHistoriqueBancaire({
+  onValider,
+  pennylaneConnecte = false,
+  accessToken = null,
+}: ImportHistoriqueBancaireProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [chargement, setChargement] = useState(false);
-  const [erreur, setErreur] = useState<ErreurImportBancaire | null>(null);
-  const [resultat, setResultat] = useState<ResultatAnalyseBancaire | null>(null);
+  const [erreur, setErreur] = useState<ErreurImportBancaire | string | null>(null);
+  const [apercu, setApercu] = useState<ApercuAnalyse | null>(null);
   const [candidats, setCandidats] = useState<CandidatBrouillon[]>([]);
   const [creationEnCours, setCreationEnCours] = useState(false);
+  // Formulaire XLSX visible par défaut si Pennylane n'est pas connecté ; sinon masqué derrière
+  // "Utiliser un fichier Excel" au profit d'"Analyser Pennylane" en action principale.
+  const [afficherXlsx, setAfficherXlsx] = useState(!pennylaneConnecte);
 
   const reinitialiser = () => {
     setErreur(null);
-    setResultat(null);
+    setApercu(null);
     setCandidats([]);
+  };
+
+  const traiterTransactions = (transactions: NormalizedBankTransaction[], infoComplementaire: string | null) => {
+    setApercu({
+      nombreTransactions: transactions.length,
+      periode: periodeDepuisTransactions(transactions),
+      infoComplementaire,
+    });
+    // Même moteur, même tri d'affichage, que la source soit XLSX ou Pennylane — voir
+    // lib/pennylaneTransactionAdapter.ts pour la preuve d'équivalence.
+    const candidatsDetectes = trierCandidatsPourAffichage(detecterChargesRecurrentes(transactions));
+    setCandidats(candidatsDetectes.map(candidatVersBrouillon));
   };
 
   const handleFichierSelectionne = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -62,12 +99,8 @@ export default function ImportHistoriqueBancaire({ onValider }: ImportHistorique
     setChargement(true);
     try {
       const analyse = await analyserFichierBancaireXlsx(fichier);
-      setResultat(analyse);
-      // Tri purement visuel sur l'écran de validation (montant proposé décroissant, puis libellé) —
-      // le moteur de détection lui-même (detecterChargesRecurrentes) et son propre ordre interne ne
-      // sont pas modifiés.
-      const candidatsDetectes = trierCandidatsPourAffichage(detecterChargesRecurrentes(analyse.transactions));
-      setCandidats(candidatsDetectes.map(candidatVersBrouillon));
+      const infoIgnorees = analyse.lignesIgnorees > 0 ? analyse.raisonsIgnorees.join(" ") : null;
+      traiterTransactions(analyse.transactions, infoIgnorees);
     } catch (err) {
       setErreur(
         err instanceof ErreurImportBancaire
@@ -76,6 +109,34 @@ export default function ImportHistoriqueBancaire({ onValider }: ImportHistorique
               "Impossible de lire ce fichier. Vérifiez qu'il s'agit bien d'un fichier Excel (.xlsx) valide."
             )
       );
+    } finally {
+      setChargement(false);
+    }
+  };
+
+  const handleAnalyserPennylane = async () => {
+    if (!accessToken) return;
+    reinitialiser();
+    setChargement(true);
+    try {
+      const res = await fetch("/api/pennylane/transactions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ usage: "charges_fixes" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErreur(data.error || "Connexion Pennylane impossible. Vérifiez le token et ses autorisations.");
+        return;
+      }
+      const transactions = data.transactions as NormalizedBankTransaction[];
+      if (transactions.length === 0) {
+        setErreur("Aucune transaction exploitable n'a été trouvée sur la période.");
+        return;
+      }
+      traiterTransactions(transactions, null);
+    } catch {
+      setErreur("Pennylane est temporairement indisponible. Réessayez.");
     } finally {
       setChargement(false);
     }
@@ -114,21 +175,39 @@ export default function ImportHistoriqueBancaire({ onValider }: ImportHistorique
     setCreationEnCours(false);
   };
 
+  const messageErreur = erreur instanceof ErreurImportBancaire ? erreur.message : erreur;
+  const diagnostic = erreur instanceof ErreurImportBancaire ? erreur.diagnostic : undefined;
+
   return (
     <div className="table-wrapper">
       <div className="import-bancaire-intro">
         <p>
-          Importez votre historique bancaire au format Excel. Novanta recherchera les dépenses récurrentes et vous
-          proposera celles à intégrer à vos projections.
+          {pennylaneConnecte
+            ? "Novanta recherchera les dépenses récurrentes dans vos transactions Pennylane et vous proposera celles à intégrer à vos projections."
+            : "Importez votre historique bancaire au format Excel. Novanta recherchera les dépenses récurrentes et vous proposera celles à intégrer à vos projections."}
         </p>
-        <button
-          type="button"
-          className="btn-add"
-          onClick={() => inputRef.current?.click()}
-          disabled={chargement}
-        >
-          {chargement ? "Analyse en cours…" : "Importer un relevé .xlsx"}
-        </button>
+        <div className="import-boutons">
+          {pennylaneConnecte && (
+            <button type="button" className="btn-add" onClick={handleAnalyserPennylane} disabled={chargement}>
+              {chargement ? "Analyse en cours…" : "Analyser Pennylane"}
+            </button>
+          )}
+          {pennylaneConnecte && !afficherXlsx && (
+            <button type="button" className="btn-secondaire" onClick={() => setAfficherXlsx(true)} disabled={chargement}>
+              Utiliser un fichier Excel
+            </button>
+          )}
+          {(!pennylaneConnecte || afficherXlsx) && (
+            <button
+              type="button"
+              className={pennylaneConnecte ? "btn-secondaire" : "btn-add"}
+              onClick={() => inputRef.current?.click()}
+              disabled={chargement}
+            >
+              {chargement ? "Analyse en cours…" : "Importer un relevé .xlsx"}
+            </button>
+          )}
+        </div>
         <input
           ref={inputRef}
           type="file"
@@ -141,53 +220,49 @@ export default function ImportHistoriqueBancaire({ onValider }: ImportHistorique
       {erreur && (
         <div className="import-apercu">
           <p className="login-erreur">Import impossible</p>
-          {erreur.diagnostic ? (
+          {diagnostic ? (
             <>
-              <p>{erreur.diagnostic.totalLignes} ligne(s) détectée(s)</p>
+              <p>{diagnostic.totalLignes} ligne(s) détectée(s)</p>
               <ul className="diagnostic-colonnes">
-                <li className={erreur.diagnostic.date.ok ? "diagnostic-ok" : "diagnostic-echec"}>
-                  <span>{erreur.diagnostic.date.ok ? "✓" : "✕"}</span> Date transaction :{" "}
-                  {erreur.diagnostic.date.ok ? `"${erreur.diagnostic.date.detail}"` : erreur.diagnostic.date.detail}
+                <li className={diagnostic.date.ok ? "diagnostic-ok" : "diagnostic-echec"}>
+                  <span>{diagnostic.date.ok ? "✓" : "✕"}</span> Date transaction :{" "}
+                  {diagnostic.date.ok ? `"${diagnostic.date.detail}"` : diagnostic.date.detail}
                 </li>
-                <li className={erreur.diagnostic.libelle.ok ? "diagnostic-ok" : "diagnostic-echec"}>
-                  <span>{erreur.diagnostic.libelle.ok ? "✓" : "✕"}</span> Libellé :{" "}
-                  {erreur.diagnostic.libelle.ok
-                    ? `"${erreur.diagnostic.libelle.detail}"`
-                    : erreur.diagnostic.libelle.detail}
+                <li className={diagnostic.libelle.ok ? "diagnostic-ok" : "diagnostic-echec"}>
+                  <span>{diagnostic.libelle.ok ? "✓" : "✕"}</span> Libellé :{" "}
+                  {diagnostic.libelle.ok ? `"${diagnostic.libelle.detail}"` : diagnostic.libelle.detail}
                 </li>
-                <li className={erreur.diagnostic.montant.ok ? "diagnostic-ok" : "diagnostic-echec"}>
-                  <span>{erreur.diagnostic.montant.ok ? "✓" : "✕"}</span> Montant :{" "}
-                  {erreur.diagnostic.montant.ok
-                    ? `"${erreur.diagnostic.montant.detail}"`
-                    : erreur.diagnostic.montant.detail}
+                <li className={diagnostic.montant.ok ? "diagnostic-ok" : "diagnostic-echec"}>
+                  <span>{diagnostic.montant.ok ? "✓" : "✕"}</span> Montant :{" "}
+                  {diagnostic.montant.ok ? `"${diagnostic.montant.detail}"` : diagnostic.montant.detail}
                 </li>
               </ul>
             </>
           ) : (
-            <p>{erreur.message}</p>
+            <p>{messageErreur}</p>
           )}
           <div className="import-boutons">
-            <button type="button" className="btn-secondaire" onClick={() => inputRef.current?.click()}>
-              Choisir un autre fichier
-            </button>
+            {diagnostic && (
+              <button type="button" className="btn-secondaire" onClick={() => inputRef.current?.click()}>
+                Choisir un autre fichier
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {resultat && (
+      {apercu && (
         <div className="import-apercu">
           <p>
-            {resultat.transactions.length} transaction{resultat.transactions.length > 1 ? "s" : ""} analysée
-            {resultat.transactions.length > 1 ? "s" : ""}
-            {resultat.periode &&
-              ` — Du ${formatDateCourte(resultat.periode.debut)} au ${formatDateCourte(resultat.periode.fin)}`}
+            {apercu.nombreTransactions} transaction{apercu.nombreTransactions > 1 ? "s" : ""} analysée
+            {apercu.nombreTransactions > 1 ? "s" : ""}
+            {apercu.periode &&
+              ` — Du ${formatDateCourte(apercu.periode.debut)} au ${formatDateCourte(apercu.periode.fin)}`}
             {" — "}
             {candidats.length} charge{candidats.length > 1 ? "s" : ""} récurrente{candidats.length > 1 ? "s" : ""}{" "}
             potentielle{candidats.length > 1 ? "s" : ""} identifiée{candidats.length > 1 ? "s" : ""}
           </p>
-          {resultat.lignesIgnorees > 0 && (
-            <p className="import-bancaire-info">{resultat.raisonsIgnorees.join(" ")}</p>
-          )}
+          {apercu.infoComplementaire && <p className="import-bancaire-info">{apercu.infoComplementaire}</p>}
 
           {candidats.length === 0 ? (
             <p className="recherche-vide">Aucune dépense récurrente évidente n&apos;a été identifiée dans ce relevé.</p>

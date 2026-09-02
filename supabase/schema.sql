@@ -309,3 +309,22 @@ alter table companies add column if not exists last_name text;
 -- charges fixes existantes restent incluses dans le calcul exactement comme avant. Aucune
 -- colonne existante n'est modifiée, renommée ou supprimée ; aucune ligne n'est touchée.
 alter table fixed_charges add column if not exists a_couper boolean not null default false;
+
+-- Intégration Pennylane MVP (Company API Token) — nouvelle table, additive, non destructive.
+-- Stocke UNIQUEMENT le credential chiffré et son statut, jamais de transactions bancaires
+-- (aucun ledger permanent, récupération à la demande uniquement). Aucun grant vers
+-- "authenticated" : contrairement aux autres tables, l'accès n'est possible que via la clé
+-- service_role dans des routes serveur, après vérification de l'ownership côté application
+-- (company_id dérivé de l'utilisateur connecté, jamais fourni par le client) — voir
+-- lib/pennylaneRepository.ts et lib/supabaseServer.ts::requireUser.
+create table if not exists pennylane_connections (
+  company_id uuid primary key references companies(id) on delete cascade,
+  token_ciphertext text not null,
+  status text not null default 'connected' check (status in ('connected', 'invalid')),
+  last_tested_at timestamptz,
+  last_error_code text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table pennylane_connections enable row level security;

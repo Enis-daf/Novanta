@@ -57,7 +57,9 @@ export interface ConsistencyIssue {
 
 // 30 jours calendaires glissants, bornes incluses : pour une analyse le 31/08, la fenêtre commence
 // le 02/08 inclus (31 - 29 = 2) — soit exactement 30 jours au total (02/08 → 31/08 inclus).
-const FENETRE_JOURS = 30;
+// Exportée pour que les sources externes (ex. lib/pennylaneClient.ts) appliquent EXACTEMENT la
+// même fenêtre au filtre de date de leur API, sans dupliquer la valeur ni l'arithmétique.
+export const FENETRE_JOURS = 30;
 
 export function filtrerTransactionsRecentes(
   transactions: NormalizedBankTransaction[],

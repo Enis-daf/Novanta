@@ -123,6 +123,9 @@ export default function Home() {
   );
   const [tentativeVerification, setTentativeVerification] = useState(0);
   const [donneesChargees, setDonneesChargees] = useState(!supabaseConfigured);
+  // null = pas encore su (état de chargement) ; false par défaut sinon, jamais true tant que
+  // /api/pennylane/status n'a pas explicitement confirmé une connexion active pour cette société.
+  const [pennylaneConnecte, setPennylaneConnecte] = useState<boolean | null>(null);
 
   const [soldeInitial, setSoldeInitial] = useState(SOLDE_BANCAIRE_INITIAL);
   const [dateReleve, setDateReleve] = useState(() => todayISO());
@@ -183,6 +186,28 @@ export default function Home() {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // État de connexion Pennylane : purement informatif pour l'UI (quel parcours proposer en
+  // premier dans "Identifier mes charges fixes" / "Vérifier mes données") — jamais le token
+  // lui-même, jamais utilisé pour dériver un company_id (les routes le font elles-mêmes).
+  useEffect(() => {
+    if (!supabaseConfigured || !session) {
+      setPennylaneConnecte(null);
+      return;
+    }
+    let annule = false;
+    fetch("/api/pennylane/status", { headers: { Authorization: `Bearer ${session.access_token}` } })
+      .then((res) => (res.ok ? res.json() : { connected: false }))
+      .then((data) => {
+        if (!annule) setPennylaneConnecte(Boolean(data.connected));
+      })
+      .catch(() => {
+        if (!annule) setPennylaneConnecte(false);
+      });
+    return () => {
+      annule = true;
+    };
+  }, [session]);
 
   useEffect(() => {
     if (!supabaseConfigured) return;
@@ -744,6 +769,9 @@ export default function Home() {
             <Link href="/account/billing" className="btn-secondaire">
               Abonnement
             </Link>
+            <Link href="/account/integrations" className="btn-secondaire">
+              Intégrations
+            </Link>
             <button type="button" className="btn-deconnexion" onClick={handleDeconnexion}>
               Se déconnecter
             </button>
@@ -863,7 +891,11 @@ export default function Home() {
         </SectionRepliable>
 
         <SectionRepliable titre="Identifier mes charges fixes" ouvertParDefaut={false}>
-          <ImportHistoriqueBancaire onValider={handleImporterChargesFixesDetectees} />
+          <ImportHistoriqueBancaire
+            onValider={handleImporterChargesFixesDetectees}
+            pennylaneConnecte={pennylaneConnecte === true}
+            accessToken={session?.access_token ?? null}
+          />
         </SectionRepliable>
 
         <SectionRepliable titre="Vérifier mes données" ouvertParDefaut={false}>
@@ -876,6 +908,8 @@ export default function Home() {
             onChangeFactureFournisseur={handleChangeFactureFournisseur}
             onChangeAutreDepense={handleChangeAutreDepense}
             onChangeFinancement={handleChangeFinancement}
+            pennylaneConnecte={pennylaneConnecte === true}
+            accessToken={session?.access_token ?? null}
           />
         </SectionRepliable>
 

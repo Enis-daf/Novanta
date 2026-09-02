@@ -4,7 +4,8 @@ import { ChangeEvent, useMemo, useRef, useState } from "react";
 import { AutreDepense, FactureClient, FactureFournisseur, Financement } from "@/lib/types";
 import { formatMontant } from "@/lib/format";
 import { formatDateCourte } from "@/lib/dates";
-import { ErreurImportBancaire, ResultatAnalyseBancaire, analyserFichierBancaireXlsx } from "@/lib/bankXlsxAdapter";
+import { ErreurImportBancaire, analyserFichierBancaireXlsx } from "@/lib/bankXlsxAdapter";
+import { NormalizedBankTransaction } from "@/lib/bankTransaction";
 import {
   ConsistencyIssue,
   ConsistencyIssueType,
@@ -22,6 +23,8 @@ interface VerifierMesDonneesProps {
   onChangeFactureFournisseur: (id: string, patch: Partial<FactureFournisseur>) => void;
   onChangeAutreDepense: (id: string, patch: Partial<AutreDepense>) => void;
   onChangeFinancement: (id: string, patch: Partial<Financement>) => void;
+  pennylaneConnecte?: boolean;
+  accessToken?: string | null;
 }
 
 const LIBELLES_TYPE: Record<ConsistencyIssueType, { singulier: string; pluriel: string }> = {
@@ -62,17 +65,37 @@ export default function VerifierMesDonnees({
   onChangeFactureFournisseur,
   onChangeAutreDepense,
   onChangeFinancement,
+  pennylaneConnecte = false,
+  accessToken = null,
 }: VerifierMesDonneesProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [chargement, setChargement] = useState(false);
-  const [erreur, setErreur] = useState<ErreurImportBancaire | null>(null);
+  const [erreur, setErreur] = useState<ErreurImportBancaire | string | null>(null);
   const [resultat, setResultat] = useState<ResultatControleCoherence | null>(null);
   const [ignorees, setIgnorees] = useState<Set<string>>(new Set());
+  // Formulaire XLSX visible par défaut si Pennylane n'est pas connecté ; sinon masqué derrière
+  // "Utiliser un fichier Excel" au profit d'"Analyser Pennylane" en action principale.
+  const [afficherXlsx, setAfficherXlsx] = useState(!pennylaneConnecte);
 
   const reinitialiser = () => {
     setErreur(null);
     setResultat(null);
     setIgnorees(new Set());
+  };
+
+  const executerControle = (transactions: NormalizedBankTransaction[]) => {
+    // controlerCoherence filtre lui-même aux 30 derniers jours — les transactions brutes ne sont
+    // jamais conservées au-delà de cet appel (aucun état ne les retient une fois le résultat calculé),
+    // que la source soit un fichier XLSX ou une récupération Pennylane.
+    setResultat(
+      controlerCoherence({
+        transactions,
+        facturesClients,
+        facturesFournisseurs,
+        autresDepenses,
+        financements,
+      })
+    );
   };
 
   const handleFichierSelectionne = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -83,19 +106,8 @@ export default function VerifierMesDonnees({
     reinitialiser();
     setChargement(true);
     try {
-      const analyse: ResultatAnalyseBancaire = await analyserFichierBancaireXlsx(fichier);
-      // Le fichier peut contenir plusieurs mois d'historique : controlerCoherence filtre lui-même
-      // aux 30 derniers jours — les transactions brutes ne sont jamais conservées au-delà de cet
-      // appel (aucun état ne les retient une fois le résultat calculé).
-      setResultat(
-        controlerCoherence({
-          transactions: analyse.transactions,
-          facturesClients,
-          facturesFournisseurs,
-          autresDepenses,
-          financements,
-        })
-      );
+      const analyse = await analyserFichierBancaireXlsx(fichier);
+      executerControle(analyse.transactions);
     } catch (err) {
       setErreur(
         err instanceof ErreurImportBancaire
@@ -104,6 +116,34 @@ export default function VerifierMesDonnees({
               "Impossible de lire ce fichier. Vérifiez qu'il s'agit bien d'un fichier Excel (.xlsx) valide."
             )
       );
+    } finally {
+      setChargement(false);
+    }
+  };
+
+  const handleAnalyserPennylane = async () => {
+    if (!accessToken) return;
+    reinitialiser();
+    setChargement(true);
+    try {
+      const res = await fetch("/api/pennylane/transactions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ usage: "consistency" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setErreur(data.error || "Connexion Pennylane impossible. Vérifiez le token et ses autorisations.");
+        return;
+      }
+      const transactions = data.transactions as NormalizedBankTransaction[];
+      if (transactions.length === 0) {
+        setErreur("Aucune transaction bancaire n'a été trouvée sur les 30 derniers jours.");
+        return;
+      }
+      executerControle(transactions);
+    } catch {
+      setErreur("Pennylane est temporairement indisponible. Réessayez.");
     } finally {
       setChargement(false);
     }
@@ -147,17 +187,40 @@ export default function VerifierMesDonnees({
     ignorer(issue.id); // traité : disparaît de la liste courante (session en cours uniquement)
   };
 
+  const messageErreur = erreur instanceof ErreurImportBancaire ? erreur.message : erreur;
+  const diagnostic = erreur instanceof ErreurImportBancaire ? erreur.diagnostic : undefined;
+
   return (
     <div className="table-wrapper">
       <div className="import-bancaire-intro">
         <h4>Vérifier la cohérence de mes données</h4>
         <p>
-          Importez un relevé bancaire Excel. Novanta analysera uniquement les 30 derniers jours et recherchera les
-          écarts potentiels avec vos données actuelles.
+          {pennylaneConnecte
+            ? "Novanta analysera uniquement les 30 derniers jours de vos transactions Pennylane et recherchera les écarts potentiels avec vos données actuelles."
+            : "Importez un relevé bancaire Excel. Novanta analysera uniquement les 30 derniers jours et recherchera les écarts potentiels avec vos données actuelles."}
         </p>
-        <button type="button" className="btn-add" onClick={() => inputRef.current?.click()} disabled={chargement}>
-          {chargement ? "Analyse en cours…" : "Importer un relevé .xlsx"}
-        </button>
+        <div className="import-boutons">
+          {pennylaneConnecte && (
+            <button type="button" className="btn-add" onClick={handleAnalyserPennylane} disabled={chargement}>
+              {chargement ? "Analyse en cours…" : "Analyser Pennylane"}
+            </button>
+          )}
+          {pennylaneConnecte && !afficherXlsx && (
+            <button type="button" className="btn-secondaire" onClick={() => setAfficherXlsx(true)} disabled={chargement}>
+              Utiliser un fichier Excel
+            </button>
+          )}
+          {(!pennylaneConnecte || afficherXlsx) && (
+            <button
+              type="button"
+              className={pennylaneConnecte ? "btn-secondaire" : "btn-add"}
+              onClick={() => inputRef.current?.click()}
+              disabled={chargement}
+            >
+              {chargement ? "Analyse en cours…" : "Importer un relevé .xlsx"}
+            </button>
+          )}
+        </div>
         <input
           ref={inputRef}
           type="file"
@@ -170,35 +233,33 @@ export default function VerifierMesDonnees({
       {erreur && (
         <div className="import-apercu">
           <p className="login-erreur">Import impossible</p>
-          {erreur.diagnostic ? (
+          {diagnostic ? (
             <>
-              <p>{erreur.diagnostic.totalLignes} ligne(s) détectée(s)</p>
+              <p>{diagnostic.totalLignes} ligne(s) détectée(s)</p>
               <ul className="diagnostic-colonnes">
-                <li className={erreur.diagnostic.date.ok ? "diagnostic-ok" : "diagnostic-echec"}>
-                  <span>{erreur.diagnostic.date.ok ? "✓" : "✕"}</span> Date transaction :{" "}
-                  {erreur.diagnostic.date.ok ? `"${erreur.diagnostic.date.detail}"` : erreur.diagnostic.date.detail}
+                <li className={diagnostic.date.ok ? "diagnostic-ok" : "diagnostic-echec"}>
+                  <span>{diagnostic.date.ok ? "✓" : "✕"}</span> Date transaction :{" "}
+                  {diagnostic.date.ok ? `"${diagnostic.date.detail}"` : diagnostic.date.detail}
                 </li>
-                <li className={erreur.diagnostic.libelle.ok ? "diagnostic-ok" : "diagnostic-echec"}>
-                  <span>{erreur.diagnostic.libelle.ok ? "✓" : "✕"}</span> Libellé :{" "}
-                  {erreur.diagnostic.libelle.ok
-                    ? `"${erreur.diagnostic.libelle.detail}"`
-                    : erreur.diagnostic.libelle.detail}
+                <li className={diagnostic.libelle.ok ? "diagnostic-ok" : "diagnostic-echec"}>
+                  <span>{diagnostic.libelle.ok ? "✓" : "✕"}</span> Libellé :{" "}
+                  {diagnostic.libelle.ok ? `"${diagnostic.libelle.detail}"` : diagnostic.libelle.detail}
                 </li>
-                <li className={erreur.diagnostic.montant.ok ? "diagnostic-ok" : "diagnostic-echec"}>
-                  <span>{erreur.diagnostic.montant.ok ? "✓" : "✕"}</span> Montant :{" "}
-                  {erreur.diagnostic.montant.ok
-                    ? `"${erreur.diagnostic.montant.detail}"`
-                    : erreur.diagnostic.montant.detail}
+                <li className={diagnostic.montant.ok ? "diagnostic-ok" : "diagnostic-echec"}>
+                  <span>{diagnostic.montant.ok ? "✓" : "✕"}</span> Montant :{" "}
+                  {diagnostic.montant.ok ? `"${diagnostic.montant.detail}"` : diagnostic.montant.detail}
                 </li>
               </ul>
             </>
           ) : (
-            <p>{erreur.message}</p>
+            <p>{messageErreur}</p>
           )}
           <div className="import-boutons">
-            <button type="button" className="btn-secondaire" onClick={() => inputRef.current?.click()}>
-              Choisir un autre fichier
-            </button>
+            {diagnostic && (
+              <button type="button" className="btn-secondaire" onClick={() => inputRef.current?.click()}>
+                Choisir un autre fichier
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -212,7 +273,7 @@ export default function VerifierMesDonnees({
               <>
                 {" "}
                 ({resultat.totalTransactions} transaction{resultat.totalTransactions > 1 ? "s" : ""} trouvée
-                {resultat.totalTransactions > 1 ? "s" : ""} dans le fichier)
+                {resultat.totalTransactions > 1 ? "s" : ""} sur la période récupérée)
               </>
             )}
           </p>
