@@ -57,14 +57,30 @@ describe("normaliserLibelleBancaire", () => {
     assert.equal(normaliserLibelleBancaire("ABONNEMENT REVUE 2026"), "ABONNEMENT REVUE");
   });
 
+  test("retire une date numérique JJ/MM en fin de libellé (cas réel : paiement carte quotidien)", () => {
+    // Le nom de ville ("NANTES") n'est pas retiré ici : c'est le rôle du bruit corpus, calculé par
+    // le détecteur sur l'ensemble des transactions, pas de la normalisation d'un libellé isolé.
+    assert.equal(normaliserLibelleBancaire("SIDRAS BAR NANTES 27/08"), "SIDRAS BAR NANTES");
+  });
+
+  test("retire une date numérique JJ/MM/AAAA", () => {
+    assert.equal(normaliserLibelleBancaire("ABONNEMENT REVUE 05/03/2026"), "ABONNEMENT REVUE");
+  });
+
+  test("ne retire pas deux nombres isolés qui n'ont pas la forme JJ/MM (pas de slash entre eux)", () => {
+    assert.equal(normaliserLibelleBancaire("BOUTIQUE ABC 27 08"), "BOUTIQUE ABC 27 08");
+  });
+
   test("retire la civilité générique M./Mme et conserve le nom", () => {
     assert.equal(normaliserLibelleBancaire("VIREMENT EMIS WEB M. ou Mme LECOCQ Remboursement"), "LECOCQ REMBOURSEMENT");
   });
 
-  test("retire le numéro de carte après PAIEMENT PAR CARTE", () => {
+  test("retire le numéro de carte après PAIEMENT PAR CARTE, et la date JJ/MM de fin de libellé", () => {
     // Le plafonnage à N tokens d'identité se fait dans le détecteur, pas ici : la normalisation
-    // seule retire uniquement le préfixe structurel et le numéro de carte, rien d'autre.
-    assert.equal(normaliserLibelleBancaire("PAIEMENT PAR CARTE X1361 CHRONOPOST Paris 26/08"), "CHRONOPOST PARIS 26 08");
+    // retire le préfixe structurel, le numéro de carte, et la date JJ/MM (format très courant en
+    // fin de libellé de paiement carte — sans ce retrait, un même commerçant se fragmenterait en
+    // un groupe différent par jour de paiement, voir retirerDatesNumeriques).
+    assert.equal(normaliserLibelleBancaire("PAIEMENT PAR CARTE X1361 CHRONOPOST Paris 26/08"), "CHRONOPOST PARIS");
   });
 
   test("retire un token structurel répété au milieu du libellé, pas seulement en tête", () => {

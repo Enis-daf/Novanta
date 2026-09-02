@@ -83,6 +83,134 @@ describe("detecterChargesRecurrentes — cadences de base", () => {
     const transactions = [transaction("2026-05-02", "SHOPIFY", -39), transaction("2026-06-02", "SHOPIFY", -39)];
     assert.equal(detecterChargesRecurrentes(transactions).length, 0);
   });
+
+  test("H. cadence calendaire de fin de mois (31/01, 28/02, 31/03, 30/04) : mensuelle", () => {
+    const transactions = [
+      transaction("2026-01-31", "ALARME", -47.88),
+      transaction("2026-02-28", "ALARME", -47.88),
+      transaction("2026-03-31", "ALARME", -47.88),
+      transaction("2026-04-30", "ALARME", -47.88),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].frequence, "mensuel");
+  });
+});
+
+// Cas issus d'un test client réel (fichier bancaire, janvier-août 2026) : deux charges manifestement
+// récurrentes (alarme, électricité) n'étaient pas détectées à cause d'un mois calendaire sauté
+// (prélèvement rejeté/rattrapé, facture non prélevée un mois) — voir ECART_MOIS_MAX_TOLERE et
+// RATIO_OCCURRENCES_PAR_MOIS_MAX dans bankRecurringDetector.ts. Fixtures anonymisées reproduisant
+// le pattern, jamais les données du client.
+describe("detecterChargesRecurrentes — tolérance aux mois sautés (régression client)", () => {
+  test("A. créancier + référence technique différente chaque mois, UN mois sauté (type Sector Alarm) : une seule série détectée malgré le trou", () => {
+    // Référence technique (SFR-xxxxx) différente à chaque occurrence, comme un vrai prélèvement SEPA
+    // — mois de février absent (prélèvement non trouvé ce mois-là dans le relevé).
+    const transactions = [
+      transactionBrute("2026-01-30", "Prelevement - Alarme Maison SAS-ALARME MAISON - SFR-01255852", -47.88),
+      // (février absent)
+      transactionBrute("2026-03-02", "Prelevement - Alarme Maison SAS-ALARME MAISON - SFR-01343317", -47.88),
+      transactionBrute("2026-03-30", "Prelevement - Alarme Maison SAS-ALARME MAISON - SFR-01447916", -47.88),
+      transactionBrute("2026-04-30", "Prelevement - Alarme Maison SAS-ALARME MAISON - SFR-01552661", -47.88),
+      // (mai absent)
+      transactionBrute("2026-06-01", "Prelevement - Alarme Maison SAS-ALARME MAISON - SFR-01655005", -47.88),
+      transactionBrute("2026-06-30", "Prelevement - Alarme Maison SAS-ALARME MAISON - SFR-01761440", -47.88),
+      transactionBrute("2026-07-30", "Prelevement - Alarme Maison SAS-ALARME MAISON - SFR-01871885", -47.88),
+      transactionBrute("2026-08-31", "Prelevement - Alarme Maison SAS-ALARME MAISON - SFR-01984089", -47.88),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].frequence, "mensuel");
+    assert.equal(candidats[0].nombreOccurrences, 8);
+    assert.equal(candidats[0].profilMontant, "stable");
+    assert.match(candidats[0].libellePropose, /Alarme Maison/i);
+  });
+
+  test("C. créancier + cadence mensuelle + montant significativement variable (type EDF), un mois sauté : détecté et qualifié Variable", () => {
+    const transactions = [
+      transactionBrute("2026-02-02", "Prelevement - ENERGIE DISTRIBUTION - LCP ALTERNATIVES Ref EN:0324103006", -148.61),
+      transactionBrute("2026-03-03", "Prelevement - ENERGIE DISTRIBUTION - EN - LCP ALTERNATIVES Ref EN:0324103006", -140.81),
+      transactionBrute("2026-03-31", "Prelevement - ENERGIE DISTRIBUTION - EN - LCP ALTERNATIVES Ref EN:0324103006", -128.88),
+      // (avril absent)
+      transactionBrute("2026-05-04", "Prelevement - ENERGIE DISTRIBUTION - EN - LCP ALTERNATIVES Ref EN:0324103006", -142.98),
+      transactionBrute("2026-06-01", "Prelevement - ENERGIE DISTRIBUTION - EN - LCP ALTERNATIVES Ref EN:0324103006", -147.49),
+      transactionBrute("2026-07-01", "Prelevement - ENERGIE DISTRIBUTION - EN - LCP ALTERNATIVES Ref EN:0324103006", -166.72),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].frequence, "mensuel");
+    assert.equal(candidats[0].profilMontant, "variable"); // variation ≠ absence de récurrence
+  });
+
+  test("deux mois sautés d'affilée : la tolérance ne va pas jusque-là, la série reste rejetée", () => {
+    const transactions = [
+      transaction("2026-01-15", "DIVERS SAS", -50),
+      // (février ET mars absents : écart de 3 mois)
+      transaction("2026-04-15", "DIVERS SAS", -50),
+      transaction("2026-05-15", "DIVERS SAS", -50),
+      transaction("2026-06-15", "DIVERS SAS", -50),
+    ];
+    assert.equal(detecterChargesRecurrentes(transactions).length, 0);
+  });
+
+  test("créancier fréquent (plusieurs paiements par mois, type dépenses courantes) : jamais classé mensuel malgré une présence tous les mois — règle de densité, pas de montant", () => {
+    // Même créancier, présent quasi chaque semaine sur 4 mois : techniquement "un mois ne se passe
+    // jamais sans occurrence", mais ce n'est pas une facture mensuelle — RATIO_OCCURRENCES_PAR_MOIS_MAX.
+    const transactions = [
+      transaction("2026-01-03", "BAR DU COIN", -12),
+      transaction("2026-01-10", "BAR DU COIN", -18),
+      transaction("2026-01-17", "BAR DU COIN", -9),
+      transaction("2026-02-02", "BAR DU COIN", -15),
+      transaction("2026-02-09", "BAR DU COIN", -22),
+      transaction("2026-02-16", "BAR DU COIN", -11),
+      transaction("2026-03-03", "BAR DU COIN", -14),
+      transaction("2026-03-10", "BAR DU COIN", -19),
+      transaction("2026-03-17", "BAR DU COIN", -8),
+      transaction("2026-04-02", "BAR DU COIN", -16),
+      transaction("2026-04-09", "BAR DU COIN", -20),
+      transaction("2026-04-16", "BAR DU COIN", -13),
+    ];
+    assert.equal(detecterChargesRecurrentes(transactions).length, 0);
+  });
+
+  test("2 occurrences par mois (salaire + régularisation) : reste dans la tolérance, toujours détecté", () => {
+    const transactions = [
+      transaction("2026-01-05", "EMPLOYEUR", -2000),
+      transaction("2026-01-28", "EMPLOYEUR", -150), // régularisation le même mois
+      transaction("2026-02-05", "EMPLOYEUR", -2000),
+      transaction("2026-03-05", "EMPLOYEUR", -2000),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].frequence, "mensuel");
+  });
+
+  test("D. référence technique différente à chaque occurrence (RUM-like) : n'empêche jamais le regroupement", () => {
+    const transactions = [
+      transactionBrute("2026-01-15", "Prelevement - FOURNISSEUR X - RUM:MA970001111111 REF:AAA111", -80),
+      transactionBrute("2026-02-15", "Prelevement - FOURNISSEUR X - RUM:MA970002222222 REF:BBB222", -80),
+      transactionBrute("2026-03-15", "Prelevement - FOURNISSEUR X - RUM:MA970003333333 REF:CCC333", -80),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].nombreOccurrences, 3);
+  });
+
+  test("date JJ/MM en fin de libellé de paiement carte (mensuel légitime, une seule occurrence/mois) : un seul candidat, jamais fragmenté par jour de paiement", () => {
+    // Sans le retrait de la date JJ/MM (retirerDatesNumeriques), le jour du mois survivait comme
+    // token d'identité et fragmentait un même commerçant en plusieurs groupes distincts (un par jour
+    // de paiement observé) — jamais assez d'occurrences par groupe pour atteindre le minimum.
+    const transactions = [
+      transactionBrute("2026-01-22", "Paiement par carte - X1234 STUDIO YOGA PARIS    22/01", -49),
+      transactionBrute("2026-02-22", "Paiement par carte - X1234 STUDIO YOGA PARIS    22/02", -49),
+      transactionBrute("2026-03-23", "Paiement par carte - X1234 STUDIO YOGA PARIS    23/03", -49),
+      transactionBrute("2026-04-22", "Paiement par carte - X1234 STUDIO YOGA PARIS    22/04", -49),
+    ];
+    const candidats = detecterChargesRecurrentes(transactions);
+    assert.equal(candidats.length, 1);
+    assert.equal(candidats[0].nombreOccurrences, 4);
+    assert.equal(candidats[0].frequence, "mensuel");
+  });
 });
 
 describe("detecterChargesRecurrentes — RÉCURRENCE = IDENTITÉ + CADENCE (montant = qualification)", () => {

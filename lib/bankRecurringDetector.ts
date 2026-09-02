@@ -79,14 +79,34 @@ function moisAbsolu(dateISO: string): number {
   return d.getFullYear() * 12 + d.getMonth();
 }
 
+// Une série mensuelle réelle rate parfois une échéance (prélèvement rejeté puis rattrapé le mois
+// suivant, facture EDF sautée un mois, cotisation en retard...) sans cesser d'être une charge
+// récurrente. Tolère qu'AU PLUS un mois calendaire soit sauté entre deux occurrences consécutives
+// (écart de 2 entre les mois présents plutôt que 1) — un écart plus grand (≥ 3, soit ≥ 2 mois
+// sautés d'affilée) n'est plus considéré comme une cadence mensuelle cohérente, pour continuer à
+// rejeter les séries erratiques (même créancier, dates sans aucune régularité).
+const ECART_MOIS_MAX_TOLERE = 2;
+
+// Une charge mensuelle légitime a au plus 1 occurrence par mois, parfois 2 (salaire + régularisation,
+// loyer + régul charges). Au-delà, ce n'est plus une facture mensuelle mais un même créancier payé
+// plusieurs fois par mois de façon répétée (dépenses courantes chez un commerçant, achats B2B
+// fréquents...) : la série touche "tous les mois" par pure fréquence, pas par cadence de facturation.
+// Règle de CADENCE (densité d'occurrences dans le temps), jamais une règle de montant — un créancier
+// à cadence réellement mensuelle passe cette règle quel que soit son profil de montant (stable ou
+// variable).
+const RATIO_OCCURRENCES_PAR_MOIS_MAX = 2;
+
 /**
  * Détecte une cadence hebdomadaire (écart ~7 jours, tolérance week-ends/jours ouvrés) ou une
- * cadence mensuelle calendaire (le mois avance de 1 à chaque occurrence, sans exiger un nombre
- * de jours précis — tolère nativement le glissement de fin de mois : 31 janvier, 28 février,
- * 31 mars, 30 avril). Pour la cadence mensuelle, plusieurs transactions le même mois calendaire
- * (ex: salaire + régularisation, loyer + régul charges) sont regroupées sur un seul "mois" avant de
- * vérifier la progression — elles ne cassent pas la cadence. Retourne null si aucune des deux
- * cadences n'est cohérente sur TOUTE la série (donc pas de quotidien/trimestriel/annuel en V1).
+ * cadence mensuelle calendaire (le mois avance de 1 à chaque occurrence, avec une tolérance d'au
+ * plus un mois sauté — voir ECART_MOIS_MAX_TOLERE — sans exiger un nombre de jours précis : tolère
+ * nativement le glissement de fin de mois : 31 janvier, 28 février, 31 mars, 30 avril). Pour la
+ * cadence mensuelle, plusieurs transactions le même mois calendaire (ex: salaire + régularisation,
+ * loyer + régul charges) sont regroupées sur un seul "mois" avant de vérifier la progression —
+ * elles ne cassent pas la cadence, mais une série dont la densité d'occurrences par mois dépasse
+ * RATIO_OCCURRENCES_PAR_MOIS_MAX (achats fréquents chez un même commerçant) n'est plus reconnue
+ * comme mensuelle. Retourne null si aucune des deux cadences n'est cohérente sur TOUTE la série
+ * (donc pas de quotidien/trimestriel/annuel en V1).
  */
 function detecterFrequence(datesTriees: string[]): FrequenceDetectee | null {
   if (datesTriees.length < 2) return null;
@@ -102,7 +122,10 @@ function detecterFrequence(datesTriees: string[]): FrequenceDetectee | null {
     const mois = moisAbsolu(date);
     if (moisUniques.length === 0 || moisUniques[moisUniques.length - 1] !== mois) moisUniques.push(mois);
   }
-  const toutMensuel = moisUniques.length >= 2 && moisUniques.every((m, i) => i === 0 || m - moisUniques[i - 1] === 1);
+  const toutMensuel =
+    moisUniques.length >= 2 &&
+    moisUniques.every((m, i) => i === 0 || m - moisUniques[i - 1] <= ECART_MOIS_MAX_TOLERE) &&
+    datesTriees.length / moisUniques.length <= RATIO_OCCURRENCES_PAR_MOIS_MAX;
   if (toutMensuel) return "mensuel";
 
   return null;
