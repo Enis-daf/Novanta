@@ -44,6 +44,13 @@ const PREFIXES_STRUCTURELS = new Set([
   "ICS",
   "IBAN",
   "BIC",
+  // Vocabulaire administratif du mandat/prélèvement SEPA — jamais un nom de créancier, quel que
+  // soit le fournisseur (RUM = "Référence Unique de Mandat", REF/SIRET/MANDAT génériques à toute
+  // référence bancaire ou d'entreprise).
+  "REF",
+  "RUM",
+  "SIRET",
+  "MANDAT",
 ]);
 
 const MOIS_LETTRES = new Set([
@@ -137,6 +144,21 @@ function retirerReferencesMultiBlocs(texte: string): string {
   return texte.replace(/\b\d+(?:-\d+){2,}\b/g, " ");
 }
 
+/**
+ * Retire, dans le texte BRUT (avant tokenisation, tant que le séparateur "/" est encore présent),
+ * une date numérique JJ/MM ou JJ/MM/AA(AA) — format très courant en fin de libellé de paiement par
+ * carte (ex: "SIDRAS BAR NANTES    27/08"). Sans ce retrait, "27" et "08" survivent comme deux
+ * tokens numériques ordinaires après tokenisation (le "/" devient un espace) : capturés dans les 3
+ * premiers tokens de la signature d'identité (une fois le nom de ville, souvent bruit corpus,
+ * retiré), ils fragmentent un même commerçant en autant de groupes que de jours de paiement
+ * différents au lieu d'un seul — jamais assez d'occurrences pour atteindre le minimum, ou pire,
+ * un jour qui revient par coïncidence forme un faux groupe. Ne retire QUE le motif JJ/MM(/AA(AA))
+ * complet ; un nombre isolé avec un slash ailleurs (rare) n'est pas concerné.
+ */
+function retirerDatesNumeriques(texte: string): string {
+  return texte.replace(/\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/g, " ");
+}
+
 const VOYELLES = new Set(["A", "E", "I", "O", "U", "Y"]);
 
 /**
@@ -188,8 +210,9 @@ function retirerTokensTechniques(tokens: string[]): string[] {
  */
 export function normaliserLibelleBancaire(labelOriginal: string): string {
   const sansReferencesMultiBlocs = retirerReferencesMultiBlocs(labelOriginal);
+  const sansDatesNumeriques = retirerDatesNumeriques(sansReferencesMultiBlocs);
 
-  const nettoye = sansReferencesMultiBlocs
+  const nettoye = sansDatesNumeriques
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toUpperCase()

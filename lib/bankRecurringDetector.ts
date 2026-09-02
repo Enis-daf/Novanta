@@ -79,14 +79,34 @@ function moisAbsolu(dateISO: string): number {
   return d.getFullYear() * 12 + d.getMonth();
 }
 
+// Une série mensuelle réelle rate parfois une échéance (prélèvement rejeté puis rattrapé le mois
+// suivant, facture EDF sautée un mois, cotisation en retard...) sans cesser d'être une charge
+// récurrente. Tolère qu'AU PLUS un mois calendaire soit sauté entre deux occurrences consécutives
+// (écart de 2 entre les mois présents plutôt que 1) — un écart plus grand (≥ 3, soit ≥ 2 mois
+// sautés d'affilée) n'est plus considéré comme une cadence mensuelle cohérente, pour continuer à
+// rejeter les séries erratiques (même créancier, dates sans aucune régularité).
+const ECART_MOIS_MAX_TOLERE = 2;
+
+// Une charge mensuelle légitime a au plus 1 occurrence par mois, parfois 2 (salaire + régularisation,
+// loyer + régul charges). Au-delà, ce n'est plus une facture mensuelle mais un même créancier payé
+// plusieurs fois par mois de façon répétée (dépenses courantes chez un commerçant, achats B2B
+// fréquents...) : la série touche "tous les mois" par pure fréquence, pas par cadence de facturation.
+// Règle de CADENCE (densité d'occurrences dans le temps), jamais une règle de montant — un créancier
+// à cadence réellement mensuelle passe cette règle quel que soit son profil de montant (stable ou
+// variable).
+const RATIO_OCCURRENCES_PAR_MOIS_MAX = 2;
+
 /**
  * Détecte une cadence hebdomadaire (écart ~7 jours, tolérance week-ends/jours ouvrés) ou une
- * cadence mensuelle calendaire (le mois avance de 1 à chaque occurrence, sans exiger un nombre
- * de jours précis — tolère nativement le glissement de fin de mois : 31 janvier, 28 février,
- * 31 mars, 30 avril). Pour la cadence mensuelle, plusieurs transactions le même mois calendaire
- * (ex: salaire + régularisation, loyer + régul charges) sont regroupées sur un seul "mois" avant de
- * vérifier la progression — elles ne cassent pas la cadence. Retourne null si aucune des deux
- * cadences n'est cohérente sur TOUTE la série (donc pas de quotidien/trimestriel/annuel en V1).
+ * cadence mensuelle calendaire (le mois avance de 1 à chaque occurrence, avec une tolérance d'au
+ * plus un mois sauté — voir ECART_MOIS_MAX_TOLERE — sans exiger un nombre de jours précis : tolère
+ * nativement le glissement de fin de mois : 31 janvier, 28 février, 31 mars, 30 avril). Pour la
+ * cadence mensuelle, plusieurs transactions le même mois calendaire (ex: salaire + régularisation,
+ * loyer + régul charges) sont regroupées sur un seul "mois" avant de vérifier la progression —
+ * elles ne cassent pas la cadence, mais une série dont la densité d'occurrences par mois dépasse
+ * RATIO_OCCURRENCES_PAR_MOIS_MAX (achats fréquents chez un même commerçant) n'est plus reconnue
+ * comme mensuelle. Retourne null si aucune des deux cadences n'est cohérente sur TOUTE la série
+ * (donc pas de quotidien/trimestriel/annuel en V1).
  */
 function detecterFrequence(datesTriees: string[]): FrequenceDetectee | null {
   if (datesTriees.length < 2) return null;
@@ -102,7 +122,10 @@ function detecterFrequence(datesTriees: string[]): FrequenceDetectee | null {
     const mois = moisAbsolu(date);
     if (moisUniques.length === 0 || moisUniques[moisUniques.length - 1] !== mois) moisUniques.push(mois);
   }
-  const toutMensuel = moisUniques.length >= 2 && moisUniques.every((m, i) => i === 0 || m - moisUniques[i - 1] === 1);
+  const toutMensuel =
+    moisUniques.length >= 2 &&
+    moisUniques.every((m, i) => i === 0 || m - moisUniques[i - 1] <= ECART_MOIS_MAX_TOLERE) &&
+    datesTriees.length / moisUniques.length <= RATIO_OCCURRENCES_PAR_MOIS_MAX;
   if (toutMensuel) return "mensuel";
 
   return null;
@@ -246,6 +269,70 @@ function mettreEnFormeLisible(tokens: string[]): string {
   return tokens.map((t) => (ACRONYMES_LEGAUX.has(t) ? t : t.charAt(0) + t.slice(1).toLowerCase())).join(" ");
 }
 
+// Longueur maximale de la phrase-cœur recherchée par extraireCoeurRepete — volontairement courte
+// (nom + éventuellement un second mot indissociable, ex. "SECTOR ALARM") : au-delà, ce n'est plus
+// un nom court et distinctif mais une description complète, ce qui n'est plus l'objectif ici.
+const LONGUEUR_MAX_COEUR_REPETE = 3;
+
+/**
+ * Cherche, DANS LES TOKENS D'UNE SEULE occurrence (déjà filtrés aux tokens stables du groupe), un
+ * token qui s'y répète (les libellés bancaires réels répètent souvent le nom du créancier — raison
+ * sociale + libellé commercial — dans une même ligne, ex. "SECTOR ALARM SAS-SECTOR ALARM",
+ * "SACEM SOC AUTEUR COMPOSITEUR ... SACEM"). Un libellé stable mais SANS répétition interne
+ * (immense majorité des cas : "OVH", "Shopify", "Amazon Business"...) ne contient par construction
+ * aucun token de fréquence ≥ 2 ici — l'appelant retombe alors sur la liste complète des tokens
+ * stables, comportement inchangé.
+ *
+ * Le token le plus répété sert de point de départ ; à égalité de répétition, celui qui apparaît en
+ * premier dans le libellé (une banque place généralement le nom du créancier avant les qualificatifs
+ * qui le décrivent). La phrase est ensuite étendue d'un token à la fois — à droite puis à gauche —
+ * UNIQUEMENT si ce token voisin est EXACTEMENT LE MÊME à CHACUNE des occurrences du motif de départ :
+ * c'est ce qui distingue une vraie extension du nom ("SECTOR" toujours suivi de "ALARM" → phrase
+ * "SECTOR ALARM") d'un voisinage accidentel qui varie ("SACEM" suivi tantôt de "SOC", tantôt de
+ * "01"/"SEL" → l'extension s'arrête, "SACEM" reste seul). Retourne null si aucun token ne se répète.
+ */
+function extraireCoeurRepete(tokens: string[]): string[] | null {
+  const positionsParToken = new Map<string, number[]>();
+  tokens.forEach((token, i) => {
+    const positions = positionsParToken.get(token) ?? [];
+    positions.push(i);
+    positionsParToken.set(token, positions);
+  });
+
+  let seedPositions: number[] | null = null;
+  for (const positions of positionsParToken.values()) {
+    if (positions.length < 2) continue;
+    if (
+      !seedPositions ||
+      positions.length > seedPositions.length ||
+      (positions.length === seedPositions.length && positions[0] < seedPositions[0])
+    ) {
+      seedPositions = positions;
+    }
+  }
+  if (!seedPositions) return null;
+
+  let debut = 0; // nombre de tokens ajoutés AVANT le token de départ
+  let fin = 0; // nombre de tokens ajoutés APRÈS le token de départ
+
+  while (debut + fin + 1 < LONGUEUR_MAX_COEUR_REPETE) {
+    const indexSuivants = seedPositions.map((p) => p + fin + 1);
+    if (indexSuivants.every((i) => i < tokens.length) && new Set(indexSuivants.map((i) => tokens[i])).size === 1) {
+      fin++;
+      continue;
+    }
+    const indexPrecedents = seedPositions.map((p) => p - debut - 1);
+    if (indexPrecedents.every((i) => i >= 0) && new Set(indexPrecedents.map((i) => tokens[i])).size === 1) {
+      debut++;
+      continue;
+    }
+    break;
+  }
+
+  const [premierePos] = seedPositions;
+  return tokens.slice(premierePos - debut, premierePos + fin + 1);
+}
+
 /**
  * Construit le libellé métier proposé à partir de TOUTES les occurrences du groupe (jamais d'une
  * seule occurrence choisie arbitrairement). Retourne null si aucun token n'est assez stable —
@@ -286,6 +373,14 @@ function construireLibelleMetier(
     }
   }
   if (tokensRetenus.length === 0) return null;
+
+  // Si le nom du créancier est répété dans le libellé (très fréquent en pratique), préférer ce
+  // cœur court et distinctif à la concaténation de tous les tokens stables — qui inclurait aussi
+  // tout le contexte administratif environnant, lui aussi stable si le format bancaire ne varie
+  // pas d'un mois à l'autre (voir extraireCoeurRepete). Sans répétition (cas normal), rien ne
+  // change : la liste complète des tokens stables reste utilisée comme avant.
+  const coeurRepete = extraireCoeurRepete(tokensRetenus);
+  if (coeurRepete) tokensRetenus = coeurRepete;
 
   tokensRetenus = retirerAcronymesTardifs(tokensRetenus);
   tokensRetenus = retirerRedondancesSousChaines(tokensRetenus);
