@@ -152,14 +152,6 @@ input[type="checkbox"] {
   gap: 24px;
 }
 
-/* Sections gardées montées (voir SectionRepliable demonterAuRepli={false}) : sans cette règle,
-   l'attribut HTML `hidden` serait silencieusement ignoré, car `.section-contenu{display:flex}`
-   a la même spécificité que la règle native `[hidden]{display:none}` et une règle d'origine
-   auteur l'emporte toujours sur une règle d'origine navigateur à spécificité égale. */
-.section-contenu[hidden] {
-  display: none;
-}
-
 .section-titre {
   position: relative;
   margin: 0;

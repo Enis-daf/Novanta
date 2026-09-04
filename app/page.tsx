@@ -890,7 +890,7 @@ export default function Home() {
           />
         </SectionRepliable>
 
-        <SectionRepliable titre="Identifier mes charges fixes" ouvertParDefaut={false} demonterAuRepli={false}>
+        <SectionRepliable titre="Identifier mes charges fixes" ouvertParDefaut={false}>
           <ImportHistoriqueBancaire
             onValider={handleImporterChargesFixesDetectees}
             pennylaneConnecte={pennylaneConnecte === true}
@@ -898,7 +898,7 @@ export default function Home() {
           />
         </SectionRepliable>
 
-        <SectionRepliable titre="Vérifier mes données" ouvertParDefaut={false} demonterAuRepli={false}>
+        <SectionRepliable titre="Vérifier mes données" ouvertParDefaut={false}>
           <VerifierMesDonnees
             facturesClients={facturesClients}
             facturesFournisseurs={facturesFournisseurs}
