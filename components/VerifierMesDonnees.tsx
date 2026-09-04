@@ -9,10 +9,10 @@ import { NormalizedBankTransaction } from "@/lib/bankTransaction";
 import {
   ConsistencyIssue,
   ConsistencyIssueType,
-  ResultatControleCoherence,
   controlerCoherence,
   trierIssuesParImpact,
 } from "@/lib/consistencyChecker";
+import { useAnalyseSession } from "./AnalyseSessionContext";
 
 interface VerifierMesDonneesProps {
   facturesClients: FactureClient[];
@@ -71,23 +71,32 @@ export default function VerifierMesDonnees({
   const inputRef = useRef<HTMLInputElement>(null);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<ErreurImportBancaire | string | null>(null);
-  const [resultat, setResultat] = useState<ResultatControleCoherence | null>(null);
-  const [ignorees, setIgnorees] = useState<Set<string>>(new Set());
   // Formulaire XLSX visible par défaut si Pennylane n'est pas connecté ; sinon masqué derrière
   // "Utiliser un fichier Excel" au profit d'"Analyser Pennylane" en action principale.
   const [afficherXlsx, setAfficherXlsx] = useState(!pennylaneConnecte);
 
+  // Résultat de l'analyse en cours : dans AnalyseSessionContext (monté dans app/layout.tsx), pas
+  // dans un useState local — ce composant est démonté à chaque navigation vers /account/billing ou
+  // /account/integrations (liens "Abonnement"/"Intégrations"), donc un useState local ne survit pas
+  // à l'aller-retour. Voir AnalyseSessionContext.tsx pour la chaîne causale complète.
+  const {
+    resultatVerification: resultat,
+    ignoreesVerification: ignorees,
+    definirResultatVerification,
+    ignorerVerification,
+    reinitialiserVerification,
+  } = useAnalyseSession();
+
   const reinitialiser = () => {
     setErreur(null);
-    setResultat(null);
-    setIgnorees(new Set());
+    reinitialiserVerification();
   };
 
   const executerControle = (transactions: NormalizedBankTransaction[]) => {
     // controlerCoherence filtre lui-même aux 30 derniers jours — les transactions brutes ne sont
     // jamais conservées au-delà de cet appel (aucun état ne les retient une fois le résultat calculé),
     // que la source soit un fichier XLSX ou une récupération Pennylane.
-    setResultat(
+    definirResultatVerification(
       controlerCoherence({
         transactions,
         facturesClients,
@@ -166,7 +175,7 @@ export default function VerifierMesDonnees({
     return [...parType.entries()];
   }, [issuesVisibles]);
 
-  const ignorer = (id: string) => setIgnorees((prev) => new Set(prev).add(id));
+  const ignorer = ignorerVerification;
 
   // Règle absolue : le moteur détecte, l'utilisateur valide, Novanta modifie. Cette fonction n'est
   // JAMAIS appelée automatiquement — uniquement au clic explicite sur le bouton d'action ci-dessous.

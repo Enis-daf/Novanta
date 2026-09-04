@@ -12,31 +12,13 @@ import {
   detecterChargesRecurrentes,
   trierCandidatsPourAffichage,
 } from "@/lib/bankRecurringDetector";
+import { CandidatBrouillon, useAnalyseSession } from "./AnalyseSessionContext";
 import DateField from "./DateField";
 
 interface ImportHistoriqueBancaireProps {
   onValider: (chargesFixes: ChargeFixe[]) => void;
   pennylaneConnecte?: boolean;
   accessToken?: string | null;
-}
-
-interface CandidatBrouillon {
-  id: string;
-  selectionne: boolean;
-  libelle: string;
-  montant: number;
-  frequence: FrequenceDetectee;
-  prochaineOccurrence: string;
-  source: RecurringChargeCandidate;
-}
-
-// Résumé de la période analysée, indépendant de la source (XLSX ou Pennylane) — alimente le même
-// bandeau d'aperçu et le même écran de validation des candidats, quelle que soit l'origine des
-// transactions : detecterChargesRecurrentes() ne sait jamais d'où elles viennent.
-interface ApercuAnalyse {
-  nombreTransactions: number;
-  periode: { debut: string; fin: string } | null;
-  infoComplementaire: string | null;
 }
 
 function candidatVersBrouillon(candidat: RecurringChargeCandidate): CandidatBrouillon {
@@ -65,29 +47,40 @@ export default function ImportHistoriqueBancaire({
   const inputRef = useRef<HTMLInputElement>(null);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<ErreurImportBancaire | string | null>(null);
-  const [apercu, setApercu] = useState<ApercuAnalyse | null>(null);
-  const [candidats, setCandidats] = useState<CandidatBrouillon[]>([]);
   const [creationEnCours, setCreationEnCours] = useState(false);
   // Formulaire XLSX visible par défaut si Pennylane n'est pas connecté ; sinon masqué derrière
   // "Utiliser un fichier Excel" au profit d'"Analyser Pennylane" en action principale.
   const [afficherXlsx, setAfficherXlsx] = useState(!pennylaneConnecte);
 
+  // Résultats de l'analyse en cours : dans AnalyseSessionContext (monté dans app/layout.tsx), pas
+  // dans un useState local — ce composant est démonté à chaque navigation vers /account/billing ou
+  // /account/integrations (liens "Abonnement"/"Intégrations"), donc un useState local ne survit pas
+  // à l'aller-retour. Voir AnalyseSessionContext.tsx pour la chaîne causale complète.
+  const {
+    apercuChargesFixes: apercu,
+    candidatsChargesFixes: candidats,
+    definirAnalyseChargesFixes,
+    patchCandidatChargesFixes,
+    reinitialiserChargesFixes,
+  } = useAnalyseSession();
+
   const reinitialiser = () => {
     setErreur(null);
-    setApercu(null);
-    setCandidats([]);
+    reinitialiserChargesFixes();
   };
 
   const traiterTransactions = (transactions: NormalizedBankTransaction[], infoComplementaire: string | null) => {
-    setApercu({
-      nombreTransactions: transactions.length,
-      periode: periodeDepuisTransactions(transactions),
-      infoComplementaire,
-    });
     // Même moteur, même tri d'affichage, que la source soit XLSX ou Pennylane — voir
     // lib/pennylaneTransactionAdapter.ts pour la preuve d'équivalence.
     const candidatsDetectes = trierCandidatsPourAffichage(detecterChargesRecurrentes(transactions));
-    setCandidats(candidatsDetectes.map(candidatVersBrouillon));
+    definirAnalyseChargesFixes(
+      {
+        nombreTransactions: transactions.length,
+        periode: periodeDepuisTransactions(transactions),
+        infoComplementaire,
+      },
+      candidatsDetectes.map(candidatVersBrouillon)
+    );
   };
 
   const handleFichierSelectionne = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -142,9 +135,7 @@ export default function ImportHistoriqueBancaire({
     }
   };
 
-  const patchCandidat = (id: string, patch: Partial<CandidatBrouillon>) => {
-    setCandidats((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-  };
+  const patchCandidat = patchCandidatChargesFixes;
 
   const nombreSelectionnes = candidats.filter((c) => c.selectionne).length;
 

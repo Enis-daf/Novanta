@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Lexend } from "next/font/google";
 import "./globals.css";
+import { AnalyseSessionProvider } from "@/components/AnalyseSessionContext";
 
 const lexend = Lexend({ subsets: ["latin"], variable: "--font-lexend" });
 
@@ -12,7 +13,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="fr" className={lexend.variable}>
-      <body>{children}</body>
+      <body>
+        {/* Seul point réellement commun à "/" et "/account/*" : voir AnalyseSessionContext.tsx
+            pour pourquoi l'état des analyses doit vivre ici et pas plus bas. */}
+        <AnalyseSessionProvider>{children}</AnalyseSessionProvider>
+      </body>
     </html>
   );
 }
