@@ -1057,7 +1057,14 @@ export default function Home() {
         </SectionRepliable>
 
         <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>
-          <ImportFactures onImporter={handleImporterFactures} />
+          <ImportFactures
+            onImporter={handleImporterFactures}
+            pennylaneConnecte={pennylaneConnecte === true}
+            onSynchroniserPennylane={handleClicSynchroniserPennylane}
+            syncPennylaneEnCours={syncPennylaneEnCours}
+            syncPennylaneResultat={syncPennylaneResultat}
+            syncPennylaneErreur={syncPennylaneErreur}
+          />
         </SectionRepliable>
 
         <SectionRepliable titre="Contrôle mensuel" ouvertParDefaut={false}>

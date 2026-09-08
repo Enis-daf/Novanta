@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { FactureClient, FactureFournisseur } from "@/lib/types";
 import { formatMontant } from "@/lib/format";
 import {
@@ -9,12 +10,26 @@ import {
   lireFichierImport,
   validerLignesImport,
 } from "@/lib/importFactures";
+import { ResultatSyncPennylane } from "@/lib/pennylaneInvoiceAdapter";
 
 interface ImportFacturesProps {
   onImporter: (facturesClients: FactureClient[], facturesFournisseurs: FactureFournisseur[]) => void;
+  pennylaneConnecte?: boolean;
+  onSynchroniserPennylane?: () => void;
+  syncPennylaneEnCours?: boolean;
+  syncPennylaneResultat?: ResultatSyncPennylane | null;
+  syncPennylaneErreur?: string | null;
 }
 
-export default function ImportFactures({ onImporter }: ImportFacturesProps) {
+export default function ImportFactures({
+  onImporter,
+  pennylaneConnecte = false,
+  onSynchroniserPennylane,
+  syncPennylaneEnCours = false,
+  syncPennylaneResultat = null,
+  syncPennylaneErreur = null,
+}: ImportFacturesProps) {
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [resultat, setResultat] = useState<ResultatImport | null>(null);
   const [erreurLecture, setErreurLecture] = useState<string | null>(null);
@@ -65,7 +80,21 @@ export default function ImportFactures({ onImporter }: ImportFacturesProps) {
   return (
     <div className="table-wrapper">
       <div className="import-actions">
-        <button type="button" className="btn-add" onClick={() => inputRef.current?.click()}>
+        {onSynchroniserPennylane && (
+          <button
+            type="button"
+            className="btn-add"
+            onClick={pennylaneConnecte ? onSynchroniserPennylane : () => router.push("/account/integrations")}
+            disabled={syncPennylaneEnCours}
+          >
+            {!pennylaneConnecte
+              ? "Connecter Pennylane"
+              : syncPennylaneEnCours
+                ? "Synchronisation en cours…"
+                : "Synchroniser Pennylane"}
+          </button>
+        )}
+        <button type="button" className="btn-secondaire" onClick={() => inputRef.current?.click()}>
           Importer des factures
         </button>
         <button type="button" className="btn-secondaire" onClick={handleTelechargerModele}>
@@ -79,6 +108,29 @@ export default function ImportFactures({ onImporter }: ImportFacturesProps) {
           style={{ display: "none" }}
         />
       </div>
+
+      {syncPennylaneErreur && <div className="login-erreur">{syncPennylaneErreur}</div>}
+      {syncPennylaneResultat && (
+        <div className="import-apercu">
+          <p>
+            Pennylane synchronisé — {syncPennylaneResultat.nombreClientsAjoutes} facture
+            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""} client
+            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""} ajoutée
+            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""}, {syncPennylaneResultat.nombreFournisseursAjoutes} facture
+            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""} fournisseur
+            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""} ajoutée
+            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""}, {syncPennylaneResultat.nombreMarquesPayees} facture
+            {syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""} marquée
+            {syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""} payée{syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""}.
+          </p>
+          {syncPennylaneResultat.erreurClients && (
+            <p className="login-erreur">Factures clients : {syncPennylaneResultat.erreurClients}</p>
+          )}
+          {syncPennylaneResultat.erreurFournisseurs && (
+            <p className="login-erreur">Factures fournisseurs : {syncPennylaneResultat.erreurFournisseurs}</p>
+          )}
+        </div>
+      )}
 
       {erreurLecture && <div className="login-erreur">{erreurLecture}</div>}
 
