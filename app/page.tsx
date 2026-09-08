@@ -640,6 +640,8 @@ export default function Home() {
       );
 
       setSyncPennylaneResultat({
+        nombreClientsAnalysees: Array.isArray(data.clientCandidates) ? data.clientCandidates.length : 0,
+        nombreFournisseursAnalysees: Array.isArray(data.fournisseurCandidates) ? data.fournisseurCandidates.length : 0,
         nombreClientsAjoutes,
         nombreFournisseursAjoutes,
         nombreMarquesPayees: idsClientsAMettreAJourPayee.length + idsFournisseursAMettreAJourPayee.length,

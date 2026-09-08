@@ -13,7 +13,7 @@ import {
 } from "@/lib/dates";
 import { filtrerFacturesClients } from "@/lib/recherche";
 import { OccurrencesParId } from "@/lib/periodeFiltre";
-import { ResultatSyncPennylane } from "@/lib/pennylaneInvoiceAdapter";
+import { messageSyncPennylane, ResultatSyncPennylane } from "@/lib/pennylaneInvoiceAdapter";
 import DateField from "./DateField";
 
 interface FacturesClientsTableProps {
@@ -187,13 +187,10 @@ export default function FacturesClientsTable({
       </table>
       )}
       <div className="import-actions">
-        <button type="button" className="btn-add" onClick={onAdd}>
-          + Ajouter une facture client
-        </button>
         {onSynchroniserPennylane && (
           <button
             type="button"
-            className="btn-secondaire"
+            className="btn-add"
             onClick={pennylaneConnecte ? onSynchroniserPennylane : () => router.push("/account/integrations")}
             disabled={syncPennylaneEnCours}
           >
@@ -204,22 +201,15 @@ export default function FacturesClientsTable({
                 : "Synchroniser Pennylane"}
           </button>
         )}
+        <button type="button" className="btn-secondaire" onClick={onAdd}>
+          + Ajouter une facture client
+        </button>
       </div>
 
       {syncPennylaneErreur && <p className="login-erreur">{syncPennylaneErreur}</p>}
       {syncPennylaneResultat && (
         <div className="import-apercu">
-          <p>
-            Pennylane synchronisé — {syncPennylaneResultat.nombreClientsAjoutes} facture
-            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""} client
-            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""} ajoutée
-            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""}, {syncPennylaneResultat.nombreFournisseursAjoutes} facture
-            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""} fournisseur
-            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""} ajoutée
-            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""}, {syncPennylaneResultat.nombreMarquesPayees} facture
-            {syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""} marquée
-            {syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""} payée{syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""}.
-          </p>
+          <p>{messageSyncPennylane(syncPennylaneResultat)}</p>
           {syncPennylaneResultat.erreurClients && (
             <p className="login-erreur">Factures clients : {syncPennylaneResultat.erreurClients}</p>
           )}

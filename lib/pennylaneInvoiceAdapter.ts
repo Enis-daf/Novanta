@@ -17,11 +17,46 @@ import { FactureClient, FactureFournisseur } from "./types";
  * synchronisation, affichée aux deux endroits où elle peut être déclenchée.
  */
 export interface ResultatSyncPennylane {
+  // Nombre total de factures candidates renvoyées par Pennylane (avant le rapprochement avec
+  // l'existant Novanta) — permet de distinguer "0 ajoutée parce qu'aucune facture chez Pennylane"
+  // de "0 ajoutée parce que déjà toutes importées" : sans ce chiffre, les deux cas semblent
+  // identiques et un utilisateur ne peut pas savoir si la synchro a bien tourné.
+  nombreClientsAnalysees: number;
+  nombreFournisseursAnalysees: number;
   nombreClientsAjoutes: number;
   nombreFournisseursAjoutes: number;
   nombreMarquesPayees: number;
   erreurClients: string | null;
   erreurFournisseurs: string | null;
+}
+
+function pluriel(n: number, mot: string): string {
+  return n > 1 ? `${mot}s` : mot;
+}
+
+/**
+ * Message affiché après une synchronisation — factorisé ici (plutôt que dupliqué dans
+ * FacturesClientsTable/FacturesFournisseursTable/ImportFactures, les trois endroits où le résultat
+ * s'affiche) pour qu'un seul texte, un seul calcul de pluriel, ne puisse jamais diverger entre les
+ * trois. Distingue explicitement "analysée" (trouvée chez Pennylane) de "ajoutée" (réellement
+ * nouvelle pour Novanta) : un utilisateur qui relance une synchro déjà à jour voit "0 ajoutée" à
+ * côté de "X analysées", ce qui explique le 0 au lieu de ressembler à un échec silencieux.
+ */
+export function messageSyncPennylane(r: ResultatSyncPennylane): string {
+  const fournisseurs = `${r.nombreFournisseursAnalysees} ${pluriel(r.nombreFournisseursAnalysees, "facture")} fournisseur${
+    r.nombreFournisseursAnalysees > 1 ? "s" : ""
+  } chez Pennylane, ${r.nombreFournisseursAjoutes} nouvelle${r.nombreFournisseursAjoutes > 1 ? "s" : ""} importée${
+    r.nombreFournisseursAjoutes > 1 ? "s" : ""
+  }`;
+  const clients = `${r.nombreClientsAnalysees} ${pluriel(r.nombreClientsAnalysees, "facture")} client${
+    r.nombreClientsAnalysees > 1 ? "s" : ""
+  } chez Pennylane, ${r.nombreClientsAjoutes} nouvelle${r.nombreClientsAjoutes > 1 ? "s" : ""} importée${
+    r.nombreClientsAjoutes > 1 ? "s" : ""
+  }`;
+  const payees = `${r.nombreMarquesPayees} ${pluriel(r.nombreMarquesPayees, "facture")} marquée${
+    r.nombreMarquesPayees > 1 ? "s" : ""
+  } payée${r.nombreMarquesPayees > 1 ? "s" : ""}`;
+  return `Pennylane synchronisé — Fournisseurs : ${fournisseurs}. Clients : ${clients}. ${payees} au total.`;
 }
 
 /**

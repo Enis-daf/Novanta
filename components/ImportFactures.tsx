@@ -10,7 +10,7 @@ import {
   lireFichierImport,
   validerLignesImport,
 } from "@/lib/importFactures";
-import { ResultatSyncPennylane } from "@/lib/pennylaneInvoiceAdapter";
+import { messageSyncPennylane, ResultatSyncPennylane } from "@/lib/pennylaneInvoiceAdapter";
 
 interface ImportFacturesProps {
   onImporter: (facturesClients: FactureClient[], facturesFournisseurs: FactureFournisseur[]) => void;
@@ -112,17 +112,7 @@ export default function ImportFactures({
       {syncPennylaneErreur && <div className="login-erreur">{syncPennylaneErreur}</div>}
       {syncPennylaneResultat && (
         <div className="import-apercu">
-          <p>
-            Pennylane synchronisé — {syncPennylaneResultat.nombreClientsAjoutes} facture
-            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""} client
-            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""} ajoutée
-            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""}, {syncPennylaneResultat.nombreFournisseursAjoutes} facture
-            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""} fournisseur
-            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""} ajoutée
-            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""}, {syncPennylaneResultat.nombreMarquesPayees} facture
-            {syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""} marquée
-            {syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""} payée{syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""}.
-          </p>
+          <p>{messageSyncPennylane(syncPennylaneResultat)}</p>
           {syncPennylaneResultat.erreurClients && (
             <p className="login-erreur">Factures clients : {syncPennylaneResultat.erreurClients}</p>
           )}

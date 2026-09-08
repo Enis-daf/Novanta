@@ -10,6 +10,8 @@ import {
   estAvoir,
   extraireTiersEtNumero,
   FactureExistantePourSync,
+  messageSyncPennylane,
+  ResultatSyncPennylane,
 } from "./pennylaneInvoiceAdapter";
 import { PennylaneCustomerInvoiceListItem, PennylaneSupplierInvoiceListItem } from "./pennylaneClient";
 
@@ -298,5 +300,46 @@ describe("candidatVersFactureClient / candidatVersFactureFournisseur — convers
     const a = candidatVersFactureClient(candidat);
     const b = candidatVersFactureClient(candidat);
     assert.notEqual(a.id, b.id);
+  });
+});
+
+describe("messageSyncPennylane — distingue explicitement analysée (trouvée) de ajoutée (nouvelle)", () => {
+  function resultat(overrides: Partial<ResultatSyncPennylane> = {}): ResultatSyncPennylane {
+    return {
+      nombreClientsAnalysees: 0,
+      nombreFournisseursAnalysees: 0,
+      nombreClientsAjoutes: 0,
+      nombreFournisseursAjoutes: 0,
+      nombreMarquesPayees: 0,
+      erreurClients: null,
+      erreurFournisseurs: null,
+      ...overrides,
+    };
+  }
+
+  test("0 analysée, 0 ajoutée -> le message le dit explicitement (jamais ambigu avec un échec silencieux)", () => {
+    const msg = messageSyncPennylane(resultat());
+    assert.ok(msg.includes("0 facture fournisseur"));
+    assert.ok(msg.includes("0 nouvelle importée"));
+  });
+
+  test("115 analysées, 0 ajoutée (déjà toutes importées) -> les deux chiffres apparaissent, différents", () => {
+    const msg = messageSyncPennylane(resultat({ nombreFournisseursAnalysees: 115, nombreFournisseursAjoutes: 0 }));
+    assert.ok(msg.includes("115 factures fournisseurs"));
+    assert.ok(msg.includes("0 nouvelle importée"));
+  });
+
+  test("39 analysées, 39 ajoutées (premier import) -> les deux chiffres coïncident", () => {
+    const msg = messageSyncPennylane(resultat({ nombreFournisseursAnalysees: 39, nombreFournisseursAjoutes: 39 }));
+    assert.ok(msg.includes("39 factures fournisseurs"));
+    assert.ok(msg.includes("39 nouvelles importées"));
+  });
+
+  test("pluriel correct au singulier (1 facture, pas de s)", () => {
+    const msg = messageSyncPennylane(resultat({ nombreFournisseursAnalysees: 1, nombreFournisseursAjoutes: 1, nombreMarquesPayees: 1 }));
+    assert.ok(msg.includes("1 facture fournisseur"));
+    assert.ok(!msg.includes("1 facture fournisseurs"));
+    assert.ok(msg.includes("1 nouvelle importée"));
+    assert.ok(msg.includes("1 facture marquée payée"));
   });
 });
