@@ -32,13 +32,6 @@ interface ReponseType {
  */
 async function candidatsClients(provider: PennylaneCredentialProvider): Promise<CandidatFacturePennylane[]> {
   const brutes = await listCustomerInvoices(provider);
-  // Diagnostic temporaire (jamais de données sensibles, uniquement des compteurs) : distingue
-  // "0 facture chez Pennylane" de "des factures existent mais sont filtrées (brouillon/avoir)".
-  const nbDrafts = brutes.filter((b) => b.draft).length;
-  const nbAvoirs = brutes.filter((b) => !b.draft && Number(b.amount) < 0).length;
-  console.log(
-    `[pennylane/invoices][diagnostic] customer_invoices bruts=${brutes.length} drafts=${nbDrafts} avoirs=${nbAvoirs}`
-  );
   const candidats: CandidatFacturePennylane[] = [];
   for (const brute of brutes) {
     const candidat = candidatFactureClient(brute);
@@ -49,11 +42,6 @@ async function candidatsClients(provider: PennylaneCredentialProvider): Promise<
 
 async function candidatsFournisseurs(provider: PennylaneCredentialProvider): Promise<CandidatFacturePennylane[]> {
   const brutes = await listSupplierInvoices(provider);
-  const nbPayees = brutes.filter((b) => b.paid).length;
-  const nbAvoirs = brutes.filter((b) => Number(b.amount) < 0).length;
-  console.log(
-    `[pennylane/invoices][diagnostic] supplier_invoices bruts=${brutes.length} deja_payees=${nbPayees} avoirs=${nbAvoirs}`
-  );
   const candidats: CandidatFacturePennylane[] = [];
   for (const brute of brutes) {
     const candidat = candidatFactureFournisseur(brute);
