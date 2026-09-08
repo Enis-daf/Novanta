@@ -71,6 +71,8 @@ import {
   importerChargesFixes,
   importerFacturesClients,
   importerFacturesFournisseurs,
+  marquerFacturesClientsPayees,
+  marquerFacturesFournisseursPayees,
   sauvegarderDateReleve,
   sauvegarderFactureClient,
   sauvegarderFactureFournisseur,
@@ -520,6 +522,45 @@ export default function Home() {
     }
   };
 
+  // Synchronisation Pennylane des factures : le diff (insertion vs mise à jour) est déjà calculé
+  // par ImportFactures.tsx (lib/pennylaneInvoiceAdapter.ts::calculerSynchronisation) — ce handler
+  // ne fait qu'appliquer le résultat, exactement comme handleImporterFactures pour les nouvelles
+  // factures. Les mises à jour "Payée" ne touchent JAMAIS que payee/paidAt (voir
+  // marquerFacturesClientsPayees/Fournisseurs), jamais dateEcheance/litigieuse/autres réglages
+  // utilisateur.
+  const handleSynchroniserPennylaneFactures = (
+    nouvellesFacturesClients: FactureClient[],
+    nouvellesFacturesFournisseurs: FactureFournisseur[],
+    idsClientsAMettreAJourPayee: string[],
+    idsFournisseursAMettreAJourPayee: string[]
+  ) => {
+    if (nouvellesFacturesClients.length > 0) {
+      setFacturesClients((prev) => [...prev, ...nouvellesFacturesClients]);
+      if (companyId) persist(() => importerFacturesClients(companyId, nouvellesFacturesClients));
+    }
+    if (nouvellesFacturesFournisseurs.length > 0) {
+      setFacturesFournisseurs((prev) => [...prev, ...nouvellesFacturesFournisseurs]);
+      if (companyId) persist(() => importerFacturesFournisseurs(companyId, nouvellesFacturesFournisseurs));
+    }
+
+    if (idsClientsAMettreAJourPayee.length > 0) {
+      const idsAMettreAJour = new Set(idsClientsAMettreAJourPayee);
+      const maintenant = new Date().toISOString();
+      setFacturesClients((prev) =>
+        prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant } : f))
+      );
+      persist(() => marquerFacturesClientsPayees(idsClientsAMettreAJourPayee));
+    }
+    if (idsFournisseursAMettreAJourPayee.length > 0) {
+      const idsAMettreAJour = new Set(idsFournisseursAMettreAJourPayee);
+      const maintenant = new Date().toISOString();
+      setFacturesFournisseurs((prev) =>
+        prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant } : f))
+      );
+      persist(() => marquerFacturesFournisseursPayees(idsFournisseursAMettreAJourPayee));
+    }
+  };
+
   const handleImporterChargesFixesDetectees = (nouvellesChargesFixes: ChargeFixe[]) => {
     if (nouvellesChargesFixes.length === 0) return;
     setChargesFixes((prev) => [...prev, ...nouvellesChargesFixes]);
@@ -914,7 +955,14 @@ export default function Home() {
         </SectionRepliable>
 
         <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>
-          <ImportFactures onImporter={handleImporterFactures} />
+          <ImportFactures
+            onImporter={handleImporterFactures}
+            facturesClients={facturesClients}
+            facturesFournisseurs={facturesFournisseurs}
+            onSynchroniserPennylane={handleSynchroniserPennylaneFactures}
+            pennylaneConnecte={pennylaneConnecte === true}
+            accessToken={session?.access_token ?? null}
+          />
         </SectionRepliable>
 
         <SectionRepliable titre="Contrôle mensuel" ouvertParDefaut={false}>

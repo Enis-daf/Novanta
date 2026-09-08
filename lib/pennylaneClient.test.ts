@@ -1,6 +1,13 @@
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { getMe, listTransactions, PennylaneApiError } from "./pennylaneClient";
+import {
+  getCustomerInvoiceDetail,
+  getMe,
+  listCustomerInvoices,
+  listSupplierInvoices,
+  listTransactions,
+  PennylaneApiError,
+} from "./pennylaneClient";
 import { PennylaneCredentialProvider } from "./pennylaneCredentialProvider";
 
 const TOKEN_FACTICE = "pnl_test_token_ne_doit_jamais_apparaitre";
@@ -124,5 +131,105 @@ describe("listTransactions — GET /api/external/v2/transactions", () => {
     installerFetchMock([jsonResponse(200, { items: [], has_more: false, next_cursor: null })]);
     const resultat = await listTransactions(provider(), "2026-08-01", "2026-08-01");
     assert.deepEqual(resultat, []);
+  });
+});
+
+function factureFactice(id: number) {
+  return { id, date: "2026-08-01", label: `Facture ${id}`, amount: "100.0", deadline: "2026-09-01" };
+}
+
+describe("listCustomerInvoices — GET /api/external/v2/customer_invoices", () => {
+  test("L. pagination : une page pleine (100) puis une page partielle -> les deux pages sont récupérées et concaténées", async () => {
+    const pageComplete = Array.from({ length: 100 }, (_, i) => factureFactice(i + 1));
+    const pagePartielle = Array.from({ length: 50 }, (_, i) => factureFactice(1000 + i));
+    installerFetchMock([
+      jsonResponse(200, { customer_invoices: pageComplete }),
+      jsonResponse(200, { customer_invoices: pagePartielle }),
+    ]);
+    const resultat = await listCustomerInvoices(provider());
+    assert.equal(resultat.length, 150);
+    assert.equal(appelsCaptures.length, 2);
+    assert.ok(appelsCaptures[0].url.includes("page=1"));
+    assert.ok(appelsCaptures[1].url.includes("page=2"));
+  });
+
+  test("une seule page (< 100) -> un seul appel", async () => {
+    installerFetchMock([jsonResponse(200, { customer_invoices: [factureFactice(1)] })]);
+    const resultat = await listCustomerInvoices(provider());
+    assert.equal(resultat.length, 1);
+    assert.equal(appelsCaptures.length, 1);
+  });
+
+  test("N. 401 -> PennylaneApiError('invalid_token'), jamais une exception générique", async () => {
+    installerFetchMock([jsonResponse(401, {})]);
+    await assert.rejects(() => listCustomerInvoices(provider()), (err: unknown) => {
+      assert.ok(err instanceof PennylaneApiError);
+      assert.equal(err.reason, "invalid_token");
+      return true;
+    });
+  });
+
+  test("N. 403 (scope customer_invoices manquant) -> PennylaneApiError('insufficient_scope')", async () => {
+    installerFetchMock([jsonResponse(403, {})]);
+    await assert.rejects(() => listCustomerInvoices(provider()), (err: unknown) => {
+      assert.ok(err instanceof PennylaneApiError);
+      assert.equal(err.reason, "insufficient_scope");
+      return true;
+    });
+  });
+});
+
+describe("getCustomerInvoiceDetail — GET /api/external/v2/customer_invoices/{id}", () => {
+  test("renvoie le détail (payment_status inclus), un seul appel", async () => {
+    installerFetchMock([
+      jsonResponse(200, {
+        id: 123,
+        number: "FA-1",
+        date: "2026-08-01",
+        deadline: "2026-09-01",
+        amount: "100.0",
+        draft: false,
+        payment_status: "fully_paid",
+        customer_name: "ACME",
+      }),
+    ]);
+    const detail = await getCustomerInvoiceDetail(provider(), "123");
+    assert.equal(detail.payment_status, "fully_paid");
+    assert.equal(appelsCaptures.length, 1);
+    assert.ok(appelsCaptures[0].url.includes("/customer_invoices/123"));
+  });
+
+  test("N. 403 -> PennylaneApiError('insufficient_scope')", async () => {
+    installerFetchMock([jsonResponse(403, {})]);
+    await assert.rejects(() => getCustomerInvoiceDetail(provider(), "123"), (err: unknown) => {
+      assert.ok(err instanceof PennylaneApiError);
+      assert.equal(err.reason, "insufficient_scope");
+      return true;
+    });
+  });
+});
+
+describe("listSupplierInvoices — GET /api/external/v2/supplier_invoices", () => {
+  test("L. pagination : deux pages complètes puis une partielle -> toutes récupérées", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ ...factureFactice(i + 1), payment_status: "to_be_paid", paid_at: null }));
+    const page2 = Array.from({ length: 100 }, (_, i) => ({ ...factureFactice(200 + i), payment_status: "to_be_paid", paid_at: null }));
+    const page3 = Array.from({ length: 10 }, (_, i) => ({ ...factureFactice(400 + i), payment_status: "fully_paid", paid_at: "2026-08-01T00:00:00Z" }));
+    installerFetchMock([
+      jsonResponse(200, { supplier_invoices: page1 }),
+      jsonResponse(200, { supplier_invoices: page2 }),
+      jsonResponse(200, { supplier_invoices: page3 }),
+    ]);
+    const resultat = await listSupplierInvoices(provider());
+    assert.equal(resultat.length, 210);
+    assert.equal(appelsCaptures.length, 3);
+  });
+
+  test("N. 401 -> PennylaneApiError('invalid_token')", async () => {
+    installerFetchMock([jsonResponse(401, {})]);
+    await assert.rejects(() => listSupplierInvoices(provider()), (err: unknown) => {
+      assert.ok(err instanceof PennylaneApiError);
+      assert.equal(err.reason, "invalid_token");
+      return true;
+    });
   });
 });

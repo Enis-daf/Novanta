@@ -8,6 +8,10 @@ export interface FactureClient {
   litigieuse: boolean;
   payee: boolean;
   paidAt: string | null; // ISO 8601 datetime — moment où "Payée" a été cochée
+  // ID de la facture côté Pennylane — présent uniquement si importée par la synchronisation
+  // Pennylane (voir lib/pennylaneInvoiceAdapter.ts) ; absent/null pour une facture créée
+  // manuellement ou importée par fichier. Clé de dédoublonnage, jamais recalculée.
+  pennylaneId?: string | null;
 }
 
 export interface FactureFournisseur {
@@ -20,6 +24,8 @@ export interface FactureFournisseur {
   litigieuse: boolean;
   payee: boolean;
   paidAt: string | null; // ISO 8601 datetime — moment où "Payée" a été cochée
+  // Voir FactureClient.pennylaneId — même rôle côté factures fournisseurs.
+  pennylaneId?: string | null;
 }
 
 export type ModeMontantChargeFixe = "fixe" | "calcule";

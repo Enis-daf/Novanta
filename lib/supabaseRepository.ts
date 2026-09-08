@@ -80,6 +80,7 @@ function factureClientToRow(companyId: string, f: FactureClient): Row {
     litigieuse: f.litigieuse,
     paid: f.payee,
     paid_at: f.paidAt,
+    pennylane_id: f.pennylaneId ?? null,
   };
 }
 
@@ -94,6 +95,7 @@ function rowToFactureClient(row: Row): FactureClient {
     litigieuse: row.litigieuse as boolean,
     payee: Boolean(row.paid),
     paidAt: (row.paid_at as string | null) ?? null,
+    pennylaneId: (row.pennylane_id as string | null) ?? null,
   };
 }
 
@@ -109,6 +111,7 @@ function factureFournisseurToRow(companyId: string, f: FactureFournisseur): Row 
     litigieuse: f.litigieuse,
     paid: f.payee,
     paid_at: f.paidAt,
+    pennylane_id: f.pennylaneId ?? null,
   };
 }
 
@@ -123,6 +126,7 @@ function rowToFactureFournisseur(row: Row): FactureFournisseur {
     litigieuse: row.litigieuse as boolean,
     payee: Boolean(row.paid),
     paidAt: (row.paid_at as string | null) ?? null,
+    pennylaneId: (row.pennylane_id as string | null) ?? null,
   };
 }
 
@@ -395,6 +399,29 @@ export async function importerFacturesFournisseurs(
     "supplier_invoices",
     factures.map((f) => factureFournisseurToRow(companyId, f))
   );
+}
+
+// Synchronisation Pennylane — marque "Payée" un lot de factures déjà existantes, identifiées par
+// leur id Novanta (jamais par pennylane_id ici : le rapprochement a déjà eu lieu côté
+// lib/pennylaneInvoiceAdapter.ts). Ne touche STRICTEMENT que paid/paid_at : aucune autre colonne
+// (date_echeance, litigieuse, montant...) n'apparaît dans cette requête, donc aucune modification
+// utilisateur ne peut jamais être écrasée par un appel de synchronisation (voir diagnostic §10/§13).
+export async function marquerFacturesClientsPayees(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await client()
+    .from("customer_invoices")
+    .update({ paid: true, paid_at: new Date().toISOString() })
+    .in("id", ids);
+  if (error) throw error;
+}
+
+export async function marquerFacturesFournisseursPayees(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await client()
+    .from("supplier_invoices")
+    .update({ paid: true, paid_at: new Date().toISOString() })
+    .in("id", ids);
+  if (error) throw error;
 }
 
 export async function sauvegarderChargeFixe(companyId: string, charge: ChargeFixe): Promise<void> {

@@ -9,15 +9,132 @@ import {
   lireFichierImport,
   validerLignesImport,
 } from "@/lib/importFactures";
+import {
+  calculerSynchronisation,
+  candidatVersFactureClient,
+  candidatVersFactureFournisseur,
+} from "@/lib/pennylaneInvoiceAdapter";
 
 interface ImportFacturesProps {
   onImporter: (facturesClients: FactureClient[], facturesFournisseurs: FactureFournisseur[]) => void;
+  facturesClients: FactureClient[];
+  facturesFournisseurs: FactureFournisseur[];
+  onSynchroniserPennylane: (
+    nouvellesFacturesClients: FactureClient[],
+    nouvellesFacturesFournisseurs: FactureFournisseur[],
+    idsClientsAMettreAJourPayee: string[],
+    idsFournisseursAMettreAJourPayee: string[]
+  ) => void;
+  pennylaneConnecte?: boolean;
+  accessToken?: string | null;
 }
 
-export default function ImportFactures({ onImporter }: ImportFacturesProps) {
+interface ResultatSyncPennylane {
+  nombreClientsAjoutes: number;
+  nombreFournisseursAjoutes: number;
+  nombreMarquesPayees: number;
+  erreurClients: string | null;
+  erreurFournisseurs: string | null;
+}
+
+export default function ImportFactures({
+  onImporter,
+  facturesClients,
+  facturesFournisseurs,
+  onSynchroniserPennylane,
+  pennylaneConnecte = false,
+  accessToken = null,
+}: ImportFacturesProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [resultat, setResultat] = useState<ResultatImport | null>(null);
   const [erreurLecture, setErreurLecture] = useState<string | null>(null);
+  const [syncEnCours, setSyncEnCours] = useState(false);
+  const [syncResultat, setSyncResultat] = useState<ResultatSyncPennylane | null>(null);
+  const [syncErreur, setSyncErreur] = useState<string | null>(null);
+
+  const handleSynchroniserPennylane = async () => {
+    if (!accessToken || syncEnCours) return;
+    setSyncEnCours(true);
+    setSyncErreur(null);
+    setSyncResultat(null);
+
+    try {
+      const res = await fetch("/api/pennylane/invoices", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          facturesClientsConnues: facturesClients
+            .filter((f) => f.pennylaneId)
+            .map((f) => ({ pennylaneId: f.pennylaneId as string, payee: f.payee })),
+          facturesFournisseursConnues: facturesFournisseurs
+            .filter((f) => f.pennylaneId)
+            .map((f) => ({ pennylaneId: f.pennylaneId as string, payee: f.payee })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncErreur(data.error || "Synchronisation Pennylane impossible. Vérifiez le token et ses autorisations.");
+        return;
+      }
+
+      const facturesClientsExistantesPourSync = facturesClients.map((f) => ({
+        id: f.id,
+        pennylaneId: f.pennylaneId,
+        payee: f.payee,
+      }));
+      const facturesFournisseursExistantesPourSync = facturesFournisseurs.map((f) => ({
+        id: f.id,
+        pennylaneId: f.pennylaneId,
+        payee: f.payee,
+      }));
+
+      let nombreClientsAjoutes = 0;
+      let nombreFournisseursAjoutes = 0;
+      let idsClientsAMettreAJourPayee: string[] = [];
+      let idsFournisseursAMettreAJourPayee: string[] = [];
+      let nouvellesFacturesClients: FactureClient[] = [];
+      let nouvellesFacturesFournisseurs: FactureFournisseur[] = [];
+
+      if (data.clientCandidates) {
+        const { aInserer, idsAMettreAJourPayee } = calculerSynchronisation(
+          data.clientCandidates,
+          facturesClientsExistantesPourSync
+        );
+        nouvellesFacturesClients = aInserer.map(candidatVersFactureClient);
+        idsClientsAMettreAJourPayee = idsAMettreAJourPayee;
+        nombreClientsAjoutes = nouvellesFacturesClients.length;
+      }
+
+      if (data.fournisseurCandidates) {
+        const { aInserer, idsAMettreAJourPayee } = calculerSynchronisation(
+          data.fournisseurCandidates,
+          facturesFournisseursExistantesPourSync
+        );
+        nouvellesFacturesFournisseurs = aInserer.map(candidatVersFactureFournisseur);
+        idsFournisseursAMettreAJourPayee = idsAMettreAJourPayee;
+        nombreFournisseursAjoutes = nouvellesFacturesFournisseurs.length;
+      }
+
+      onSynchroniserPennylane(
+        nouvellesFacturesClients,
+        nouvellesFacturesFournisseurs,
+        idsClientsAMettreAJourPayee,
+        idsFournisseursAMettreAJourPayee
+      );
+
+      setSyncResultat({
+        nombreClientsAjoutes,
+        nombreFournisseursAjoutes,
+        nombreMarquesPayees: idsClientsAMettreAJourPayee.length + idsFournisseursAMettreAJourPayee.length,
+        erreurClients: data.erreurClients ?? null,
+        erreurFournisseurs: data.erreurFournisseurs ?? null,
+      });
+    } catch {
+      setSyncErreur("Pennylane est temporairement indisponible. Réessayez.");
+    } finally {
+      setSyncEnCours(false);
+    }
+  };
 
   const handleFichierSelectionne = async (e: ChangeEvent<HTMLInputElement>) => {
     const fichier = e.target.files?.[0];
@@ -52,20 +169,25 @@ export default function ImportFactures({ onImporter }: ImportFacturesProps) {
 
   const handleConfirmerImport = () => {
     if (!resultat) return;
-    const facturesClients = resultat.lignesValides
+    const facturesClientsImportees = resultat.lignesValides
       .filter((l) => l.type === "client")
       .map((l) => l.facture as FactureClient);
-    const facturesFournisseurs = resultat.lignesValides
+    const facturesFournisseursImportees = resultat.lignesValides
       .filter((l) => l.type === "fournisseur")
       .map((l) => l.facture as FactureFournisseur);
-    onImporter(facturesClients, facturesFournisseurs);
+    onImporter(facturesClientsImportees, facturesFournisseursImportees);
     setResultat(null);
   };
 
   return (
     <div className="table-wrapper">
       <div className="import-actions">
-        <button type="button" className="btn-add" onClick={() => inputRef.current?.click()}>
+        {pennylaneConnecte && (
+          <button type="button" className="btn-add" onClick={handleSynchroniserPennylane} disabled={syncEnCours}>
+            {syncEnCours ? "Synchronisation en cours…" : "Synchroniser Pennylane"}
+          </button>
+        )}
+        <button type="button" className="btn-secondaire" onClick={() => inputRef.current?.click()}>
           Importer des factures
         </button>
         <button type="button" className="btn-secondaire" onClick={handleTelechargerModele}>
@@ -79,6 +201,27 @@ export default function ImportFactures({ onImporter }: ImportFacturesProps) {
           style={{ display: "none" }}
         />
       </div>
+
+      {syncErreur && <div className="login-erreur">{syncErreur}</div>}
+
+      {syncResultat && (
+        <div className="import-apercu">
+          <p>
+            Pennylane synchronisé — {syncResultat.nombreClientsAjoutes} facture{syncResultat.nombreClientsAjoutes > 1 ? "s" : ""} client
+            {syncResultat.nombreClientsAjoutes > 1 ? "s" : ""} ajoutée{syncResultat.nombreClientsAjoutes > 1 ? "s" : ""},{" "}
+            {syncResultat.nombreFournisseursAjoutes} facture{syncResultat.nombreFournisseursAjoutes > 1 ? "s" : ""} fournisseur
+            {syncResultat.nombreFournisseursAjoutes > 1 ? "s" : ""} ajoutée{syncResultat.nombreFournisseursAjoutes > 1 ? "s" : ""},{" "}
+            {syncResultat.nombreMarquesPayees} facture{syncResultat.nombreMarquesPayees > 1 ? "s" : ""} marquée
+            {syncResultat.nombreMarquesPayees > 1 ? "s" : ""} payée{syncResultat.nombreMarquesPayees > 1 ? "s" : ""}.
+          </p>
+          {syncResultat.erreurClients && (
+            <p className="login-erreur">Factures clients : {syncResultat.erreurClients}</p>
+          )}
+          {syncResultat.erreurFournisseurs && (
+            <p className="login-erreur">Factures fournisseurs : {syncResultat.erreurFournisseurs}</p>
+          )}
+        </div>
+      )}
 
       {erreurLecture && <div className="login-erreur">{erreurLecture}</div>}
 
