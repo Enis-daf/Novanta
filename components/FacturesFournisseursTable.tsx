@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { FactureFournisseur, TriMode } from "@/lib/types";
 import {
   decalerDateISO,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/dates";
 import { filtrerFacturesFournisseurs } from "@/lib/recherche";
 import { OccurrencesParId } from "@/lib/periodeFiltre";
+import { ResultatSyncPennylane } from "@/lib/pennylaneInvoiceAdapter";
 import DateField from "./DateField";
 
 interface FacturesFournisseursTableProps {
@@ -22,6 +24,11 @@ interface FacturesFournisseursTableProps {
   recherche: string;
   tri: TriMode;
   filtrePeriode?: OccurrencesParId | null;
+  pennylaneConnecte?: boolean;
+  onSynchroniserPennylane?: () => void;
+  syncPennylaneEnCours?: boolean;
+  syncPennylaneResultat?: ResultatSyncPennylane | null;
+  syncPennylaneErreur?: string | null;
 }
 
 export default function FacturesFournisseursTable({
@@ -32,7 +39,13 @@ export default function FacturesFournisseursTable({
   recherche,
   tri,
   filtrePeriode,
+  pennylaneConnecte = false,
+  onSynchroniserPennylane,
+  syncPennylaneEnCours = false,
+  syncPennylaneResultat = null,
+  syncPennylaneErreur = null,
 }: FacturesFournisseursTableProps) {
+  const router = useRouter();
   const facturesTriees = useMemo(() => {
     const actives = factures.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt));
     const dansPeriode = filtrePeriode ? actives.filter((f) => filtrePeriode.has(f.id)) : actives;
@@ -173,9 +186,48 @@ export default function FacturesFournisseursTable({
         </tbody>
       </table>
       )}
-      <button type="button" className="btn-add" onClick={onAdd}>
-        + Ajouter une facture fournisseur
-      </button>
+      <div className="import-actions">
+        <button type="button" className="btn-add" onClick={onAdd}>
+          + Ajouter une facture fournisseur
+        </button>
+        {onSynchroniserPennylane && (
+          <button
+            type="button"
+            className="btn-secondaire"
+            onClick={pennylaneConnecte ? onSynchroniserPennylane : () => router.push("/account/integrations")}
+            disabled={syncPennylaneEnCours}
+          >
+            {!pennylaneConnecte
+              ? "Connecter Pennylane"
+              : syncPennylaneEnCours
+                ? "Synchronisation en cours…"
+                : "Synchroniser Pennylane"}
+          </button>
+        )}
+      </div>
+
+      {syncPennylaneErreur && <p className="login-erreur">{syncPennylaneErreur}</p>}
+      {syncPennylaneResultat && (
+        <div className="import-apercu">
+          <p>
+            Pennylane synchronisé — {syncPennylaneResultat.nombreClientsAjoutes} facture
+            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""} client
+            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""} ajoutée
+            {syncPennylaneResultat.nombreClientsAjoutes > 1 ? "s" : ""}, {syncPennylaneResultat.nombreFournisseursAjoutes} facture
+            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""} fournisseur
+            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""} ajoutée
+            {syncPennylaneResultat.nombreFournisseursAjoutes > 1 ? "s" : ""}, {syncPennylaneResultat.nombreMarquesPayees} facture
+            {syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""} marquée
+            {syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""} payée{syncPennylaneResultat.nombreMarquesPayees > 1 ? "s" : ""}.
+          </p>
+          {syncPennylaneResultat.erreurClients && (
+            <p className="login-erreur">Factures clients : {syncPennylaneResultat.erreurClients}</p>
+          )}
+          {syncPennylaneResultat.erreurFournisseurs && (
+            <p className="login-erreur">Factures fournisseurs : {syncPennylaneResultat.erreurFournisseurs}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

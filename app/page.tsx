@@ -23,6 +23,12 @@ import IconTelechargement from "@/components/IconTelechargement";
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 const ImportHistoriqueBancaire = dynamic(() => import("@/components/ImportHistoriqueBancaire"), { ssr: false });
 const VerifierMesDonnees = dynamic(() => import("@/components/VerifierMesDonnees"), { ssr: false });
+import {
+  calculerSynchronisation,
+  candidatVersFactureClient,
+  candidatVersFactureFournisseur,
+  ResultatSyncPennylane,
+} from "@/lib/pennylaneInvoiceAdapter";
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
@@ -128,6 +134,12 @@ export default function Home() {
   // null = pas encore su (état de chargement) ; false par défaut sinon, jamais true tant que
   // /api/pennylane/status n'a pas explicitement confirmé une connexion active pour cette société.
   const [pennylaneConnecte, setPennylaneConnecte] = useState<boolean | null>(null);
+  // Déclenchable depuis FacturesClientsTable OU FacturesFournisseursTable (juste à côté de
+  // "+ Ajouter une facture") — un seul état partagé, affiché aux deux endroits, quel que soit le
+  // bouton cliqué : c'est toujours la même opération complète (les deux catégories à la fois).
+  const [syncPennylaneEnCours, setSyncPennylaneEnCours] = useState(false);
+  const [syncPennylaneResultat, setSyncPennylaneResultat] = useState<ResultatSyncPennylane | null>(null);
+  const [syncPennylaneErreur, setSyncPennylaneErreur] = useState<string | null>(null);
 
   const [soldeInitial, setSoldeInitial] = useState(SOLDE_BANCAIRE_INITIAL);
   const [dateReleve, setDateReleve] = useState(() => todayISO());
@@ -561,6 +573,86 @@ export default function Home() {
     }
   };
 
+  // Déclenché depuis le bouton "Synchroniser Pennylane" de FacturesClientsTable OU
+  // FacturesFournisseursTable (les deux appellent cette même fonction — une seule opération,
+  // affichée aux deux endroits). N'est jamais appelé si Pennylane n'est pas connecté : le bouton
+  // redirige alors vers /account/integrations à la place (voir les deux tables).
+  const handleClicSynchroniserPennylane = async () => {
+    if (!session?.access_token || syncPennylaneEnCours) return;
+    setSyncPennylaneEnCours(true);
+    setSyncPennylaneErreur(null);
+    setSyncPennylaneResultat(null);
+
+    try {
+      const res = await fetch("/api/pennylane/invoices", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSyncPennylaneErreur(data.error || "Synchronisation Pennylane impossible. Vérifiez le token et ses autorisations.");
+        return;
+      }
+
+      const facturesClientsExistantesPourSync = facturesClients.map((f) => ({
+        id: f.id,
+        pennylaneId: f.pennylaneId,
+        payee: f.payee,
+      }));
+      const facturesFournisseursExistantesPourSync = facturesFournisseurs.map((f) => ({
+        id: f.id,
+        pennylaneId: f.pennylaneId,
+        payee: f.payee,
+      }));
+
+      let nombreClientsAjoutes = 0;
+      let nombreFournisseursAjoutes = 0;
+      let idsClientsAMettreAJourPayee: string[] = [];
+      let idsFournisseursAMettreAJourPayee: string[] = [];
+      let nouvellesFacturesClients: FactureClient[] = [];
+      let nouvellesFacturesFournisseurs: FactureFournisseur[] = [];
+
+      if (data.clientCandidates) {
+        const { aInserer, idsAMettreAJourPayee } = calculerSynchronisation(
+          data.clientCandidates,
+          facturesClientsExistantesPourSync
+        );
+        nouvellesFacturesClients = aInserer.map(candidatVersFactureClient);
+        idsClientsAMettreAJourPayee = idsAMettreAJourPayee;
+        nombreClientsAjoutes = nouvellesFacturesClients.length;
+      }
+
+      if (data.fournisseurCandidates) {
+        const { aInserer, idsAMettreAJourPayee } = calculerSynchronisation(
+          data.fournisseurCandidates,
+          facturesFournisseursExistantesPourSync
+        );
+        nouvellesFacturesFournisseurs = aInserer.map(candidatVersFactureFournisseur);
+        idsFournisseursAMettreAJourPayee = idsAMettreAJourPayee;
+        nombreFournisseursAjoutes = nouvellesFacturesFournisseurs.length;
+      }
+
+      handleSynchroniserPennylaneFactures(
+        nouvellesFacturesClients,
+        nouvellesFacturesFournisseurs,
+        idsClientsAMettreAJourPayee,
+        idsFournisseursAMettreAJourPayee
+      );
+
+      setSyncPennylaneResultat({
+        nombreClientsAjoutes,
+        nombreFournisseursAjoutes,
+        nombreMarquesPayees: idsClientsAMettreAJourPayee.length + idsFournisseursAMettreAJourPayee.length,
+        erreurClients: data.erreurClients ?? null,
+        erreurFournisseurs: data.erreurFournisseurs ?? null,
+      });
+    } catch {
+      setSyncPennylaneErreur("Pennylane est temporairement indisponible. Réessayez.");
+    } finally {
+      setSyncPennylaneEnCours(false);
+    }
+  };
+
   const handleImporterChargesFixesDetectees = (nouvellesChargesFixes: ChargeFixe[]) => {
     if (nouvellesChargesFixes.length === 0) return;
     setChargesFixes((prev) => [...prev, ...nouvellesChargesFixes]);
@@ -877,6 +969,11 @@ export default function Home() {
             recherche={recherche}
             tri={tri}
             filtrePeriode={fluxPeriode?.idsFacturesClients ?? null}
+            pennylaneConnecte={pennylaneConnecte === true}
+            onSynchroniserPennylane={handleClicSynchroniserPennylane}
+            syncPennylaneEnCours={syncPennylaneEnCours}
+            syncPennylaneResultat={syncPennylaneResultat}
+            syncPennylaneErreur={syncPennylaneErreur}
           />
           <RentreesRegulieresTable
             rentrees={rentreesRegulieres}
@@ -908,6 +1005,11 @@ export default function Home() {
             recherche={recherche}
             tri={tri}
             filtrePeriode={fluxPeriode?.idsFacturesFournisseurs ?? null}
+            pennylaneConnecte={pennylaneConnecte === true}
+            onSynchroniserPennylane={handleClicSynchroniserPennylane}
+            syncPennylaneEnCours={syncPennylaneEnCours}
+            syncPennylaneResultat={syncPennylaneResultat}
+            syncPennylaneErreur={syncPennylaneErreur}
           />
           <ChargesFixesTable
             charges={chargesFixes}
@@ -955,14 +1057,7 @@ export default function Home() {
         </SectionRepliable>
 
         <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>
-          <ImportFactures
-            onImporter={handleImporterFactures}
-            facturesClients={facturesClients}
-            facturesFournisseurs={facturesFournisseurs}
-            onSynchroniserPennylane={handleSynchroniserPennylaneFactures}
-            pennylaneConnecte={pennylaneConnecte === true}
-            accessToken={session?.access_token ?? null}
-          />
+          <ImportFactures onImporter={handleImporterFactures} />
         </SectionRepliable>
 
         <SectionRepliable titre="Contrôle mensuel" ouvertParDefaut={false}>

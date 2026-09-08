@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AutreDepense, FactureClient, FactureFournisseur, Financement } from "@/lib/types";
 import { formatMontant } from "@/lib/format";
 import { formatDateCourte } from "@/lib/dates";
@@ -68,6 +69,7 @@ export default function VerifierMesDonnees({
   pennylaneConnecte = false,
   accessToken = null,
 }: VerifierMesDonneesProps) {
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<ErreurImportBancaire | string | null>(null);
@@ -209,11 +211,14 @@ export default function VerifierMesDonnees({
             : "Importez un relevé bancaire Excel. Novanta analysera uniquement les 30 derniers jours et recherchera les écarts potentiels avec vos données actuelles."}
         </p>
         <div className="import-boutons">
-          {pennylaneConnecte && (
-            <button type="button" className="btn-add" onClick={handleAnalyserPennylane} disabled={chargement}>
-              {chargement ? "Analyse en cours…" : "Analyser Pennylane"}
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn-add"
+            onClick={pennylaneConnecte ? handleAnalyserPennylane : () => router.push("/account/integrations")}
+            disabled={chargement}
+          >
+            {!pennylaneConnecte ? "Connecter Pennylane" : chargement ? "Analyse en cours…" : "Analyser Pennylane"}
+          </button>
           {pennylaneConnecte && !afficherXlsx && (
             <button type="button" className="btn-secondaire" onClick={() => setAfficherXlsx(true)} disabled={chargement}>
               Utiliser un fichier Excel
@@ -222,7 +227,7 @@ export default function VerifierMesDonnees({
           {(!pennylaneConnecte || afficherXlsx) && (
             <button
               type="button"
-              className={pennylaneConnecte ? "btn-secondaire" : "btn-add"}
+              className="btn-secondaire"
               onClick={() => inputRef.current?.click()}
               disabled={chargement}
             >

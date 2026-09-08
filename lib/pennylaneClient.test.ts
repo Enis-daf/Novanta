@@ -1,7 +1,6 @@
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import {
-  getCustomerInvoiceDetail,
   getMe,
   listCustomerInvoices,
   listSupplierInvoices,
@@ -135,26 +134,39 @@ describe("listTransactions — GET /api/external/v2/transactions", () => {
 });
 
 function factureFactice(id: number) {
-  return { id, date: "2026-08-01", label: `Facture ${id}`, amount: "100.0", deadline: "2026-09-01" };
+  return {
+    id,
+    invoice_number: `FA-${id}`,
+    date: "2026-08-01",
+    label: `Facture ${id}`,
+    amount: "100.0",
+    deadline: "2026-09-01",
+    paid: false,
+  };
 }
 
+// Les deux endpoints factures utilisent la MÊME pagination par curseur que /transactions
+// ({ items, has_more, next_cursor }) — pas une pagination par page (voir la note d'en-tête de
+// lib/pennylaneClient.ts sur le bug réel corrigé à ce sujet).
 describe("listCustomerInvoices — GET /api/external/v2/customer_invoices", () => {
-  test("L. pagination : une page pleine (100) puis une page partielle -> les deux pages sont récupérées et concaténées", async () => {
-    const pageComplete = Array.from({ length: 100 }, (_, i) => factureFactice(i + 1));
-    const pagePartielle = Array.from({ length: 50 }, (_, i) => factureFactice(1000 + i));
+  test("L. pagination par curseur : plusieurs pages sont concaténées jusqu'à has_more=false", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ ...factureFactice(i + 1), draft: false }));
+    const page2 = Array.from({ length: 50 }, (_, i) => ({ ...factureFactice(1000 + i), draft: false }));
     installerFetchMock([
-      jsonResponse(200, { customer_invoices: pageComplete }),
-      jsonResponse(200, { customer_invoices: pagePartielle }),
+      jsonResponse(200, { items: page1, has_more: true, next_cursor: "curseur-1" }),
+      jsonResponse(200, { items: page2, has_more: false, next_cursor: null }),
     ]);
     const resultat = await listCustomerInvoices(provider());
     assert.equal(resultat.length, 150);
     assert.equal(appelsCaptures.length, 2);
-    assert.ok(appelsCaptures[0].url.includes("page=1"));
-    assert.ok(appelsCaptures[1].url.includes("page=2"));
+    assert.equal(appelsCaptures[0].url.includes("cursor="), false);
+    assert.ok(appelsCaptures[1].url.includes("cursor=curseur-1"));
   });
 
-  test("une seule page (< 100) -> un seul appel", async () => {
-    installerFetchMock([jsonResponse(200, { customer_invoices: [factureFactice(1)] })]);
+  test("une seule page (has_more=false dès la première réponse) -> un seul appel", async () => {
+    installerFetchMock([
+      jsonResponse(200, { items: [{ ...factureFactice(1), draft: false }], has_more: false, next_cursor: null }),
+    ]);
     const resultat = await listCustomerInvoices(provider());
     assert.equal(resultat.length, 1);
     assert.equal(appelsCaptures.length, 1);
@@ -179,45 +191,15 @@ describe("listCustomerInvoices — GET /api/external/v2/customer_invoices", () =
   });
 });
 
-describe("getCustomerInvoiceDetail — GET /api/external/v2/customer_invoices/{id}", () => {
-  test("renvoie le détail (payment_status inclus), un seul appel", async () => {
-    installerFetchMock([
-      jsonResponse(200, {
-        id: 123,
-        number: "FA-1",
-        date: "2026-08-01",
-        deadline: "2026-09-01",
-        amount: "100.0",
-        draft: false,
-        payment_status: "fully_paid",
-        customer_name: "ACME",
-      }),
-    ]);
-    const detail = await getCustomerInvoiceDetail(provider(), "123");
-    assert.equal(detail.payment_status, "fully_paid");
-    assert.equal(appelsCaptures.length, 1);
-    assert.ok(appelsCaptures[0].url.includes("/customer_invoices/123"));
-  });
-
-  test("N. 403 -> PennylaneApiError('insufficient_scope')", async () => {
-    installerFetchMock([jsonResponse(403, {})]);
-    await assert.rejects(() => getCustomerInvoiceDetail(provider(), "123"), (err: unknown) => {
-      assert.ok(err instanceof PennylaneApiError);
-      assert.equal(err.reason, "insufficient_scope");
-      return true;
-    });
-  });
-});
-
 describe("listSupplierInvoices — GET /api/external/v2/supplier_invoices", () => {
-  test("L. pagination : deux pages complètes puis une partielle -> toutes récupérées", async () => {
-    const page1 = Array.from({ length: 100 }, (_, i) => ({ ...factureFactice(i + 1), payment_status: "to_be_paid", paid_at: null }));
-    const page2 = Array.from({ length: 100 }, (_, i) => ({ ...factureFactice(200 + i), payment_status: "to_be_paid", paid_at: null }));
-    const page3 = Array.from({ length: 10 }, (_, i) => ({ ...factureFactice(400 + i), payment_status: "fully_paid", paid_at: "2026-08-01T00:00:00Z" }));
+  test("L. pagination par curseur : plusieurs pages sont concaténées jusqu'à has_more=false", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => factureFactice(i + 1));
+    const page2 = Array.from({ length: 100 }, (_, i) => factureFactice(200 + i));
+    const page3 = Array.from({ length: 10 }, (_, i) => ({ ...factureFactice(400 + i), paid: true }));
     installerFetchMock([
-      jsonResponse(200, { supplier_invoices: page1 }),
-      jsonResponse(200, { supplier_invoices: page2 }),
-      jsonResponse(200, { supplier_invoices: page3 }),
+      jsonResponse(200, { items: page1, has_more: true, next_cursor: "curseur-1" }),
+      jsonResponse(200, { items: page2, has_more: true, next_cursor: "curseur-2" }),
+      jsonResponse(200, { items: page3, has_more: false, next_cursor: null }),
     ]);
     const resultat = await listSupplierInvoices(provider());
     assert.equal(resultat.length, 210);

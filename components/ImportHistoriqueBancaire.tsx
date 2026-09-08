@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChargeFixe } from "@/lib/types";
 import { NormalizedBankTransaction } from "@/lib/bankTransaction";
 import { formatMontant } from "@/lib/format";
@@ -44,6 +45,7 @@ export default function ImportHistoriqueBancaire({
   pennylaneConnecte = false,
   accessToken = null,
 }: ImportHistoriqueBancaireProps) {
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [chargement, setChargement] = useState(false);
   const [erreur, setErreur] = useState<ErreurImportBancaire | string | null>(null);
@@ -178,11 +180,14 @@ export default function ImportHistoriqueBancaire({
             : "Importez votre historique bancaire au format Excel. Novanta recherchera les dépenses récurrentes et vous proposera celles à intégrer à vos projections."}
         </p>
         <div className="import-boutons">
-          {pennylaneConnecte && (
-            <button type="button" className="btn-add" onClick={handleAnalyserPennylane} disabled={chargement}>
-              {chargement ? "Analyse en cours…" : "Analyser Pennylane"}
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn-add"
+            onClick={pennylaneConnecte ? handleAnalyserPennylane : () => router.push("/account/integrations")}
+            disabled={chargement}
+          >
+            {!pennylaneConnecte ? "Connecter Pennylane" : chargement ? "Analyse en cours…" : "Analyser Pennylane"}
+          </button>
           {pennylaneConnecte && !afficherXlsx && (
             <button type="button" className="btn-secondaire" onClick={() => setAfficherXlsx(true)} disabled={chargement}>
               Utiliser un fichier Excel
@@ -191,7 +196,7 @@ export default function ImportHistoriqueBancaire({
           {(!pennylaneConnecte || afficherXlsx) && (
             <button
               type="button"
-              className={pennylaneConnecte ? "btn-secondaire" : "btn-add"}
+              className="btn-secondaire"
               onClick={() => inputRef.current?.click()}
               disabled={chargement}
             >

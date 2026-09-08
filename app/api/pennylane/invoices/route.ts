@@ -8,12 +8,7 @@ import {
   resumeErreurSupabaseSansSecret,
 } from "@/lib/pennylaneRepository";
 import { CompanyApiTokenCredentialProvider, PennylaneCredentialProvider } from "@/lib/pennylaneCredentialProvider";
-import {
-  getCustomerInvoiceDetail,
-  listCustomerInvoices,
-  listSupplierInvoices,
-  PennylaneApiError,
-} from "@/lib/pennylaneClient";
+import { listCustomerInvoices, listSupplierInvoices, PennylaneApiError } from "@/lib/pennylaneClient";
 import {
   candidatFactureClient,
   candidatFactureFournisseur,
@@ -21,19 +16,6 @@ import {
 } from "@/lib/pennylaneInvoiceAdapter";
 import { cleChiffrementConfiguree } from "@/lib/pennylaneCrypto";
 import { MESSAGE_CONFIG_SERVEUR, codeErreurPennylane, messageErreurUtilisationPennylane } from "@/lib/pennylaneMessages";
-
-// Factures déjà connues de Novanta, envoyées par le client pour éviter tout appel détail inutile
-// côté factures clients (voir stratégie N+1 bornée, diagnostic §11) : seul l'ensemble
-// {pennylaneId, payee} est nécessaire ici, jamais la facture complète.
-interface FactureConnue {
-  pennylaneId: string;
-  payee: boolean;
-}
-
-interface RequeteInvoices {
-  facturesClientsConnues?: FactureConnue[];
-  facturesFournisseursConnues?: FactureConnue[];
-}
 
 interface ReponseType {
   clientCandidates: CandidatFacturePennylane[] | null;
@@ -43,43 +25,26 @@ interface ReponseType {
 }
 
 /**
- * Récupère les factures fournisseurs candidates. payment_status est déjà présent dans la liste
- * Pennylane (voir lib/pennylaneClient.ts) : aucun appel détail, un seul aller-retour paginé.
+ * paid (booléen) et invoice_number sont présents directement dans les DEUX listes Pennylane —
+ * aucun appel détail par facture n'est nécessaire pour ni l'un ni l'autre type (voir
+ * lib/pennylaneClient.ts et lib/pennylaneInvoiceAdapter.ts pour la vérification). Un seul aller-
+ * retour paginé par catégorie, quel que soit le volume d'historique.
  */
-async function candidatsFournisseurs(provider: PennylaneCredentialProvider): Promise<CandidatFacturePennylane[]> {
-  const brutes = await listSupplierInvoices(provider);
+async function candidatsClients(provider: PennylaneCredentialProvider): Promise<CandidatFacturePennylane[]> {
+  const brutes = await listCustomerInvoices(provider);
   const candidats: CandidatFacturePennylane[] = [];
   for (const brute of brutes) {
-    const candidat = candidatFactureFournisseur(brute);
+    const candidat = candidatFactureClient(brute);
     if (candidat) candidats.push(candidat);
   }
   return candidats;
 }
 
-/**
- * Récupère les factures clients candidates. La liste Pennylane ne contient PAS payment_status
- * (vérifié empiriquement, voir lib/pennylaneClient.ts) : un appel détail est nécessaire, mais
- * UNIQUEMENT pour les factures que Novanta ne connaît pas encore, ou connaît encore comme non
- * payées — jamais pour une facture déjà marquée Payée côté Novanta (elle n'est plus jamais
- * revérifiée, conformément à la règle "jamais Payée true -> false" : inutile de la re-fetcher).
- * Appels strictement séquentiels (pas de Promise.all en rafale) pour rester sous la limite
- * documentée de 25 requêtes / 5 secondes ; le retry sur 429 déjà présent dans appelerPennylane()
- * absorbe les dépassements ponctuels.
- */
-async function candidatsClients(
-  provider: PennylaneCredentialProvider,
-  facturesConnues: FactureConnue[]
-): Promise<CandidatFacturePennylane[]> {
-  const idsDejaPayesConnus = new Set(facturesConnues.filter((f) => f.payee).map((f) => f.pennylaneId));
-
-  const liste = await listCustomerInvoices(provider);
+async function candidatsFournisseurs(provider: PennylaneCredentialProvider): Promise<CandidatFacturePennylane[]> {
+  const brutes = await listSupplierInvoices(provider);
   const candidats: CandidatFacturePennylane[] = [];
-  for (const item of liste) {
-    const id = String(item.id);
-    if (idsDejaPayesConnus.has(id)) continue; // terminal, jamais revérifié
-
-    const detail = await getCustomerInvoiceDetail(provider, id);
-    const candidat = candidatFactureClient(detail);
+  for (const brute of brutes) {
+    const candidat = candidatFactureFournisseur(brute);
     if (candidat) candidats.push(candidat);
   }
   return candidats;
@@ -100,15 +65,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
   }
   const { supabase, user } = auth;
-
-  let requete: RequeteInvoices;
-  try {
-    requete = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
-  }
-  const facturesClientsConnues = requete.facturesClientsConnues ?? [];
-  const facturesFournisseursConnues = requete.facturesFournisseursConnues ?? [];
 
   let companyId: string;
   try {
@@ -175,16 +131,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    resultat.clientCandidates = await candidatsClients(provider, facturesClientsConnues);
+    resultat.clientCandidates = await candidatsClients(provider);
     console.log(`[pennylane/invoices] clients OK company=${companyId} candidats=${resultat.clientCandidates.length}`);
   } catch (erreur) {
     resultat.erreurClients = await traiterErreur("clients", erreur);
   }
-
-  // facturesFournisseursConnues n'est pas utilisée pour l'instant (les factures fournisseurs
-  // n'ont pas besoin d'appel détail), mais est acceptée dans le contrat pour une évolution
-  // symétrique future sans changement de forme de requête.
-  void facturesFournisseursConnues;
 
   if (resultat.clientCandidates === null && resultat.fournisseurCandidates === null) {
     // Échec total : un seul message d'erreur exploitable, jamais deux messages redondants.

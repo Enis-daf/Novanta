@@ -7,25 +7,21 @@
  * Aucune règle ici n'est devinée : chaque décision renvoie au diagnostic vérifié empiriquement
  * contre l'API Pennylane v2 réelle (voir le rapport livré avant implémentation).
  */
-import {
-  PennylaneCustomerInvoiceDetail,
-  PennylaneSupplierInvoiceListItem,
-} from "./pennylaneClient";
+import { PennylaneCustomerInvoiceListItem, PennylaneSupplierInvoiceListItem } from "./pennylaneClient";
 import { FactureClient, FactureFournisseur } from "./types";
 
 /**
- * Statuts Pennylane considérés comme "définitivement payée" côté Novanta. Volontairement
- * restreint aux deux états TERMINAUX confirmés par l'énumération réelle de l'API
- * (to_be_processed, to_be_paid, partially_paid, payment_error, payment_scheduled,
- * payment_in_progress, payment_emitted, payment_found, paid_offline, fully_paid) : un paiement
- * partiel ou en cours (payment_found, payment_emitted...) reste "non payée" côté Novanta — mieux
- * vaut détecter un paiement un cycle de synchro plus tard que marquer Payée à tort, cohérent avec
- * la règle absolue "jamais Payée true -> false".
+ * Résultat affiché après un clic sur "Synchroniser Pennylane" — déclenchable depuis
+ * FacturesClientsTable ou FacturesFournisseursTable (voir app/page.tsx), toujours le résultat
+ * complet des deux catégories quel que soit le bouton cliqué : une seule opération de
+ * synchronisation, affichée aux deux endroits où elle peut être déclenchée.
  */
-const STATUTS_PENNYLANE_PAYEE: ReadonlySet<string> = new Set(["fully_paid", "paid_offline"]);
-
-export function pennylanePayee(paymentStatus: string): boolean {
-  return STATUTS_PENNYLANE_PAYEE.has(paymentStatus);
+export interface ResultatSyncPennylane {
+  nombreClientsAjoutes: number;
+  nombreFournisseursAjoutes: number;
+  nombreMarquesPayees: number;
+  erreurClients: string | null;
+  erreurFournisseurs: string | null;
 }
 
 /**
@@ -48,26 +44,6 @@ export interface CandidatFacturePennylane {
   payee: boolean;
 }
 
-/**
- * Construit un candidat "facture client" à partir du DÉTAIL Pennylane (seule source de
- * payment_status pour les factures clients — voir lib/pennylaneClient.ts). Retourne null pour
- * un brouillon ou un avoir : ni l'un ni l'autre n'est importé en V1.
- */
-export function candidatFactureClient(detail: PennylaneCustomerInvoiceDetail): CandidatFacturePennylane | null {
-  if (detail.draft) return null;
-  if (estAvoir(detail.amount)) return null;
-  const montant = Math.abs(Number(detail.amount));
-  if (!Number.isFinite(montant) || montant === 0) return null;
-  return {
-    pennylaneId: String(detail.id),
-    facture: detail.number ?? String(detail.id),
-    tiers: detail.customer_name || "Client Pennylane",
-    montant,
-    dateEcheance: detail.deadline ?? detail.date ?? "",
-    payee: pennylanePayee(detail.payment_status),
-  };
-}
-
 // Format observé sur des libellés réels Pennylane :
 //   "Facture SOCIETE D'EXPLOITATION EOLIENNE ANGRIE - FA2609-0090 (label généré)"
 //   "Avoir EOLIA - AV2607-0006 (label généré)"
@@ -75,41 +51,75 @@ export function candidatFactureClient(detail: PennylaneCustomerInvoiceDetail): C
 //   "Facture - 2026-3080464 (label généré)"                        (nom du tiers absent)
 // Le nom du tiers peut donc être vide, et le suffixe "(label généré)" n'est pas garanti présent
 // (un libellé personnalisé dans Pennylane n'a aucune raison de le porter). Best-effort : si le
-// motif ne correspond pas du tout, on retombe sur le libellé complet plutôt que d'échouer.
+// motif ne correspond pas du tout, on retombe sur le libellé complet plutôt que d'échouer. Utilisé
+// pour les deux types de facture : ni l'une ni l'autre des deux listes Pennylane ne fournit de nom
+// de tiers en clair (seulement un identifiant/objet de référence), uniquement ce libellé.
 const MOTIF_LABEL_FACTURE = /^(?:Facture|Avoir)\s*(.*?)\s*-\s*(.+?)(?:\s*\(label généré\))?$/;
 
-export function extraireTiersEtNumero(label: string | null, idFallback: string): { tiers: string; numero: string } {
-  if (!label) return { tiers: "Fournisseur Pennylane", numero: idFallback };
+export function extraireTiersEtNumero(
+  label: string | null,
+  idFallback: string,
+  libelleGenerique = "Tiers Pennylane"
+): { tiers: string; numero: string } {
+  if (!label) return { tiers: libelleGenerique, numero: idFallback };
   const correspondance = label.match(MOTIF_LABEL_FACTURE);
   if (!correspondance) return { tiers: label, numero: idFallback };
   const tiers = correspondance[1].trim();
   const numero = correspondance[2].trim();
   return {
-    tiers: tiers || "Fournisseur Pennylane",
+    tiers: tiers || libelleGenerique,
     numero: numero || idFallback,
   };
 }
 
+// Champs communs aux deux types de facture Pennylane, nécessaires au calcul d'un candidat —
+// PennylaneCustomerInvoiceListItem et PennylaneSupplierInvoiceListItem satisfont tous les deux
+// cette forme (voir lib/pennylaneClient.ts).
+interface FactureBrutePennylane {
+  id: number | string;
+  invoice_number: string | null;
+  date: string | null;
+  label: string | null;
+  amount: string;
+  deadline: string | null;
+  paid: boolean;
+}
+
 /**
- * Construit un candidat "facture fournisseur" directement depuis la LISTE Pennylane —
- * payment_status y est déjà présent, aucun appel détail nécessaire (voir lib/pennylaneClient.ts).
- * Le nom du fournisseur et le numéro sont extraits du libellé (best-effort, voir
- * extraireTiersEtNumero) : la liste ne fournit pas de champ fournisseur/numéro séparé.
+ * Construit un candidat à partir d'une facture brute Pennylane (client ou fournisseur — même
+ * forme minimale pour les deux, voir FactureBrutePennylane). `paid` (booléen renvoyé directement
+ * par l'API) est la SEULE source du statut de paiement retenue : les deux types de facture ont des
+ * vocabulaires de statut textuel différents et non garantis alignés, `paid` est le seul champ dont
+ * la sémantique ("soldée ou non") est commune et sans ambiguïté aux deux.
  */
-export function candidatFactureFournisseur(item: PennylaneSupplierInvoiceListItem): CandidatFacturePennylane | null {
-  if (estAvoir(item.amount)) return null;
-  const montant = Math.abs(Number(item.amount));
+function candidatDepuisFactureBrute(
+  brute: FactureBrutePennylane,
+  libelleGeneriqueTiers: string
+): CandidatFacturePennylane | null {
+  if (estAvoir(brute.amount)) return null;
+  const montant = Math.abs(Number(brute.amount));
   if (!Number.isFinite(montant) || montant === 0) return null;
-  const id = String(item.id);
-  const { tiers, numero } = extraireTiersEtNumero(item.label, id);
+  const id = String(brute.id);
+  const { tiers, numero } = extraireTiersEtNumero(brute.label, id, libelleGeneriqueTiers);
   return {
     pennylaneId: id,
-    facture: numero,
+    facture: brute.invoice_number || numero,
     tiers,
     montant,
-    dateEcheance: item.deadline ?? item.date ?? "",
-    payee: pennylanePayee(item.payment_status),
+    dateEcheance: brute.deadline ?? brute.date ?? "",
+    payee: brute.paid === true,
   };
+}
+
+/** Retourne null pour un brouillon ou un avoir : ni l'un ni l'autre n'est importé en V1. */
+export function candidatFactureClient(item: PennylaneCustomerInvoiceListItem): CandidatFacturePennylane | null {
+  if (item.draft) return null;
+  return candidatDepuisFactureBrute(item, "Client Pennylane");
+}
+
+/** Pas de notion de brouillon côté factures fournisseurs (jamais observée dans l'API). */
+export function candidatFactureFournisseur(item: PennylaneSupplierInvoiceListItem): CandidatFacturePennylane | null {
+  return candidatDepuisFactureBrute(item, "Fournisseur Pennylane");
 }
 
 /** Facture Novanta existante, réduite aux seuls champs nécessaires au calcul de synchronisation. */

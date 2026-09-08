@@ -15,25 +15,23 @@ import { PennylaneCredentialProvider } from "./pennylaneCredentialProvider";
  *     Pagination par curseur : ?cursor=...&limit=1..100 -> { items, has_more, next_cursor }
  *     Filtre de date : ?filter=[{"field":"date","operator":"gteq","value":"YYYY-MM-DD"},...]
  *   GET https://app.pennylane.com/api/external/v2/customer_invoices
- *     Scope requis : customer_invoices:readonly. Pagination PAR NUMÉRO DE PAGE (?page=1,2,...),
- *     PAS par curseur — différent de /transactions, vérifié empiriquement (voir
- *     pennylaneInvoiceAdapter.ts pour le détail de la vérification). 100 résultats/page.
- *     Champs de la LISTE : id, date, label, amount (négatif = avoir), currency, accountants_status
- *     (workflow comptable, PAS le statut de paiement), deadline, url. NE CONTIENT PAS
- *     payment_status ni customer_name/number — nécessite un appel détail (ci-dessous).
- *   GET https://app.pennylane.com/api/external/v2/customer_invoices/{id}
- *     Détail d'une facture : ajoute notamment number, customer_name, draft, et surtout
- *     payment_status (séparé de accountants_status) — seule source fiable du statut de paiement
- *     pour les factures clients, vérifiée en direct sur une facture réelle.
+ *     Scope requis : customer_invoices:readonly. Pagination PAR CURSEUR, comme /transactions :
+ *     { items, has_more, next_cursor }. CORRECTIF IMPORTANT (voir git blame) : une première
+ *     version de ce fichier supposait une pagination par ?page=1,2,... et une clé de réponse
+ *     "customer_invoices" — déduit à tort d'un connecteur MCP utilisé pendant le diagnostic qui
+ *     reformatait sa réponse (résumé "warnings" en prose, clé renommée) au lieu de refléter le
+ *     JSON brut de l'API. Vérifié ensuite contre la documentation officielle Pennylane
+ *     (readme.io/reference/getcustomerinvoices) : la liste contient déjà invoice_number, paid
+ *     (booléen) et draft — donc AUCUN appel détail n'est nécessaire pour déterminer si une facture
+ *     cliente est payée (contrairement à ce que le premier diagnostic concluait).
  *   GET https://app.pennylane.com/api/external/v2/supplier_invoices
- *     Scope requis : supplier_invoices:readonly. Même pagination par page. Champs de la LISTE :
- *     id, date, label, amount, currency, payment_status, deadline, paid_at, url — payment_status
- *     EST déjà présent dans la liste (contrairement aux factures clients), aucun appel détail
- *     nécessaire pour déterminer le statut de paiement.
- *     Valeurs réelles et complètes de payment_status (obtenues par une erreur de validation de
- *     l'API elle-même, donc faisant foi) : to_be_processed, to_be_paid, partially_paid,
- *     payment_error, payment_scheduled, payment_in_progress, payment_emitted, payment_found,
- *     paid_offline, fully_paid. Voir pennylaneInvoiceAdapter.ts pour l'interprétation métier.
+ *     Scope requis : supplier_invoices:readonly. Même pagination par curseur. La liste contient
+ *     déjà invoice_number et paid (booléen) — aucun appel détail nécessaire non plus.
+ *   Interprétation "payée" (les deux types de facture) : le booléen paid renvoyé par l'API,
+ *     directement — jamais une correspondance de chaîne sur un statut textuel (customer_invoices
+ *     et supplier_invoices ont des vocabulaires de statut différents et non strictement alignés :
+ *     s'appuyer sur paid est la seule interprétation robuste aux deux). Voir
+ *     pennylaneInvoiceAdapter.ts.
  *   Authorization: Bearer <Company API Token> sur tous les endpoints.
  *   Rate limit documenté : 25 requêtes / 5 secondes -> 429 + header "retry-after" (secondes).
  *
@@ -78,54 +76,41 @@ export interface PennylaneTransactionRaw {
   amount: string; // décimal signé, en euros (voir note de convention ci-dessus)
 }
 
-interface ReponsePaginee {
-  items: PennylaneTransactionRaw[];
-  has_more: boolean;
-  next_cursor: string | null;
-}
-
 // --- Factures clients (customer_invoices) ---
 
-/** Élément de LISTE — ne contient PAS payment_status (voir note d'en-tête de fichier). */
+/**
+ * Élément de LISTE. paid (booléen) et invoice_number sont bien présents ici — vérifié contre la
+ * documentation officielle (readme.io/reference/getcustomerinvoices), qui énumère explicitement
+ * ces deux champs parmi ceux de la réponse de liste.
+ */
 export interface PennylaneCustomerInvoiceListItem {
   id: number | string; // observé tantôt en nombre, tantôt en chaîne selon l'appel — toujours normalisé en string par l'adaptateur
+  invoice_number: string | null;
   date: string | null;
   label: string | null;
   amount: string; // négatif = avoir, jamais importé comme facture classique
   deadline: string | null;
-}
-
-/** Réponse du détail d'UNE facture cliente — seule source de payment_status. */
-export interface PennylaneCustomerInvoiceDetail {
-  id: number | string;
-  number: string | null;
-  date: string | null;
-  deadline: string | null;
-  amount: string;
+  paid: boolean;
   draft: boolean;
-  payment_status: string;
-  customer_name: string | null;
-}
-
-interface ReponseListeCustomerInvoices {
-  customer_invoices: PennylaneCustomerInvoiceListItem[];
 }
 
 // --- Factures fournisseurs (supplier_invoices) ---
 
-/** Élément de LISTE — payment_status déjà présent ici (contrairement aux factures clients). */
+/** Élément de LISTE — paid et invoice_number déjà présents ici aussi. */
 export interface PennylaneSupplierInvoiceListItem {
   id: number | string;
+  invoice_number: string | null;
   date: string | null;
   label: string | null;
   amount: string;
   deadline: string | null;
-  payment_status: string;
-  paid_at: string | null;
+  paid: boolean;
 }
 
-interface ReponseListeSupplierInvoices {
-  supplier_invoices: PennylaneSupplierInvoiceListItem[];
+interface ReponsePagineeGenerique<T> {
+  items: T[];
+  has_more: boolean;
+  next_cursor: string | null;
 }
 
 function attendre(ms: number): Promise<void> {
@@ -208,6 +193,30 @@ export async function getMe(credentialProvider: PennylaneCredentialProvider): Pr
 }
 
 /**
+ * Pagination par curseur générique, partagée par tous les endpoints de liste V2 (transactions,
+ * customer_invoices, supplier_invoices) : { items, has_more, next_cursor }. Centralisée ici après
+ * un bug réel où une pagination par numéro de page avait été supposée à tort pour les factures —
+ * une seule implémentation, testée une fois, évite de reproduire l'erreur endpoint par endpoint.
+ */
+async function paginerParCurseur<T>(
+  bearer: string,
+  endpoint: string,
+  paramsBase: Record<string, string>
+): Promise<T[]> {
+  const toutes: T[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params = new URLSearchParams({ ...paramsBase, limit: String(LIMITE_PAR_PAGE) });
+    if (cursor) params.set("cursor", cursor);
+    const reponse = (await appelerPennylane(bearer, endpoint, params)) as ReponsePagineeGenerique<T>;
+    toutes.push(...reponse.items);
+    if (!reponse.has_more || !reponse.next_cursor) break;
+    cursor = reponse.next_cursor;
+  }
+  return toutes;
+}
+
+/**
  * Récupère toutes les transactions bancaires Pennylane dont la date est comprise entre dateDebut
  * et dateFin (bornes incluses, YYYY-MM-DD), en paginant automatiquement. Le filtre de date est
  * appliqué côté API Pennylane — jamais récupéré en entier puis filtré côté serveur Novanta.
@@ -219,76 +228,29 @@ export async function listTransactions(
 ): Promise<PennylaneTransactionRaw[]> {
   const bearer = await credentialProvider.getBearerToken();
   const filtreDate = construireFiltreDate(dateDebut, dateFin);
-
-  const toutes: PennylaneTransactionRaw[] = [];
-  let cursor: string | null = null;
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const params = new URLSearchParams({ limit: String(LIMITE_PAR_PAGE), filter: filtreDate, sort: "id" });
-    if (cursor) params.set("cursor", cursor);
-    const reponse = (await appelerPennylane(bearer, ENDPOINT_TRANSACTIONS, params)) as ReponsePaginee;
-    toutes.push(...reponse.items);
-    if (!reponse.has_more || !reponse.next_cursor) break;
-    cursor = reponse.next_cursor;
-  }
-
-  return toutes;
+  return paginerParCurseur<PennylaneTransactionRaw>(bearer, ENDPOINT_TRANSACTIONS, { filter: filtreDate, sort: "id" });
 }
 
 /**
  * Récupère TOUTES les factures clients (customer_invoices), tous statuts confondus — avoirs,
  * brouillons et factures payées inclus : c'est à pennylaneInvoiceAdapter.ts de filtrer, jamais ici.
- * Pagination par NUMÉRO DE PAGE (voir note d'en-tête) : la boucle s'arrête dès qu'une page renvoie
- * moins de LIMITE_PAR_PAGE éléments, sans dépendre d'un champ de métadonnées "dernière page" —
- * fonctionne quelle que soit la forme exacte de la réponse.
+ * paid et invoice_number sont déjà présents dans cette liste : aucun appel détail nécessaire (voir
+ * note d'en-tête de fichier).
  */
 export async function listCustomerInvoices(
   credentialProvider: PennylaneCredentialProvider
 ): Promise<PennylaneCustomerInvoiceListItem[]> {
   const bearer = await credentialProvider.getBearerToken();
-  const toutes: PennylaneCustomerInvoiceListItem[] = [];
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const params = new URLSearchParams({ page: String(page) });
-    const reponse = (await appelerPennylane(bearer, ENDPOINT_CUSTOMER_INVOICES, params)) as ReponseListeCustomerInvoices;
-    const items = reponse.customer_invoices ?? [];
-    toutes.push(...items);
-    if (items.length < LIMITE_PAR_PAGE) break;
-  }
-  return toutes;
+  return paginerParCurseur<PennylaneCustomerInvoiceListItem>(bearer, ENDPOINT_CUSTOMER_INVOICES, {});
 }
 
 /**
- * Détail d'UNE facture cliente — seul moyen de connaître son payment_status (absent de la liste).
- * Appelé par l'adaptateur uniquement pour les factures candidates (nouvelles ou déjà connues et
- * encore non payées côté Novanta), jamais pour l'historique complet — voir pennylaneInvoiceAdapter.ts.
- */
-export async function getCustomerInvoiceDetail(
-  credentialProvider: PennylaneCredentialProvider,
-  invoiceId: string
-): Promise<PennylaneCustomerInvoiceDetail> {
-  const bearer = await credentialProvider.getBearerToken();
-  return (await appelerPennylane(
-    bearer,
-    `${ENDPOINT_CUSTOMER_INVOICES}/${encodeURIComponent(invoiceId)}`,
-    new URLSearchParams()
-  )) as PennylaneCustomerInvoiceDetail;
-}
-
-/**
- * Récupère TOUTES les factures fournisseurs (supplier_invoices), tous statuts confondus.
- * payment_status est déjà présent dans cette liste : aucun appel détail nécessaire, contrairement
- * aux factures clients (voir note d'en-tête de fichier).
+ * Récupère TOUTES les factures fournisseurs (supplier_invoices), tous statuts confondus. paid et
+ * invoice_number déjà présents dans cette liste, aucun appel détail nécessaire.
  */
 export async function listSupplierInvoices(
   credentialProvider: PennylaneCredentialProvider
 ): Promise<PennylaneSupplierInvoiceListItem[]> {
   const bearer = await credentialProvider.getBearerToken();
-  const toutes: PennylaneSupplierInvoiceListItem[] = [];
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const params = new URLSearchParams({ page: String(page) });
-    const reponse = (await appelerPennylane(bearer, ENDPOINT_SUPPLIER_INVOICES, params)) as ReponseListeSupplierInvoices;
-    const items = reponse.supplier_invoices ?? [];
-    toutes.push(...items);
-    if (items.length < LIMITE_PAR_PAGE) break;
-  }
-  return toutes;
+  return paginerParCurseur<PennylaneSupplierInvoiceListItem>(bearer, ENDPOINT_SUPPLIER_INVOICES, {});
 }
