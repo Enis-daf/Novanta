@@ -7,6 +7,7 @@ import {
   montantOccurrenceChargeFixe,
   montantApercuChargeFixe,
   optionsSourceDisponibles,
+  sourceCalculCoupee,
 } from "./montantCalcule";
 import { ChargeFixe, RentreeReguliere } from "./types";
 
@@ -102,8 +103,14 @@ describe("montantOccurrenceChargeFixe — cas de référence obligatoire (quotid
   });
 });
 
-describe("Première période partielle : ne pas inventer d'occurrences avant le début réel de la charge", () => {
-  test("Ads commence un mercredi, CA existe depuis longtemps avant : la 1re occurrence ne prend que le mercredi", () => {
+describe("Première période : couvre un cycle complet en arrière (règle produit confirmée par Enis)", () => {
+  // Décision produit explicite (suite au bug rapporté : 1ère occurrence d'une charge calculée
+  // invisible faute de période) : la 1ère occurrence n'est jamais réduite à sa seule date — elle
+  // couvre TOUJOURS un cycle complet en arrière, la longueur du cycle étant celle de la RÉCURRENCE
+  // DE LA CHARGE CALCULÉE elle-même (mensuel -> un mois, hebdomadaire -> une semaine, etc.), jamais
+  // celle de la source. Remplace l'ancienne règle "jamais d'historique avant le début de la charge"
+  // (documentée ici auparavant), explicitement abandonnée par Enis au profit de celle-ci.
+  test("Ads (hebdomadaire) commence un mercredi, CA (quotidien) existe depuis longtemps avant : la 1re occurrence couvre les 7 jours précédents", () => {
     const ca = rentree({ id: "ca", montant: 1000, dateDebut: "2025-12-01", frequence: "quotidien" });
     const ads = chargeFixe({
       datePrevue: "2026-01-07", // mercredi
@@ -114,8 +121,8 @@ describe("Première période partielle : ne pas inventer d'occurrences avant le 
       sourceCalculType: "rentree_reguliere",
     });
     const montant = montantOccurrenceChargeFixe(ads, parseDateISO("2026-01-07"), null, [], [ca], FIN_LOINTAINE);
-    // Un seul jour de CA (mercredi 7 janvier), jamais le lundi/mardi précédents ni décembre.
-    assert.equal(montant, 400);
+    // Un cycle hebdomadaire complet (01/01 -> 07/01, 7 jours de CA) : 40% x 7000 = 2800.
+    assert.equal(montant, 2800);
   });
 });
 
@@ -791,5 +798,271 @@ describe("detailChargeFixeSurPeriode — aperçu contextuel à une plage sélect
     });
     const detail = detailChargeFixeSurPeriode(charge, ["2026-09-01"], [], [caInvalide], FIN_LOINTAINE);
     assert.equal(detail, null);
+  });
+});
+
+// Régression du bug rapporté par Enis : la PREMIÈRE occurrence d'une charge calculée n'était pas
+// prise en compte quand sa propre date de départ ne coïncidait pas exactement avec une occurrence
+// de la source (periodeDebut était mis égal à periodeFin faute d'occurrence précédente — fenêtre
+// d'un seul jour au lieu d'un cycle complet). Voir periodeDebutPourOccurrence dans montantCalcule.ts.
+describe("Régression : première occurrence d'une charge calculée (bug periodeDebut = periodeFin)", () => {
+  test("scénario réel : Salaire 29/10 mensuel, URSSAF 42% mensuelle démarrant 15/11 -> 2100 dès la 1ère occurrence", () => {
+    const salaire = chargeFixe({
+      id: "salaire",
+      libelle: "Salaire",
+      montant: 5000,
+      datePrevue: "2026-10-29",
+      recurrence: "mensuel",
+      modeMontant: "fixe",
+    });
+    const urssaf = chargeFixe({
+      id: "urssaf",
+      libelle: "URSSAF",
+      datePrevue: "2026-11-15",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 42,
+      sourceCalculId: "salaire",
+      sourceCalculType: "charge_fixe",
+    });
+    const premiere = montantOccurrenceChargeFixe(
+      urssaf,
+      parseDateISO("2026-11-15"),
+      null,
+      [salaire, urssaf],
+      [],
+      FIN_LOINTAINE
+    );
+    assert.equal(premiere, 2100);
+    const deuxieme = montantOccurrenceChargeFixe(
+      urssaf,
+      parseDateISO("2026-12-15"),
+      parseDateISO("2026-11-15"),
+      [salaire, urssaf],
+      [],
+      FIN_LOINTAINE
+    );
+    assert.equal(deuxieme, 2100);
+  });
+
+  test("aucun double comptage : chaque occurrence mensuelle de la source n'est comptée que dans UNE seule période", () => {
+    // Charge calculée démarrant AVANT que la source (mensuelle, 29/10) n'existe : ses occurrences
+    // (29/10, 29/11, 29/12...) ne doivent apparaître qu'une seule fois chacune, jamais dans deux
+    // périodes successives (fenêtres contiguës, jamais chevauchantes).
+    const source = chargeFixe({ id: "s", montant: 5000, datePrevue: "2026-10-29", recurrence: "mensuel", modeMontant: "fixe" });
+    const calc = chargeFixe({
+      id: "c",
+      datePrevue: "2026-09-01",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 42,
+      sourceCalculId: "s",
+      sourceCalculType: "charge_fixe",
+    });
+    const occ = ["2026-09-01", "2026-10-01", "2026-11-01", "2026-12-01"].map(parseDateISO);
+    const montants = occ.map((d, i) =>
+      montantOccurrenceChargeFixe(calc, d, i > 0 ? occ[i - 1] : null, [source, calc], [], FIN_LOINTAINE)
+    );
+    // Avant le 29/10 : rien. À partir de la période qui contient le 29/10 : 2100 à chaque mois
+    // (chaque occurrence mensuelle du Salaire retombe dans exactement une période de l'URSSAF).
+    assert.deepEqual(montants, [0, 0, 2100, 2100]);
+  });
+
+  test("hebdomadaire : première occurrence correcte même sans coïncidence de jour", () => {
+    const source = chargeFixe({ id: "s", montant: 1000, datePrevue: "2026-09-10", recurrence: "hebdomadaire", modeMontant: "fixe" });
+    const calc = chargeFixe({
+      id: "c",
+      datePrevue: "2026-09-24",
+      recurrence: "hebdomadaire",
+      modeMontant: "calcule",
+      tauxCalcul: 10,
+      sourceCalculId: "s",
+      sourceCalculType: "charge_fixe",
+    });
+    const premiere = montantOccurrenceChargeFixe(calc, parseDateISO("2026-09-24"), null, [source, calc], [], FIN_LOINTAINE);
+    assert.equal(premiere, 100);
+  });
+
+  test("ponctuel : la première (et unique) occurrence capte tout l'historique disponible de la source", () => {
+    const source = chargeFixe({ id: "s", montant: 1000, datePrevue: "2026-09-01", recurrence: "mensuel", modeMontant: "fixe" });
+    const calc = chargeFixe({
+      id: "c",
+      datePrevue: "2026-12-15",
+      recurrence: "ponctuel",
+      modeMontant: "calcule",
+      tauxCalcul: 10,
+      sourceCalculId: "s",
+      sourceCalculType: "charge_fixe",
+    });
+    // Occurrences source jusqu'au 15/12 : 01/09, 01/10, 01/11, 01/12 = 4000 -> 10% = 400
+    const montant = montantOccurrenceChargeFixe(calc, parseDateISO("2026-12-15"), null, [source, calc], [], FIN_LOINTAINE);
+    assert.equal(montant, 400);
+  });
+
+  test("rentrée régulière (mode fixe, non saisonnalisée) comme source : première occurrence correcte", () => {
+    const ca = rentree({ id: "ca", montant: 20000, dateDebut: "2026-09-05", frequence: "mensuel", modeMontant: "fixe" });
+    const commission = chargeFixe({
+      id: "c",
+      datePrevue: "2026-09-20",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 3,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    const montant = montantOccurrenceChargeFixe(commission, parseDateISO("2026-09-20"), null, [commission], [ca], FIN_LOINTAINE);
+    assert.equal(montant, 600);
+  });
+
+  test("fin de mois : charge calculée démarrant le 31/03 (mois précédent, février, plus court) ne perd pas une occurrence source du 02/03", () => {
+    // Avant correction du débordement Date.setMonth : ajouterMois(31/03, -1) donnait 03/03 (et non
+    // fin février), rétrécissant la période et perdant une occurrence source du début du mois.
+    const source = chargeFixe({ id: "s", montant: 5000, datePrevue: "2026-03-02", recurrence: "mensuel", modeMontant: "fixe" });
+    const calc = chargeFixe({
+      id: "c",
+      datePrevue: "2026-03-31",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 42,
+      sourceCalculId: "s",
+      sourceCalculType: "charge_fixe",
+    });
+    const montant = montantOccurrenceChargeFixe(calc, parseDateISO("2026-03-31"), null, [source, calc], [], FIN_LOINTAINE);
+    assert.equal(montant, 2100);
+  });
+
+  test("À couper sur la source : la charge calculée n'est pas exclue mais sa base devient 0 (résultat CONNU, jamais indisponible)", () => {
+    const source = chargeFixe({ id: "s", montant: 5000, datePrevue: "2026-10-29", recurrence: "mensuel", modeMontant: "fixe", aCouper: true });
+    const calc = chargeFixe({
+      id: "c",
+      datePrevue: "2026-11-15",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 42,
+      sourceCalculId: "s",
+      sourceCalculType: "charge_fixe",
+    });
+    const montant = montantOccurrenceChargeFixe(calc, parseDateISO("2026-11-15"), null, [source, calc], [], FIN_LOINTAINE);
+    assert.equal(montant, 0); // base nulle, pas null (indisponible) : la charge reste configurée
+  });
+});
+
+// Régression : propager l'exclusion "À couper" d'une source à la Charge calculée qui en dépend
+// (sans jamais cocher automatiquement "À couper" sur la charge calculée elle-même). Voir
+// SourceResolue.exclue et sourceCalculCoupee dans montantCalcule.ts.
+describe("Régression : À couper sur la source désactive la charge calculée dépendante (sans toucher à son propre aCouper)", () => {
+  function scenarioSalaireUrssaf(salaireACouper: boolean, urssafACouper = false) {
+    const salaire = chargeFixe({
+      id: "salaire",
+      libelle: "Salaire",
+      montant: 5000,
+      datePrevue: "2026-10-29",
+      recurrence: "mensuel",
+      modeMontant: "fixe",
+      aCouper: salaireACouper,
+    });
+    const urssaf = chargeFixe({
+      id: "urssaf",
+      libelle: "URSSAF",
+      datePrevue: "2026-11-15",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 42,
+      sourceCalculId: "salaire",
+      sourceCalculType: "charge_fixe",
+      aCouper: urssafACouper,
+    });
+    return { salaire, urssaf };
+  }
+
+  test("A. source active : URSSAF = 2100 €", () => {
+    const { salaire, urssaf } = scenarioSalaireUrssaf(false);
+    const montant = montantOccurrenceChargeFixe(urssaf, parseDateISO("2026-11-15"), null, [salaire, urssaf], [], FIN_LOINTAINE);
+    assert.equal(montant, 2100);
+    assert.equal(sourceCalculCoupee(urssaf, [salaire, urssaf], []), false);
+  });
+
+  test("B. Salaire à couper : Salaire et URSSAF valent 0 dans la base de calcul", () => {
+    const { salaire, urssaf } = scenarioSalaireUrssaf(true);
+    const montant = montantOccurrenceChargeFixe(urssaf, parseDateISO("2026-11-15"), null, [salaire, urssaf], [], FIN_LOINTAINE);
+    assert.equal(montant, 0);
+    assert.equal(sourceCalculCoupee(urssaf, [salaire, urssaf], []), true);
+  });
+
+  test("C. réactiver Salaire : URSSAF revient automatiquement, sans action sur sa propre case", () => {
+    const scenarioCoupe = scenarioSalaireUrssaf(true);
+    assert.equal(
+      montantOccurrenceChargeFixe(scenarioCoupe.urssaf, parseDateISO("2026-11-15"), null, [scenarioCoupe.salaire, scenarioCoupe.urssaf], [], FIN_LOINTAINE),
+      0
+    );
+    const scenarioReactive = scenarioSalaireUrssaf(false); // même URSSAF (aCouper jamais modifié), Salaire réactivé
+    assert.equal(
+      montantOccurrenceChargeFixe(scenarioReactive.urssaf, parseDateISO("2026-11-15"), null, [scenarioReactive.salaire, scenarioReactive.urssaf], [], FIN_LOINTAINE),
+      2100
+    );
+  });
+
+  test("D. URSSAF explicitement coupée AVANT la coupure de la source : reste coupée après réactivation (son propre aCouper n'est jamais touché)", () => {
+    const { salaire, urssaf } = scenarioSalaireUrssaf(true, true); // les deux coupés
+    // sourceCalculCoupee reflète l'état de la SOURCE, indépendamment de l'état propre d'URSSAF :
+    assert.equal(sourceCalculCoupee(urssaf, [salaire, urssaf], []), true);
+    assert.equal(urssaf.aCouper, true); // jamais modifié automatiquement — c'est l'appelant (UI/persistance) qui ne doit jamais le changer, ce que confirme cette valeur inchangée depuis sa construction
+  });
+
+  test("E. URSSAF jamais explicitement coupée : source coupée puis réactivée -> revient (déjà couvert par C, ici on vérifie qu'aCouper propre reste false tout du long)", () => {
+    const { salaire, urssaf } = scenarioSalaireUrssaf(true, false);
+    assert.equal(urssaf.aCouper, false);
+    assert.equal(sourceCalculCoupee(urssaf, [salaire, urssaf], []), true); // inactive à cause de la source, pas de sa propre case
+  });
+
+  test("F. première occurrence : source active -> correct ; source coupée -> 0 ; réactivée -> correct (aucune régression avec le fix de 1ère occurrence)", () => {
+    const actif = scenarioSalaireUrssaf(false);
+    assert.equal(
+      montantOccurrenceChargeFixe(actif.urssaf, parseDateISO("2026-11-15"), null, [actif.salaire, actif.urssaf], [], FIN_LOINTAINE),
+      2100
+    );
+    const coupe = scenarioSalaireUrssaf(true);
+    assert.equal(
+      montantOccurrenceChargeFixe(coupe.urssaf, parseDateISO("2026-11-15"), null, [coupe.salaire, coupe.urssaf], [], FIN_LOINTAINE),
+      0
+    );
+    const reactive = scenarioSalaireUrssaf(false);
+    assert.equal(
+      montantOccurrenceChargeFixe(reactive.urssaf, parseDateISO("2026-11-15"), null, [reactive.salaire, reactive.urssaf], [], FIN_LOINTAINE),
+      2100
+    );
+  });
+
+  test("G. hebdomadaire : même comportement (source coupée -> 0, réactivée -> correct)", () => {
+    const source = chargeFixe({ id: "s", montant: 1000, datePrevue: "2026-09-10", recurrence: "hebdomadaire", modeMontant: "fixe" });
+    const calc = chargeFixe({
+      id: "c",
+      datePrevue: "2026-09-24",
+      recurrence: "hebdomadaire",
+      modeMontant: "calcule",
+      tauxCalcul: 10,
+      sourceCalculId: "s",
+      sourceCalculType: "charge_fixe",
+    });
+    assert.equal(montantOccurrenceChargeFixe(calc, parseDateISO("2026-09-24"), null, [source, calc], [], FIN_LOINTAINE), 100);
+    const sourceCoupee = { ...source, aCouper: true };
+    assert.equal(montantOccurrenceChargeFixe(calc, parseDateISO("2026-09-24"), null, [sourceCoupee, calc], [], FIN_LOINTAINE), 0);
+    const sourceReactivee = { ...source, aCouper: false };
+    assert.equal(montantOccurrenceChargeFixe(calc, parseDateISO("2026-09-24"), null, [sourceReactivee, calc], [], FIN_LOINTAINE), 100);
+  });
+
+  test("H. Rentrée régulière comme source : aucun mécanisme d'exclusion équivalent aujourd'hui -> jamais exclue (générique, pas de régression silencieuse)", () => {
+    const ca = rentree({ id: "ca", montant: 20000, dateDebut: "2026-09-05", frequence: "mensuel", modeMontant: "fixe" });
+    const commission = chargeFixe({
+      id: "c",
+      datePrevue: "2026-09-20",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 3,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    assert.equal(sourceCalculCoupee(commission, [commission], [ca]), false);
+    assert.equal(montantOccurrenceChargeFixe(commission, parseDateISO("2026-09-20"), null, [commission], [ca], FIN_LOINTAINE), 600);
   });
 });

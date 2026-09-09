@@ -12,6 +12,7 @@ import {
   messageMontantIndisponible,
   montantApercuChargeFixe,
   optionsSourceDisponibles,
+  sourceCalculCoupee,
 } from "@/lib/montantCalcule";
 import DateField from "./DateField";
 import SourceCalculSelect from "./SourceCalculSelect";
@@ -80,6 +81,9 @@ export default function ChargesFixesTable({
               estCalculee &&
               charge.sourceCalculType === "rentree_reguliere" &&
               rentreesRegulieres.find((r) => r.id === charge.sourceCalculId)?.modeMontant === "saisonnalise";
+            // Dérivé, jamais persisté : la charge reste configurée telle quelle, seule sa base
+            // devient nulle tant que sa source est coupée (voir lib/montantCalcule.ts).
+            const inactiveCarSourceCoupee = sourceCalculCoupee(charge, charges, rentreesRegulieres);
             // Aperçu contextuel à la plage sélectionnée sur la courbe (D-3..D+3 autour du clic) :
             // remplace l'aperçu par défaut (2e occurrence) uniquement quand un filtre est actif ET
             // que cette charge a des occurrences dans la plage (sinon la ligne n'est pas affichée
@@ -173,11 +177,13 @@ export default function ChargesFixesTable({
                           = {formatMontant(montantAffiche)} <IconCalculatrice />
                         </p>
                         <p className="charge-calcul__hint">
-                          {enModeFiltre
-                            ? `Sur la période du ${formatDateCourte(periodeFiltre!.debut)} au ${formatDateCourte(periodeFiltre!.fin)}.`
-                            : sourceSaisonnalisee
-                              ? `Le montant varie chaque mois selon la saisonnalité de ${sourceLibelle}.`
-                              : `Le montant se met à jour automatiquement lorsque ${sourceLibelle} change.`}
+                          {inactiveCarSourceCoupee
+                            ? "Inactive car sa source est coupée."
+                            : enModeFiltre
+                              ? `Sur la période du ${formatDateCourte(periodeFiltre!.debut)} au ${formatDateCourte(periodeFiltre!.fin)}.`
+                              : sourceSaisonnalisee
+                                ? `Le montant varie chaque mois selon la saisonnalité de ${sourceLibelle}.`
+                                : `Le montant se met à jour automatiquement lorsque ${sourceLibelle} change.`}
                         </p>
                       </>
                     )}
@@ -210,11 +216,23 @@ export default function ChargesFixesTable({
                 />
               </td>
               <td className="col-checkbox">
-                <span className="checkbox-tooltip" title="Exclut cette dépense des projections sans supprimer la donnée.">
+                <span
+                  className="checkbox-tooltip"
+                  title={
+                    inactiveCarSourceCoupee
+                      ? "Inactive car sa source est coupée."
+                      : "Exclut cette dépense des projections sans supprimer la donnée."
+                  }
+                >
                   <input
                     type="checkbox"
                     checked={charge.aCouper}
-                    title="Exclut cette dépense des projections sans supprimer la donnée."
+                    disabled={inactiveCarSourceCoupee}
+                    title={
+                      inactiveCarSourceCoupee
+                        ? "Inactive car sa source est coupée."
+                        : "Exclut cette dépense des projections sans supprimer la donnée."
+                    }
                     onChange={(e) => onChange(charge.id, { aCouper: e.target.checked })}
                   />
                 </span>
