@@ -1,6 +1,12 @@
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { getMe, listTransactions, PennylaneApiError } from "./pennylaneClient";
+import {
+  getMe,
+  listCustomerInvoices,
+  listSupplierInvoices,
+  listTransactions,
+  PennylaneApiError,
+} from "./pennylaneClient";
 import { PennylaneCredentialProvider } from "./pennylaneCredentialProvider";
 
 const TOKEN_FACTICE = "pnl_test_token_ne_doit_jamais_apparaitre";
@@ -124,5 +130,88 @@ describe("listTransactions — GET /api/external/v2/transactions", () => {
     installerFetchMock([jsonResponse(200, { items: [], has_more: false, next_cursor: null })]);
     const resultat = await listTransactions(provider(), "2026-08-01", "2026-08-01");
     assert.deepEqual(resultat, []);
+  });
+});
+
+function factureFactice(id: number) {
+  return {
+    id,
+    invoice_number: `FA-${id}`,
+    date: "2026-08-01",
+    label: `Facture ${id}`,
+    amount: "100.0",
+    deadline: "2026-09-01",
+    paid: false,
+  };
+}
+
+// Les deux endpoints factures utilisent la MÊME pagination par curseur que /transactions
+// ({ items, has_more, next_cursor }) — pas une pagination par page (voir la note d'en-tête de
+// lib/pennylaneClient.ts sur le bug réel corrigé à ce sujet).
+describe("listCustomerInvoices — GET /api/external/v2/customer_invoices", () => {
+  test("L. pagination par curseur : plusieurs pages sont concaténées jusqu'à has_more=false", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ ...factureFactice(i + 1), draft: false }));
+    const page2 = Array.from({ length: 50 }, (_, i) => ({ ...factureFactice(1000 + i), draft: false }));
+    installerFetchMock([
+      jsonResponse(200, { items: page1, has_more: true, next_cursor: "curseur-1" }),
+      jsonResponse(200, { items: page2, has_more: false, next_cursor: null }),
+    ]);
+    const resultat = await listCustomerInvoices(provider());
+    assert.equal(resultat.length, 150);
+    assert.equal(appelsCaptures.length, 2);
+    assert.equal(appelsCaptures[0].url.includes("cursor="), false);
+    assert.ok(appelsCaptures[1].url.includes("cursor=curseur-1"));
+  });
+
+  test("une seule page (has_more=false dès la première réponse) -> un seul appel", async () => {
+    installerFetchMock([
+      jsonResponse(200, { items: [{ ...factureFactice(1), draft: false }], has_more: false, next_cursor: null }),
+    ]);
+    const resultat = await listCustomerInvoices(provider());
+    assert.equal(resultat.length, 1);
+    assert.equal(appelsCaptures.length, 1);
+  });
+
+  test("N. 401 -> PennylaneApiError('invalid_token'), jamais une exception générique", async () => {
+    installerFetchMock([jsonResponse(401, {})]);
+    await assert.rejects(() => listCustomerInvoices(provider()), (err: unknown) => {
+      assert.ok(err instanceof PennylaneApiError);
+      assert.equal(err.reason, "invalid_token");
+      return true;
+    });
+  });
+
+  test("N. 403 (scope customer_invoices manquant) -> PennylaneApiError('insufficient_scope')", async () => {
+    installerFetchMock([jsonResponse(403, {})]);
+    await assert.rejects(() => listCustomerInvoices(provider()), (err: unknown) => {
+      assert.ok(err instanceof PennylaneApiError);
+      assert.equal(err.reason, "insufficient_scope");
+      return true;
+    });
+  });
+});
+
+describe("listSupplierInvoices — GET /api/external/v2/supplier_invoices", () => {
+  test("L. pagination par curseur : plusieurs pages sont concaténées jusqu'à has_more=false", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => factureFactice(i + 1));
+    const page2 = Array.from({ length: 100 }, (_, i) => factureFactice(200 + i));
+    const page3 = Array.from({ length: 10 }, (_, i) => ({ ...factureFactice(400 + i), paid: true }));
+    installerFetchMock([
+      jsonResponse(200, { items: page1, has_more: true, next_cursor: "curseur-1" }),
+      jsonResponse(200, { items: page2, has_more: true, next_cursor: "curseur-2" }),
+      jsonResponse(200, { items: page3, has_more: false, next_cursor: null }),
+    ]);
+    const resultat = await listSupplierInvoices(provider());
+    assert.equal(resultat.length, 210);
+    assert.equal(appelsCaptures.length, 3);
+  });
+
+  test("N. 401 -> PennylaneApiError('invalid_token')", async () => {
+    installerFetchMock([jsonResponse(401, {})]);
+    await assert.rejects(() => listSupplierInvoices(provider()), (err: unknown) => {
+      assert.ok(err instanceof PennylaneApiError);
+      assert.equal(err.reason, "invalid_token");
+      return true;
+    });
   });
 });
