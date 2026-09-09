@@ -721,3 +721,76 @@ describe("Régression bout-en-bout : première occurrence d'une charge calculée
     assert.equal(point.solde, 95000);
   });
 });
+
+// Régression bout-en-bout : "À couper" sur une source doit désactiver la Charge calculée
+// dépendante (voir lib/montantCalcule.test.ts pour la régression au niveau de la fonction pure).
+describe("Régression bout-en-bout : À couper sur la source propage à la charge calculée dans le solde projeté", () => {
+  test("Salaire coupé : Salaire ET URSSAF absents du solde projeté ; réactivé : les deux reviennent", () => {
+    const salaire = chargeFixe({ id: "salaire", libelle: "Salaire", montant: 5000, datePrevue: "2026-10-29", recurrence: "mensuel", modeMontant: "fixe" });
+    const urssaf = chargeFixe({
+      id: "urssaf",
+      libelle: "URSSAF",
+      datePrevue: "2026-11-15",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 42,
+      sourceCalculId: "salaire",
+      sourceCalculType: "charge_fixe",
+    });
+
+    const soldeActif = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 20000,
+      chargesFixes: [salaire, urssaf],
+      rentreesRegulieres: [],
+      dateDepart: "2026-11-01",
+      horizonJours: 20,
+    }).soldeJ90;
+    assert.equal(soldeActif, 20000 - 2100); // seule l'URSSAF est dans l'horizon (Salaire du 29/10 est avant)
+
+    const salaireCoupe = { ...salaire, aCouper: true };
+    const soldeCoupe = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 20000,
+      chargesFixes: [salaireCoupe, urssaf],
+      rentreesRegulieres: [],
+      dateDepart: "2026-11-01",
+      horizonJours: 20,
+    }).soldeJ90;
+    assert.equal(soldeCoupe, 20000); // Salaire ET URSSAF absents
+
+    const salaireReactive = { ...salaire, aCouper: false };
+    const soldeReactive = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 20000,
+      chargesFixes: [salaireReactive, urssaf],
+      rentreesRegulieres: [],
+      dateDepart: "2026-11-01",
+      horizonJours: 20,
+    }).soldeJ90;
+    assert.equal(soldeReactive, soldeActif); // revient exactement au même état, sans action sur URSSAF
+  });
+
+  test("synthèse mensuelle : la charge calculée disparaît aussi de la synthèse quand sa source est coupée (même source de vérité que le solde projeté)", () => {
+    const salaire = chargeFixe({ id: "salaire", montant: 5000, datePrevue: "2026-10-29", recurrence: "mensuel", modeMontant: "fixe", aCouper: true });
+    const urssaf = chargeFixe({
+      id: "urssaf",
+      datePrevue: "2026-11-15",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 42,
+      sourceCalculId: "salaire",
+      sourceCalculType: "charge_fixe",
+    });
+    const resultat = calculerSyntheseMensuelle({
+      ...PARAMS_VIDES,
+      dateReleve: "2026-11-01",
+      horizonJours: 60,
+      chargesFixes: [salaire, urssaf],
+      rentreesRegulieres: [],
+    });
+    const ligneCharges = resultat.lignes.find((l) => l.libelle === "Charges fixes")!;
+    const indexNovembre = resultat.mois.findIndex((m) => m.cle === "2026-11");
+    assert.equal(ligneCharges.montantsParMois[indexNovembre], 0);
+  });
+});

@@ -47,6 +47,15 @@ interface SourceResolue {
    * montantOccurrenceRentreeReguliere) — la Charge calculée n'a pas à connaître la différence.
    */
   montantOccurrence: (dateOccurrence: Date) => number | null;
+  /**
+   * true si la source est actuellement exclue des projections par son propre mécanisme
+   * d'exclusion (aCouper pour une Charge fixe). La ligne source reste résolue normalement
+   * (libellé, fréquence... toujours affichés) mais sa base de calcul doit devenir nulle tant
+   * qu'elle est exclue — jamais supprimée ni ignorée en amont, voir detailOccurrenceChargeFixe.
+   * Une Rentrée régulière n'a aujourd'hui aucun mécanisme d'exclusion équivalent (pas de champ
+   * "à couper") : toujours false pour ce type de source, sans exception codée en dur.
+   */
+  exclue: boolean;
 }
 
 /**
@@ -77,6 +86,7 @@ function resoudreSourceCalcul(
       dateDebut: source.datePrevue,
       dateFin: source.dateFin,
       montantOccurrence: () => source.montant,
+      exclue: source.aCouper,
     };
   }
 
@@ -94,6 +104,7 @@ function resoudreSourceCalcul(
     dateDebut: source.dateDebut,
     dateFin: source.dateFin,
     montantOccurrence: (dateOccurrence) => montantOccurrenceRentreeReguliere(source, dateOccurrence),
+    exclue: false, // RentreeReguliere n'a pas de champ "à couper" aujourd'hui.
   };
 }
 
@@ -192,6 +203,12 @@ function detailOccurrenceChargeFixe(
 
   const source = resoudreSourceCalcul(charge, chargesFixes, rentreesRegulieres);
   if (!source) return null;
+
+  // Source exclue des projections (À couper) : base de calcul nulle, mais un résultat CONNU
+  // (0), jamais indisponible — la charge calculée reste configurée et affichée, seule sa base
+  // devient nulle tant que la source est coupée. Exclusion à la source (aucune occurrence de la
+  // source n'est même générée), pas un montant forcé à zéro après coup.
+  if (source.exclue) return { montantSource: 0, montantCharge: 0 };
 
   const periodeDebut = periodeDebutPourOccurrence(charge, dateOccurrence, dateOccurrencePrecedente);
   const periodeFin = dateOccurrence;
@@ -321,6 +338,22 @@ export function libelleSourceCalcul(
   rentreesRegulieres: RentreeReguliere[]
 ): string | null {
   return resoudreSourceCalcul(charge, chargesFixes, rentreesRegulieres)?.libelle ?? null;
+}
+
+/**
+ * true si cette charge calculée est actuellement INACTIVE parce que sa source est coupée
+ * (À couper sur la source, jamais sur la charge elle-même — voir resoudreSourceCalcul). État
+ * dérivé, jamais persisté : recalculé à chaque rendu à partir de l'état actuel de la source,
+ * pour piloter l'affichage (message, case "À couper" désactivée) sans jamais modifier la valeur
+ * propre `aCouper` de la charge calculée — voir ChargesFixesTable.tsx.
+ */
+export function sourceCalculCoupee(
+  charge: ChargeFixe,
+  chargesFixes: ChargeFixe[],
+  rentreesRegulieres: RentreeReguliere[]
+): boolean {
+  if (charge.modeMontant !== "calcule") return false;
+  return resoudreSourceCalcul(charge, chargesFixes, rentreesRegulieres)?.exclue ?? false;
 }
 
 /**

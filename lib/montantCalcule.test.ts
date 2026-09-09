@@ -7,6 +7,7 @@ import {
   montantOccurrenceChargeFixe,
   montantApercuChargeFixe,
   optionsSourceDisponibles,
+  sourceCalculCoupee,
 } from "./montantCalcule";
 import { ChargeFixe, RentreeReguliere } from "./types";
 
@@ -930,10 +931,7 @@ describe("Régression : première occurrence d'une charge calculée (bug periode
     assert.equal(montant, 2100);
   });
 
-  test("À couper sur la source : la charge calculée n'est pas exclue mais sa base devient 0 (montant géré par cash-engine, pas ici — la source Charge fixe fournit toujours son montant nominal indépendamment de aCouper : voir cash-engine.ts qui exclut la SOURCE de la boucle de flux, pas de resoudreSourceCalcul)", () => {
-    // resoudreSourceCalcul lit toujours source.montant, quel que soit aCouper (le filtrage
-    // aCouper n'existe que dans la boucle de calculerProjectionCash — voir cash-engine.test.ts
-    // pour la vérification bout-en-bout de la règle produit "source coupée -> base 0").
+  test("À couper sur la source : la charge calculée n'est pas exclue mais sa base devient 0 (résultat CONNU, jamais indisponible)", () => {
     const source = chargeFixe({ id: "s", montant: 5000, datePrevue: "2026-10-29", recurrence: "mensuel", modeMontant: "fixe", aCouper: true });
     const calc = chargeFixe({
       id: "c",
@@ -945,6 +943,126 @@ describe("Régression : première occurrence d'une charge calculée (bug periode
       sourceCalculType: "charge_fixe",
     });
     const montant = montantOccurrenceChargeFixe(calc, parseDateISO("2026-11-15"), null, [source, calc], [], FIN_LOINTAINE);
-    assert.equal(montant, 2100); // confirme que le filtrage aCouper est bien hors de ce module
+    assert.equal(montant, 0); // base nulle, pas null (indisponible) : la charge reste configurée
+  });
+});
+
+// Régression : propager l'exclusion "À couper" d'une source à la Charge calculée qui en dépend
+// (sans jamais cocher automatiquement "À couper" sur la charge calculée elle-même). Voir
+// SourceResolue.exclue et sourceCalculCoupee dans montantCalcule.ts.
+describe("Régression : À couper sur la source désactive la charge calculée dépendante (sans toucher à son propre aCouper)", () => {
+  function scenarioSalaireUrssaf(salaireACouper: boolean, urssafACouper = false) {
+    const salaire = chargeFixe({
+      id: "salaire",
+      libelle: "Salaire",
+      montant: 5000,
+      datePrevue: "2026-10-29",
+      recurrence: "mensuel",
+      modeMontant: "fixe",
+      aCouper: salaireACouper,
+    });
+    const urssaf = chargeFixe({
+      id: "urssaf",
+      libelle: "URSSAF",
+      datePrevue: "2026-11-15",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 42,
+      sourceCalculId: "salaire",
+      sourceCalculType: "charge_fixe",
+      aCouper: urssafACouper,
+    });
+    return { salaire, urssaf };
+  }
+
+  test("A. source active : URSSAF = 2100 €", () => {
+    const { salaire, urssaf } = scenarioSalaireUrssaf(false);
+    const montant = montantOccurrenceChargeFixe(urssaf, parseDateISO("2026-11-15"), null, [salaire, urssaf], [], FIN_LOINTAINE);
+    assert.equal(montant, 2100);
+    assert.equal(sourceCalculCoupee(urssaf, [salaire, urssaf], []), false);
+  });
+
+  test("B. Salaire à couper : Salaire et URSSAF valent 0 dans la base de calcul", () => {
+    const { salaire, urssaf } = scenarioSalaireUrssaf(true);
+    const montant = montantOccurrenceChargeFixe(urssaf, parseDateISO("2026-11-15"), null, [salaire, urssaf], [], FIN_LOINTAINE);
+    assert.equal(montant, 0);
+    assert.equal(sourceCalculCoupee(urssaf, [salaire, urssaf], []), true);
+  });
+
+  test("C. réactiver Salaire : URSSAF revient automatiquement, sans action sur sa propre case", () => {
+    const scenarioCoupe = scenarioSalaireUrssaf(true);
+    assert.equal(
+      montantOccurrenceChargeFixe(scenarioCoupe.urssaf, parseDateISO("2026-11-15"), null, [scenarioCoupe.salaire, scenarioCoupe.urssaf], [], FIN_LOINTAINE),
+      0
+    );
+    const scenarioReactive = scenarioSalaireUrssaf(false); // même URSSAF (aCouper jamais modifié), Salaire réactivé
+    assert.equal(
+      montantOccurrenceChargeFixe(scenarioReactive.urssaf, parseDateISO("2026-11-15"), null, [scenarioReactive.salaire, scenarioReactive.urssaf], [], FIN_LOINTAINE),
+      2100
+    );
+  });
+
+  test("D. URSSAF explicitement coupée AVANT la coupure de la source : reste coupée après réactivation (son propre aCouper n'est jamais touché)", () => {
+    const { salaire, urssaf } = scenarioSalaireUrssaf(true, true); // les deux coupés
+    // sourceCalculCoupee reflète l'état de la SOURCE, indépendamment de l'état propre d'URSSAF :
+    assert.equal(sourceCalculCoupee(urssaf, [salaire, urssaf], []), true);
+    assert.equal(urssaf.aCouper, true); // jamais modifié automatiquement — c'est l'appelant (UI/persistance) qui ne doit jamais le changer, ce que confirme cette valeur inchangée depuis sa construction
+  });
+
+  test("E. URSSAF jamais explicitement coupée : source coupée puis réactivée -> revient (déjà couvert par C, ici on vérifie qu'aCouper propre reste false tout du long)", () => {
+    const { salaire, urssaf } = scenarioSalaireUrssaf(true, false);
+    assert.equal(urssaf.aCouper, false);
+    assert.equal(sourceCalculCoupee(urssaf, [salaire, urssaf], []), true); // inactive à cause de la source, pas de sa propre case
+  });
+
+  test("F. première occurrence : source active -> correct ; source coupée -> 0 ; réactivée -> correct (aucune régression avec le fix de 1ère occurrence)", () => {
+    const actif = scenarioSalaireUrssaf(false);
+    assert.equal(
+      montantOccurrenceChargeFixe(actif.urssaf, parseDateISO("2026-11-15"), null, [actif.salaire, actif.urssaf], [], FIN_LOINTAINE),
+      2100
+    );
+    const coupe = scenarioSalaireUrssaf(true);
+    assert.equal(
+      montantOccurrenceChargeFixe(coupe.urssaf, parseDateISO("2026-11-15"), null, [coupe.salaire, coupe.urssaf], [], FIN_LOINTAINE),
+      0
+    );
+    const reactive = scenarioSalaireUrssaf(false);
+    assert.equal(
+      montantOccurrenceChargeFixe(reactive.urssaf, parseDateISO("2026-11-15"), null, [reactive.salaire, reactive.urssaf], [], FIN_LOINTAINE),
+      2100
+    );
+  });
+
+  test("G. hebdomadaire : même comportement (source coupée -> 0, réactivée -> correct)", () => {
+    const source = chargeFixe({ id: "s", montant: 1000, datePrevue: "2026-09-10", recurrence: "hebdomadaire", modeMontant: "fixe" });
+    const calc = chargeFixe({
+      id: "c",
+      datePrevue: "2026-09-24",
+      recurrence: "hebdomadaire",
+      modeMontant: "calcule",
+      tauxCalcul: 10,
+      sourceCalculId: "s",
+      sourceCalculType: "charge_fixe",
+    });
+    assert.equal(montantOccurrenceChargeFixe(calc, parseDateISO("2026-09-24"), null, [source, calc], [], FIN_LOINTAINE), 100);
+    const sourceCoupee = { ...source, aCouper: true };
+    assert.equal(montantOccurrenceChargeFixe(calc, parseDateISO("2026-09-24"), null, [sourceCoupee, calc], [], FIN_LOINTAINE), 0);
+    const sourceReactivee = { ...source, aCouper: false };
+    assert.equal(montantOccurrenceChargeFixe(calc, parseDateISO("2026-09-24"), null, [sourceReactivee, calc], [], FIN_LOINTAINE), 100);
+  });
+
+  test("H. Rentrée régulière comme source : aucun mécanisme d'exclusion équivalent aujourd'hui -> jamais exclue (générique, pas de régression silencieuse)", () => {
+    const ca = rentree({ id: "ca", montant: 20000, dateDebut: "2026-09-05", frequence: "mensuel", modeMontant: "fixe" });
+    const commission = chargeFixe({
+      id: "c",
+      datePrevue: "2026-09-20",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 3,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    assert.equal(sourceCalculCoupee(commission, [commission], [ca]), false);
+    assert.equal(montantOccurrenceChargeFixe(commission, parseDateISO("2026-09-20"), null, [commission], [ca], FIN_LOINTAINE), 600);
   });
 });
