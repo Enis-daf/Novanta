@@ -105,6 +105,49 @@ interface DetailOccurrenceChargeFixe {
 }
 
 /**
+ * Un mois avant `date`, SANS le débordement classique de Date.setMonth sur les mois plus courts
+ * (ex. ajouterMois(2026-03-31, -1) donnerait 2026-03-03 au lieu de fin février : 31 n'existe pas
+ * en février, JS déborde sur le mois suivant au lieu de s'arrêter au dernier jour valide). Le jour
+ * est donc écrêté à la longueur réelle du mois précédent — comportement standard d'arithmétique
+ * calendaire, jamais une approximation "30 jours". N'affecte que le calcul de periodeDebut ci-
+ * dessous (fonction privée, non partagée) : ajouterMois (lib/dates.ts) reste inchangé pour tout le
+ * reste du moteur (génération d'occurrences avant/arrière, non touchée par ce correctif).
+ */
+function moisPrecedentSansDebordement(date: Date): Date {
+  const dernierJourMoisPrecedent = new Date(date.getFullYear(), date.getMonth(), 0).getDate();
+  const jourClampe = Math.min(date.getDate(), dernierJourMoisPrecedent);
+  return new Date(date.getFullYear(), date.getMonth() - 1, jourClampe);
+}
+
+/**
+ * Borne basse de la période couvrant une occurrence d'une charge calculée. Pour toute occurrence
+ * SAUF la première, c'est simplement le lendemain de l'occurrence précédente (période = un cycle
+ * plein, comme avant). Pour la PREMIÈRE occurrence, il n'existe aucune "occurrence précédente" de
+ * la charge elle-même — mais la période doit malgré tout couvrir un cycle complet en arrière
+ * (sinon elle dégénère en un seul jour, celui de l'occurrence : bug corrigé ici, voir diagnostic
+ * livré à Enis). On synthétise donc l'équivalent d'une occurrence précédente en reculant d'UN
+ * cycle de la fréquence de la CHARGE (jamais celle de la source) avant cette première occurrence,
+ * exactement comme si la charge existait depuis toujours à ce rythme. Cas "ponctuel" à part : une
+ * ligne ponctuelle n'a qu'une seule occurrence, jamais de "cycle" à reculer — null (pas de borne
+ * basse) pour couvrir tout l'historique disponible de la source en une seule fois.
+ */
+function periodeDebutPourOccurrence(
+  charge: ChargeFixe,
+  dateOccurrence: Date,
+  dateOccurrencePrecedente: Date | null
+): Date | null {
+  if (dateOccurrencePrecedente) return ajouterJours(dateOccurrencePrecedente, 1);
+  if (charge.recurrence === "ponctuel") return null;
+  const debutCyclePrecedent =
+    charge.recurrence === "quotidien"
+      ? ajouterJours(dateOccurrence, -1)
+      : charge.recurrence === "hebdomadaire"
+        ? ajouterJours(dateOccurrence, -7)
+        : moisPrecedentSansDebordement(dateOccurrence); // "mensuel"
+  return ajouterJours(debutCyclePrecedent, 1);
+}
+
+/**
  * Détail d'UNE occurrence précise d'une charge fixe calculée (charge.modeMontant === "calcule"
  * uniquement — le mode "fixe" est traité séparément par montantOccurrenceChargeFixe, qui ne
  * délègue jamais ici dans ce cas). Expose montantSource (avant taux) en plus de montantCharge :
@@ -150,11 +193,13 @@ function detailOccurrenceChargeFixe(
   const source = resoudreSourceCalcul(charge, chargesFixes, rentreesRegulieres);
   if (!source) return null;
 
-  const periodeDebut = dateOccurrencePrecedente ? ajouterJours(dateOccurrencePrecedente, 1) : dateOccurrence;
+  const periodeDebut = periodeDebutPourOccurrence(charge, dateOccurrence, dateOccurrencePrecedente);
   const periodeFin = dateOccurrence;
 
   const occurrencesSource = genererOccurrencesRecurrentes(source.dateDebut, source.frequence, source.dateFin, finHorizon);
-  const occurrencesDansPeriode = occurrencesSource.filter((d) => d >= periodeDebut && d <= periodeFin);
+  const occurrencesDansPeriode = occurrencesSource.filter(
+    (d) => (periodeDebut === null || d >= periodeDebut) && d <= periodeFin
+  );
 
   let sommeSource = 0;
   for (const dateOccurrenceSource of occurrencesDansPeriode) {

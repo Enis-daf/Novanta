@@ -380,10 +380,11 @@ describe("calculerSyntheseMensuelle — agrégation mensuelle avec le montant ca
     // La charge est payée le 1er de chaque mois (comme toute charge mensuelle), donc le débit
     // représentant la période de janvier (31 jours) apparaît dans la colonne de FÉVRIER (date
     // de paiement réelle : 1er février) — même logique de bucketing par date que le reste du
-    // moteur. La toute première occurrence (1er janvier, période partielle d'1 seul jour de CA)
-    // apparaît elle dans la colonne de janvier.
+    // moteur. La toute première occurrence (1er janvier) couvre elle aussi un cycle mensuel
+    // complet en arrière (règle produit confirmée par Enis, voir montantCalcule.ts) : le mois
+    // de décembre précédent (02/12 -> 01/01, 31 jours), jamais un seul jour isolé.
     assert.equal(ligneCharges.montantsParMois[indexFevrier], -3100); // 10% x 31000 (janvier, 31 jours)
-    assert.equal(ligneCharges.montantsParMois[indexJanvier], -100); // 10% x 1000 (1er janvier seul)
+    assert.equal(ligneCharges.montantsParMois[indexJanvier], -3100); // 10% x 31000 (02/12 -> 01/01, 31 jours)
   });
 
   test("source saisonnalisée + charge calculée dépendante : les deux restent dans leurs catégories existantes", () => {
@@ -595,5 +596,128 @@ describe("Autre dépense — exclusion par Facturée et/ou Payée (comportement 
       horizonJours: 30,
     });
     assert.equal(resultat.soldeJ90, 10000);
+  });
+});
+
+// Régression bout-en-bout du bug rapporté par Enis : la première occurrence d'une charge calculée
+// n'impactait pas le solde projeté quand sa date de départ ne coïncidait pas avec une occurrence
+// de sa source (voir lib/montantCalcule.test.ts pour la régression au niveau de la fonction pure).
+describe("Régression bout-en-bout : première occurrence d'une charge calculée dans le solde projeté", () => {
+  test("scénario réel — Salaire 29/10 mensuel + URSSAF 42% démarrant 15/11 : le solde baisse dès le 15/11", () => {
+    const salaire = chargeFixe({
+      id: "salaire",
+      libelle: "Salaire",
+      montant: 5000,
+      datePrevue: "2026-10-29",
+      recurrence: "mensuel",
+      modeMontant: "fixe",
+    });
+    const urssaf = chargeFixe({
+      id: "urssaf",
+      libelle: "URSSAF",
+      datePrevue: "2026-11-15",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 42,
+      sourceCalculId: "salaire",
+      sourceCalculType: "charge_fixe",
+    });
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 20000,
+      chargesFixes: [salaire, urssaf],
+      rentreesRegulieres: [],
+      dateDepart: "2026-11-01",
+      horizonJours: 20,
+    });
+    const point15 = resultat.serie.find((p) => p.date === "2026-11-15")!;
+    const point14 = resultat.serie.find((p) => p.date === "2026-11-14")!;
+    assert.equal(point14.solde, 20000); // rien avant le 15
+    assert.equal(point15.solde, 20000 - 2100); // URSSAF débité pile à sa 1ère occurrence
+  });
+
+  test("frontière dateDepart : une occurrence de charge calculée juste avant/après dateDepart n'est ni perdue ni dupliquée", () => {
+    // Reproduit précisément la frontière 07/11 -> 08/11 observée par Enis : dateDepart = 08/11.
+    // AVANT le fix, l'occurrence du 08/11 (>= dateDepart, donc visible) affichait 0 au lieu de
+    // 2100 ; celle du 07/11 (< dateDepart, invisible) masquait le même bug par simple absence à
+    // l'écran. Après le fix, les DEUX donnent le même résultat correct dès leur apparition.
+    const salaire = chargeFixe({ id: "salaire", montant: 5000, datePrevue: "2026-10-29", recurrence: "mensuel", modeMontant: "fixe" });
+    function soldeAuLendemainDeDepart(dateUrssaf: string) {
+      const urssaf = chargeFixe({
+        id: "urssaf",
+        datePrevue: dateUrssaf,
+        recurrence: "mensuel",
+        modeMontant: "calcule",
+        tauxCalcul: 42,
+        sourceCalculId: "salaire",
+        sourceCalculType: "charge_fixe",
+      });
+      const r = calculerProjectionCash({
+        ...PARAMS_VIDES,
+        soldeInitial: 20000,
+        chargesFixes: [salaire, urssaf],
+        rentreesRegulieres: [],
+        dateDepart: "2026-11-08",
+        horizonJours: 60,
+      });
+      return r.serie.find((p) => p.date === dateUrssaf)?.solde ?? null;
+    }
+    assert.equal(soldeAuLendemainDeDepart("2026-11-08"), 20000 - 2100);
+  });
+
+  test("solde J-fin d'horizon, point bas et date de passage sous zéro reflètent bien la 1ère occurrence (pas de logique parallèle par KPI)", () => {
+    const salaire = chargeFixe({ id: "salaire", montant: 5000, datePrevue: "2026-10-29", recurrence: "mensuel", modeMontant: "fixe" });
+    const urssaf = chargeFixe({
+      id: "urssaf",
+      datePrevue: "2026-11-15",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 42,
+      sourceCalculId: "salaire",
+      sourceCalculType: "charge_fixe",
+    });
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 3000,
+      chargesFixes: [salaire, urssaf],
+      rentreesRegulieres: [],
+      dateDepart: "2026-11-01",
+      horizonJours: 20,
+    });
+    // 29/10 hors période (avant dateDepart) ; 15/11 : -2100 -> solde 900, jamais sous zéro.
+    assert.equal(resultat.pointBas, 900);
+    assert.equal(resultat.dateDuPointBas, "2026-11-15");
+    assert.equal(resultat.datePassageSousZero, null);
+  });
+
+  test("charge calculée % de Rentrée régulière saisonnalisée : première occurrence toujours correcte (chemin dédié, non affecté par ce bug)", () => {
+    const ca = rentree({
+      id: "ca",
+      dateDebut: "2026-01-01",
+      frequence: "mensuel",
+      modeMontant: "saisonnalise",
+      profilSaisonnalite: { montantAnnuel: 1200000, ponderationsMensuelles: Array(12).fill(100 / 12) },
+    });
+    const commission = chargeFixe({
+      id: "commission",
+      datePrevue: "2026-03-15",
+      recurrence: "mensuel",
+      modeMontant: "calcule",
+      tauxCalcul: 5,
+      sourceCalculId: "ca",
+      sourceCalculType: "rentree_reguliere",
+    });
+    const resultat = calculerProjectionCash({
+      ...PARAMS_VIDES,
+      soldeInitial: 0,
+      chargesFixes: [commission],
+      rentreesRegulieres: [ca],
+      dateDepart: "2026-03-01",
+      horizonJours: 20,
+    });
+    const point = resultat.serie.find((p) => p.date === "2026-03-15")!;
+    // CA mars = 1 200 000 / 12 = 100 000 (encaissé le même jour, cf. boucle rentreesRegulieres) ;
+    // commission = 5% = 5000, débitée le même jour. Solde net = +100000 -5000 = 95000.
+    assert.equal(point.solde, 95000);
   });
 });
