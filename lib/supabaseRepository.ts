@@ -58,6 +58,33 @@ async function insertMany(table: string, rows: Row[]): Promise<void> {
   if (error) throw error;
 }
 
+/**
+ * INSERT multi-lignes résilient à un doublon isolé : contrairement à insertMany (un seul
+ * `.insert()` atomique — UNE ligne en conflit fait échouer TOUT le lot), chaque ligne est
+ * évaluée indépendamment vis-à-vis de `colonnesConflit` (ON CONFLICT ... DO NOTHING côté
+ * Postgres) : une ligne déjà présente est simplement ignorée, jamais écrasée, et n'empêche
+ * jamais l'insertion des autres lignes du même lot.
+ *
+ * Nécessaire pour lib/pennylaneInvoiceAdapter.ts::calculerSynchronisation, dont la décision
+ * "cette facture est nouvelle" repose sur l'état des factures connues côté client (voir
+ * app/page.tsx) — potentiellement périmé par rapport à Supabase (une facture déjà importée lors
+ * d'une synchronisation précédente, mais pas encore reflétée dans le state React courant). Sans
+ * cette résilience, un seul doublon ainsi introduit dans un lot faisait échouer silencieusement
+ * l'import de TOUTES les factures réellement nouvelles de la même synchronisation (voir
+ * diagnostic livré à Enis — "on repart de zéro" à chaque resync).
+ *
+ * Sans risque pour l'import manuel (même fonction, pennylane_id toujours null pour ces lignes) :
+ * un index unique Postgres ignore les valeurs NULL, donc deux factures manuelles ne "entrent
+ * jamais en conflit" entre elles ni avec quoi que ce soit — comportement inchangé pour ce cas.
+ */
+async function upsertManyIgnorerDoublons(table: string, rows: Row[], colonnesConflit: string): Promise<void> {
+  if (rows.length === 0) return;
+  const { error } = await client()
+    .from(table)
+    .upsert(rows, { onConflict: colonnesConflit, ignoreDuplicates: true });
+  if (error) throw error;
+}
+
 async function upsertOne(table: string, row: Row): Promise<void> {
   const { error } = await client().from(table).upsert(row);
   if (error) throw error;
@@ -385,9 +412,10 @@ export async function supprimerFactureFournisseur(id: string): Promise<void> {
 }
 
 export async function importerFacturesClients(companyId: string, factures: FactureClient[]): Promise<void> {
-  await insertMany(
+  await upsertManyIgnorerDoublons(
     "customer_invoices",
-    factures.map((f) => factureClientToRow(companyId, f))
+    factures.map((f) => factureClientToRow(companyId, f)),
+    "company_id,pennylane_id"
   );
 }
 
@@ -395,9 +423,10 @@ export async function importerFacturesFournisseurs(
   companyId: string,
   factures: FactureFournisseur[]
 ): Promise<void> {
-  await insertMany(
+  await upsertManyIgnorerDoublons(
     "supplier_invoices",
-    factures.map((f) => factureFournisseurToRow(companyId, f))
+    factures.map((f) => factureFournisseurToRow(companyId, f)),
+    "company_id,pennylane_id"
   );
 }
 

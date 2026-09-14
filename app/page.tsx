@@ -540,19 +540,44 @@ export default function Home() {
   // factures. Les mises à jour "Payée" ne touchent JAMAIS que payee/paidAt (voir
   // marquerFacturesClientsPayees/Fournisseurs), jamais dateEcheance/litigieuse/autres réglages
   // utilisateur.
-  const handleSynchroniserPennylaneFactures = (
+  // Contrairement à `persist()` (fire-and-forget, utilisé partout ailleurs dans ce fichier), la
+  // synchronisation Pennylane ATTEND chaque écriture Supabase et remonte l'échec réel à
+  // l'utilisateur : un import "réussi" affiché sans savoir si l'écriture a abouti a longtemps
+  // laissé croire à une synchronisation effective alors que rien n'était enregistré (voir
+  // diagnostic livré à Enis — symptôme "on repart de zéro à chaque fois"). Le state React est mis
+  // à jour de façon optimiste (cohérent avec le reste de l'app), mais le résultat affiché reflète
+  // désormais l'issue réelle de la persistance, jamais seulement le calcul local.
+  const handleSynchroniserPennylaneFactures = async (
     nouvellesFacturesClients: FactureClient[],
     nouvellesFacturesFournisseurs: FactureFournisseur[],
     idsClientsAMettreAJourPayee: string[],
     idsFournisseursAMettreAJourPayee: string[]
-  ) => {
+  ): Promise<{ erreurPersistanceClients: string | null; erreurPersistanceFournisseurs: string | null }> => {
+    let erreurPersistanceClients: string | null = null;
+    let erreurPersistanceFournisseurs: string | null = null;
+    const messageEchec = "Échec de l'enregistrement dans Novanta. Réessayez la synchronisation.";
+
     if (nouvellesFacturesClients.length > 0) {
       setFacturesClients((prev) => [...prev, ...nouvellesFacturesClients]);
-      if (companyId) persist(() => importerFacturesClients(companyId, nouvellesFacturesClients));
+      if (companyId) {
+        try {
+          await importerFacturesClients(companyId, nouvellesFacturesClients);
+        } catch (erreur) {
+          console.error("Échec de la sauvegarde Supabase (factures clients) :", erreur);
+          erreurPersistanceClients = messageEchec;
+        }
+      }
     }
     if (nouvellesFacturesFournisseurs.length > 0) {
       setFacturesFournisseurs((prev) => [...prev, ...nouvellesFacturesFournisseurs]);
-      if (companyId) persist(() => importerFacturesFournisseurs(companyId, nouvellesFacturesFournisseurs));
+      if (companyId) {
+        try {
+          await importerFacturesFournisseurs(companyId, nouvellesFacturesFournisseurs);
+        } catch (erreur) {
+          console.error("Échec de la sauvegarde Supabase (factures fournisseurs) :", erreur);
+          erreurPersistanceFournisseurs = messageEchec;
+        }
+      }
     }
 
     if (idsClientsAMettreAJourPayee.length > 0) {
@@ -561,7 +586,12 @@ export default function Home() {
       setFacturesClients((prev) =>
         prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant } : f))
       );
-      persist(() => marquerFacturesClientsPayees(idsClientsAMettreAJourPayee));
+      try {
+        await marquerFacturesClientsPayees(idsClientsAMettreAJourPayee);
+      } catch (erreur) {
+        console.error("Échec de la mise à jour Supabase (statut payé, clients) :", erreur);
+        erreurPersistanceClients = erreurPersistanceClients ?? messageEchec;
+      }
     }
     if (idsFournisseursAMettreAJourPayee.length > 0) {
       const idsAMettreAJour = new Set(idsFournisseursAMettreAJourPayee);
@@ -569,8 +599,15 @@ export default function Home() {
       setFacturesFournisseurs((prev) =>
         prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant } : f))
       );
-      persist(() => marquerFacturesFournisseursPayees(idsFournisseursAMettreAJourPayee));
+      try {
+        await marquerFacturesFournisseursPayees(idsFournisseursAMettreAJourPayee);
+      } catch (erreur) {
+        console.error("Échec de la mise à jour Supabase (statut payé, fournisseurs) :", erreur);
+        erreurPersistanceFournisseurs = erreurPersistanceFournisseurs ?? messageEchec;
+      }
     }
+
+    return { erreurPersistanceClients, erreurPersistanceFournisseurs };
   };
 
   // Déclenché depuis le bouton "Synchroniser Pennylane" de FacturesClientsTable OU
@@ -632,7 +669,7 @@ export default function Home() {
         nombreFournisseursAjoutes = nouvellesFacturesFournisseurs.length;
       }
 
-      handleSynchroniserPennylaneFactures(
+      const { erreurPersistanceClients, erreurPersistanceFournisseurs } = await handleSynchroniserPennylaneFactures(
         nouvellesFacturesClients,
         nouvellesFacturesFournisseurs,
         idsClientsAMettreAJourPayee,
@@ -645,8 +682,11 @@ export default function Home() {
         nombreClientsAjoutes,
         nombreFournisseursAjoutes,
         nombreMarquesPayees: idsClientsAMettreAJourPayee.length + idsFournisseursAMettreAJourPayee.length,
-        erreurClients: data.erreurClients ?? null,
-        erreurFournisseurs: data.erreurFournisseurs ?? null,
+        // L'erreur Pennylane (échec de lecture côté API) prime sur l'erreur de persistance
+        // Supabase si les deux surviennent — la première explique la seconde (rien à sauvegarder
+        // si rien n'a pu être récupéré).
+        erreurClients: data.erreurClients ?? erreurPersistanceClients,
+        erreurFournisseurs: data.erreurFournisseurs ?? erreurPersistanceFournisseurs,
       });
     } catch {
       setSyncPennylaneErreur("Pennylane est temporairement indisponible. Réessayez.");
