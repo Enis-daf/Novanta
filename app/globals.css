@@ -329,14 +329,17 @@ input[type="checkbox"] {
      la même zone de clip pour les bulles. */
   margin-right: calc(var(--space-5) * -1);
   padding-right: var(--space-5);
+  /* Scope le z-index:-1 de .pilotage__decor-verte à l'intérieur de ce conteneur (elle doit passer
+     derrière Dashboard/SyntheseMensuelle, pas derrière le fond de .pilotage qui la rendrait
+     invisible). N'affecte ni le layout ni le scroll. */
+  isolation: isolate;
 }
 
-/* Couche décorative uniquement : 2 grandes masses pastel inspirées du deck, très majoritairement
-   hors-cadre. Isolée dans son propre wrapper (absolute + son propre overflow:hidden) plutôt que de
-   toucher .pilotage lui-même — .pilotage garde son overflow-y:auto (scroll interne réel) intact,
-   qu'un overflow:hidden posé directement dessus aurait pu perturber. .pilotage a déjà
+/* Bulle rose : ancrée au cadre VISIBLE du panneau (comportement inchangé), toujours à la même
+   place quel que soit le défilement. Isolée dans son propre wrapper (absolute + son propre
+   overflow:hidden) plutôt que de toucher .pilotage lui-même — .pilotage garde son
    position:sticky, qui sert de containing block : aucune propriété n'est donc ajoutée à .pilotage.
-   z-index:-1 place les bulles sous le contenu réel (input/chart/texte, tous non positionnés, donc
+   z-index:-1 place la bulle sous le contenu réel (input/chart/texte, tous non positionnés, donc
    peints après un descendant positionné) sans toucher aux z-index existants de l'app. */
 .pilotage__decor {
   position: absolute;
@@ -347,30 +350,40 @@ input[type="checkbox"] {
   pointer-events: none;
 }
 
-.pilotage__decor::before,
 .pilotage__decor::after {
   content: "";
   position: absolute;
   border-radius: 50%;
-}
-
-/* Cercle vert d'eau : masse entrant par le coin bas-gauche, centre très largement hors panneau. */
-.pilotage__decor::before {
-  width: 900px;
-  height: 900px;
-  left: -510px;
-  bottom: -700px;
-  background: var(--couleur-fond-alt-vert);
-}
-
-/* Cercle rose pâle : masse entrant par le bord haut-droit, autour de Solde projeté / Passage sous
-   zéro, mais derrière ce texte (voir z-index ci-dessus). */
-.pilotage__decor::after {
   width: 750px;
   height: 750px;
   right: -645px;
   top: -325px;
   background: var(--couleur-fond-alt-rose);
+}
+
+/* Bulle verte : à l'inverse, ANCRÉE AU CONTENU (juste avant Synthèse mensuelle dans le JSX), pas au
+   cadre du panneau — elle défile avec le reste et disparaît si on remonte, comme demandé
+   explicitement (contrairement à la bulle rose ci-dessus). position:relative + height:0 : ancre de
+   largeur pleine mais de hauteur nulle (aucun impact sur le flow), qui sert de repère à son propre
+   ::before. isolation:isolate sur .pilotage__scroll (ci-dessus) scope le z-index:-1 à l'intérieur
+   du conteneur de scroll, pour qu'il passe derrière Dashboard/SyntheseMensuelle sans passer aussi
+   derrière le fond de .pilotage (ce qui la rendrait invisible). */
+.pilotage__decor-verte {
+  position: relative;
+  height: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.pilotage__decor-verte::before {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  width: 900px;
+  height: 900px;
+  left: -510px;
+  bottom: -700px;
+  background: var(--couleur-fond-alt-vert);
 }
 
 .bandeau-mode-local {
@@ -1307,6 +1320,12 @@ input[type="checkbox"] {
      rapport à .cockpit et détériorerait l'affichage. Masquée à cette largeur plutôt que de changer
      le responsive existant du panneau pour l'accueillir. */
   .pilotage__decor {
+    display: none;
+  }
+
+  /* Techniquement indépendante de .pilotage (elle s'ancre sur elle-même, pas sur le containing
+     block du panneau), mais masquée ici aussi par cohérence avec la bulle rose ci-dessus. */
+  .pilotage__decor-verte {
     display: none;
   }
 }

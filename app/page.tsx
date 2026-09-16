@@ -932,6 +932,7 @@ export default function Home() {
             resultat={resultat}
             onPointClickCourbe={handleClicCourbe}
           />
+          <div className="pilotage__decor-verte" aria-hidden="true" />
           <SyntheseMensuelle synthese={syntheseMensuelle} />
         </div>
       </div>
