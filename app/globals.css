@@ -446,7 +446,7 @@ input[type="checkbox"] {
    gap de flex s'ajoutait aux marges et les 56px du chiffre héros donnaient une impression
    d'écart bien plus lâche que les 2 stats à côté, alors que la valeur CSS était la même. */
 .pilotage__headline-label {
-  margin: 0 0 2px;
+  margin: 0 0 6px;
   font-size: 14px;
   color: var(--couleur-texte-secondaire);
 }
@@ -494,8 +494,10 @@ input[type="checkbox"] {
   max-width: 220px;
 }
 
+/* Utilisée sous le chiffre héros (56px) : marge plus large que .pilotage__stat-label (2px sur du
+   22px) pour garder le même écart RELATIF à la taille du texte, pas le même écart absolu. */
 .pilotage__stat-sous-valeur {
-  margin: 2px 0 0;
+  margin: 6px 0 0;
   font-size: 12px;
   color: var(--couleur-texte-secondaire);
 }
