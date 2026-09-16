@@ -431,7 +431,7 @@ input[type="checkbox"] {
    qu'empilés verticalement. */
 .pilotage__vue-ensemble {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-5);
   flex-wrap: wrap;
@@ -440,15 +440,19 @@ input[type="checkbox"] {
 .pilotage__headline {
   display: flex;
   flex-direction: column;
-  gap: 2px;
 }
 
+/* Même rythme (marge de 2px) que .pilotage__stat-label → .pilotage__stat-valeur : sans ça, le
+   gap de flex s'ajoutait aux marges et les 56px du chiffre héros donnaient une impression
+   d'écart bien plus lâche que les 2 stats à côté, alors que la valeur CSS était la même. */
 .pilotage__headline-label {
+  margin: 0 0 2px;
   font-size: 14px;
   color: var(--couleur-texte-secondaire);
 }
 
 .pilotage__headline-valeur {
+  margin: 0;
   font-size: 56px;
   line-height: 1;
   font-weight: 700;
