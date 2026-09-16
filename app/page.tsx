@@ -31,7 +31,6 @@ import {
 } from "@/lib/pennylaneInvoiceAdapter";
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
-import { formatDate } from "@/lib/format";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
 import { calculerControleMensuel } from "@/lib/controleMensuel";
 import { calculerFluxPeriode, calculerPeriodeFiltre } from "@/lib/periodeFiltre";
@@ -900,11 +899,10 @@ export default function Home() {
       )}
       <header className="page-intro">
         <div className="page-intro__texte">
-          <p className="eyebrow">Novanta</p>
-          <h1 className="page-intro__titre">Trésorerie</h1>
-          <p className="page-intro__sous-titre">
-            Vue consolidée sur {horizonJours} jours · relevé au {formatDate(dateReleve)}
-          </p>
+          <h1 className="page-intro__titre-compact">
+            <span className="page-intro__marque">Novanta</span>
+            <span className="page-intro__produit"> — cockpit de trésorerie</span>
+          </h1>
         </div>
         {supabaseConfigured && session && (
           <div className="page-intro__actions">
