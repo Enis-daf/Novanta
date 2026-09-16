@@ -31,6 +31,7 @@ import {
 } from "@/lib/pennylaneInvoiceAdapter";
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
+import { formatDate } from "@/lib/format";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
 import { calculerControleMensuel } from "@/lib/controleMensuel";
 import { calculerFluxPeriode, calculerPeriodeFiltre } from "@/lib/periodeFiltre";
@@ -897,10 +898,17 @@ export default function Home() {
           Mode local — configurez Supabase (.env.local) pour sauvegarder les données.
         </div>
       )}
-      {supabaseConfigured && session && (
-        <div className="barre-utilisateur">
-          <span>{session.user.email}</span>
-          <div className="barre-utilisateur__actions">
+      <header className="page-intro">
+        <div className="page-intro__texte">
+          <p className="page-intro__eyebrow">Novanta</p>
+          <h1 className="page-intro__titre">Trésorerie</h1>
+          <p className="page-intro__sous-titre">
+            Vue consolidée sur {horizonJours} jours · relevé au {formatDate(dateReleve)}
+          </p>
+        </div>
+        {supabaseConfigured && session && (
+          <div className="page-intro__actions">
+            <span className="page-intro__email">{session.user.email}</span>
             <Link href="/account/billing" className="btn-secondaire">
               Abonnement
             </Link>
@@ -911,9 +919,9 @@ export default function Home() {
               Se déconnecter
             </button>
           </div>
-        </div>
-      )}
-      <div className="cockpit__col cockpit__col--gauche">
+        )}
+      </header>
+      <div className="pilotage">
         <Dashboard
           soldeInitial={soldeInitial}
           onChangeSoldeInitial={handleChangeSoldeInitial}
@@ -926,7 +934,7 @@ export default function Home() {
         />
         <SyntheseMensuelle synthese={syntheseMensuelle} />
       </div>
-      <div className="cockpit__col cockpit__col--droite">
+      <div className="cockpit__col--droite">
         {periodeFiltre && fluxPeriode && (
           <BandeauPeriodeFiltre
             dateClic={periodeFiltre.dateClic}

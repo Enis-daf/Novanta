@@ -7,6 +7,25 @@
   --couleur-accent: #f02894;
   --couleur-accent-fonce: #c10068;
   --couleur-bordure: #e5e7eb;
+  /* Palier "surface élevée sur fond sombre" du deck de référence (ses slides sombres l'utilisent
+     pour les blocs posés sur #030a16) — un seul neutre supplémentaire, pas une nouvelle teinte,
+     utilisé uniquement pour donner du poids à une surface sombre sans la confondre avec le fond. */
+  --couleur-texte-elevee: #0d1626;
+
+  /* Rythme d'espacement unique pour toute l'app : page > section > bloc > contrôle. */
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 40px;
+  --space-7: 48px;
+
+  /* 3 niveaux de radius : contrôles (petits), cartes/boutons (standard), grandes surfaces
+     éditoriales (généreux). Les pastilles (999px) restent hors échelle. */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 24px;
 }
 
 * {
@@ -17,10 +36,7 @@ html,
 body {
   margin: 0;
   padding: 0;
-  /* Fond global derrière les panneaux uniquement : couleur en dur, volontairement distincte
-     de --couleur-fond (réutilisée ailleurs pour des survols et du texte sur fond sombre, qui
-     ne doivent pas changer). */
-  background: #fffdf3;
+  background: var(--couleur-fond);
   color: var(--couleur-texte);
   font-family: var(--font-lexend), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
@@ -39,24 +55,69 @@ input[type="checkbox"] {
 
 .cockpit {
   display: grid;
-  grid-template-columns: minmax(340px, 1fr) minmax(460px, 1.35fr);
-  gap: 14px;
-  padding: 14px;
+  grid-template-columns: minmax(360px, 1fr) minmax(460px, 1.4fr);
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-5) var(--space-7);
   min-height: 100vh;
   align-items: start;
 }
 
-.cockpit__col {
-  background: #fffefa;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 10px;
-  padding: 16px;
+/* Zone d'introduction pleine largeur : eyebrow + grand titre + contexte + actions de compte.
+   Aucune surface/bordure propre — elle respire directement sur le fond de page, comme dans le
+   deck (le titre "occupe une vraie place" plutôt que d'être logé dans une barre utilitaire). */
+.page-intro {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+.page-intro__eyebrow {
+  margin: 0 0 var(--space-1);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--couleur-accent);
+}
+
+.page-intro__titre {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.05;
+  font-weight: 700;
+  color: var(--couleur-texte);
+  letter-spacing: -0.01em;
+}
+
+.page-intro__sous-titre {
+  margin: var(--space-1) 0 0;
+  font-size: 15px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.page-intro__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: 6px;
+}
+
+.page-intro__email {
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+  margin-right: var(--space-1);
 }
 
 .cockpit__col--droite {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: var(--space-6);
 }
 
 .barre-outils-recherche {
@@ -89,21 +150,21 @@ input[type="checkbox"] {
 
 .tri-controle select {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px 10px;
   font-size: 13px;
   color: var(--couleur-texte);
-  background: #fff;
+  background: var(--couleur-fond);
 }
 
 .barre-recherche__input {
   width: 100%;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 9px 34px 9px 12px;
   font-size: 14px;
   color: var(--couleur-texte);
-  background: #fff;
+  background: var(--couleur-fond);
 }
 
 .barre-recherche__input:focus {
@@ -143,46 +204,41 @@ input[type="checkbox"] {
 .section-groupe {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-4);
 }
 
 .section-contenu {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-4);
 }
 
+/* Titre de section éditorial : la hiérarchie vient de la taille/poids/espace, pas d'une couleur
+   (le rose reste réservé à l'action/donnée prioritaire) ni d'un filet systématique sous chaque
+   titre — l'espace au-dessus/en dessous suffit à le détacher du contenu. */
 .section-titre {
   position: relative;
   margin: 0;
-  padding: 0 0 12px;
-  font-size: 20px;
-  font-weight: 300;
-  color: var(--couleur-accent-fonce);
+  padding: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--couleur-texte);
   font-family: inherit;
   background: none;
   border: none;
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: pointer;
   text-align: left;
 }
 
-.section-titre::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 66%;
-  height: 2px;
-  background: var(--couleur-bordure);
-}
-
 .section-titre__chevron {
   display: inline-block;
-  font-size: 22px;
+  font-size: 18px;
+  color: var(--couleur-texte-secondaire);
   line-height: 1;
   transition: transform 0.15s ease;
   transform: rotate(-90deg);
@@ -192,11 +248,22 @@ input[type="checkbox"] {
   transform: rotate(0deg);
 }
 
-.cockpit__col--gauche {
+/* LE panneau de pilotage : une seule grande surface sombre qui remplace l'ancien empilement de
+   3 mini-cards KPI + 1 card graphe blanche + 1 table — le chiffre qui compte, son contexte et sa
+   courbe vivent dans le même bloc, séparés par de l'espace et de la typographie, pas par des
+   bordures. C'est le principal levier de contraste clair/sombre de l'app (voir rapport DA). */
+.pilotage {
   position: sticky;
-  top: 14px;
-  max-height: calc(100vh - 28px);
+  top: var(--space-4);
+  max-height: calc(100vh - 2 * var(--space-4));
   overflow-y: auto;
+  background: var(--couleur-texte);
+  color: var(--couleur-fond);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
 }
 
 .bandeau-mode-local {
@@ -204,7 +271,7 @@ input[type="checkbox"] {
   background: var(--couleur-fond-alt-rose);
   border: 1px solid var(--couleur-accent-fonce);
   color: var(--couleur-texte);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px 14px;
   font-size: 13px;
 }
@@ -219,7 +286,7 @@ input[type="checkbox"] {
   gap: 16px;
   background: var(--couleur-fond-alt-vert);
   border: 1px solid var(--couleur-accent-fonce);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px 16px;
   margin-bottom: 16px;
   box-shadow: 0 2px 8px rgba(3, 10, 22, 0.1);
@@ -281,105 +348,132 @@ input[type="checkbox"] {
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
+/* Rangée de paramètres compacte (contrôles fonctionnels, pas du contenu éditorial) : des chips
+   claires posées sur la surface sombre, même logique que les boutons sur .page-intro__actions. */
 .dashboard-parametres {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
-  gap: 20px;
+  gap: var(--space-4);
 }
 
 .solde-initial {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .solde-initial label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--couleur-texte);
+  color: var(--couleur-fond);
+  opacity: 0.7;
 }
 
 .solde-initial input,
 .solde-initial select {
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
   font-size: 14px;
-  width: 160px;
+  width: 148px;
+  background: var(--couleur-fond);
+  color: var(--couleur-texte);
 }
 
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-}
-
-.kpi-card {
-  border-radius: 10px;
-  padding: 12px 10px;
-  border: 1px solid var(--couleur-texte);
-  background: var(--couleur-texte);
-  color: var(--couleur-fond);
-  min-width: 0;
-}
-
-.kpi-card__label {
-  font-size: 11px;
-  font-weight: 300;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--couleur-fond);
-  text-transform: uppercase;
-  letter-spacing: 0.01em;
-  margin-bottom: 6px;
-}
-
-.kpi-card__value {
-  font-size: 20px;
+/* Eyebrow + chiffre héro + stats secondaires : la hiérarchie vient de la taille/poids/espace,
+   pas de 3 cadres séparés. Le rose ne touche que la valeur si elle est réellement critique
+   (tone="danger" côté Dashboard.tsx — logique métier inchangée). */
+.pilotage__eyebrow {
+  margin: 0;
+  font-size: 12px;
   font-weight: 700;
-  line-height: 1.3;
-  color: var(--couleur-fond);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--couleur-accent);
 }
 
-.kpi-card__value--compact {
+.pilotage__headline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pilotage__headline-label {
   font-size: 14px;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
+  color: var(--couleur-fond);
+  opacity: 0.65;
 }
 
-.kpi-card__sublabel {
+.pilotage__headline-valeur {
+  font-size: 56px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--couleur-fond);
+}
+
+.pilotage__headline-valeur--danger {
+  color: var(--couleur-accent);
+}
+
+.pilotage__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-6);
+}
+
+.pilotage__stat-label {
+  margin: 0 0 2px;
   font-size: 12px;
   color: var(--couleur-fond);
-  margin-top: 4px;
-  opacity: 0.75;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  opacity: 0.65;
 }
 
-.chart-container {
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 10px;
-  padding: 12px 8px;
-  background: #fff;
+.pilotage__stat-valeur {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--couleur-fond);
 }
 
-.synthese-mensuelle {
-  margin-top: 20px;
+.pilotage__stat-valeur--danger {
+  color: var(--couleur-accent);
+}
+
+.pilotage__stat-valeur--compact {
+  font-size: 14px;
+  font-weight: 600;
+  max-width: 220px;
+}
+
+.pilotage__stat-sous-valeur {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--couleur-fond);
+  opacity: 0.65;
+}
+
+/* Le graphe est directement posé sur la surface sombre (pas de card blanche à l'intérieur) —
+   voir CashCurveChart.tsx pour la palette d'axes/tooltip en variante sombre. */
+.pilotage__chart {
+  margin: calc(var(--space-2) * -1) calc(var(--space-3) * -1) calc(var(--space-3) * -1);
+}
+
+.pilotage__separateur {
+  border: none;
+  border-top: 1px solid rgba(255, 254, 250, 0.16);
+  margin: 0;
 }
 
 .synthese-mensuelle h3 {
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-2);
   font-size: 15px;
+  font-weight: 700;
+  color: var(--couleur-fond);
 }
 
 .synthese-mensuelle__scroll {
@@ -390,18 +484,23 @@ input[type="checkbox"] {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  color: var(--couleur-fond);
 }
 
 .synthese-mensuelle__table th,
 .synthese-mensuelle__table td {
   padding: 5px 8px;
-  border-bottom: 1px solid var(--couleur-bordure);
+  border-bottom: 1px solid rgba(255, 254, 250, 0.16);
   white-space: nowrap;
   text-align: left;
 }
 
+/* Sur fond sombre, --couleur-texte-secondaire (gris moyen) perd trop de contraste : le deck
+   lui-même n'utilise jamais ce gris sur ses variantes sombres, seulement du texte clair en
+   opacité réduite. */
 .synthese-mensuelle__table th {
-  color: var(--couleur-texte-secondaire);
+  color: var(--couleur-fond);
+  opacity: 0.65;
   font-weight: 600;
   font-size: 10px;
   text-transform: uppercase;
@@ -409,7 +508,7 @@ input[type="checkbox"] {
 }
 
 .synthese-mensuelle__total {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .controle-mensuel__sous-titre {
@@ -462,6 +561,10 @@ input[type="checkbox"] {
   color: var(--couleur-texte-secondaire);
 }
 
+.table-wrapper {
+  overflow-x: auto;
+}
+
 .table-wrapper h3 {
   margin: 0 0 10px;
   font-size: 15px;
@@ -512,7 +615,7 @@ input[type="checkbox"] {
   margin-left: 6px;
   padding: 1px 6px;
   border: 1px solid var(--couleur-accent-fonce);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 10px;
   font-weight: 600;
   line-height: 1.6;
@@ -531,7 +634,7 @@ input[type="checkbox"] {
 .invoice-table input[type="number"],
 .invoice-table select {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 4px;
   font-size: 11px;
 }
@@ -557,12 +660,12 @@ input[type="checkbox"] {
 
 .date-field__bouton {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 4px;
   font-size: 11px;
   width: 112px;
   text-align: left;
-  background: #fff;
+  background: var(--couleur-fond);
   color: var(--couleur-texte);
   cursor: pointer;
 }
@@ -575,9 +678,9 @@ input[type="checkbox"] {
 .date-field__popover {
   z-index: 30;
   width: 200px;
-  background: #fff;
+  background: var(--couleur-fond);
   border: 1px solid var(--couleur-bordure);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px;
   box-shadow: 0 4px 16px rgba(3, 10, 22, 0.12);
   white-space: normal;
@@ -626,7 +729,7 @@ input[type="checkbox"] {
 .date-field__jour {
   border: none;
   background: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 4px 0;
   font-size: 11px;
   cursor: pointer;
@@ -635,7 +738,7 @@ input[type="checkbox"] {
 }
 
 .date-field__jour:hover {
-  background: var(--couleur-fond);
+  background: var(--couleur-bordure);
 }
 
 .date-field__jour--hors-mois {
@@ -645,7 +748,7 @@ input[type="checkbox"] {
 
 .date-field__jour--selectionne {
   background: var(--couleur-accent);
-  color: #fff;
+  color: var(--couleur-fond);
   font-weight: 600;
 }
 
@@ -653,8 +756,8 @@ input[type="checkbox"] {
   margin-top: 6px;
   width: 100%;
   border: 1px solid var(--couleur-bordure);
-  background: #fff;
-  border-radius: 6px;
+  background: var(--couleur-fond);
+  border-radius: var(--radius-sm);
   padding: 3px 0;
   font-size: 11px;
   cursor: pointer;
@@ -693,7 +796,7 @@ input[type="checkbox"] {
   width: max-content;
   max-width: 220px;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--couleur-texte);
   color: var(--couleur-fond);
   font-size: 11px;
@@ -717,8 +820,8 @@ input[type="checkbox"] {
 
 .btn-shift {
   border: 1px solid var(--couleur-bordure);
-  background: #fff;
-  border-radius: 6px;
+  background: var(--couleur-fond);
+  border-radius: var(--radius-sm);
   padding: 2px 4px;
   font-size: 10px;
   margin-right: 2px;
@@ -727,14 +830,14 @@ input[type="checkbox"] {
 }
 
 .btn-shift:hover {
-  background: var(--couleur-fond);
+  background: var(--couleur-bordure);
 }
 
 .btn-add {
   margin-top: 10px;
   border: 1px solid var(--couleur-accent);
   background: var(--couleur-accent);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   font-size: 12px;
   font-weight: 600;
@@ -777,14 +880,14 @@ input[type="checkbox"] {
 .mode-montant-toggle {
   display: inline-flex;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   margin-bottom: 4px;
 }
 
 .mode-montant-toggle button {
   border: none;
-  background: #fff;
+  background: var(--couleur-fond);
   padding: 2px 8px;
   font-size: 10px;
   font-weight: 600;
@@ -798,7 +901,7 @@ input[type="checkbox"] {
 
 .mode-montant-toggle button.actif {
   background: var(--couleur-accent);
-  color: #fff;
+  color: var(--couleur-fond);
 }
 
 .charge-calcul {
@@ -818,7 +921,7 @@ input[type="checkbox"] {
   width: 48px;
   text-align: right;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 4px;
   font-size: 11px;
 }
@@ -858,10 +961,10 @@ input[type="checkbox"] {
 
 .source-calcul-select__bouton {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 6px;
   font-size: 11px;
-  background: #fff;
+  background: var(--couleur-fond);
   color: var(--couleur-texte);
   cursor: pointer;
   max-width: 160px;
@@ -876,9 +979,9 @@ input[type="checkbox"] {
   max-height: 320px;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--couleur-fond);
   border: 1px solid var(--couleur-bordure);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px;
   box-shadow: 0 4px 16px rgba(3, 10, 22, 0.12);
 }
@@ -886,7 +989,7 @@ input[type="checkbox"] {
 .source-calcul-select__recherche {
   width: 100%;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 5px 8px;
   font-size: 12px;
   margin-bottom: 6px;
@@ -916,7 +1019,7 @@ input[type="checkbox"] {
   border: none;
   background: none;
   padding: 5px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   color: var(--couleur-texte);
   cursor: pointer;
@@ -924,7 +1027,7 @@ input[type="checkbox"] {
 }
 
 .source-calcul-select__option:hover {
-  background: var(--couleur-fond);
+  background: var(--couleur-bordure);
 }
 
 .source-calcul-select__vide {
@@ -983,7 +1086,7 @@ input[type="checkbox"] {
 .rentree-saisonnalite__annuel input {
   flex: 1;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 4px;
   font-size: 11px;
   text-align: right;
@@ -1014,7 +1117,7 @@ input[type="checkbox"] {
   max-height: 220px;
   overflow-y: auto;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px;
 }
 
@@ -1033,7 +1136,7 @@ input[type="checkbox"] {
   min-width: 0;
   text-align: right;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 4px;
   font-size: 11px;
 }
@@ -1043,7 +1146,7 @@ input[type="checkbox"] {
   min-width: 96px;
   text-align: right;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 6px;
   font-size: 11px;
   font-weight: 600;
@@ -1077,10 +1180,13 @@ input[type="checkbox"] {
 
 @media (max-width: 900px) {
   .cockpit {
-    grid-template-columns: 1fr;
+    /* minmax(0, 1fr) et pas juste 1fr : sans le 0, une piste de grille ne peut jamais devenir
+       plus étroite que le contenu qu'elle porte — un tableau dense en nowrap forçait alors toute
+       la page (y compris le panneau de pilotage) à déborder horizontalement. */
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .cockpit__col--gauche {
+  .pilotage {
     position: static;
     max-height: none;
     overflow-y: visible;
@@ -1089,8 +1195,8 @@ input[type="checkbox"] {
 
 .btn-secondaire {
   border: 1px solid var(--couleur-bordure);
-  background: #fff;
-  border-radius: 6px;
+  background: var(--couleur-fond);
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   font-size: 12px;
   cursor: pointer;
@@ -1104,7 +1210,7 @@ input[type="checkbox"] {
 }
 
 .btn-secondaire:hover {
-  background: var(--couleur-fond);
+  background: var(--couleur-bordure);
 }
 
 .btn-secondaire:disabled {
@@ -1219,7 +1325,7 @@ input[type="checkbox"] {
 
 .consistency-item {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
 }
 
@@ -1247,34 +1353,76 @@ input[type="checkbox"] {
   margin-left: 4px;
 }
 
+/* Écran peu dense : seul endroit, avec la synthèse mensuelle, où les grands aplats décoratifs du
+   deck ont leur place (voir charte DA — jamais dans le cockpit dense). Deux cercles pastel qui
+   débordent du cadre, purement atmosphériques, dessinés en CSS pur pour ne rien changer au JSX. */
 .login-screen {
+  position: relative;
+  overflow: hidden;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: var(--space-4);
+}
+
+.login-screen::before,
+.login-screen::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.login-screen::before {
+  width: 46vw;
+  height: 46vw;
+  left: -18vw;
+  bottom: -20vw;
+  background: var(--couleur-fond-alt-vert);
+}
+
+.login-screen::after {
+  width: 30vw;
+  height: 30vw;
+  right: -10vw;
+  top: -10vw;
+  background: var(--couleur-fond-alt-rose);
 }
 
 .login-card {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  max-width: 340px;
-  background: #fff;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 10px;
-  padding: 28px;
+  max-width: 380px;
+  background: var(--couleur-fond);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2);
+  box-shadow: 0 24px 60px -24px rgba(3, 10, 22, 0.25);
+}
+
+.login-card__eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--couleur-accent);
 }
 
 .login-card h1 {
-  font-size: 18px;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
 .login-subtitle {
-  margin: 0 0 8px;
-  font-size: 13px;
+  margin: 0 0 var(--space-2);
+  font-size: 14px;
   color: var(--couleur-texte-secondaire);
 }
 
@@ -1286,7 +1434,7 @@ input[type="checkbox"] {
 
 .login-card input {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: 14px;
 }
@@ -1296,7 +1444,7 @@ input[type="checkbox"] {
   color: var(--couleur-accent-fonce);
   font-size: 12px;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .login-info {
@@ -1304,7 +1452,7 @@ input[type="checkbox"] {
   color: var(--couleur-texte);
   font-size: 12px;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .login-toggle {
@@ -1321,25 +1469,10 @@ input[type="checkbox"] {
   text-decoration: underline;
 }
 
-.barre-utilisateur {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  color: var(--couleur-texte-secondaire);
-}
-
-.barre-utilisateur__actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .btn-deconnexion {
   border: 1px solid var(--couleur-bordure);
-  background: #fff;
-  border-radius: 6px;
+  background: var(--couleur-fond);
+  border-radius: var(--radius-sm);
   padding: 5px 10px;
   font-size: 12px;
   cursor: pointer;
@@ -1347,7 +1480,7 @@ input[type="checkbox"] {
 }
 
 .btn-deconnexion:hover {
-  background: var(--couleur-fond);
+  background: var(--couleur-bordure);
 }
 
 .billing-page {
@@ -1375,9 +1508,9 @@ input[type="checkbox"] {
 .billing-card {
   width: 100%;
   max-width: 480px;
-  background: #fff;
+  background: var(--couleur-fond);
   border: 1px solid var(--couleur-bordure);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 28px;
   display: flex;
   flex-direction: column;
@@ -1443,7 +1576,7 @@ input[type="checkbox"] {
 
 .pennylane-champ input {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: 14px;
 }
