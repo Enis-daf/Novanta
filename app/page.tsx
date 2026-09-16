@@ -921,17 +921,19 @@ export default function Home() {
       </header>
       <div className="pilotage">
         <div className="pilotage__decor" aria-hidden="true" />
-        <Dashboard
-          soldeInitial={soldeInitial}
-          onChangeSoldeInitial={handleChangeSoldeInitial}
-          dateReleve={dateReleve}
-          onChangeDateReleve={handleChangeDateReleve}
-          horizonJours={horizonJours}
-          onChangeHorizonJours={handleChangeHorizonJours}
-          resultat={resultat}
-          onPointClickCourbe={handleClicCourbe}
-        />
-        <SyntheseMensuelle synthese={syntheseMensuelle} />
+        <div className="pilotage__scroll">
+          <Dashboard
+            soldeInitial={soldeInitial}
+            onChangeSoldeInitial={handleChangeSoldeInitial}
+            dateReleve={dateReleve}
+            onChangeDateReleve={handleChangeDateReleve}
+            horizonJours={horizonJours}
+            onChangeHorizonJours={handleChangeHorizonJours}
+            resultat={resultat}
+            onPointClickCourbe={handleClicCourbe}
+          />
+          <SyntheseMensuelle synthese={syntheseMensuelle} />
+        </div>
       </div>
       <div className="cockpit__col--droite">
         {periodeFiltre && fluxPeriode && (
