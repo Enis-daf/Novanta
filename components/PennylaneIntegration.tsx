@@ -130,7 +130,8 @@ export default function PennylaneIntegration({ session }: PennylaneIntegrationPr
 
   if (chargement) {
     return (
-      <div className="billing-card">
+      <div className="carte-editoriale billing-card">
+        <p className="eyebrow">Novanta</p>
         <h1>Pennylane</h1>
         <p>Chargement…</p>
       </div>
@@ -142,7 +143,8 @@ export default function PennylaneIntegration({ session }: PennylaneIntegrationPr
   const derniereUtilisation = formatDateHeure(statut?.lastTestedAt ?? null);
 
   return (
-    <div className="billing-card">
+    <div className="carte-editoriale billing-card">
+      <p className="eyebrow">Novanta</p>
       <h1>Pennylane</h1>
 
       {erreur && <div className="login-erreur">{erreur}</div>}

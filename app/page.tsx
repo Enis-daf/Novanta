@@ -900,7 +900,7 @@ export default function Home() {
       )}
       <header className="page-intro">
         <div className="page-intro__texte">
-          <p className="page-intro__eyebrow">Novanta</p>
+          <p className="eyebrow">Novanta</p>
           <h1 className="page-intro__titre">Trésorerie</h1>
           <p className="page-intro__sous-titre">
             Vue consolidée sur {horizonJours} jours · relevé au {formatDate(dateReleve)}

@@ -7,10 +7,6 @@
   --couleur-accent: #f02894;
   --couleur-accent-fonce: #c10068;
   --couleur-bordure: #e5e7eb;
-  /* Palier "surface élevée sur fond sombre" du deck de référence (ses slides sombres l'utilisent
-     pour les blocs posés sur #030a16) — un seul neutre supplémentaire, pas une nouvelle teinte,
-     utilisé uniquement pour donner du poids à une surface sombre sans la confondre avec le fond. */
-  --couleur-texte-elevee: #0d1626;
 
   /* Rythme d'espacement unique pour toute l'app : page > section > bloc > contrôle. */
   --space-1: 8px;
@@ -42,6 +38,46 @@ body {
     sans-serif;
 }
 
+body {
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Même signature décorative que .ecran-editorial, en très discret, réservée aux pages qui
+   contiennent le cockpit (:has évite de la dupliquer avec les cercles déjà présents sur
+   .ecran-editorial — connexion/abonnement/intégrations). Position fixed : aucun effet sur le
+   scroll interne du panneau de pilotage ni sur les popovers positionnés dans le cockpit. Opacité
+   réduite pour ne jamais entrer en concurrence avec les tableaux denses. */
+body:has(.cockpit)::before,
+body:has(.cockpit)::after {
+  content: "";
+  position: fixed;
+  border-radius: 50%;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Toutes deux ancrées en haut : c'est la seule zone du cockpit qui n'est jamais recouverte par une
+   surface opaque (panneau de pilotage à gauche, tableaux à droite) — en bas, une bulle serait
+   simplement invisible, cachée sous ces blocs. */
+body:has(.cockpit)::before {
+  width: 34vw;
+  height: 34vw;
+  left: -14vw;
+  top: -20vw;
+  background: var(--couleur-fond-alt-vert);
+  opacity: 0.6;
+}
+
+body:has(.cockpit)::after {
+  width: 22vw;
+  height: 22vw;
+  right: -9vw;
+  top: -9vw;
+  background: var(--couleur-fond-alt-rose);
+  opacity: 0.6;
+}
+
 button,
 input,
 select,
@@ -54,6 +90,8 @@ input[type="checkbox"] {
 }
 
 .cockpit {
+  position: relative;
+  z-index: 0;
   display: grid;
   grid-template-columns: minmax(360px, 1fr) minmax(460px, 1.4fr);
   gap: var(--space-5);
@@ -77,7 +115,9 @@ input[type="checkbox"] {
   border-bottom: 1px solid var(--couleur-bordure);
 }
 
-.page-intro__eyebrow {
+/* Eyebrow partagé par tous les écrans (intro de page, panneau de pilotage, connexion, abonnement,
+   intégrations) — un seul endroit à faire évoluer plutôt que 5 déclinaisons quasi identiques. */
+.eyebrow {
   margin: 0 0 var(--space-1);
   font-size: 12px;
   font-weight: 700;
@@ -248,17 +288,18 @@ input[type="checkbox"] {
   transform: rotate(0deg);
 }
 
-/* LE panneau de pilotage : une seule grande surface sombre qui remplace l'ancien empilement de
-   3 mini-cards KPI + 1 card graphe blanche + 1 table — le chiffre qui compte, son contexte et sa
+/* LE panneau de pilotage : une seule grande surface qui remplace l'ancien empilement de 3
+   mini-cards KPI + 1 card graphe blanche + 1 table — le chiffre qui compte, son contexte et sa
    courbe vivent dans le même bloc, séparés par de l'espace et de la typographie, pas par des
-   bordures. C'est le principal levier de contraste clair/sombre de l'app (voir rapport DA). */
+   cadres multiples. */
 .pilotage {
   position: sticky;
   top: var(--space-4);
   max-height: calc(100vh - 2 * var(--space-4));
   overflow-y: auto;
-  background: var(--couleur-texte);
-  color: var(--couleur-fond);
+  background: var(--couleur-fond);
+  color: var(--couleur-texte);
+  border: 1px solid var(--couleur-bordure);
   border-radius: var(--radius-lg);
   padding: var(--space-5);
   display: flex;
@@ -352,7 +393,7 @@ input[type="checkbox"] {
 }
 
 /* Rangée de paramètres compacte (contrôles fonctionnels, pas du contenu éditorial) : des chips
-   claires posées sur la surface sombre, même logique que les boutons sur .page-intro__actions. */
+   blanches posées sur le panneau, même logique que les boutons sur .page-intro__actions. */
 .dashboard-parametres {
   display: flex;
   flex-direction: row;
@@ -369,13 +410,12 @@ input[type="checkbox"] {
 .solde-initial label {
   font-size: 12px;
   font-weight: 600;
-  color: var(--couleur-fond);
-  opacity: 0.7;
+  color: var(--couleur-texte-secondaire);
 }
 
 .solde-initial input,
 .solde-initial select {
-  border: 1px solid transparent;
+  border: 1px solid var(--couleur-bordure);
   border-radius: var(--radius-sm);
   padding: 6px 10px;
   font-size: 14px;
@@ -386,14 +426,15 @@ input[type="checkbox"] {
 
 /* Eyebrow + chiffre héro + stats secondaires : la hiérarchie vient de la taille/poids/espace,
    pas de 3 cadres séparés. Le rose ne touche que la valeur si elle est réellement critique
-   (tone="danger" côté Dashboard.tsx — logique métier inchangée). */
-.pilotage__eyebrow {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--couleur-accent);
+   (tone="danger" côté Dashboard.tsx — logique métier inchangée). Le héros (point bas) et les 2
+   stats secondaires (solde projeté, passage sous zéro) sont côte à côte sur une même ligne plutôt
+   qu'empilés verticalement. */
+.pilotage__vue-ensemble {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
 }
 
 .pilotage__headline {
@@ -404,8 +445,7 @@ input[type="checkbox"] {
 
 .pilotage__headline-label {
   font-size: 14px;
-  color: var(--couleur-fond);
-  opacity: 0.65;
+  color: var(--couleur-texte-secondaire);
 }
 
 .pilotage__headline-valeur {
@@ -413,35 +453,35 @@ input[type="checkbox"] {
   line-height: 1;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: var(--couleur-fond);
+  color: var(--couleur-texte);
 }
 
 .pilotage__headline-valeur--danger {
-  color: var(--couleur-accent);
+  color: var(--couleur-accent-fonce);
 }
 
 .pilotage__stats {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-6);
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: 4px;
 }
 
 .pilotage__stat-label {
   margin: 0 0 2px;
   font-size: 12px;
-  color: var(--couleur-fond);
-  opacity: 0.65;
+  color: var(--couleur-texte-secondaire);
 }
 
 .pilotage__stat-valeur {
   margin: 0;
   font-size: 22px;
   font-weight: 700;
-  color: var(--couleur-fond);
+  color: var(--couleur-texte);
 }
 
 .pilotage__stat-valeur--danger {
-  color: var(--couleur-accent);
+  color: var(--couleur-accent-fonce);
 }
 
 .pilotage__stat-valeur--compact {
@@ -453,19 +493,18 @@ input[type="checkbox"] {
 .pilotage__stat-sous-valeur {
   margin: 2px 0 0;
   font-size: 12px;
-  color: var(--couleur-fond);
-  opacity: 0.65;
+  color: var(--couleur-texte-secondaire);
 }
 
-/* Le graphe est directement posé sur la surface sombre (pas de card blanche à l'intérieur) —
-   voir CashCurveChart.tsx pour la palette d'axes/tooltip en variante sombre. */
+/* Le graphe est directement posé sur le panneau (pas de card blanche à l'intérieur) —
+   CashCurveChart reste en variante claire ici (voir Dashboard.tsx). */
 .pilotage__chart {
   margin: calc(var(--space-2) * -1) calc(var(--space-3) * -1) calc(var(--space-3) * -1);
 }
 
 .pilotage__separateur {
   border: none;
-  border-top: 1px solid rgba(255, 254, 250, 0.16);
+  border-top: 1px solid var(--couleur-bordure);
   margin: 0;
 }
 
@@ -473,7 +512,7 @@ input[type="checkbox"] {
   margin: 0 0 var(--space-2);
   font-size: 15px;
   font-weight: 700;
-  color: var(--couleur-fond);
+  color: var(--couleur-texte);
 }
 
 .synthese-mensuelle__scroll {
@@ -484,23 +523,19 @@ input[type="checkbox"] {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
-  color: var(--couleur-fond);
+  color: var(--couleur-texte);
 }
 
 .synthese-mensuelle__table th,
 .synthese-mensuelle__table td {
   padding: 5px 8px;
-  border-bottom: 1px solid rgba(255, 254, 250, 0.16);
+  border-bottom: 1px solid var(--couleur-bordure);
   white-space: nowrap;
   text-align: left;
 }
 
-/* Sur fond sombre, --couleur-texte-secondaire (gris moyen) perd trop de contraste : le deck
-   lui-même n'utilise jamais ce gris sur ses variantes sombres, seulement du texte clair en
-   opacité réduite. */
 .synthese-mensuelle__table th {
-  color: var(--couleur-fond);
-  opacity: 0.65;
+  color: var(--couleur-texte-secondaire);
   font-weight: 600;
   font-size: 10px;
   text-transform: uppercase;
@@ -1353,28 +1388,31 @@ input[type="checkbox"] {
   margin-left: 4px;
 }
 
-/* Écran peu dense : seul endroit, avec la synthèse mensuelle, où les grands aplats décoratifs du
-   deck ont leur place (voir charte DA — jamais dans le cockpit dense). Deux cercles pastel qui
-   débordent du cadre, purement atmosphériques, dessinés en CSS pur pour ne rien changer au JSX. */
-.login-screen {
+/* Écrans peu denses (connexion, abonnement, intégrations) : seuls endroits, avec la synthèse
+   mensuelle, où les grands aplats décoratifs du deck ont leur place (voir charte DA — jamais dans
+   le cockpit dense). Deux cercles pastel qui débordent du cadre, purement atmosphériques, dessinés
+   en CSS pur — partagés par les 3 écrans via .ecran-editorial / .carte-editoriale, pas dupliqués. */
+.ecran-editorial {
   position: relative;
   overflow: hidden;
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: var(--space-4);
   padding: var(--space-4);
 }
 
-.login-screen::before,
-.login-screen::after {
+.ecran-editorial::before,
+.ecran-editorial::after {
   content: "";
   position: absolute;
   border-radius: 50%;
   z-index: 0;
 }
 
-.login-screen::before {
+.ecran-editorial::before {
   width: 46vw;
   height: 46vw;
   left: -18vw;
@@ -1382,7 +1420,7 @@ input[type="checkbox"] {
   background: var(--couleur-fond-alt-vert);
 }
 
-.login-screen::after {
+.ecran-editorial::after {
   width: 30vw;
   height: 30vw;
   right: -10vw;
@@ -1390,11 +1428,11 @@ input[type="checkbox"] {
   background: var(--couleur-fond-alt-rose);
 }
 
-.login-card {
+.carte-editoriale {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
   background: var(--couleur-fond);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
@@ -1404,16 +1442,7 @@ input[type="checkbox"] {
   box-shadow: 0 24px 60px -24px rgba(3, 10, 22, 0.25);
 }
 
-.login-card__eyebrow {
-  margin: 0;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--couleur-accent);
-}
-
-.login-card h1 {
+.carte-editoriale h1 {
   font-size: 30px;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -1483,18 +1512,11 @@ input[type="checkbox"] {
   background: var(--couleur-bordure);
 }
 
-.billing-page {
-  min-height: 100vh;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-}
-
 .billing-page__header {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  max-width: 480px;
+  max-width: 420px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1503,23 +1525,6 @@ input[type="checkbox"] {
 .billing-page__email {
   font-size: 13px;
   color: var(--couleur-texte-secondaire);
-}
-
-.billing-card {
-  width: 100%;
-  max-width: 480px;
-  background: var(--couleur-fond);
-  border: 1px solid var(--couleur-bordure);
-  border-radius: var(--radius-md);
-  padding: 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.billing-card h1 {
-  font-size: 20px;
-  margin: 0;
 }
 
 .billing-status {

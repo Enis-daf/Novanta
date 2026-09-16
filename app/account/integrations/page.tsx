@@ -37,7 +37,7 @@ export default function IntegrationsPage() {
   }
 
   return (
-    <main className="billing-page">
+    <main className="ecran-editorial">
       <div className="billing-page__header">
         <Link href="/" className="btn-secondaire">
           ← Retour au cockpit
@@ -46,7 +46,8 @@ export default function IntegrationsPage() {
       </div>
 
       {!supabaseConfigured && (
-        <div className="billing-card">
+        <div className="carte-editoriale billing-card">
+          <p className="eyebrow">Novanta</p>
           <h1>Pennylane</h1>
           <p>L&apos;intégration Pennylane nécessite Supabase (.env.local) — non disponible en mode local.</p>
         </div>
