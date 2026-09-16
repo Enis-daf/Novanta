@@ -336,20 +336,20 @@ input[type="checkbox"] {
 
 /* Cercle vert d'eau : masse entrant par le coin bas-gauche, centre très largement hors panneau. */
 .pilotage__decor::before {
-  width: 600px;
-  height: 600px;
-  left: -310px;
-  bottom: -360px;
+  width: 700px;
+  height: 700px;
+  left: -350px;
+  bottom: -510px;
   background: var(--couleur-fond-alt-vert);
 }
 
 /* Cercle rose pâle : masse entrant par le bord haut-droit, autour de Solde projeté / Passage sous
    zéro, mais derrière ce texte (voir z-index ci-dessus). */
 .pilotage__decor::after {
-  width: 300px;
-  height: 300px;
-  right: -210px;
-  top: 180px;
+  width: 480px;
+  height: 480px;
+  right: -404px;
+  top: -10px;
   background: var(--couleur-fond-alt-rose);
 }
 
