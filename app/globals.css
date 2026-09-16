@@ -348,8 +348,8 @@ input[type="checkbox"] {
 .pilotage__decor::after {
   width: 750px;
   height: 750px;
-  right: -580px;
-  top: -100px;
+  right: -645px;
+  top: -325px;
   background: var(--couleur-fond-alt-rose);
 }
 
