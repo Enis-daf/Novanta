@@ -920,6 +920,7 @@ export default function Home() {
         )}
       </header>
       <div className="pilotage">
+        <div className="pilotage__decor" aria-hidden="true" />
         <Dashboard
           soldeInitial={soldeInitial}
           onChangeSoldeInitial={handleChangeSoldeInitial}

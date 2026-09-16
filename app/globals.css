@@ -311,6 +311,48 @@ input[type="checkbox"] {
   gap: var(--space-5);
 }
 
+/* Couche décorative uniquement : 2 grandes masses pastel inspirées du deck, très majoritairement
+   hors-cadre. Isolée dans son propre wrapper (absolute + son propre overflow:hidden) plutôt que de
+   toucher .pilotage lui-même — .pilotage garde son overflow-y:auto (scroll interne réel) intact,
+   qu'un overflow:hidden posé directement dessus aurait pu perturber. .pilotage a déjà
+   position:sticky, qui sert de containing block : aucune propriété n'est donc ajoutée à .pilotage.
+   z-index:-1 place les bulles sous le contenu réel (input/chart/texte, tous non positionnés, donc
+   peints après un descendant positionné) sans toucher aux z-index existants de l'app. */
+.pilotage__decor {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+}
+
+.pilotage__decor::before,
+.pilotage__decor::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+}
+
+/* Cercle vert d'eau : masse entrant par le coin bas-gauche, centre très largement hors panneau. */
+.pilotage__decor::before {
+  width: 600px;
+  height: 600px;
+  left: -310px;
+  bottom: -360px;
+  background: var(--couleur-fond-alt-vert);
+}
+
+/* Cercle rose pâle : masse entrant par le bord haut-droit, autour de Solde projeté / Passage sous
+   zéro, mais derrière ce texte (voir z-index ci-dessus). */
+.pilotage__decor::after {
+  width: 300px;
+  height: 300px;
+  right: -210px;
+  top: 180px;
+  background: var(--couleur-fond-alt-rose);
+}
+
 .bandeau-mode-local {
   grid-column: 1 / -1;
   background: var(--couleur-fond-alt-rose);
@@ -1235,6 +1277,14 @@ input[type="checkbox"] {
     position: static;
     max-height: none;
     overflow-y: visible;
+  }
+
+  /* .pilotage perd position:sticky ci-dessus (devient static) : il ne peut plus servir de
+     containing block à .pilotage__decor (position:absolute), qui se positionnerait alors par
+     rapport à .cockpit et détériorerait l'affichage. Masquée à cette largeur plutôt que de changer
+     le responsive existant du panneau pour l'accueillir. */
+  .pilotage__decor {
+    display: none;
   }
 }
 
