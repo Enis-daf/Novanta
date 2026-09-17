@@ -639,19 +639,24 @@ input[type="checkbox"] {
    margin-left négatif + padding-left regagné : même principe que .pilotage__scroll (plus haut) —
    étend la boîte de découpe (donc la bulle verte) jusqu'au vrai bord gauche du panneau, tout en
    gardant le tableau à sa position visuelle inchangée (le padding regagné absorbe exactement le
-   décalage). padding-bottom : .synthese-mensuelle est le DERNIER item de .pilotage__scroll, donc
-   le vrai bord bas du panneau est à une distance fixe sous ce bloc = le padding-bottom regagné de
-   .pilotage__scroll (var(--space-5)) ; on ajoute ici cette même valeur pour que la boîte de
-   découpe (et donc la bulle) atteigne pile ce bord, en miroir de la bulle rose (vrai bord haut +
-   droit). border-radius bas-gauche : ce coin de la boîte de découpe coïncide maintenant avec le
-   coin bas-gauche arrondi du panneau — sans ce rayon, un coin carré serait visible sous la courbe
-   du panneau (même piège déjà corrigé une fois pour la bulle rose en haut-droite). */
+   décalage).
+   margin-bottom négatif (PAS padding-bottom) : .pilotage__scroll réserve déjà var(--space-5) après
+   le dernier item pour que sa propre boîte (et donc la scrollbar) atteigne le vrai bas du panneau —
+   mais cet espace est réservé APRÈS .synthese-mensuelle, quelle que soit sa hauteur : lui ajouter du
+   padding-bottom ne fait que grossir .synthese-mensuelle d'autant, et .pilotage__scroll recale son
+   espace réservé juste après, à l'identique (l'écart ne se referme jamais, seule la position du bloc
+   change — vérifié : avec padding-bottom l'écart mesuré restait de 32px, inchangé). Un margin-bottom
+   négatif, lui, fait déborder la boîte de .synthese-mensuelle__corps (donc son découpage) DANS cet
+   espace déjà réservé par .pilotage__scroll, au lieu d'en réclamer un deuxième par-dessus — vérifié :
+   écart ramené à 0. border-radius bas-gauche : ce coin de la boîte de découpe coïncide maintenant
+   avec le coin bas-gauche arrondi du panneau — sans ce rayon, un coin carré serait visible sous la
+   courbe du panneau (même piège déjà corrigé une fois pour la bulle rose en haut-droite). */
 .synthese-mensuelle__corps {
   position: relative;
   overflow: hidden;
   margin-left: calc(var(--space-5) * -1);
   padding-left: var(--space-5);
-  padding-bottom: var(--space-5);
+  margin-bottom: calc(var(--space-5) * -1);
   border-radius: 0 0 0 var(--radius-lg);
 }
 
