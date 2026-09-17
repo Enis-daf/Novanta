@@ -337,6 +337,18 @@ input[type="checkbox"] {
      même retrait visuel pour le contenu (Dashboard/SyntheseMensuelle), inchangé. */
   margin-right: calc(var(--space-5) * -1);
   padding-right: var(--space-5);
+  /* Symétrique à droite : SANS CECI, la bulle verte ne pouvait jamais vraiment toucher le bord
+     gauche, même après avoir étendu sa propre boîte de découpe (.synthese-mensuelle__corps, plus
+     bas) jusque-là — parce que .pilotage__scroll a lui-même overflow-x:hidden (voir plus haut), et
+     SON PROPRE bord gauche (non étendu) restait en retrait de --space-5 par rapport au vrai bord.
+     Un ancêtre avec overflow:hidden découpe TOUJOURS ses descendants à SA PROPRE boîte, quelle que
+     soit la position de la boîte du descendant lui-même : .synthese-mensuelle__corps avait beau
+     revendiquer la bonne position (vérifié en layout), elle se faisait quand même rogner avant
+     d'atteindre le bord par cet ancêtre plus étroit. D'où l'écart signalé, invisible dans les
+     mesures de position brutes (getBoundingClientRect ne reflète pas le rognage d'un ancêtre) mais
+     bien réel au rendu. */
+  margin-left: calc(var(--space-5) * -1);
+  padding-left: var(--space-5);
   /* Même principe côté haut, pour que .pilotage__decor-rose (ci-dessous, ancrée au contenu) puisse
      atteindre le vrai coin haut-droit du panneau — comme avant son passage en ancrage-contenu. */
   margin-top: calc(var(--space-5) * -1);
@@ -351,7 +363,7 @@ input[type="checkbox"] {
      passer aussi derrière le fond de .pilotage lui-même (ce qui les rendrait invisibles). */
   margin-bottom: calc(var(--space-5) * -1);
   padding-bottom: var(--space-5);
-  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+  border-radius: var(--radius-lg);
   isolation: isolate;
 }
 
