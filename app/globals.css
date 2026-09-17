@@ -328,17 +328,20 @@ input[type="checkbox"] {
   margin-right: calc(var(--space-5) * -1);
   padding-right: var(--space-5);
   /* Même principe côté haut, pour que .pilotage__decor-rose (ci-dessous, ancrée au contenu) puisse
-     atteindre le vrai coin haut-droit du panneau — comme avant son passage en ancrage-contenu.
-     border-radius sur ce coin (le seul où haut ET droite touchent maintenant le bord réel) pour
-     épouser le rayon du panneau, sinon un coin carré serait visible sous le coin arrondi. Le bas
-     n'a volontairement PAS ce traitement : .pilotage__decor-verte doit s'arrêter juste après le
-     tableau (voir .synthese-mensuelle__scroll), pas au bord réel du panneau. isolation:isolate
-     scope le z-index:-1 des deux bulles à l'intérieur de ce conteneur, pour qu'elles passent
-     derrière Dashboard/SyntheseMensuelle sans passer aussi derrière le fond de .pilotage lui-même
-     (ce qui les rendrait invisibles). */
+     atteindre le vrai coin haut-droit du panneau — comme avant son passage en ancrage-contenu. */
   margin-top: calc(var(--space-5) * -1);
   padding-top: var(--space-5);
-  border-radius: 0 var(--radius-lg) 0 0;
+  /* Et côté bas, pour que la barre de défilement (dont le track est borné par la boîte de
+     .pilotage__scroll) descende jusqu'au vrai bas du panneau — indépendant du clip de la bulle
+     verte : elle reste bornée à sa propre zone (.synthese-mensuelle__corps, tableau + marge), qui
+     ne s'agrandit pas avec ce changement. border-radius sur les 4 coins désormais atteints par les
+     bords réels du panneau (haut, droite, bas), pour épouser son rayon, sinon un coin carré serait
+     visible sous le coin arrondi. isolation:isolate scope le z-index:-1 des deux bulles à
+     l'intérieur de ce conteneur, pour qu'elles passent derrière Dashboard/SyntheseMensuelle sans
+     passer aussi derrière le fond de .pilotage lui-même (ce qui les rendrait invisibles). */
+  margin-bottom: calc(var(--space-5) * -1);
+  padding-bottom: var(--space-5);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
   isolation: isolate;
 }
 
@@ -623,10 +626,11 @@ input[type="checkbox"] {
 
 .synthese-mensuelle__scroll {
   overflow-x: auto;
-  /* Double l'espace entre le tableau et le bas du panneau (2 × --space-2, l'écart titre→tableau) :
-     étend d'autant la zone que .synthese-mensuelle__corps laisse à .pilotage__decor-verte avant de
-     la découper. */
-  margin-bottom: calc(var(--space-2) * 2);
+  /* padding (pas margin) : la barre de défilement horizontale d'un overflow-x:auto se dessine au
+     bord de la boîte elle-même — avec une margin, cet espace reste APRÈS la barre (donc collée au
+     tableau, avec le vide après elle) ; en padding, cet espace fait partie de la boîte et pousse la
+     barre tout en bas de la zone. Toujours 2 × --space-2 (l'écart titre→tableau, doublé). */
+  padding-bottom: calc(var(--space-2) * 2);
 }
 
 .synthese-mensuelle__table {
