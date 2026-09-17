@@ -329,10 +329,6 @@ input[type="checkbox"] {
      la même zone de clip pour les bulles. */
   margin-right: calc(var(--space-5) * -1);
   padding-right: var(--space-5);
-  /* Scope le z-index:-1 de .pilotage__decor-verte à l'intérieur de ce conteneur (elle doit passer
-     derrière Dashboard/SyntheseMensuelle, pas derrière le fond de .pilotage qui la rendrait
-     invisible). N'affecte ni le layout ni le scroll. */
-  isolation: isolate;
 }
 
 /* Bulle rose : ancrée au cadre VISIBLE du panneau (comportement inchangé), toujours à la même
@@ -361,16 +357,16 @@ input[type="checkbox"] {
   background: var(--couleur-fond-alt-rose);
 }
 
-/* Bulle verte : à l'inverse, ANCRÉE AU CONTENU (juste avant Synthèse mensuelle dans le JSX), pas au
-   cadre du panneau — elle défile avec le reste et disparaît si on remonte, comme demandé
-   explicitement (contrairement à la bulle rose ci-dessus). position:relative + height:0 : ancre de
-   largeur pleine mais de hauteur nulle (aucun impact sur le flow), qui sert de repère à son propre
-   ::before. isolation:isolate sur .pilotage__scroll (ci-dessus) scope le z-index:-1 à l'intérieur
-   du conteneur de scroll, pour qu'il passe derrière Dashboard/SyntheseMensuelle sans passer aussi
-   derrière le fond de .pilotage (ce qui la rendrait invisible). */
+/* Bulle verte : à l'inverse, ANCRÉE AU CONTENU (dans .synthese-mensuelle__scroll, qui n'entoure
+   QUE le tableau — pas le titre "Synthèse mensuelle", rendu juste avant, hors de ce conteneur),
+   pas au cadre du panneau — elle défile avec le reste et disparaît si on remonte, comme demandé
+   explicitement (contrairement à la bulle rose ci-dessus). .synthese-mensuelle__scroll sert de
+   containing block + clip : son overflow (auto sur les 2 axes, voir sa règle plus bas) découpe la
+   bulle exactement au bord inférieur ET supérieur réels du tableau — donc juste sous le titre —
+   au lieu de continuer dans le vide en dessous ou de déborder derrière le titre au-dessus. */
 .pilotage__decor-verte {
-  position: relative;
-  height: 0;
+  position: absolute;
+  inset: 0;
   z-index: -1;
   pointer-events: none;
 }
@@ -382,7 +378,7 @@ input[type="checkbox"] {
   width: 900px;
   height: 900px;
   left: -510px;
-  bottom: -700px;
+  bottom: 0;
   background: var(--couleur-fond-alt-vert);
 }
 
@@ -600,8 +596,14 @@ input[type="checkbox"] {
   color: var(--couleur-texte);
 }
 
+/* position:relative + isolation:isolate : containing block et stacking context local pour
+   .pilotage__decor-verte (voir plus haut). overflow-x:auto seul suffit aussi à clipper l'axe Y
+   (une règle CSS standard force le second axe à 'auto' dès que l'un des deux n'est pas 'visible') —
+   c'est ce clip qui découpe la bulle verte au bord réel du tableau, sans règle supplémentaire. */
 .synthese-mensuelle__scroll {
+  position: relative;
   overflow-x: auto;
+  isolation: isolate;
 }
 
 .synthese-mensuelle__table {
