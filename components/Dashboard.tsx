@@ -64,7 +64,7 @@ export default function Dashboard({
         </div>
       </div>
 
-      <p className="eyebrow">Projection de trésorerie</p>
+      <p className="eyebrow eyebrow--grand">Projection de trésorerie</p>
 
       <div className="pilotage__vue-ensemble">
         <div className="pilotage__headline">

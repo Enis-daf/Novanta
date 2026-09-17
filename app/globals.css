@@ -127,6 +127,13 @@ input[type="checkbox"] {
   color: var(--couleur-accent);
 }
 
+/* Variante ponctuelle pour "Projection de trésorerie" (Dashboard) : plus grande que .eyebrow (12px)
+   sans aller jusqu'à .section-titre (26px, jugé trop grand ici) — taille intermédiaire entre les
+   deux. Sans toucher au .eyebrow partagé par tous les autres écrans. */
+.eyebrow--grand {
+  font-size: 19px;
+}
+
 /* Titre de page compact : "Novanta" reprend le traitement de .eyebrow (rose, capitales, tracking)
    directement suivi du nom du produit en noir, sur une seule ligne — pas de gros H1 séparé. */
 .page-intro__titre-compact {
@@ -397,13 +404,10 @@ input[type="checkbox"] {
    largeur nulle exactement à cet endroit, quel que soit le rayon ci-dessous). Le bord GAUCHE et le
    bord INFÉRIEUR, eux, doivent atteindre le vrai bord du panneau, en miroir de la bulle rose (vrai
    bord haut + droit) : la zone de découpe (.synthese-mensuelle__corps ci-dessous) s'étend bien
-   jusque-là, mais un cercle de 900px (l'ancienne taille) n'est pas assez grand pour que sa courbe
-   ait le temps de couvrir toute la largeur avant d'atteindre le bas de cette zone (~236px de haut)
-   — il reste visiblement arrondi/décollé au lieu d'être franchement collé. Rayon augmenté à 1300px
-   (contre 450px) : à hauteur=236px (bas de la zone), la largeur couverte dépasse maintenant ~605px,
-   soit une marge de ~100px au-delà de la largeur réelle du panneau (~505px en usage courant) — même
-   marge de sécurité que celle vérifiée pour la bulle rose à son propre coin. left ajusté en
-   proportion pour garder le même angle de départ (fin en haut) qu'avant l'agrandissement. */
+   jusque-là. Forme en ELLIPSE (voir ::before) : le rayon vertical (height/top) règle la portée en
+   hauteur et le rythme d'élargissement, le rayon horizontal (width/left) règle l'étalement latéral
+   — les deux sont volontairement découplés pour atteindre le coin bas-gauche avec une marge de
+   sécurité sans pour autant trop avancer vers la droite dans le tableau. */
 .pilotage__decor-verte {
   position: relative;
   height: 0;
@@ -415,9 +419,16 @@ input[type="checkbox"] {
   content: "";
   position: absolute;
   border-radius: 50%;
-  width: 2600px;
+  /* Ellipse, pas un cercle : largeur et hauteur découplées exprès. height/top inchangés (1300px de
+     rayon vertical) pour garder exactement le même rythme "fin en haut, s'élargit en descendant" et
+     la même portée verticale qu'avant. width réduite (1300px -> 560px de rayon horizontal) pour que
+     le vert avance moins vers la droite dans le tableau — le rayon horizontal ne gouverne que
+     l'étalement latéral, pas la progression verticale. left recalculé pour garder une marge de
+     sécurité confortable (~80px) au-delà du vrai bord gauche à la hauteur du bas de la zone de
+     découpe (.synthese-mensuelle__corps, ~250px), comme pour la bulle rose à son coin. */
+  width: 560px;
   height: 2600px;
-  left: -1473px;
+  left: -227px;
   top: 0;
   background: var(--couleur-fond-alt-vert);
 }
