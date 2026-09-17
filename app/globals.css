@@ -404,10 +404,10 @@ input[type="checkbox"] {
    largeur nulle exactement à cet endroit, quel que soit le rayon ci-dessous). Le bord GAUCHE et le
    bord INFÉRIEUR, eux, doivent atteindre le vrai bord du panneau, en miroir de la bulle rose (vrai
    bord haut + droit) : la zone de découpe (.synthese-mensuelle__corps ci-dessous) s'étend bien
-   jusque-là. Forme en ELLIPSE (voir ::before) : le rayon vertical (height/top) règle la portée en
-   hauteur et le rythme d'élargissement, le rayon horizontal (width/left) règle l'étalement latéral
-   — les deux sont volontairement découplés pour atteindre le coin bas-gauche avec une marge de
-   sécurité sans pour autant trop avancer vers la droite dans le tableau. */
+   jusque-là. Cercle (pas une ellipse — l'ellipse essayée entre-temps donnait une forme trop
+   étirée/pas naturelle), avec le même rapport centre/ancre que la toute première version (avant
+   tous ces ajustements de bord), juste redimensionné pour que son point le plus large tombe pile à
+   la hauteur où la zone de découpe se termine (voir ::before). */
 .pilotage__decor-verte {
   position: relative;
   height: 0;
@@ -419,19 +419,15 @@ input[type="checkbox"] {
   content: "";
   position: absolute;
   border-radius: 50%;
-  /* Ellipse, pas un cercle : largeur et hauteur découplées exprès.
-     Rayon vertical (height/2) = hauteur de .synthese-mensuelle__corps (~236px) : le point culminant
-     de l'ellipse (sa largeur maximale) tombe alors PILE à la hauteur où la zone de découpe se
-     termine — le "point où elle sort du cadre" — au lieu d'être très loin en dessous (hors champ,
-     comme avec l'ancien rayon de 1300px). Résultat : on voit une vraie moitié d'ellipse complète
-     (du point fin en haut à son point le plus large en bas), une courbe naturelle, plutôt qu'un
-     fragment quelconque d'une courbe bien plus grande.
-     Rayon horizontal (width/2 = 150px) et left recalculés pour ce nouveau rayon vertical, afin de
-     garder la même marge de sécurité (~85px) au-delà du vrai bord gauche à cette hauteur, sans trop
-     avancer vers la droite (largeur totale de 300px, contre 560px avant). */
-  width: 300px;
+  /* Cercle (width = height, comme la toute première version à 900px/450 de rayon, et comme la bulle
+     rose). Rayon = hauteur de .synthese-mensuelle__corps (~236px) : le point le plus large du cercle
+     tombe alors pile à la hauteur où la zone de découpe se termine, au lieu d'être caché hors champ.
+     left = même décalage par rapport à l'ancre que la version d'origine (-60px de son propre rayon,
+     soit ancre - 60), pour garder le même "style" de départ (centre légèrement à gauche de l'ancre),
+     juste recalculé pour le nouveau rayon : -60 - 236 = -296px. */
+  width: 472px;
   height: 472px;
-  left: -117px;
+  left: -296px;
   top: 0;
   background: var(--couleur-fond-alt-vert);
 }
