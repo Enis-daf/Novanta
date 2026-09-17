@@ -381,10 +381,17 @@ input[type="checkbox"] {
 /* Bulle verte : ANCRÉE AU CONTENU (juste après le titre "Synthèse mensuelle", avant le tableau,
    dans le JSX) — défile avec le reste et disparaît si on remonte. position:relative + height:0 :
    ancre de largeur pleine mais de hauteur nulle (aucun impact sur le flow), qui sert de repère à
-   son propre ::before pour le bord SUPÉRIEUR (juste sous le titre, qui reste non décoré). Le bord
-   GAUCHE et le bord INFÉRIEUR, eux, atteignent le vrai bord du panneau — en miroir de la bulle
-   rose (vrai bord haut + droit) — via l'extension de la zone de découpe .synthese-mensuelle__corps
-   ci-dessous, pas via un changement des dimensions du cercle lui-même. */
+   son propre ::before pour le bord SUPÉRIEUR (juste sous le titre, qui reste non décoré, top:0 =
+   largeur nulle exactement à cet endroit, quel que soit le rayon ci-dessous). Le bord GAUCHE et le
+   bord INFÉRIEUR, eux, doivent atteindre le vrai bord du panneau, en miroir de la bulle rose (vrai
+   bord haut + droit) : la zone de découpe (.synthese-mensuelle__corps ci-dessous) s'étend bien
+   jusque-là, mais un cercle de 900px (l'ancienne taille) n'est pas assez grand pour que sa courbe
+   ait le temps de couvrir toute la largeur avant d'atteindre le bas de cette zone (~236px de haut)
+   — il reste visiblement arrondi/décollé au lieu d'être franchement collé. Rayon augmenté à 1300px
+   (contre 450px) : à hauteur=236px (bas de la zone), la largeur couverte dépasse maintenant ~605px,
+   soit une marge de ~100px au-delà de la largeur réelle du panneau (~505px en usage courant) — même
+   marge de sécurité que celle vérifiée pour la bulle rose à son propre coin. left ajusté en
+   proportion pour garder le même angle de départ (fin en haut) qu'avant l'agrandissement. */
 .pilotage__decor-verte {
   position: relative;
   height: 0;
@@ -396,9 +403,9 @@ input[type="checkbox"] {
   content: "";
   position: absolute;
   border-radius: 50%;
-  width: 900px;
-  height: 900px;
-  left: -510px;
+  width: 2600px;
+  height: 2600px;
+  left: -1473px;
   top: 0;
   background: var(--couleur-fond-alt-vert);
 }
