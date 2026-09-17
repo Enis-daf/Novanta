@@ -920,8 +920,8 @@ export default function Home() {
         )}
       </header>
       <div className="pilotage">
-        <div className="pilotage__decor" aria-hidden="true" />
         <div className="pilotage__scroll">
+          <div className="pilotage__decor-rose" aria-hidden="true" />
           <Dashboard
             soldeInitial={soldeInitial}
             onChangeSoldeInitial={handleChangeSoldeInitial}

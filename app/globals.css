@@ -309,11 +309,11 @@ input[type="checkbox"] {
   flex-direction: column;
 }
 
-/* Le scroll interne (et le layout de son contenu) vit ici, séparé de .pilotage__decor : les
-   bulles pastel restent ainsi ancrées au cadre visible du panneau, pas au contenu qui défile —
-   sans ce wrapper dédié, .pilotage__decor (absolute, enfant de .pilotage) défilait avec le reste
-   dès que .pilotage portait lui-même overflow-y:auto, et la bulle censée "atteindre le bas"
-   disparaissait dès qu'on scrollait. */
+/* Scroll interne du panneau (et layout de son contenu) : séparé de .pilotage lui-même pour que
+   .pilotage garde ses propriétés visuelles inchangées (voir plus haut) pendant que ce conteneur
+   gère le défilement. Les deux bulles pastel (.pilotage__decor-rose / -verte, plus bas) sont des
+   descendantes de CE conteneur : elles défilent avec le contenu et disparaissent hors champ,
+   contrairement à un habillage fixé au cadre du panneau. */
 .pilotage__scroll {
   flex: 1;
   min-height: 0;
@@ -324,44 +324,37 @@ input[type="checkbox"] {
   /* Sans ça, la scrollbar se dessine à l'intérieur du padding-right hérité de .pilotage (32px en
      retrait du bord réel du panneau). La marge négative amène le bord de .pilotage__scroll (donc
      la scrollbar) au ras du bord de .pilotage ; le padding-right regagné juste après maintient le
-     même retrait visuel pour le contenu (Dashboard/SyntheseMensuelle), inchangé. On ne touche pas
-     au padding de .pilotage lui-même : .pilotage__decor (inset:0 sur cette boîte) garde exactement
-     la même zone de clip pour les bulles. */
+     même retrait visuel pour le contenu (Dashboard/SyntheseMensuelle), inchangé. */
   margin-right: calc(var(--space-5) * -1);
   padding-right: var(--space-5);
-  /* Même principe, côté bas : sans ça, .pilotage__decor-verte (ci-dessous) était découpée par le
-     bord bas du TABLEAU, pas par le vrai bord bas du panneau — il restait 32px de padding hérité
-     de .pilotage (non atteint) entre la fin du contenu et la bordure réelle. La marge négative
-     amène le bord de .pilotage__scroll au ras du bord de .pilotage ; le padding-bottom regagné
-     maintient le même espacement visuel après la dernière ligne du tableau. border-radius sur les
-     2 coins bas : .pilotage__scroll touche maintenant réellement le bord arrondi du panneau à cet
-     endroit, il doit donc épouser le même rayon pour que le clip de la bulle suive la même forme
-     (sans ça, un coin carré serait visible sous le coin arrondi de .pilotage). isolation:isolate
-     scope le z-index:-1 de .pilotage__decor-verte à l'intérieur de ce conteneur, pour qu'il passe
+  /* Même principe côté haut, pour que .pilotage__decor-rose (ci-dessous, ancrée au contenu) puisse
+     atteindre le vrai coin haut-droit du panneau — comme avant son passage en ancrage-contenu.
+     border-radius sur ce coin (le seul où haut ET droite touchent maintenant le bord réel) pour
+     épouser le rayon du panneau, sinon un coin carré serait visible sous le coin arrondi. Le bas
+     n'a volontairement PAS ce traitement : .pilotage__decor-verte doit s'arrêter juste après le
+     tableau (voir .synthese-mensuelle__scroll), pas au bord réel du panneau. isolation:isolate
+     scope le z-index:-1 des deux bulles à l'intérieur de ce conteneur, pour qu'elles passent
      derrière Dashboard/SyntheseMensuelle sans passer aussi derrière le fond de .pilotage lui-même
-     (ce qui la rendrait invisible). */
-  margin-bottom: calc(var(--space-5) * -1);
-  padding-bottom: var(--space-5);
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+     (ce qui les rendrait invisibles). */
+  margin-top: calc(var(--space-5) * -1);
+  padding-top: var(--space-5);
+  border-radius: 0 var(--radius-lg) 0 0;
   isolation: isolate;
 }
 
-/* Bulle rose : ancrée au cadre VISIBLE du panneau (comportement inchangé), toujours à la même
-   place quel que soit le défilement. Isolée dans son propre wrapper (absolute + son propre
-   overflow:hidden) plutôt que de toucher .pilotage lui-même — .pilotage garde son
-   position:sticky, qui sert de containing block : aucune propriété n'est donc ajoutée à .pilotage.
-   z-index:-1 place la bulle sous le contenu réel (input/chart/texte, tous non positionnés, donc
-   peints après un descendant positionné) sans toucher aux z-index existants de l'app. */
-.pilotage__decor {
-  position: absolute;
-  inset: 0;
+/* Bulle rose : ANCRÉE AU CONTENU (tout en haut de .pilotage__scroll, juste avant Dashboard),
+   comme la bulle verte — défile avec le reste et disparaît en scrollant, ce n'est plus une couche
+   fixée au cadre du panneau. Même construction que .pilotage__decor-verte : ancre pleine largeur/
+   hauteur nulle, ::before pour le cercle. Dimensions/position du cercle inchangées par rapport à
+   l'ancienne version fixe (750px, right:-645px, top:-325px) : seul le mécanisme d'ancrage change. */
+.pilotage__decor-rose {
+  position: relative;
+  height: 0;
   z-index: -1;
-  overflow: hidden;
-  border-radius: var(--radius-lg);
   pointer-events: none;
 }
 
-.pilotage__decor::after {
+.pilotage__decor-rose::before {
   content: "";
   position: absolute;
   border-radius: 50%;
@@ -372,14 +365,13 @@ input[type="checkbox"] {
   background: var(--couleur-fond-alt-rose);
 }
 
-/* Bulle verte : à l'inverse, ANCRÉE AU CONTENU (juste après le titre "Synthèse mensuelle", avant
-   le tableau, dans le JSX), pas au cadre du panneau — elle défile avec le reste et disparaît si on
-   remonte, comme demandé explicitement (contrairement à la bulle rose ci-dessus). position:relative
-   + height:0 : ancre de largeur pleine mais de hauteur nulle (aucun impact sur le flow), qui sert
-   de repère à son propre ::before pour le bord SUPÉRIEUR (juste sous le titre). Le bord INFÉRIEUR,
-   lui, est découpé par .pilotage__scroll (voir sa règle plus haut) — donc par le vrai bas du
-   panneau, pas par le bas du tableau : la bulle n'est PAS un enfant de .synthese-mensuelle__scroll
-   (qui aurait forcé un clip serré au tableau, trop tôt). */
+/* Bulle verte : ANCRÉE AU CONTENU (juste après le titre "Synthèse mensuelle", avant le tableau,
+   dans le JSX) — défile avec le reste et disparaît si on remonte. position:relative + height:0 :
+   ancre de largeur pleine mais de hauteur nulle (aucun impact sur le flow), qui sert de repère à
+   son propre ::before pour le bord SUPÉRIEUR (juste sous le titre). Le bord INFÉRIEUR, lui, est
+   découpé par .synthese-mensuelle (overflow:hidden, voir plus bas) : la bulle s'arrête pile à la
+   fin du tableau + la petite marge de respiration après lui (même espace qu'entre le titre et le
+   tableau) — pas au bord réel du panneau (contrairement à la bulle rose ci-dessus). */
 .pilotage__decor-verte {
   position: relative;
   height: 0;
@@ -612,8 +604,29 @@ input[type="checkbox"] {
   color: var(--couleur-texte);
 }
 
+/* overflow:hidden : sans ça, .pilotage__decor-verte (900px de haut, positionnée en absolute)
+   contribuait à la hauteur défilable de .pilotage__scroll bien au-delà du tableau — un descendant
+   absolute qui déborde peut agrandir la zone de scroll de TOUT ancêtre scrollable, pas seulement
+   visuellement déborder. En le clippant ici, la bulle est à la fois découpée pile à la bonne
+   hauteur (tableau + la petite marge ci-dessous) ET n'affecte plus la hauteur de scroll.
+   IMPORTANT : ce clip est posé sur .synthese-mensuelle__corps (un wrapper dédié), PAS sur
+   .synthese-mensuelle elle-même — .synthese-mensuelle est un item flex direct de
+   .pilotage__scroll (display:flex), et poser overflow:hidden sur un item flex désactive sa
+   "taille minimale automatique" basée sur le contenu (elle devient 0 au lieu de la hauteur
+   réelle) : l'algorithme flex le réduisait alors à 0px, rendant tout le bloc invisible/déplacé.
+   .synthese-mensuelle__corps n'est pas lui-même un item flex (son parent .synthese-mensuelle est
+   un bloc normal), donc ce piège ne s'applique pas à lui. */
+.synthese-mensuelle__corps {
+  position: relative;
+  overflow: hidden;
+}
+
 .synthese-mensuelle__scroll {
   overflow-x: auto;
+  /* Même espace que celui entre le titre et le tableau (.synthese-mensuelle h3 margin-bottom) :
+     étend d'autant la zone que .synthese-mensuelle (ci-dessus) laisse à .pilotage__decor-verte
+     avant de la découper. */
+  margin-bottom: var(--space-2);
 }
 
 .synthese-mensuelle__table {
@@ -1327,16 +1340,10 @@ input[type="checkbox"] {
     overflow-y: visible;
   }
 
-  /* .pilotage perd position:sticky ci-dessus (devient static) : il ne peut plus servir de
-     containing block à .pilotage__decor (position:absolute), qui se positionnerait alors par
-     rapport à .cockpit et détériorerait l'affichage. Masquée à cette largeur plutôt que de changer
-     le responsive existant du panneau pour l'accueillir. */
-  .pilotage__decor {
-    display: none;
-  }
-
-  /* Techniquement indépendante de .pilotage (elle s'ancre sur elle-même, pas sur le containing
-     block du panneau), mais masquée ici aussi par cohérence avec la bulle rose ci-dessus. */
+  /* Les deux bulles s'ancrent sur elles-mêmes (position:relative), pas sur .pilotage — leur
+     mécanisme ne dépend donc pas de son passage en position:static ci-dessus. Masquées ici par
+     choix (moins de pertinence sur petit écran), pas par nécessité technique. */
+  .pilotage__decor-rose,
   .pilotage__decor-verte {
     display: none;
   }
