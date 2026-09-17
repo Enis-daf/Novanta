@@ -3,7 +3,6 @@
 import { ResultatProjectionCash } from "@/lib/cash-engine";
 import { formatDate, formatMontant } from "@/lib/format";
 import { HorizonJours } from "@/lib/types";
-import KpiCard from "./KpiCard";
 import CashCurveChart from "./CashCurveChart";
 import DateField from "./DateField";
 
@@ -65,31 +64,50 @@ export default function Dashboard({
         </div>
       </div>
 
-      <div className="kpi-grid">
-        <KpiCard
-          label={`Solde projeté à J+${horizonJours}`}
-          value={formatMontant(soldeJ90)}
-          tone={soldeJ90 < 0 ? "danger" : "success"}
-        />
-        <KpiCard
-          label={`Point bas sur ${horizonJours} jours`}
-          value={formatMontant(pointBas)}
-          tone={pointBas < 0 ? "danger" : "neutral"}
-          sublabel={`le ${formatDate(dateDuPointBas)}`}
-        />
-        <KpiCard
-          label="Passage sous zéro"
-          value={
-            enRupture
-              ? formatDate(datePassageSousZero as string)
-              : `Pas de passage sous zéro sur les ${horizonJours} prochains jours`
-          }
-          tone={enRupture ? "danger" : "success"}
-          compact={!enRupture}
-        />
+      <p className="eyebrow eyebrow--grand">Projection de trésorerie</p>
+
+      <div className="pilotage__vue-ensemble">
+        <div className="pilotage__headline">
+          <p className="pilotage__headline-label">Point bas sur {horizonJours} jours</p>
+          <p
+            className={`pilotage__headline-valeur${
+              pointBas < 0 ? " pilotage__headline-valeur--danger" : ""
+            }`}
+          >
+            {formatMontant(pointBas)}
+          </p>
+          <p className="pilotage__stat-sous-valeur">le {formatDate(dateDuPointBas)}</p>
+        </div>
+
+        <div className="pilotage__stats">
+          <div>
+            <p className="pilotage__stat-label">Solde projeté à J+{horizonJours}</p>
+            <p
+              className={`pilotage__stat-valeur${soldeJ90 < 0 ? " pilotage__stat-valeur--danger" : ""}`}
+            >
+              {formatMontant(soldeJ90)}
+            </p>
+          </div>
+          <div>
+            <p className="pilotage__stat-label">Passage sous zéro</p>
+            <p
+              className={`pilotage__stat-valeur${
+                enRupture ? " pilotage__stat-valeur--danger" : " pilotage__stat-valeur--compact"
+              }`}
+            >
+              {enRupture
+                ? formatDate(datePassageSousZero as string)
+                : `Pas de passage sous zéro sur les ${horizonJours} prochains jours`}
+            </p>
+          </div>
+        </div>
       </div>
 
-      <CashCurveChart serie={serie} onPointClick={onPointClickCourbe} />
+      <hr className="pilotage__separateur" />
+
+      <div className="pilotage__chart">
+        <CashCurveChart serie={serie} onPointClick={onPointClickCourbe} />
+      </div>
     </section>
   );
 }

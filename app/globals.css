@@ -7,6 +7,21 @@
   --couleur-accent: #f02894;
   --couleur-accent-fonce: #c10068;
   --couleur-bordure: #e5e7eb;
+
+  /* Rythme d'espacement unique pour toute l'app : page > section > bloc > contrôle. */
+  --space-1: 8px;
+  --space-2: 12px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 40px;
+  --space-7: 48px;
+
+  /* 3 niveaux de radius : contrôles (petits), cartes/boutons (standard), grandes surfaces
+     éditoriales (généreux). Les pastilles (999px) restent hors échelle. */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 24px;
 }
 
 * {
@@ -17,13 +32,50 @@ html,
 body {
   margin: 0;
   padding: 0;
-  /* Fond global derrière les panneaux uniquement : couleur en dur, volontairement distincte
-     de --couleur-fond (réutilisée ailleurs pour des survols et du texte sur fond sombre, qui
-     ne doivent pas changer). */
-  background: #fffdf3;
+  background: var(--couleur-fond);
   color: var(--couleur-texte);
   font-family: var(--font-lexend), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
+}
+
+body {
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Même signature décorative que .ecran-editorial, en très discret, réservée aux pages qui
+   contiennent le cockpit (:has évite de la dupliquer avec les cercles déjà présents sur
+   .ecran-editorial — connexion/abonnement/intégrations). Position fixed : aucun effet sur le
+   scroll interne du panneau de pilotage ni sur les popovers positionnés dans le cockpit. Opacité
+   réduite pour ne jamais entrer en concurrence avec les tableaux denses. */
+body:has(.cockpit)::before,
+body:has(.cockpit)::after {
+  content: "";
+  position: fixed;
+  border-radius: 50%;
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Toutes deux ancrées en haut : c'est la seule zone du cockpit qui n'est jamais recouverte par une
+   surface opaque (panneau de pilotage à gauche, tableaux à droite) — en bas, une bulle serait
+   simplement invisible, cachée sous ces blocs. */
+body:has(.cockpit)::before {
+  width: 34vw;
+  height: 34vw;
+  left: -14vw;
+  top: -20vw;
+  background: var(--couleur-fond-alt-vert);
+  opacity: 0.6;
+}
+
+body:has(.cockpit)::after {
+  width: 22vw;
+  height: 22vw;
+  right: -9vw;
+  top: -9vw;
+  background: var(--couleur-fond-alt-rose);
+  opacity: 0.6;
 }
 
 button,
@@ -38,25 +90,85 @@ input[type="checkbox"] {
 }
 
 .cockpit {
+  position: relative;
+  z-index: 0;
   display: grid;
-  grid-template-columns: minmax(340px, 1fr) minmax(460px, 1.35fr);
-  gap: 14px;
-  padding: 14px;
+  grid-template-columns: minmax(360px, 1fr) minmax(460px, 1.4fr);
+  gap: var(--space-5);
+  padding: var(--space-4) var(--space-5) var(--space-7);
   min-height: 100vh;
   align-items: start;
 }
 
-.cockpit__col {
-  background: #fffefa;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 10px;
-  padding: 16px;
+/* Zone d'introduction pleine largeur : eyebrow + grand titre + contexte + actions de compte.
+   Aucune surface/bordure propre — elle respire directement sur le fond de page, comme dans le
+   deck (le titre "occupe une vraie place" plutôt que d'être logé dans une barre utilitaire). */
+.page-intro {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding-bottom: var(--space-1);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+/* Eyebrow partagé par tous les écrans (panneau de pilotage, connexion, abonnement,
+   intégrations) — un seul endroit à faire évoluer plutôt que plusieurs déclinaisons
+   quasi identiques. */
+.eyebrow {
+  margin: 0 0 var(--space-1);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--couleur-accent);
+}
+
+/* Variante ponctuelle pour "Projection de trésorerie" (Dashboard) : plus grande que .eyebrow (12px)
+   sans aller jusqu'à .section-titre (26px, jugé trop grand ici) — taille intermédiaire entre les
+   deux. Sans toucher au .eyebrow partagé par tous les autres écrans. */
+.eyebrow--grand {
+  font-size: 19px;
+}
+
+/* Titre de page compact : "Novanta" reprend le traitement de .eyebrow (rose, capitales, tracking)
+   directement suivi du nom du produit en noir, sur une seule ligne — pas de gros H1 séparé. */
+.page-intro__titre-compact {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.page-intro__marque {
+  color: var(--couleur-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.page-intro__produit {
+  color: var(--couleur-texte);
+}
+
+.page-intro__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.page-intro__email {
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+  margin-right: var(--space-1);
 }
 
 .cockpit__col--droite {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: var(--space-6);
 }
 
 .barre-outils-recherche {
@@ -89,21 +201,21 @@ input[type="checkbox"] {
 
 .tri-controle select {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px 10px;
   font-size: 13px;
   color: var(--couleur-texte);
-  background: #fff;
+  background: var(--couleur-fond);
 }
 
 .barre-recherche__input {
   width: 100%;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 9px 34px 9px 12px;
   font-size: 14px;
   color: var(--couleur-texte);
-  background: #fff;
+  background: var(--couleur-fond);
 }
 
 .barre-recherche__input:focus {
@@ -143,46 +255,41 @@ input[type="checkbox"] {
 .section-groupe {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-4);
 }
 
 .section-contenu {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--space-4);
 }
 
+/* Titre de section éditorial : la hiérarchie vient de la taille/poids/espace, pas d'une couleur
+   (le rose reste réservé à l'action/donnée prioritaire) ni d'un filet systématique sous chaque
+   titre — l'espace au-dessus/en dessous suffit à le détacher du contenu. */
 .section-titre {
   position: relative;
   margin: 0;
-  padding: 0 0 12px;
-  font-size: 20px;
-  font-weight: 300;
-  color: var(--couleur-accent-fonce);
+  padding: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--couleur-texte);
   font-family: inherit;
   background: none;
   border: none;
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   cursor: pointer;
   text-align: left;
 }
 
-.section-titre::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 66%;
-  height: 2px;
-  background: var(--couleur-bordure);
-}
-
 .section-titre__chevron {
   display: inline-block;
-  font-size: 22px;
+  font-size: 18px;
+  color: var(--couleur-texte-secondaire);
   line-height: 1;
   transition: transform 0.15s ease;
   transform: rotate(-90deg);
@@ -192,11 +299,137 @@ input[type="checkbox"] {
   transform: rotate(0deg);
 }
 
-.cockpit__col--gauche {
+/* LE panneau de pilotage : une seule grande surface qui remplace l'ancien empilement de 3
+   mini-cards KPI + 1 card graphe blanche + 1 table — le chiffre qui compte, son contexte et sa
+   courbe vivent dans le même bloc, séparés par de l'espace et de la typographie, pas par des
+   cadres multiples. */
+.pilotage {
   position: sticky;
-  top: 14px;
-  max-height: calc(100vh - 28px);
+  top: var(--space-4);
+  max-height: calc(100vh - 2 * var(--space-4));
+  background: var(--couleur-fond);
+  color: var(--couleur-texte);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scroll interne du panneau (et layout de son contenu) : séparé de .pilotage lui-même pour que
+   .pilotage garde ses propriétés visuelles inchangées (voir plus haut) pendant que ce conteneur
+   gère le défilement. Les deux bulles pastel (.pilotage__decor-rose / -verte, plus bas) sont des
+   descendantes de CE conteneur : elles défilent avec le contenu et disparaissent hors champ,
+   contrairement à un habillage fixé au cadre du panneau. */
+.pilotage__scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  /* Explicite (pas juste "visible" par défaut) : sans ça, la règle CSS qui force overflow-x à
+     "auto" dès que overflow-y n'est pas "visible" s'applique — et comme la bulle rose (ci-dessous)
+     déborde largement en largeur sans wrapper de découpe dédié (contrairement à la verte, voir
+     .synthese-mensuelle__corps), cet "auto" forcé faisait apparaître une vraie scrollbar
+     horizontale ici, qui mangeait ~15px de hauteur tout en bas du panneau — décalant d'autant tout
+     ce qui doit toucher le vrai bord bas (la bulle verte, la scrollbar verticale). "hidden" découpe
+     au même endroit (le bord de cette boîte, déjà étendu au vrai bord du panneau ci-dessous) sans
+     réserver cet espace ni afficher de barre. Le scroll horizontal propre au tableau
+     (.synthese-mensuelle__scroll) n'est pas concerné, il a son overflow-x:auto à lui. */
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  /* Sans ça, la scrollbar se dessine à l'intérieur du padding-right hérité de .pilotage (32px en
+     retrait du bord réel du panneau). La marge négative amène le bord de .pilotage__scroll (donc
+     la scrollbar) au ras du bord de .pilotage ; le padding-right regagné juste après maintient le
+     même retrait visuel pour le contenu (Dashboard/SyntheseMensuelle), inchangé. */
+  margin-right: calc(var(--space-5) * -1);
+  padding-right: var(--space-5);
+  /* Symétrique à droite : SANS CECI, la bulle verte ne pouvait jamais vraiment toucher le bord
+     gauche, même après avoir étendu sa propre boîte de découpe (.synthese-mensuelle__corps, plus
+     bas) jusque-là — parce que .pilotage__scroll a lui-même overflow-x:hidden (voir plus haut), et
+     SON PROPRE bord gauche (non étendu) restait en retrait de --space-5 par rapport au vrai bord.
+     Un ancêtre avec overflow:hidden découpe TOUJOURS ses descendants à SA PROPRE boîte, quelle que
+     soit la position de la boîte du descendant lui-même : .synthese-mensuelle__corps avait beau
+     revendiquer la bonne position (vérifié en layout), elle se faisait quand même rogner avant
+     d'atteindre le bord par cet ancêtre plus étroit. D'où l'écart signalé, invisible dans les
+     mesures de position brutes (getBoundingClientRect ne reflète pas le rognage d'un ancêtre) mais
+     bien réel au rendu. */
+  margin-left: calc(var(--space-5) * -1);
+  padding-left: var(--space-5);
+  /* Même principe côté haut, pour que .pilotage__decor-rose (ci-dessous, ancrée au contenu) puisse
+     atteindre le vrai coin haut-droit du panneau — comme avant son passage en ancrage-contenu. */
+  margin-top: calc(var(--space-5) * -1);
+  padding-top: var(--space-5);
+  /* Et côté bas, pour que la barre de défilement (dont le track est borné par la boîte de
+     .pilotage__scroll) descende jusqu'au vrai bas du panneau. La bulle verte, elle, atteint ce même
+     bord bas par son propre mécanisme, indépendant de celui-ci : voir le padding-bottom de
+     .synthese-mensuelle__corps. border-radius sur les 4 coins désormais atteints par les bords
+     réels du panneau (haut, droite, bas), pour épouser son rayon, sinon un coin carré serait
+     visible sous le coin arrondi. isolation:isolate scope le z-index:-1 des deux bulles à
+     l'intérieur de ce conteneur, pour qu'elles passent derrière Dashboard/SyntheseMensuelle sans
+     passer aussi derrière le fond de .pilotage lui-même (ce qui les rendrait invisibles). */
+  margin-bottom: calc(var(--space-5) * -1);
+  padding-bottom: var(--space-5);
+  border-radius: var(--radius-lg);
+  isolation: isolate;
+}
+
+/* Bulle rose : ANCRÉE AU CONTENU (tout en haut de .pilotage__scroll, juste avant Dashboard),
+   comme la bulle verte — défile avec le reste et disparaît en scrollant, ce n'est plus une couche
+   fixée au cadre du panneau. Même construction que .pilotage__decor-verte : ancre pleine largeur/
+   hauteur nulle, ::before pour le cercle. Dimensions/position du cercle inchangées par rapport à
+   l'ancienne version fixe (750px, right:-645px, top:-325px) : seul le mécanisme d'ancrage change. */
+.pilotage__decor-rose {
+  position: relative;
+  height: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.pilotage__decor-rose::before {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  width: 750px;
+  height: 750px;
+  right: -645px;
+  top: -325px;
+  background: var(--couleur-fond-alt-rose);
+}
+
+/* Bulle verte : ANCRÉE AU CONTENU (juste après le titre "Synthèse mensuelle", avant le tableau,
+   dans le JSX) — défile avec le reste et disparaît si on remonte. position:relative + height:0 :
+   ancre de largeur pleine mais de hauteur nulle (aucun impact sur le flow), qui sert de repère à
+   son propre ::before pour le bord SUPÉRIEUR (juste sous le titre, qui reste non décoré, top:0 =
+   largeur nulle exactement à cet endroit, quel que soit le rayon ci-dessous). Le bord GAUCHE et le
+   bord INFÉRIEUR, eux, doivent atteindre le vrai bord du panneau, en miroir de la bulle rose (vrai
+   bord haut + droit) : la zone de découpe (.synthese-mensuelle__corps ci-dessous) s'étend bien
+   jusque-là. Cercle (pas une ellipse — l'ellipse essayée entre-temps donnait une forme trop
+   étirée/pas naturelle), avec le même rapport centre/ancre que la toute première version (avant
+   tous ces ajustements de bord), juste redimensionné pour que son point le plus large tombe pile à
+   la hauteur où la zone de découpe se termine (voir ::before). */
+.pilotage__decor-verte {
+  position: relative;
+  height: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.pilotage__decor-verte::before {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  /* Cercle (width = height, comme la toute première version à 900px/450 de rayon, et comme la bulle
+     rose). Rayon = hauteur de .synthese-mensuelle__corps (~236px) : le point le plus large du cercle
+     tombe alors pile à la hauteur où la zone de découpe se termine, au lieu d'être caché hors champ.
+     left = même décalage par rapport à l'ancre que la version d'origine (-60px de son propre rayon,
+     soit ancre - 60), pour garder le même "style" de départ (centre légèrement à gauche de l'ancre),
+     juste recalculé pour le nouveau rayon : -60 - 236 = -296px. */
+  width: 472px;
+  height: 472px;
+  left: -296px;
+  top: 0;
+  background: var(--couleur-fond-alt-vert);
 }
 
 .bandeau-mode-local {
@@ -204,7 +437,7 @@ input[type="checkbox"] {
   background: var(--couleur-fond-alt-rose);
   border: 1px solid var(--couleur-accent-fonce);
   color: var(--couleur-texte);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px 14px;
   font-size: 13px;
 }
@@ -219,7 +452,7 @@ input[type="checkbox"] {
   gap: 16px;
   background: var(--couleur-fond-alt-vert);
   border: 1px solid var(--couleur-accent-fonce);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px 16px;
   margin-bottom: 16px;
   box-shadow: 0 2px 8px rgba(3, 10, 22, 0.1);
@@ -281,115 +514,203 @@ input[type="checkbox"] {
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-5);
 }
 
+/* Rangée de paramètres compacte (contrôles fonctionnels, pas du contenu éditorial) : des chips
+   blanches posées sur le panneau, même logique que les boutons sur .page-intro__actions. */
 .dashboard-parametres {
   display: flex;
   flex-direction: row;
   flex-wrap: wrap;
-  gap: 20px;
+  gap: var(--space-4);
 }
 
 .solde-initial {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .solde-initial label {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--couleur-texte);
+  color: var(--couleur-texte-secondaire);
 }
 
 .solde-initial input,
 .solde-initial select {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
   font-size: 14px;
-  width: 160px;
+  width: 148px;
+  background: var(--couleur-fond);
+  color: var(--couleur-texte);
 }
 
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+/* Eyebrow + chiffre héro + stats secondaires : la hiérarchie vient de la taille/poids/espace,
+   pas de 3 cadres séparés. Le rose ne touche que la valeur si elle est réellement critique
+   (tone="danger" côté Dashboard.tsx — logique métier inchangée). Le héros (point bas) et les 2
+   stats secondaires (solde projeté, passage sous zéro) sont côte à côte sur une même ligne plutôt
+   qu'empilés verticalement. */
+.pilotage__vue-ensemble {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  flex-wrap: wrap;
 }
 
-.kpi-card {
-  border-radius: 10px;
-  padding: 12px 10px;
-  border: 1px solid var(--couleur-texte);
-  background: var(--couleur-texte);
-  color: var(--couleur-fond);
-  min-width: 0;
+.pilotage__headline {
+  display: flex;
+  flex-direction: column;
 }
 
-.kpi-card__label {
-  font-size: 11px;
-  font-weight: 300;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--couleur-fond);
-  text-transform: uppercase;
-  letter-spacing: 0.01em;
-  margin-bottom: 6px;
-}
-
-.kpi-card__value {
-  font-size: 20px;
-  font-weight: 700;
-  line-height: 1.3;
-  color: var(--couleur-fond);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.kpi-card__value--compact {
+/* Même rythme (marge de 2px) que .pilotage__stat-label → .pilotage__stat-valeur : sans ça, le
+   gap de flex s'ajoutait aux marges et les 56px du chiffre héros donnaient une impression
+   d'écart bien plus lâche que les 2 stats à côté, alors que la valeur CSS était la même. */
+.pilotage__headline-label {
+  margin: 0 0 6px;
   font-size: 14px;
-  white-space: normal;
-  overflow: visible;
-  text-overflow: clip;
+  color: var(--couleur-texte-secondaire);
 }
 
-.kpi-card__sublabel {
+.pilotage__headline-valeur {
+  margin: 0;
+  font-size: 56px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--couleur-texte);
+}
+
+.pilotage__headline-valeur--danger {
+  color: var(--couleur-accent-fonce);
+}
+
+.pilotage__stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: 4px;
+}
+
+.pilotage__stat-label {
+  margin: 0 0 2px;
   font-size: 12px;
-  color: var(--couleur-fond);
-  margin-top: 4px;
-  opacity: 0.75;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--couleur-texte-secondaire);
 }
 
-.chart-container {
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 10px;
-  padding: 12px 8px;
-  background: #fff;
+.pilotage__stat-valeur {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--couleur-texte);
 }
 
-.synthese-mensuelle {
-  margin-top: 20px;
+.pilotage__stat-valeur--danger {
+  color: var(--couleur-accent-fonce);
+}
+
+.pilotage__stat-valeur--compact {
+  font-size: 14px;
+  font-weight: 600;
+  max-width: 220px;
+}
+
+/* Utilisée sous le chiffre héros (56px) : marge plus large que .pilotage__stat-label (2px sur du
+   22px) pour garder le même écart RELATIF à la taille du texte, pas le même écart absolu. */
+.pilotage__stat-sous-valeur {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Le graphe est directement posé sur le panneau (pas de card blanche à l'intérieur) —
+   CashCurveChart reste en variante claire ici (voir Dashboard.tsx). */
+.pilotage__chart {
+  margin: calc(var(--space-2) * -1) calc(var(--space-3) * -1) calc(var(--space-3) * -1);
+}
+
+.pilotage__separateur {
+  border: none;
+  border-top: 1px solid var(--couleur-bordure);
+  margin: 0;
 }
 
 .synthese-mensuelle h3 {
-  margin: 0 0 10px;
+  margin: 0 0 var(--space-2);
   font-size: 15px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+}
+
+/* overflow:hidden : sans ça, .pilotage__decor-verte (900px de haut, positionnée en absolute)
+   contribuait à la hauteur défilable de .pilotage__scroll bien au-delà du tableau — un descendant
+   absolute qui déborde peut agrandir la zone de scroll de TOUT ancêtre scrollable, pas seulement
+   visuellement déborder. En le clippant ici, la bulle est à la fois découpée à la bonne hauteur ET
+   n'affecte plus la hauteur de scroll.
+   IMPORTANT : ce clip est posé sur .synthese-mensuelle__corps (un wrapper dédié), PAS sur
+   .synthese-mensuelle elle-même — .synthese-mensuelle est un item flex direct de
+   .pilotage__scroll (display:flex), et poser overflow:hidden sur un item flex désactive sa
+   "taille minimale automatique" basée sur le contenu (elle devient 0 au lieu de la hauteur
+   réelle) : l'algorithme flex le réduisait alors à 0px, rendant tout le bloc invisible/déplacé.
+   .synthese-mensuelle__corps n'est pas lui-même un item flex (son parent .synthese-mensuelle est
+   un bloc normal), donc ce piège ne s'applique pas à lui.
+   margin-left négatif + padding-left regagné : même principe que .pilotage__scroll (plus haut) —
+   étend la boîte de découpe (donc la bulle verte) jusqu'au vrai bord gauche du panneau, tout en
+   gardant le tableau à sa position visuelle inchangée (le padding regagné absorbe exactement le
+   décalage).
+   padding-bottom + margin-bottom négatif (les DEUX ensemble, pas l'un ou l'autre — historique des
+   deux essais ratés ci-dessous) : .pilotage__scroll réserve déjà var(--space-5) après le dernier
+   item pour que sa propre boîte (et donc la scrollbar) atteigne le vrai bas du panneau — mais cet
+   espace se recale toujours juste après ce dernier item, quelle que soit sa hauteur.
+   1er essai (padding-bottom seul) : grossit .synthese-mensuelle d'autant, .pilotage__scroll recale
+   son espace réservé juste après, à l'identique — l'écart ne se referme jamais (vérifié : 32px dans
+   les deux cas).
+   2e essai (margin-bottom seul) : ferme bien l'écart (vérifié : 0px) MAIS un margin négatif sur le
+   dernier enfant d'un bloc normal (.synthese-mensuelle n'a ni padding ni overflow qui l'empêcherait)
+   remonte à travers lui et RÉDUIT la hauteur que .synthese-mensuelle contribue à .pilotage__scroll
+   (item flex) — sans incidence quand le contenu déborde déjà et que .pilotage est bloqué à son
+   max-height (rien ne change), mais quand le contenu tient sans scroll, .pilotage (hauteur AUTO,
+   pas de scroll pour la contraindre) rétrécit réellement de --space-5 : le cadre remontait en bas,
+   pas seulement la bulle qui s'agrandissait — signalé, vérifié, confirmé.
+   Solution : les deux en même temps. padding-bottom agrandit la boîte de .synthese-mensuelle__corps
+   (donc sa zone de découpe) de --space-5 — c'est ce qui compte pour overflow:hidden. margin-bottom
+   négatif de la même valeur annule EXACTEMENT la contribution de ce padding à la hauteur que
+   .synthese-mensuelle remonte à .pilotage__scroll (padding : +espace-5 de hauteur de boîte ; margin
+   : -espace-5 d'espace réservé après — net : zéro changement dans les deux cas, donc le cadre ne
+   bouge plus). Résultat : la boîte de découpe s'agrandit pile de --space-5 (atteint le vrai bord,
+   comme avec margin-bottom seul), et .pilotage garde exactement sa hauteur naturelle d'origine
+   (comme avant toute cette série de correctifs). border-radius bas-gauche : ce coin de la boîte de
+   découpe coïncide maintenant avec le coin bas-gauche arrondi du panneau — sans ce rayon, un coin
+   carré serait visible sous la courbe du panneau (même piège déjà corrigé pour la rose en haut-
+   droite). */
+.synthese-mensuelle__corps {
+  position: relative;
+  overflow: hidden;
+  margin-left: calc(var(--space-5) * -1);
+  padding-left: var(--space-5);
+  padding-bottom: var(--space-5);
+  margin-bottom: calc(var(--space-5) * -1);
+  border-radius: 0 0 0 var(--radius-lg);
 }
 
 .synthese-mensuelle__scroll {
   overflow-x: auto;
+  /* padding (pas margin) : la barre de défilement horizontale d'un overflow-x:auto se dessine au
+     bord de la boîte elle-même — avec une margin, cet espace reste APRÈS la barre (donc collée au
+     tableau, avec le vide après elle) ; en padding, cet espace fait partie de la boîte et pousse la
+     barre tout en bas de la zone. Toujours 2 × --space-2 (l'écart titre→tableau, doublé). */
+  padding-bottom: calc(var(--space-2) * 2);
 }
 
 .synthese-mensuelle__table {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+  color: var(--couleur-texte);
 }
 
 .synthese-mensuelle__table th,
@@ -409,7 +730,7 @@ input[type="checkbox"] {
 }
 
 .synthese-mensuelle__total {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .controle-mensuel__sous-titre {
@@ -462,6 +783,10 @@ input[type="checkbox"] {
   color: var(--couleur-texte-secondaire);
 }
 
+.table-wrapper {
+  overflow-x: auto;
+}
+
 .table-wrapper h3 {
   margin: 0 0 10px;
   font-size: 15px;
@@ -512,7 +837,7 @@ input[type="checkbox"] {
   margin-left: 6px;
   padding: 1px 6px;
   border: 1px solid var(--couleur-accent-fonce);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 10px;
   font-weight: 600;
   line-height: 1.6;
@@ -531,7 +856,7 @@ input[type="checkbox"] {
 .invoice-table input[type="number"],
 .invoice-table select {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 4px;
   font-size: 11px;
 }
@@ -557,12 +882,12 @@ input[type="checkbox"] {
 
 .date-field__bouton {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 4px;
   font-size: 11px;
   width: 112px;
   text-align: left;
-  background: #fff;
+  background: var(--couleur-fond);
   color: var(--couleur-texte);
   cursor: pointer;
 }
@@ -575,9 +900,9 @@ input[type="checkbox"] {
 .date-field__popover {
   z-index: 30;
   width: 200px;
-  background: #fff;
+  background: var(--couleur-fond);
   border: 1px solid var(--couleur-bordure);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px;
   box-shadow: 0 4px 16px rgba(3, 10, 22, 0.12);
   white-space: normal;
@@ -626,7 +951,7 @@ input[type="checkbox"] {
 .date-field__jour {
   border: none;
   background: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 4px 0;
   font-size: 11px;
   cursor: pointer;
@@ -635,7 +960,7 @@ input[type="checkbox"] {
 }
 
 .date-field__jour:hover {
-  background: var(--couleur-fond);
+  background: var(--couleur-bordure);
 }
 
 .date-field__jour--hors-mois {
@@ -645,7 +970,7 @@ input[type="checkbox"] {
 
 .date-field__jour--selectionne {
   background: var(--couleur-accent);
-  color: #fff;
+  color: var(--couleur-fond);
   font-weight: 600;
 }
 
@@ -653,8 +978,8 @@ input[type="checkbox"] {
   margin-top: 6px;
   width: 100%;
   border: 1px solid var(--couleur-bordure);
-  background: #fff;
-  border-radius: 6px;
+  background: var(--couleur-fond);
+  border-radius: var(--radius-sm);
   padding: 3px 0;
   font-size: 11px;
   cursor: pointer;
@@ -693,7 +1018,7 @@ input[type="checkbox"] {
   width: max-content;
   max-width: 220px;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--couleur-texte);
   color: var(--couleur-fond);
   font-size: 11px;
@@ -717,8 +1042,8 @@ input[type="checkbox"] {
 
 .btn-shift {
   border: 1px solid var(--couleur-bordure);
-  background: #fff;
-  border-radius: 6px;
+  background: var(--couleur-fond);
+  border-radius: var(--radius-sm);
   padding: 2px 4px;
   font-size: 10px;
   margin-right: 2px;
@@ -727,14 +1052,14 @@ input[type="checkbox"] {
 }
 
 .btn-shift:hover {
-  background: var(--couleur-fond);
+  background: var(--couleur-bordure);
 }
 
 .btn-add {
   margin-top: 10px;
   border: 1px solid var(--couleur-accent);
   background: var(--couleur-accent);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   font-size: 12px;
   font-weight: 600;
@@ -777,14 +1102,14 @@ input[type="checkbox"] {
 .mode-montant-toggle {
   display: inline-flex;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   margin-bottom: 4px;
 }
 
 .mode-montant-toggle button {
   border: none;
-  background: #fff;
+  background: var(--couleur-fond);
   padding: 2px 8px;
   font-size: 10px;
   font-weight: 600;
@@ -798,7 +1123,7 @@ input[type="checkbox"] {
 
 .mode-montant-toggle button.actif {
   background: var(--couleur-accent);
-  color: #fff;
+  color: var(--couleur-fond);
 }
 
 .charge-calcul {
@@ -818,7 +1143,7 @@ input[type="checkbox"] {
   width: 48px;
   text-align: right;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 4px;
   font-size: 11px;
 }
@@ -858,10 +1183,10 @@ input[type="checkbox"] {
 
 .source-calcul-select__bouton {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 6px;
   font-size: 11px;
-  background: #fff;
+  background: var(--couleur-fond);
   color: var(--couleur-texte);
   cursor: pointer;
   max-width: 160px;
@@ -876,9 +1201,9 @@ input[type="checkbox"] {
   max-height: 320px;
   display: flex;
   flex-direction: column;
-  background: #fff;
+  background: var(--couleur-fond);
   border: 1px solid var(--couleur-bordure);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px;
   box-shadow: 0 4px 16px rgba(3, 10, 22, 0.12);
 }
@@ -886,7 +1211,7 @@ input[type="checkbox"] {
 .source-calcul-select__recherche {
   width: 100%;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 5px 8px;
   font-size: 12px;
   margin-bottom: 6px;
@@ -916,7 +1241,7 @@ input[type="checkbox"] {
   border: none;
   background: none;
   padding: 5px 6px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   color: var(--couleur-texte);
   cursor: pointer;
@@ -924,7 +1249,7 @@ input[type="checkbox"] {
 }
 
 .source-calcul-select__option:hover {
-  background: var(--couleur-fond);
+  background: var(--couleur-bordure);
 }
 
 .source-calcul-select__vide {
@@ -983,7 +1308,7 @@ input[type="checkbox"] {
 .rentree-saisonnalite__annuel input {
   flex: 1;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 4px;
   font-size: 11px;
   text-align: right;
@@ -1014,7 +1339,7 @@ input[type="checkbox"] {
   max-height: 220px;
   overflow-y: auto;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px;
 }
 
@@ -1033,7 +1358,7 @@ input[type="checkbox"] {
   min-width: 0;
   text-align: right;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 4px;
   font-size: 11px;
 }
@@ -1043,7 +1368,7 @@ input[type="checkbox"] {
   min-width: 96px;
   text-align: right;
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 3px 6px;
   font-size: 11px;
   font-weight: 600;
@@ -1077,20 +1402,34 @@ input[type="checkbox"] {
 
 @media (max-width: 900px) {
   .cockpit {
-    grid-template-columns: 1fr;
+    /* minmax(0, 1fr) et pas juste 1fr : sans le 0, une piste de grille ne peut jamais devenir
+       plus étroite que le contenu qu'elle porte — un tableau dense en nowrap forçait alors toute
+       la page (y compris le panneau de pilotage) à déborder horizontalement. */
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .cockpit__col--gauche {
+  .pilotage {
     position: static;
     max-height: none;
+  }
+
+  .pilotage__scroll {
     overflow-y: visible;
+  }
+
+  /* Les deux bulles s'ancrent sur elles-mêmes (position:relative), pas sur .pilotage — leur
+     mécanisme ne dépend donc pas de son passage en position:static ci-dessus. Masquées ici par
+     choix (moins de pertinence sur petit écran), pas par nécessité technique. */
+  .pilotage__decor-rose,
+  .pilotage__decor-verte {
+    display: none;
   }
 }
 
 .btn-secondaire {
   border: 1px solid var(--couleur-bordure);
-  background: #fff;
-  border-radius: 6px;
+  background: var(--couleur-fond);
+  border-radius: var(--radius-sm);
   padding: 6px 12px;
   font-size: 12px;
   cursor: pointer;
@@ -1104,7 +1443,7 @@ input[type="checkbox"] {
 }
 
 .btn-secondaire:hover {
-  background: var(--couleur-fond);
+  background: var(--couleur-bordure);
 }
 
 .btn-secondaire:disabled {
@@ -1219,7 +1558,7 @@ input[type="checkbox"] {
 
 .consistency-item {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
 }
 
@@ -1247,34 +1586,70 @@ input[type="checkbox"] {
   margin-left: 4px;
 }
 
-.login-screen {
+/* Écrans peu denses (connexion, abonnement, intégrations) : seuls endroits, avec la synthèse
+   mensuelle, où les grands aplats décoratifs du deck ont leur place (voir charte DA — jamais dans
+   le cockpit dense). Deux cercles pastel qui débordent du cadre, purement atmosphériques, dessinés
+   en CSS pur — partagés par les 3 écrans via .ecran-editorial / .carte-editoriale, pas dupliqués. */
+.ecran-editorial {
+  position: relative;
+  overflow: hidden;
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  gap: var(--space-4);
+  padding: var(--space-4);
 }
 
-.login-card {
+.ecran-editorial::before,
+.ecran-editorial::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  z-index: 0;
+}
+
+.ecran-editorial::before {
+  width: 46vw;
+  height: 46vw;
+  left: -18vw;
+  bottom: -20vw;
+  background: var(--couleur-fond-alt-vert);
+}
+
+.ecran-editorial::after {
+  width: 30vw;
+  height: 30vw;
+  right: -10vw;
+  top: -10vw;
+  background: var(--couleur-fond-alt-rose);
+}
+
+.carte-editoriale {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  max-width: 340px;
-  background: #fff;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 10px;
-  padding: 28px;
+  max-width: 420px;
+  background: var(--couleur-fond);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2);
+  box-shadow: 0 24px 60px -24px rgba(3, 10, 22, 0.25);
 }
 
-.login-card h1 {
-  font-size: 18px;
+.carte-editoriale h1 {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
 .login-subtitle {
-  margin: 0 0 8px;
-  font-size: 13px;
+  margin: 0 0 var(--space-2);
+  font-size: 14px;
   color: var(--couleur-texte-secondaire);
 }
 
@@ -1286,7 +1661,7 @@ input[type="checkbox"] {
 
 .login-card input {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: 14px;
 }
@@ -1296,7 +1671,7 @@ input[type="checkbox"] {
   color: var(--couleur-accent-fonce);
   font-size: 12px;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .login-info {
@@ -1304,7 +1679,7 @@ input[type="checkbox"] {
   color: var(--couleur-texte);
   font-size: 12px;
   padding: 6px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .login-toggle {
@@ -1321,25 +1696,10 @@ input[type="checkbox"] {
   text-decoration: underline;
 }
 
-.barre-utilisateur {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 13px;
-  color: var(--couleur-texte-secondaire);
-}
-
-.barre-utilisateur__actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
 .btn-deconnexion {
   border: 1px solid var(--couleur-bordure);
-  background: #fff;
-  border-radius: 6px;
+  background: var(--couleur-fond);
+  border-radius: var(--radius-sm);
   padding: 5px 10px;
   font-size: 12px;
   cursor: pointer;
@@ -1347,21 +1707,14 @@ input[type="checkbox"] {
 }
 
 .btn-deconnexion:hover {
-  background: var(--couleur-fond);
-}
-
-.billing-page {
-  min-height: 100vh;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
+  background: var(--couleur-bordure);
 }
 
 .billing-page__header {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  max-width: 480px;
+  max-width: 420px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1370,23 +1723,6 @@ input[type="checkbox"] {
 .billing-page__email {
   font-size: 13px;
   color: var(--couleur-texte-secondaire);
-}
-
-.billing-card {
-  width: 100%;
-  max-width: 480px;
-  background: #fff;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 10px;
-  padding: 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.billing-card h1 {
-  font-size: 20px;
-  margin: 0;
 }
 
 .billing-status {
@@ -1443,7 +1779,7 @@ input[type="checkbox"] {
 
 .pennylane-champ input {
   border: 1px solid var(--couleur-bordure);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: 14px;
 }

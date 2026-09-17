@@ -897,10 +897,16 @@ export default function Home() {
           Mode local — configurez Supabase (.env.local) pour sauvegarder les données.
         </div>
       )}
-      {supabaseConfigured && session && (
-        <div className="barre-utilisateur">
-          <span>{session.user.email}</span>
-          <div className="barre-utilisateur__actions">
+      <header className="page-intro">
+        <div className="page-intro__texte">
+          <h1 className="page-intro__titre-compact">
+            <span className="page-intro__marque">Novanta</span>
+            <span className="page-intro__produit"> — cockpit de trésorerie</span>
+          </h1>
+        </div>
+        {supabaseConfigured && session && (
+          <div className="page-intro__actions">
+            <span className="page-intro__email">{session.user.email}</span>
             <Link href="/account/billing" className="btn-secondaire">
               Abonnement
             </Link>
@@ -911,22 +917,25 @@ export default function Home() {
               Se déconnecter
             </button>
           </div>
+        )}
+      </header>
+      <div className="pilotage">
+        <div className="pilotage__scroll">
+          <div className="pilotage__decor-rose" aria-hidden="true" />
+          <Dashboard
+            soldeInitial={soldeInitial}
+            onChangeSoldeInitial={handleChangeSoldeInitial}
+            dateReleve={dateReleve}
+            onChangeDateReleve={handleChangeDateReleve}
+            horizonJours={horizonJours}
+            onChangeHorizonJours={handleChangeHorizonJours}
+            resultat={resultat}
+            onPointClickCourbe={handleClicCourbe}
+          />
+          <SyntheseMensuelle synthese={syntheseMensuelle} />
         </div>
-      )}
-      <div className="cockpit__col cockpit__col--gauche">
-        <Dashboard
-          soldeInitial={soldeInitial}
-          onChangeSoldeInitial={handleChangeSoldeInitial}
-          dateReleve={dateReleve}
-          onChangeDateReleve={handleChangeDateReleve}
-          horizonJours={horizonJours}
-          onChangeHorizonJours={handleChangeHorizonJours}
-          resultat={resultat}
-          onPointClickCourbe={handleClicCourbe}
-        />
-        <SyntheseMensuelle synthese={syntheseMensuelle} />
       </div>
-      <div className="cockpit__col cockpit__col--droite">
+      <div className="cockpit__col--droite">
         {periodeFiltre && fluxPeriode && (
           <BandeauPeriodeFiltre
             dateClic={periodeFiltre.dateClic}

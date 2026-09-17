@@ -147,7 +147,7 @@ function BillingPageContent() {
   const finPeriode = formatDate(company?.subscriptionCurrentPeriodEnd ?? null);
 
   return (
-    <main className="billing-page">
+    <main className="ecran-editorial">
       <div className="billing-page__header">
         <Link href="/" className="btn-secondaire">
           ← Retour au cockpit
@@ -155,7 +155,8 @@ function BillingPageContent() {
         {session && <span className="billing-page__email">{session.user.email}</span>}
       </div>
 
-      <div className="billing-card">
+      <div className="carte-editoriale billing-card">
+        <p className="eyebrow">Novanta</p>
         <h1>Abonnement</h1>
 
         {success && (

@@ -20,33 +20,36 @@ export default function SyntheseMensuelle({ synthese }: SyntheseMensuelleProps) 
   return (
     <div className="synthese-mensuelle">
       <h3>Synthèse mensuelle</h3>
-      <div className="synthese-mensuelle__scroll">
-        <table className="synthese-mensuelle__table">
-          <thead>
-            <tr>
-              <th></th>
-              {mois.map((m) => (
-                <th key={m.cle} className="col-montant">
-                  {m.libelle}
-                </th>
-              ))}
-              <th className="col-montant">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lignes.map((ligne) => (
-              <tr key={ligne.libelle}>
-                <td>{ligne.libelle}</td>
-                {ligne.montantsParMois.map((montant, index) => (
-                  <td key={mois[index].cle} className="col-montant">
-                    {formatMontantSigne(montant)}
-                  </td>
+      <div className="synthese-mensuelle__corps">
+        <div className="pilotage__decor-verte" aria-hidden="true" />
+        <div className="synthese-mensuelle__scroll">
+          <table className="synthese-mensuelle__table">
+            <thead>
+              <tr>
+                <th></th>
+                {mois.map((m) => (
+                  <th key={m.cle} className="col-montant">
+                    {m.libelle}
+                  </th>
                 ))}
-                <td className="col-montant synthese-mensuelle__total">{formatMontantSigne(ligne.total)}</td>
+                <th className="col-montant">Total</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {lignes.map((ligne) => (
+                <tr key={ligne.libelle}>
+                  <td>{ligne.libelle}</td>
+                  {ligne.montantsParMois.map((montant, index) => (
+                    <td key={mois[index].cle} className="col-montant">
+                      {formatMontantSigne(montant)}
+                    </td>
+                  ))}
+                  <td className="col-montant synthese-mensuelle__total">{formatMontantSigne(ligne.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

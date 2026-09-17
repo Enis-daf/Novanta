@@ -57,8 +57,9 @@ export default function LoginForm() {
   };
 
   return (
-    <main className="login-screen">
-      <form className="login-card" onSubmit={handleSubmit}>
+    <main className="ecran-editorial">
+      <form className="carte-editoriale login-card" onSubmit={handleSubmit}>
+        <p className="eyebrow">Novanta</p>
         <h1>Cockpit de trésorerie</h1>
         <p className="login-subtitle">
           {mode === "connexion" ? "Connectez-vous à votre société" : "Créez votre compte"}
