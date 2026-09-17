@@ -623,10 +623,10 @@ input[type="checkbox"] {
 
 .synthese-mensuelle__scroll {
   overflow-x: auto;
-  /* Même espace que celui entre le titre et le tableau (.synthese-mensuelle h3 margin-bottom) :
-     étend d'autant la zone que .synthese-mensuelle (ci-dessus) laisse à .pilotage__decor-verte
-     avant de la découper. */
-  margin-bottom: var(--space-2);
+  /* Double l'espace entre le tableau et le bas du panneau (2 × --space-2, l'écart titre→tableau) :
+     étend d'autant la zone que .synthese-mensuelle__corps laisse à .pilotage__decor-verte avant de
+     la découper. */
+  margin-bottom: calc(var(--space-2) * 2);
 }
 
 .synthese-mensuelle__table {
