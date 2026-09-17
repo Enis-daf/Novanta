@@ -419,16 +419,19 @@ input[type="checkbox"] {
   content: "";
   position: absolute;
   border-radius: 50%;
-  /* Ellipse, pas un cercle : largeur et hauteur découplées exprès. height/top inchangés (1300px de
-     rayon vertical) pour garder exactement le même rythme "fin en haut, s'élargit en descendant" et
-     la même portée verticale qu'avant. width réduite (1300px -> 560px de rayon horizontal) pour que
-     le vert avance moins vers la droite dans le tableau — le rayon horizontal ne gouverne que
-     l'étalement latéral, pas la progression verticale. left recalculé pour garder une marge de
-     sécurité confortable (~80px) au-delà du vrai bord gauche à la hauteur du bas de la zone de
-     découpe (.synthese-mensuelle__corps, ~250px), comme pour la bulle rose à son coin. */
-  width: 560px;
-  height: 2600px;
-  left: -227px;
+  /* Ellipse, pas un cercle : largeur et hauteur découplées exprès.
+     Rayon vertical (height/2) = hauteur de .synthese-mensuelle__corps (~236px) : le point culminant
+     de l'ellipse (sa largeur maximale) tombe alors PILE à la hauteur où la zone de découpe se
+     termine — le "point où elle sort du cadre" — au lieu d'être très loin en dessous (hors champ,
+     comme avec l'ancien rayon de 1300px). Résultat : on voit une vraie moitié d'ellipse complète
+     (du point fin en haut à son point le plus large en bas), une courbe naturelle, plutôt qu'un
+     fragment quelconque d'une courbe bien plus grande.
+     Rayon horizontal (width/2 = 150px) et left recalculés pour ce nouveau rayon vertical, afin de
+     garder la même marge de sécurité (~85px) au-delà du vrai bord gauche à cette hauteur, sans trop
+     avancer vers la droite (largeur totale de 300px, contre 560px avant). */
+  width: 300px;
+  height: 472px;
+  left: -117px;
   top: 0;
   background: var(--couleur-fond-alt-vert);
 }
