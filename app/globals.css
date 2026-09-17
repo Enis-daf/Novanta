@@ -318,6 +318,16 @@ input[type="checkbox"] {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Explicite (pas juste "visible" par défaut) : sans ça, la règle CSS qui force overflow-x à
+     "auto" dès que overflow-y n'est pas "visible" s'applique — et comme la bulle rose (ci-dessous)
+     déborde largement en largeur sans wrapper de découpe dédié (contrairement à la verte, voir
+     .synthese-mensuelle__corps), cet "auto" forcé faisait apparaître une vraie scrollbar
+     horizontale ici, qui mangeait ~15px de hauteur tout en bas du panneau — décalant d'autant tout
+     ce qui doit toucher le vrai bord bas (la bulle verte, la scrollbar verticale). "hidden" découpe
+     au même endroit (le bord de cette boîte, déjà étendu au vrai bord du panneau ci-dessous) sans
+     réserver cet espace ni afficher de barre. Le scroll horizontal propre au tableau
+     (.synthese-mensuelle__scroll) n'est pas concerné, il a son overflow-x:auto à lui. */
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
@@ -332,10 +342,10 @@ input[type="checkbox"] {
   margin-top: calc(var(--space-5) * -1);
   padding-top: var(--space-5);
   /* Et côté bas, pour que la barre de défilement (dont le track est borné par la boîte de
-     .pilotage__scroll) descende jusqu'au vrai bas du panneau — indépendant du clip de la bulle
-     verte : elle reste bornée à sa propre zone (.synthese-mensuelle__corps, tableau + marge), qui
-     ne s'agrandit pas avec ce changement. border-radius sur les 4 coins désormais atteints par les
-     bords réels du panneau (haut, droite, bas), pour épouser son rayon, sinon un coin carré serait
+     .pilotage__scroll) descende jusqu'au vrai bas du panneau. La bulle verte, elle, atteint ce même
+     bord bas par son propre mécanisme, indépendant de celui-ci : voir le padding-bottom de
+     .synthese-mensuelle__corps. border-radius sur les 4 coins désormais atteints par les bords
+     réels du panneau (haut, droite, bas), pour épouser son rayon, sinon un coin carré serait
      visible sous le coin arrondi. isolation:isolate scope le z-index:-1 des deux bulles à
      l'intérieur de ce conteneur, pour qu'elles passent derrière Dashboard/SyntheseMensuelle sans
      passer aussi derrière le fond de .pilotage lui-même (ce qui les rendrait invisibles). */
@@ -371,10 +381,10 @@ input[type="checkbox"] {
 /* Bulle verte : ANCRÉE AU CONTENU (juste après le titre "Synthèse mensuelle", avant le tableau,
    dans le JSX) — défile avec le reste et disparaît si on remonte. position:relative + height:0 :
    ancre de largeur pleine mais de hauteur nulle (aucun impact sur le flow), qui sert de repère à
-   son propre ::before pour le bord SUPÉRIEUR (juste sous le titre). Le bord INFÉRIEUR, lui, est
-   découpé par .synthese-mensuelle (overflow:hidden, voir plus bas) : la bulle s'arrête pile à la
-   fin du tableau + la petite marge de respiration après lui (même espace qu'entre le titre et le
-   tableau) — pas au bord réel du panneau (contrairement à la bulle rose ci-dessus). */
+   son propre ::before pour le bord SUPÉRIEUR (juste sous le titre, qui reste non décoré). Le bord
+   GAUCHE et le bord INFÉRIEUR, eux, atteignent le vrai bord du panneau — en miroir de la bulle
+   rose (vrai bord haut + droit) — via l'extension de la zone de découpe .synthese-mensuelle__corps
+   ci-dessous, pas via un changement des dimensions du cercle lui-même. */
 .pilotage__decor-verte {
   position: relative;
   height: 0;
@@ -610,18 +620,32 @@ input[type="checkbox"] {
 /* overflow:hidden : sans ça, .pilotage__decor-verte (900px de haut, positionnée en absolute)
    contribuait à la hauteur défilable de .pilotage__scroll bien au-delà du tableau — un descendant
    absolute qui déborde peut agrandir la zone de scroll de TOUT ancêtre scrollable, pas seulement
-   visuellement déborder. En le clippant ici, la bulle est à la fois découpée pile à la bonne
-   hauteur (tableau + la petite marge ci-dessous) ET n'affecte plus la hauteur de scroll.
+   visuellement déborder. En le clippant ici, la bulle est à la fois découpée à la bonne hauteur ET
+   n'affecte plus la hauteur de scroll.
    IMPORTANT : ce clip est posé sur .synthese-mensuelle__corps (un wrapper dédié), PAS sur
    .synthese-mensuelle elle-même — .synthese-mensuelle est un item flex direct de
    .pilotage__scroll (display:flex), et poser overflow:hidden sur un item flex désactive sa
    "taille minimale automatique" basée sur le contenu (elle devient 0 au lieu de la hauteur
    réelle) : l'algorithme flex le réduisait alors à 0px, rendant tout le bloc invisible/déplacé.
    .synthese-mensuelle__corps n'est pas lui-même un item flex (son parent .synthese-mensuelle est
-   un bloc normal), donc ce piège ne s'applique pas à lui. */
+   un bloc normal), donc ce piège ne s'applique pas à lui.
+   margin-left négatif + padding-left regagné : même principe que .pilotage__scroll (plus haut) —
+   étend la boîte de découpe (donc la bulle verte) jusqu'au vrai bord gauche du panneau, tout en
+   gardant le tableau à sa position visuelle inchangée (le padding regagné absorbe exactement le
+   décalage). padding-bottom : .synthese-mensuelle est le DERNIER item de .pilotage__scroll, donc
+   le vrai bord bas du panneau est à une distance fixe sous ce bloc = le padding-bottom regagné de
+   .pilotage__scroll (var(--space-5)) ; on ajoute ici cette même valeur pour que la boîte de
+   découpe (et donc la bulle) atteigne pile ce bord, en miroir de la bulle rose (vrai bord haut +
+   droit). border-radius bas-gauche : ce coin de la boîte de découpe coïncide maintenant avec le
+   coin bas-gauche arrondi du panneau — sans ce rayon, un coin carré serait visible sous la courbe
+   du panneau (même piège déjà corrigé une fois pour la bulle rose en haut-droite). */
 .synthese-mensuelle__corps {
   position: relative;
   overflow: hidden;
+  margin-left: calc(var(--space-5) * -1);
+  padding-left: var(--space-5);
+  padding-bottom: var(--space-5);
+  border-radius: 0 0 0 var(--radius-lg);
 }
 
 .synthese-mensuelle__scroll {
