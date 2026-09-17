@@ -640,22 +640,37 @@ input[type="checkbox"] {
    étend la boîte de découpe (donc la bulle verte) jusqu'au vrai bord gauche du panneau, tout en
    gardant le tableau à sa position visuelle inchangée (le padding regagné absorbe exactement le
    décalage).
-   margin-bottom négatif (PAS padding-bottom) : .pilotage__scroll réserve déjà var(--space-5) après
-   le dernier item pour que sa propre boîte (et donc la scrollbar) atteigne le vrai bas du panneau —
-   mais cet espace est réservé APRÈS .synthese-mensuelle, quelle que soit sa hauteur : lui ajouter du
-   padding-bottom ne fait que grossir .synthese-mensuelle d'autant, et .pilotage__scroll recale son
-   espace réservé juste après, à l'identique (l'écart ne se referme jamais, seule la position du bloc
-   change — vérifié : avec padding-bottom l'écart mesuré restait de 32px, inchangé). Un margin-bottom
-   négatif, lui, fait déborder la boîte de .synthese-mensuelle__corps (donc son découpage) DANS cet
-   espace déjà réservé par .pilotage__scroll, au lieu d'en réclamer un deuxième par-dessus — vérifié :
-   écart ramené à 0. border-radius bas-gauche : ce coin de la boîte de découpe coïncide maintenant
-   avec le coin bas-gauche arrondi du panneau — sans ce rayon, un coin carré serait visible sous la
-   courbe du panneau (même piège déjà corrigé une fois pour la bulle rose en haut-droite). */
+   padding-bottom + margin-bottom négatif (les DEUX ensemble, pas l'un ou l'autre — historique des
+   deux essais ratés ci-dessous) : .pilotage__scroll réserve déjà var(--space-5) après le dernier
+   item pour que sa propre boîte (et donc la scrollbar) atteigne le vrai bas du panneau — mais cet
+   espace se recale toujours juste après ce dernier item, quelle que soit sa hauteur.
+   1er essai (padding-bottom seul) : grossit .synthese-mensuelle d'autant, .pilotage__scroll recale
+   son espace réservé juste après, à l'identique — l'écart ne se referme jamais (vérifié : 32px dans
+   les deux cas).
+   2e essai (margin-bottom seul) : ferme bien l'écart (vérifié : 0px) MAIS un margin négatif sur le
+   dernier enfant d'un bloc normal (.synthese-mensuelle n'a ni padding ni overflow qui l'empêcherait)
+   remonte à travers lui et RÉDUIT la hauteur que .synthese-mensuelle contribue à .pilotage__scroll
+   (item flex) — sans incidence quand le contenu déborde déjà et que .pilotage est bloqué à son
+   max-height (rien ne change), mais quand le contenu tient sans scroll, .pilotage (hauteur AUTO,
+   pas de scroll pour la contraindre) rétrécit réellement de --space-5 : le cadre remontait en bas,
+   pas seulement la bulle qui s'agrandissait — signalé, vérifié, confirmé.
+   Solution : les deux en même temps. padding-bottom agrandit la boîte de .synthese-mensuelle__corps
+   (donc sa zone de découpe) de --space-5 — c'est ce qui compte pour overflow:hidden. margin-bottom
+   négatif de la même valeur annule EXACTEMENT la contribution de ce padding à la hauteur que
+   .synthese-mensuelle remonte à .pilotage__scroll (padding : +espace-5 de hauteur de boîte ; margin
+   : -espace-5 d'espace réservé après — net : zéro changement dans les deux cas, donc le cadre ne
+   bouge plus). Résultat : la boîte de découpe s'agrandit pile de --space-5 (atteint le vrai bord,
+   comme avec margin-bottom seul), et .pilotage garde exactement sa hauteur naturelle d'origine
+   (comme avant toute cette série de correctifs). border-radius bas-gauche : ce coin de la boîte de
+   découpe coïncide maintenant avec le coin bas-gauche arrondi du panneau — sans ce rayon, un coin
+   carré serait visible sous la courbe du panneau (même piège déjà corrigé pour la rose en haut-
+   droite). */
 .synthese-mensuelle__corps {
   position: relative;
   overflow: hidden;
   margin-left: calc(var(--space-5) * -1);
   padding-left: var(--space-5);
+  padding-bottom: var(--space-5);
   margin-bottom: calc(var(--space-5) * -1);
   border-radius: 0 0 0 var(--radius-lg);
 }
