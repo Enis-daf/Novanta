@@ -35,6 +35,12 @@ const FORMAT_DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
 // Garde-fou : une demande ne couvre jamais plus de 3 années civiles (36 tranches mensuelles).
 const MAX_TRANCHES = 36;
 
+// DIAGNOSTIC TEMPORAIRE (404 de synchronisation) — à retirer une fois la panne localisée. Ne logue
+// que l'étape, l'endpoint, la méthode et le statut : jamais de token, de libellé ni de transaction.
+function diag(message: string) {
+  console.log(`[passe/sync] ${message}`);
+}
+
 export async function POST(req: NextRequest) {
   if (!supabaseAdminConfigured || !supabaseAdmin) {
     console.error("[passe/sync] config serveur manquante: SUPABASE_SERVICE_ROLE_KEY absente");
@@ -99,6 +105,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: MESSAGE_CONFIG_SERVEUR }, { status: 500 });
   }
   if (!token) {
+    diag("step=credential source=novanta status=404 (aucun token Pennylane pour cette société)");
     return NextResponse.json({ error: "Aucune connexion Pennylane enregistrée." }, { status: 404 });
   }
 
@@ -112,13 +119,21 @@ export async function POST(req: NextRequest) {
   // de catégories quand le token y a accès (scope categories:readonly), sinon il reste inconnu.
   const axes = new Map<string, string | null>();
   let libellesAxesDisponibles = true;
+  // Étape en cours, pour nommer dans les logs celle qui échoue (diagnostic temporaire).
+  let etape: { step: string; endpoint: string; month?: string } = { step: "category_groups", endpoint: "/category_groups" };
+  diag(`step=start tranches=${tranches.length}`);
 
   try {
     try {
-      for (const groupe of await listCategoryGroups(provider)) {
+      const groupes = await listCategoryGroups(provider);
+      diag(`step=category_groups method=GET endpoint=/category_groups status=200 count=${groupes.length}`);
+      for (const groupe of groupes) {
         axes.set(String(groupe.id), normaliserNomCategorie(groupe.label));
       }
     } catch (erreur) {
+      if (erreur instanceof PennylaneApiError && erreur.reason === "insufficient_scope") {
+        diag("step=category_groups method=GET endpoint=/category_groups status=403 (toléré, synchronisation poursuivie)");
+      }
       // Scope absent : la synchronisation des transactions reste possible, sans libellés d'axes.
       if (!(erreur instanceof PennylaneApiError) || erreur.reason !== "insufficient_scope") throw erreur;
       libellesAxesDisponibles = false;
@@ -126,14 +141,19 @@ export async function POST(req: NextRequest) {
     const axesUtilises = new Set<string>();
 
     for (const tranche of tranches) {
+      const month = tranche.debut.slice(0, 7);
+      etape = { step: "transactions", endpoint: "/transactions", month };
       const brutes = await listTransactions(provider, tranche.debut, tranche.fin);
+      diag(`step=transactions method=GET endpoint=/transactions status=200 month=${month} count=${brutes.length}`);
       if (brutes.length >= MAX_TRANSACTIONS_PAR_APPEL) complete = false;
       const normalisees = depuisTransactionsPennylane(brutes);
+      etape = { step: "db_upsert_transactions", endpoint: "supabase:past_transactions", month };
       await upsertPastTransactionsPennylane(supabaseAdmin, organizationId, normalisees, syncedAt);
       nombreSynchronisees += normalisees.length;
       for (const t of normalisees) for (const a of t.affectations) axesUtilises.add(a.groupId);
     }
 
+    etape = { step: "db_upsert_axes", endpoint: "supabase:past_analytic_groups" };
     // Seuls les axes réellement portés par des transactions sont proposés au module.
     await upsertAxesAnalytiques(
       supabaseAdmin,
@@ -143,6 +163,7 @@ export async function POST(req: NextRequest) {
   } catch (erreur) {
     if (erreur instanceof PennylaneApiError) {
       console.log(`[passe/sync] Pennylane returned ${erreur.httpStatus ?? "?"} reason=${erreur.reason}`);
+      diag(`step=${etape.step} method=GET endpoint=${etape.endpoint} status=${erreur.httpStatus ?? "aucun"} reason=${erreur.reason}${etape.month ? ` month=${etape.month}` : ""}`);
       if (erreur.reason === "invalid_token" || erreur.reason === "insufficient_scope") {
         try {
           await marquerResultatTestPennylane(supabaseAdmin, organizationId, {
@@ -156,7 +177,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: messageErreurUtilisationPennylane(erreur.reason) }, { status: 400 });
     }
     const err = erreur as { code?: string; message?: string } | null;
-    console.error(`[passe/sync] échec code=${err?.code ?? "inconnu"} message=${err?.message ?? "inconnu"}`);
+    console.error(`[passe/sync] échec step=${etape.step} endpoint=${etape.endpoint}${etape.month ? ` month=${etape.month}` : ""} code=${err?.code ?? "inconnu"} message=${err?.message ?? "inconnu"}`);
     return NextResponse.json({ error: MESSAGE_ERREUR_SYNC }, { status: 500 });
   }
 
