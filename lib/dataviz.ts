@@ -37,10 +37,9 @@ export const TEINTES_CATEGORIES = [
 
 export const TEINTE_AUTRES = NEUTRES.autres;
 
-// Séries d'un histogramme : la série unique (ou principale) en rose de marque, une seconde série
-// dans l'autre famille.
-export const TEINTE_SERIE_PRINCIPALE = FAMILLE_ROSE[4];
-export const TEINTE_SERIE_SECONDAIRE = FAMILLE_BLEU_VERT[1];
+// Barreaux des histogrammes : le vert le plus sombre de la famille bleu/vert, plutôt que le rose. Un
+// histogramme est une grande surface de couleur ; le rose reste un accent.
+export const TEINTE_SERIE_PRINCIPALE = FAMILLE_BLEU_VERT[0];
 
 // Atténuation des éléments non sélectionnés (la sélection, elle, garde sa couleur pleine).
 export const OPACITE_ATTENUEE = 0.25;

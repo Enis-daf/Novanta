@@ -60,7 +60,7 @@ export default function PasseEvolutionChart({ titre, evolution, enValeurAbsolue 
 
   return (
     <section className="passe-structure">
-      <h3 className="passe-structure__titre">{titre}</h3>
+      <h3 className="eyebrow eyebrow--encre">{titre}</h3>
       <div style={{ fontFamily: "var(--font-lexend), sans-serif", cursor: "pointer" }}>
         <ResponsiveContainer width="100%" height={240}>
           <BarChart

@@ -196,31 +196,38 @@ describe("cross-filtering — une seule source de vérité pour les quatre blocs
   });
 });
 
-describe("Cash flow — indicateur dérivé, écran volontairement différent", () => {
-  test("KPI = EBITDA + Extra P&L ; pas de camembert ; transactions de l'Extra P&L", () => {
+describe("Cash flow — indicateur dérivé, répartition en histogramme", () => {
+  test("KPI = EBITDA + Extra P&L ; transactions de l'Extra P&L", () => {
     const vue = detail("cash_flow");
     assert.equal(vue.kpi.montant, detail("ebitda").kpi.montant + (-2_000 + 500));
-    assert.equal(vue.structure, null);
     assert.deepEqual(vue.transactions.map((p) => p.transactionId), ["tva-sept", "emprunt-aout"]);
   });
 
-  test("décomposition mensuelle : EBITDA + Extra P&L = Cash flow, mois par mois", () => {
+  test("pas de camembert : un histogramme par catégorie d'Extra P&L, montants signés", () => {
     const vue = detail("cash_flow");
-    assert.deepEqual(vue.decomposition, [
-      { mois: "2026-07", ebitda: 10_000, extraPnl: 0, cashFlow: 10_000 },
-      { mois: "2026-08", ebitda: 11_000, extraPnl: 500, cashFlow: 11_500 },
-      { mois: "2026-09", ebitda: 5_200, extraPnl: -2_000, cashFlow: 3_200 },
+    assert.equal(vue.structure, null);
+    assert.deepEqual(vue.barresCategories, [
+      { cle: "tva", nom: "TVA", montant: -2_000 },
+      { cle: "emprunt", nom: "Emprunt reçu", montant: 500 },
     ]);
-    assert.deepEqual(vue.evolution.map((e) => e.montant), vue.decomposition!.map((d) => d.cashFlow));
-    assert.equal(detail("ebitda").decomposition, null);
+    assert.equal(detail("ebitda").barresCategories, null);
   });
 
-  test("le filtre mois s'applique ; aucun filtre catégorie sur cet écran", () => {
-    const vue = detail("cash_flow", { categorie: "tva", mois: "2026-08" });
-    assert.equal(vue.kpi.montant, 11_500);
-    assert.equal(vue.kpi.categorie, null);
-    assert.equal(vue.evolutionAbsolue, false);
-    assert.deepEqual(vue.transactions.map((p) => p.transactionId), ["emprunt-aout"]);
+  test("l'histogramme mensuel reste celui du Cash flow", () => {
+    assert.deepEqual(detail("cash_flow").evolution.map((e) => e.montant), [10_000, 11_500, 3_200]);
+  });
+
+  test("filtres mois et catégorie, comme sur les autres écrans", () => {
+    const aout = detail("cash_flow", { categorie: null, mois: "2026-08" });
+    assert.equal(aout.kpi.montant, 11_500);
+    assert.deepEqual(aout.barresCategories, [{ cle: "emprunt", nom: "Emprunt reçu", montant: 500 }]);
+    assert.deepEqual(aout.transactions.map((p) => p.transactionId), ["emprunt-aout"]);
+
+    const tva = detail("cash_flow", { categorie: "tva", mois: null });
+    assert.deepEqual([tva.kpi.categorie, tva.kpi.montant], ["TVA", -2_000]);
+    assert.deepEqual(tva.evolution.map((e) => e.valeur), [0, 0, 2_000]);
+    assert.equal(tva.barresCategories!.length, 2);
+    assert.equal(tva.transactions.reduce((s, p) => s + p.montant, 0), tva.kpi.montant);
   });
 });
 

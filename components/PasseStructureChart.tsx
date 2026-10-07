@@ -48,7 +48,7 @@ export default function PasseStructureChart({
 
   return (
     <section className="passe-structure">
-      <h3 className="passe-structure__titre">{titre}</h3>
+      <h3 className="eyebrow eyebrow--encre">{titre}</h3>
       {parts.length === 0 ? (
         <p className="passe-structure__vide">{messageVide}</p>
       ) : (

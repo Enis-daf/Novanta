@@ -1,6 +1,6 @@
 import { estDateValide, parseDateISO } from "./dates";
 import { EtagePnl, MappingCategorie, ventilerTransaction } from "./pastCategoryMapping";
-import { calculerCashFlow, PnlCategorie, SensStructure, Structure, structureParCategorie } from "./pastPnl";
+import { PnlCategorie, SensStructure, Structure, structureParCategorie } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
 
 /**
@@ -67,9 +67,10 @@ interface ConfigMetrique {
   // Étage exploré par l'écran : ses transactions sont listées, ses catégories détaillées.
   etagesDetail: readonly EtagePnl[];
   libelleDetail: string;
-  // Camembert par catégorie de l'étage exploré, et filtre catégorie associé. null : l'écran n'en a
-  // pas (Cash flow — voir ci-dessous).
-  camembert: { sens: SensStructure; maxCategories: number } | null;
+  // Répartition par catégorie de l'étage exploré (et filtre catégorie associé) : un camembert
+  // quand les montants ont un sens attendu, un histogramme par catégorie quand ils peuvent être de
+  // signes mêlés (Cash flow — voir ci-dessous).
+  repartition: { type: "camembert"; sens: SensStructure; maxCategories: number } | { type: "barres" };
   // Rapport au CA affiché sous l'indicateur (jamais pour le CA lui-même ni pour le Cash flow).
   ratioSurCa: boolean;
 }
@@ -78,10 +79,10 @@ interface ConfigMetrique {
  * Un indicateur = un solde cumulé + l'étage qu'il ajoute au précédent. Marge brute = CA + Coûts
  * directs : l'écran en détaille les Coûts directs.
  *
- * Cash flow est volontairement à part : c'est un indicateur dérivé (EBITDA + Extra P&L, formule
- * de lib/pastPnl.ts, inchangée) et l'Extra P&L mêle encaissements et décaissements — un camembert
- * n'y a pas de sens. L'écran montre à la place la décomposition mensuelle EBITDA / Extra P&L, sans
- * filtre catégorie ; ses transactions sont celles de l'Extra P&L, sa composante propre.
+ * Cash flow est un indicateur dérivé (EBITDA + Extra P&L, formule de lib/pastPnl.ts, inchangée).
+ * Son écran détaille l'Extra P&L, sa composante propre — mais l'Extra P&L mêle encaissements et
+ * décaissements, ce qu'un camembert ne sait pas représenter : la répartition par catégorie y est un
+ * histogramme aux montants signés.
  */
 export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
   ca: {
@@ -89,7 +90,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     etagesKpi: ["revenue"],
     etagesDetail: ["revenue"],
     libelleDetail: "CA",
-    camembert: { sens: "revenus", maxCategories: 5 },
+    repartition: { type: "camembert", sens: "revenus", maxCategories: 5 },
     ratioSurCa: false,
   },
   marge_brute: {
@@ -97,7 +98,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     etagesKpi: ["revenue", "gross_margin"],
     etagesDetail: ["gross_margin"],
     libelleDetail: "Coûts directs",
-    camembert: { sens: "couts", maxCategories: 5 },
+    repartition: { type: "camembert", sens: "couts", maxCategories: 5 },
     ratioSurCa: true,
   },
   marge_contributive: {
@@ -105,7 +106,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     etagesKpi: ["revenue", "gross_margin", "contribution_margin"],
     etagesDetail: ["contribution_margin"],
     libelleDetail: "Coûts commerciaux",
-    camembert: { sens: "couts", maxCategories: 5 },
+    repartition: { type: "camembert", sens: "couts", maxCategories: 5 },
     ratioSurCa: true,
   },
   // Les coûts de structure sont naturellement plus éclatés : 7 catégories, puis "Autres".
@@ -114,7 +115,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     etagesKpi: ["revenue", "gross_margin", "contribution_margin", "ebitda"],
     etagesDetail: ["ebitda"],
     libelleDetail: "Coûts de structure",
-    camembert: { sens: "couts", maxCategories: 7 },
+    repartition: { type: "camembert", sens: "couts", maxCategories: 7 },
     ratioSurCa: true,
   },
   cash_flow: {
@@ -122,12 +123,10 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     etagesKpi: ["revenue", "gross_margin", "contribution_margin", "ebitda", "extra_pnl"],
     etagesDetail: ["extra_pnl"],
     libelleDetail: "Extra P&L",
-    camembert: null,
+    repartition: { type: "barres" },
     ratioSurCa: false,
   },
 };
-
-const ETAGES_EBITDA: readonly EtagePnl[] = ["revenue", "gross_margin", "contribution_margin", "ebitda"];
 
 export function estMetriqueDetail(valeur: string): valeur is MetriqueDetail {
   return valeur in METRIQUES_DETAIL;
@@ -170,15 +169,15 @@ export interface VueDetail {
     // undefined = pas de ratio pour cet indicateur ; null = ratio indéfini (CA nul).
     ratio: number | null | undefined;
   };
-  // null : écran sans camembert (Cash flow).
+  // Répartition par catégorie : l'un ou l'autre selon l'écran (voir ConfigMetrique.repartition).
   structure: Structure | null;
+  // Montants signés par catégorie, du plus grand au plus petit en valeur absolue.
+  barresCategories: { cle: string; nom: string; montant: number }[] | null;
   evolution: PointEvolution[];
   // true quand une catégorie est sélectionnée : les barreaux montrent la valeur absolue de ses
   // montants mensuels, pour comparer l'évolution d'un poste de coût sans tout faire descendre sous
   // zéro. Pure convention de visualisation : `montant` garde le signe réel.
   evolutionAbsolue: boolean;
-  // Cash flow uniquement : ses deux composantes, mois par mois (montants signés).
-  decomposition: { mois: string; ebitda: number; extraPnl: number; cashFlow: number }[] | null;
   transactions: PartMappee[];
 }
 
@@ -192,13 +191,12 @@ function somme(parts: PartMappee[]): number {
  *  - KPI : filtré par mois ET catégorie. Sans catégorie, c'est le solde cumulé de l'indicateur ;
  *    avec une catégorie, c'est le montant de cette catégorie (rapporté au CA du même périmètre),
  *    égal à la somme des transactions listées ;
- *  - camembert : catégories de l'étage exploré, filtré par mois seulement — il reste entier pour
- *    montrer la catégorie sélectionnée parmi les autres ;
+ *  - répartition (camembert ou histogramme par catégorie) : catégories de l'étage exploré,
+ *    filtrée par mois seulement — elle reste entière pour montrer la catégorie sélectionnée parmi
+ *    les autres ;
  *  - histogramme : tous les mois de la période, filtré par catégorie seulement — il reste entier
  *    pour montrer le mois sélectionné parmi les autres ;
  *  - transactions : parts de l'étage exploré, filtrées par mois ET catégorie, date décroissante.
- * Un écran sans camembert n'a pas de filtre catégorie : une catégorie éventuellement transmise est
- * ignorée.
  */
 export function calculerDetail(
   parts: PartMappee[],
@@ -207,7 +205,7 @@ export function calculerDetail(
   periode: Periode
 ): VueDetail {
   const config = METRIQUES_DETAIL[metrique];
-  const categorie = config.camembert ? filtres.categorie : null;
+  const categorie = filtres.categorie;
   const duMois = (p: PartMappee) => filtres.mois === null || p.mois === filtres.mois;
   const deLaCategorie = (p: PartMappee) => categorie === null || p.sourceCategoryId === categorie;
   const duKpi = (p: PartMappee) => (categorie === null ? config.etagesKpi.includes(p.etage) : p.sourceCategoryId === categorie);
@@ -219,25 +217,32 @@ export function calculerDetail(
   const categorieSelectionnee =
     categorie === null ? null : (parts.find((p) => p.sourceCategoryId === categorie)?.sourceCategoryName ?? null);
 
-  let structure: Structure | null = null;
-  if (config.camembert) {
-    const parCategorie = new Map<string, PnlCategorie>();
-    for (const part of parts) {
-      if (!duDetail(part) || !duMois(part)) continue;
-      const cumul = parCategorie.get(part.sourceCategoryId) ?? {
-        sourceCategoryId: part.sourceCategoryId,
-        sourceCategoryName: part.sourceCategoryName,
-        etage: part.etage,
-        montant: 0,
-      };
-      cumul.montant += part.montant;
-      parCategorie.set(part.sourceCategoryId, cumul);
-    }
-    structure = structureParCategorie([...parCategorie.values()], config.etagesDetail, config.camembert.sens, {
-      maxCategories: config.camembert.maxCategories,
-      epingle: categorie,
-    });
+  const parCategorie = new Map<string, PnlCategorie>();
+  for (const part of parts) {
+    if (!duDetail(part) || !duMois(part)) continue;
+    const cumul = parCategorie.get(part.sourceCategoryId) ?? {
+      sourceCategoryId: part.sourceCategoryId,
+      sourceCategoryName: part.sourceCategoryName,
+      etage: part.etage,
+      montant: 0,
+    };
+    cumul.montant += part.montant;
+    parCategorie.set(part.sourceCategoryId, cumul);
   }
+  const categories = [...parCategorie.values()];
+  const structure =
+    config.repartition.type === "camembert"
+      ? structureParCategorie(categories, config.etagesDetail, config.repartition.sens, {
+          maxCategories: config.repartition.maxCategories,
+          epingle: categorie,
+        })
+      : null;
+  const barresCategories =
+    config.repartition.type === "barres"
+      ? categories
+          .sort((a, b) => Math.abs(b.montant) - Math.abs(a.montant) || a.sourceCategoryName.localeCompare(b.sourceCategoryName, "fr"))
+          .map((c) => ({ cle: c.sourceCategoryId, nom: c.sourceCategoryName, montant: c.montant }))
+      : null;
 
   const tousLesMois = moisDeLaPeriode(periode);
   const parMois = new Map<string, number>();
@@ -247,21 +252,6 @@ export function calculerDetail(
   }
   const evolutionAbsolue = categorie !== null;
 
-  let decomposition: VueDetail["decomposition"] = null;
-  if (metrique === "cash_flow") {
-    const ebitdaParMois = new Map<string, number>();
-    const extraParMois = new Map<string, number>();
-    for (const part of parts) {
-      const cible = part.etage === "extra_pnl" ? extraParMois : ETAGES_EBITDA.includes(part.etage) ? ebitdaParMois : null;
-      cible?.set(part.mois, (cible.get(part.mois) ?? 0) + part.montant);
-    }
-    decomposition = tousLesMois.map((mois) => {
-      const ebitda = ebitdaParMois.get(mois) ?? 0;
-      const extraPnl = extraParMois.get(mois) ?? 0;
-      return { mois, ebitda, extraPnl, cashFlow: calculerCashFlow(ebitda, extraPnl) };
-    });
-  }
-
   return {
     kpi: {
       libelle: config.libelle,
@@ -270,12 +260,12 @@ export function calculerDetail(
       ratio: avecRatio ? (ca === 0 ? null : montantKpi / ca) : undefined,
     },
     structure,
+    barresCategories,
     evolution: tousLesMois.map((mois) => {
       const montant = parMois.get(mois) ?? 0;
       return { mois, montant, valeur: evolutionAbsolue ? Math.abs(montant) : montant };
     }),
     evolutionAbsolue,
-    decomposition,
     transactions: parts
       .filter((p) => duDetail(p) && duMois(p) && deLaCategorie(p))
       .sort((a, b) => (a.transactionDate < b.transactionDate ? 1 : a.transactionDate > b.transactionDate ? -1 : 0)),

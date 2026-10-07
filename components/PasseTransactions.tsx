@@ -346,6 +346,8 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
 
   return (
     <section className="passe">
+      <div className="passe__decor-haut" aria-hidden="true" />
+      <div className="passe__decor-bas" aria-hidden="true" />
       <div className="passe-controles">
         <div className="passe-controle">
           <span className="passe-controle__label">Période</span>
@@ -408,10 +410,10 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
         </div>
       </div>
 
-      {syncErreur && <p className="passe-message passe-message--erreur">{syncErreur}</p>}
+      {syncErreur && <p className="login-erreur">{syncErreur}</p>}
       {syncMessage && <p className="passe-message">{syncMessage}</p>}
-      {erreurAxe && <p className="passe-message passe-message--erreur">{erreurAxe}</p>}
-      {erreurMapping && <p className="passe-message passe-message--erreur">{erreurMapping}</p>}
+      {erreurAxe && <p className="login-erreur">{erreurAxe}</p>}
+      {erreurMapping && <p className="login-erreur">{erreurMapping}</p>}
 
       <div className="passe-onglets" role="tablist">
         {ONGLETS.map((onglet) => (
@@ -432,7 +434,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
       </div>
 
       {!periodeOk ? (
-        <p className="passe-message passe-message--erreur">
+        <p className="login-erreur">
           La date de début doit précéder la date de fin.
         </p>
       ) : erreurChargement ? (
@@ -469,14 +471,14 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
               {nombreAMapper === 0 ? (
                 <p className="passe-non-categorise">Aucune catégorie à mapper</p>
               ) : (
-                <button type="button" className="passe-a-mapper" onClick={voirCategoriesAMapper}>
+                <button type="button" className="btn-secondaire" onClick={voirCategoriesAMapper}>
                   {pluriel(nombreAMapper, "catégorie à mapper", "catégories à mapper")} →
                 </button>
               )}
               {nombreSignesInhabituels > 0 && (
                 <button
                   type="button"
-                  className="passe-signes"
+                  className="btn-secondaire"
                   aria-expanded={detailSignesOuvert}
                   onClick={() => setDetailSignesOuvert((o) => !o)}
                 >

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import PasseDecompositionChart from "./PasseDecompositionChart";
+import PasseCategoriesChart from "./PasseCategoriesChart";
 import PasseEvolutionChart from "./PasseEvolutionChart";
 import PasseStructureChart from "./PasseStructureChart";
 import { formatDateCourte } from "@/lib/dates";
@@ -30,9 +30,9 @@ const PAS_AFFICHAGE = 100;
 const SANS_FILTRE: FiltresDetail = { categorie: null, mois: null };
 
 // Écran de détail générique, commun à CA, Marge brute, Marge contributive, EBITDA et Cash flow :
-// KPI -> répartition par catégorie -> évolution mensuelle -> transactions. Cash flow, indicateur
-// dérivé, n'a ni camembert ni filtre catégorie : sa décomposition mensuelle EBITDA / Extra P&L
-// prend leur place (voir METRIQUES_DETAIL). Les filtres locaux
+// KPI -> répartition par catégorie -> évolution mensuelle -> transactions. Seule la forme de la
+// répartition varie : un camembert, ou un histogramme par catégorie pour le Cash flow, dont
+// l'Extra P&L mêle encaissements et décaissements (voir METRIQUES_DETAIL). Les filtres locaux
 // (catégorie, mois) vivent ICI, en un seul état que les quatre blocs consomment ; ils s'ajoutent
 // à la période globale. Le parent remonte ce composant à chaque changement d'onglet (prop `key`),
 // ce qui réinitialise les filtres locaux sans toucher à la période.
@@ -61,7 +61,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, teintes 
     <div className="passe-detail">
       <div className="passe-detail__gauche">
         <section className="passe-kpi">
-          <p className="passe-kpi__libelle">
+          <p className="eyebrow eyebrow--grand">
             {vue.kpi.categorie ?? config.libelle}
             {vue.kpi.categorie && <span className="passe-kpi__contexte"> · {config.libelleDetail}</span>}
           </p>
@@ -73,18 +73,18 @@ export default function PastDetailDashboard({ metrique, parts, periode, teintes 
             <div className="passe-filtres-actifs">
               <span className="passe-filtres-actifs__titre">Filtres actifs :</span>
               {filtres.mois !== null && (
-                <button type="button" className="passe-puce" onClick={() => changerFiltres({ ...filtres, mois: null })}>
+                <button type="button" className="btn-secondaire btn-module--actif" onClick={() => changerFiltres({ ...filtres, mois: null })}>
                   {libelleMois(filtres.mois)} <span aria-hidden="true">×</span>
                   <span className="passe-visuellement-cache"> — retirer ce filtre</span>
                 </button>
               )}
               {filtres.categorie !== null && (
-                <button type="button" className="passe-puce" onClick={() => changerFiltres({ ...filtres, categorie: null })}>
+                <button type="button" className="btn-secondaire btn-module--actif" onClick={() => changerFiltres({ ...filtres, categorie: null })}>
                   {vue.kpi.categorie ?? "Catégorie"} <span aria-hidden="true">×</span>
                   <span className="passe-visuellement-cache"> — retirer ce filtre</span>
                 </button>
               )}
-              <button type="button" className="passe-lien" onClick={() => changerFiltres(SANS_FILTRE)}>
+              <button type="button" className="btn-secondaire" onClick={() => changerFiltres(SANS_FILTRE)}>
                 Réinitialiser
               </button>
             </div>
@@ -106,6 +106,20 @@ export default function PastDetailDashboard({ metrique, parts, periode, teintes 
           />
         )}
 
+        {vue.barresCategories && (
+          <PasseCategoriesChart
+            titre={`${config.libelleDetail} par catégorie`}
+            categories={vue.barresCategories}
+            messageVide={
+              filtres.mois !== null
+                ? `Aucune catégorie mappée en ${config.libelleDetail} sur ce mois.`
+                : `Aucune catégorie mappée en ${config.libelleDetail} sur la période.`
+            }
+            selection={filtres.categorie}
+            onSelect={basculerCategorie}
+          />
+        )}
+
         <PasseEvolutionChart
           titre={titreEvolution}
           evolution={vue.evolution}
@@ -114,18 +128,10 @@ export default function PastDetailDashboard({ metrique, parts, periode, teintes 
           onSelect={basculerMois}
         />
 
-        {vue.decomposition && (
-          <PasseDecompositionChart
-            titre="EBITDA et Extra P&L par mois (k€)"
-            decomposition={vue.decomposition}
-            selection={filtres.mois}
-            onSelect={basculerMois}
-          />
-        )}
       </div>
 
       <section className="passe-detail__droite">
-        <h3 className="passe-structure__titre">
+        <h3 className="eyebrow eyebrow--encre">
           Transactions · {config.libelleDetail}
           <span className="passe-detail__compte"> {vue.transactions.length}</span>
         </h3>
