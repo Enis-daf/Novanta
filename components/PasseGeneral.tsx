@@ -1,7 +1,10 @@
 "use client";
 
+import { Fragment } from "react";
+import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import { formatMontantComptable, formatPourcentage } from "@/lib/format";
+import { LigneAjustement } from "@/lib/pastAdjustments";
 import { ETAGES_COUTS, ETAGES_REVENUS, Pnl, structureParCategorie } from "@/lib/pastPnl";
 
 interface PasseGeneralProps {
@@ -30,6 +33,20 @@ function Ligne({
   );
 }
 
+// Ajustements de gestion d'un étage : chacun sur sa propre ligne, jamais fondu dans les coûts.
+function LignesAjustements({ lignes }: { lignes: LigneAjustement[] }) {
+  return (
+    <>
+      {lignes.map((ligne) => (
+        <Fragment key={ligne.cle}>
+          <Ligne libelle={ligne.label} montant={ligne.montant} />
+          <PasseNotesAjustement notes={ligne.notes} />
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
 // Onglet "Général" : P&L synthétique, Cash flow et structure des revenus / des coûts, sur la
 // période du module. Tout est dérivé à la lecture ; rien n'est interrogé chez Pennylane ici.
 export default function PasseGeneral({ pnl, teintes }: PasseGeneralProps) {
@@ -39,22 +56,27 @@ export default function PasseGeneral({ pnl, teintes }: PasseGeneralProps) {
       <section className="passe-pnl" aria-label="P&L synthétique">
         <div className="passe-pnl__bloc">
           <Ligne libelle="Chiffre d'affaires" montant={pnl.ca} niveau="titre" />
+          <LignesAjustements lignes={pnl.ajustements.revenue} />
         </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle="Coûts directs" montant={pnl.coutsDirects} />
+          <LignesAjustements lignes={pnl.ajustements.gross_margin} />
           <Ligne libelle="Marge brute" montant={pnl.margeBrute} ratio={pnl.ratios.margeBrute} niveau="solde" />
         </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle="Coûts commerciaux" montant={pnl.coutsCommerciaux} />
+          <LignesAjustements lignes={pnl.ajustements.contribution_margin} />
           <Ligne libelle="Marge contributive" montant={pnl.margeContributive} ratio={pnl.ratios.margeContributive} niveau="solde" />
         </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle="Coûts de structure" montant={pnl.coutsStructure} />
+          <LignesAjustements lignes={pnl.ajustements.ebitda} />
           <Ligne libelle="EBITDA" montant={pnl.ebitda} ratio={pnl.ratios.ebitda} niveau="solde" />
         </div>
         {/* Cash flow : présenté à part du P&L opérationnel, sans ratio. */}
         <div className="passe-pnl__bloc passe-pnl__bloc--cash">
           <Ligne libelle="Extra P&L" montant={pnl.extraPnl} />
+          <LignesAjustements lignes={pnl.ajustements.extra_pnl} />
           <Ligne libelle="Cash flow" montant={pnl.cashFlow} niveau="titre" />
         </div>
       </section>

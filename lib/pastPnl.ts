@@ -1,3 +1,4 @@
+import { AjustementGestion, LigneAjustement, regrouperAjustements, sommeAjustements } from "./pastAdjustments";
 import { EtagePnl, MappingCategorie, ventilerTransaction } from "./pastCategoryMapping";
 import { PastTransactionStockee } from "./pastTransactions";
 
@@ -9,6 +10,10 @@ import { PastTransactionStockee } from "./pastTransactions";
  * Convention de signe : celle des transactions (encaissement positif, décaissement négatif),
  * jamais inversée. Le P&L se construit par additions successives. Les montants des transactions
  * ventilées sont répartis selon leurs pondérations (ventilerTransaction).
+ *
+ * Les ajustements de gestion (lib/pastAdjustments.ts) s'ajoutent à l'étage auquel ils sont
+ * rattachés AVANT le calcul des soldes : une variation de stock en gross_margin modifie la marge
+ * brute, donc la marge contributive, l'EBITDA et le Cash flow.
  */
 
 /** Montant d'une catégorie sur la période, dans son étage P&L courant. */
@@ -20,6 +25,10 @@ export interface PnlCategorie {
 }
 
 export interface Pnl {
+  // Les cinq lignes d'étage ci-dessous (ca, coutsDirects, coutsCommerciaux, coutsStructure,
+  // extraPnl) sont les sommes des TRANSACTIONS de l'étage. Les ajustements de gestion sont portés
+  // à part (ajustements) pour rester des lignes distinctes ; les soldes et le Cash flow, eux, les
+  // incluent.
   ca: number;
   coutsDirects: number;
   margeBrute: number;
@@ -32,6 +41,8 @@ export interface Pnl {
   // Rapportés au CA ; null quand le CA est nul (ratio sans signification).
   ratios: { margeBrute: number | null; margeContributive: number | null; ebitda: number | null };
   categories: PnlCategorie[];
+  // Ajustements de gestion de la période, par étage, une ligne par nature d'ajustement.
+  ajustements: Record<EtagePnl, LigneAjustement[]>;
   // Catégories présentes sur la période mais sans étage : exclues de tous les calculs ci-dessus,
   // jamais affectées arbitrairement.
   nonMappees: { nombreCategories: number; montant: number };
@@ -54,7 +65,8 @@ function ratio(valeur: number, ca: number): number | null {
 export function calculerPnl(
   transactions: PastTransactionStockee[],
   axeId: string | null,
-  mappings: ReadonlyMap<string, MappingCategorie>
+  mappings: ReadonlyMap<string, MappingCategorie>,
+  ajustements: AjustementGestion[] = []
 ): Pnl {
   const totaux: Record<EtagePnl, number> = {
     revenue: 0,
@@ -85,13 +97,17 @@ export function calculerPnl(
     }
   }
 
-  const ca = totaux.revenue;
-  const margeBrute = ca + totaux.gross_margin;
-  const margeContributive = margeBrute + totaux.contribution_margin;
-  const ebitda = margeContributive + totaux.ebitda;
+  const ajustes = (etage: EtagePnl) => totaux[etage] + sommeAjustements(ajustements, [etage]);
+  const lignesAjustements = regrouperAjustements(ajustements);
+
+  // Base des ratios : le CA y compris ses éventuels ajustements.
+  const caAjuste = ajustes("revenue");
+  const margeBrute = caAjuste + ajustes("gross_margin");
+  const margeContributive = margeBrute + ajustes("contribution_margin");
+  const ebitda = margeContributive + ajustes("ebitda");
 
   return {
-    ca,
+    ca: totaux.revenue,
     coutsDirects: totaux.gross_margin,
     margeBrute,
     coutsCommerciaux: totaux.contribution_margin,
@@ -99,13 +115,20 @@ export function calculerPnl(
     coutsStructure: totaux.ebitda,
     ebitda,
     extraPnl: totaux.extra_pnl,
-    cashFlow: calculerCashFlow(ebitda, totaux.extra_pnl),
+    cashFlow: calculerCashFlow(ebitda, ajustes("extra_pnl")),
     ratios: {
-      margeBrute: ratio(margeBrute, ca),
-      margeContributive: ratio(margeContributive, ca),
-      ebitda: ratio(ebitda, ca),
+      margeBrute: ratio(margeBrute, caAjuste),
+      margeContributive: ratio(margeContributive, caAjuste),
+      ebitda: ratio(ebitda, caAjuste),
     },
     categories: [...parCategorie.values()],
+    ajustements: {
+      revenue: lignesAjustements.filter((l) => l.etage === "revenue"),
+      gross_margin: lignesAjustements.filter((l) => l.etage === "gross_margin"),
+      contribution_margin: lignesAjustements.filter((l) => l.etage === "contribution_margin"),
+      ebitda: lignesAjustements.filter((l) => l.etage === "ebitda"),
+      extra_pnl: lignesAjustements.filter((l) => l.etage === "extra_pnl"),
+    },
     nonMappees: {
       nombreCategories: nonMappees.size,
       montant: [...nonMappees.values()].reduce((somme, montant) => somme + montant, 0),

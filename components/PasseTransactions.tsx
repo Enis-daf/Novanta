@@ -5,12 +5,19 @@ import { useRouter } from "next/navigation";
 import DateField from "./DateField";
 import PasseGeneral from "./PasseGeneral";
 import PasseMappingTable from "./PasseMappingTable";
+import PasseStocks from "./PasseStocks";
 import PastDetailDashboard from "./PastDetailDashboard";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, todayISO } from "@/lib/dates";
 import { formatMontant, formatMontantComptable } from "@/lib/format";
 import { teintesParCategorie } from "@/lib/dataviz";
-import { estMetriqueDetail, partsMappees } from "@/lib/pastDetail";
+import {
+  AjustementGestion,
+  ajustementsDeLaPeriode,
+  ajustementsDepuisStocks,
+  StockFinDeMois,
+} from "@/lib/pastAdjustments";
+import { estMetriqueDetail, moisDeLaPeriode, partsMappees } from "@/lib/pastDetail";
 import { calculerPnl } from "@/lib/pastPnl";
 import { anomaliesDeSigne, compterTransactionsAvecAnomalie, LIBELLES_ANOMALIE_SIGNE } from "@/lib/pastSignChecks";
 import {
@@ -40,11 +47,15 @@ import {
 } from "@/lib/pastCategoryMapping";
 import {
   chargerAxeConfigure,
+  chargerAjustementsGestion,
   chargerAxesAnalytiques,
   chargerMappingsCategories,
+  chargerStocks,
   chargerPastTransactions,
   sauvegarderAxeConfigure,
   sauvegarderEtageCategorie,
+  sauvegarderStock,
+  supprimerStock,
 } from "@/lib/pastTransactionsRepository";
 
 interface PasseTransactionsProps {
@@ -62,6 +73,7 @@ const ONGLETS = [
   { cle: "marge_contributive", libelle: "Marge contributive" },
   { cle: "ebitda", libelle: "EBITDA" },
   { cle: "cash_flow", libelle: "Cash flow" },
+  { cle: "stocks", libelle: "Stocks" },
   { cle: "mapping", libelle: "Correspondance P&L" },
   { cle: "transactions", libelle: "Transactions" },
 ] as const;
@@ -90,6 +102,11 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   const [filtreMapping, setFiltreMapping] = useState<FiltreMapping>("toutes");
   const [erreurMapping, setErreurMapping] = useState<string | null>(null);
   const [detailSignesOuvert, setDetailSignesOuvert] = useState(false);
+  // Ajustements de gestion : ceux saisis tels quels, et les stocks de fin de mois dont dérive la
+  // variation de stock. Les deux séries sont chargées entières (indépendantes de la période).
+  const [ajustementsSaisis, setAjustementsSaisis] = useState<AjustementGestion[]>([]);
+  const [stocks, setStocks] = useState<StockFinDeMois[]>([]);
+  const [erreurStock, setErreurStock] = useState<string | null>(null);
   const [chargement, setChargement] = useState(true);
   const [erreurChargement, setErreurChargement] = useState<string | null>(null);
   const [rechargement, setRechargement] = useState(0);
@@ -137,13 +154,17 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
       chargerAxesAnalytiques(supabase!, organizationId),
       chargerAxeConfigure(supabase!, organizationId),
       chargerMappingsCategories(supabase!, organizationId),
+      chargerStocks(supabase!, organizationId),
+      chargerAjustementsGestion(supabase!, organizationId),
     ])
-      .then(([lignes, axesConnus, axeChoisi, mappingsConnus]) => {
+      .then(([lignes, axesConnus, axeChoisi, mappingsConnus, stocksConnus, ajustementsConnus]) => {
         if (annule) return;
         setStockees(trierParDateDecroissante(lignes));
         setAxes(axesConnus);
         setAxeConfigure(axeChoisi);
         setMappings(mappingsConnus);
+        setStocks(stocksConnus);
+        setAjustementsSaisis(ajustementsConnus);
         setChargement(false);
       })
       .catch((error) => {
@@ -209,7 +230,16 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   // P&L de la période : transaction -> catégories pondérées -> mapping courant -> étage. Recalculé
   // dès qu'un mapping change, sans relire ni réécrire les transactions.
   const mappingsIndexes = useMemo(() => indexerMappings(mappings), [mappings]);
-  const pnl = useMemo(() => calculerPnl(stockees, axe.axeId, mappingsIndexes), [stockees, axe.axeId, mappingsIndexes]);
+  // Ajustements de gestion de la période, toutes natures confondues : ceux saisis tels quels et
+  // les variations de stock, calculées à partir de la série entière des stocks.
+  const ajustements = useMemo(
+    () => ajustementsDeLaPeriode([...ajustementsSaisis, ...ajustementsDepuisStocks(stocks)], periode),
+    [ajustementsSaisis, stocks, periode]
+  );
+  const pnl = useMemo(
+    () => calculerPnl(stockees, axe.axeId, mappingsIndexes, ajustements),
+    [stockees, axe.axeId, mappingsIndexes, ajustements]
+  );
   // Signes inhabituels sur la période : signalés seulement, jamais corrigés ni exclus du P&L.
   const anomaliesSigne = useMemo(
     () => anomaliesDeSigne(stockees, axe.axeId, mappingsIndexes),
@@ -241,6 +271,32 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
       setErreurMapping("Le mapping n'a pas pu être enregistré. Réessayez.");
     });
   };
+
+  // Stocks : mise à jour immédiate à l'écran (les variations se recalculent seules), puis
+  // enregistrement ; en cas d'échec, retour à la série précédente.
+  const modifierStocks = (suivant: StockFinDeMois[], enregistrer: () => Promise<void>, mois: string) => {
+    const precedent = stocks;
+    setStocks(suivant);
+    setErreurStock(null);
+    enregistrer().catch((error) => {
+      const code = (error as { code?: string } | null)?.code ?? "inconnu";
+      console.error(`[passe/stocks] step=save organization=${organizationId} month=${mois} code=${code}`);
+      setStocks(precedent);
+      setErreurStock("Le stock n'a pas pu être enregistré. Réessayez.");
+    });
+  };
+  const enregistrerStock = (mois: string, valeur: number) =>
+    modifierStocks(
+      [...stocks.filter((s) => s.mois !== mois), { mois, valeur }],
+      () => sauvegarderStock(supabase!, organizationId, mois, valeur),
+      mois
+    );
+  const retirerStock = (mois: string) =>
+    modifierStocks(
+      stocks.filter((s) => s.mois !== mois),
+      () => supprimerStock(supabase!, organizationId, mois),
+      mois
+    );
 
   const voirCategoriesAMapper = () => {
     setVue("mapping");
@@ -414,6 +470,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
       {syncMessage && <p className="passe-message">{syncMessage}</p>}
       {erreurAxe && <p className="login-erreur">{erreurAxe}</p>}
       {erreurMapping && <p className="login-erreur">{erreurMapping}</p>}
+      {erreurStock && <p className="login-erreur">{erreurStock}</p>}
 
       <div className="passe-onglets" role="tablist">
         {ONGLETS.map((onglet) => (
@@ -530,7 +587,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
             </div>
           )}
 
-          {!axeAConfigurer && vue !== "mapping" && vue !== "transactions" && pnl.nonMappees.nombreCategories > 0 && (
+          {!axeAConfigurer && vue !== "mapping" && vue !== "transactions" && vue !== "stocks" && pnl.nonMappees.nombreCategories > 0 && (
             <p className="passe-message">
               Reporting incomplet :{" "}
               {pnl.nonMappees.nombreCategories > 1
@@ -550,7 +607,15 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
               metrique={vue}
               parts={partsDetail}
               periode={periode}
+              ajustements={ajustements}
               teintes={teintesCategories}
+            />
+          ) : vue === "stocks" ? (
+            <PasseStocks
+              mois={moisDeLaPeriode(periode)}
+              stocks={stocks}
+              onEnregistrer={enregistrerStock}
+              onSupprimer={retirerStock}
             />
           ) : vue === "mapping" ? (
             <PasseMappingTable

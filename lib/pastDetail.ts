@@ -1,4 +1,5 @@
 import { estDateValide, parseDateISO } from "./dates";
+import { AjustementGestion, LigneAjustement, moisDe, regrouperAjustements, sommeAjustements } from "./pastAdjustments";
 import { EtagePnl, MappingCategorie, ventilerTransaction } from "./pastCategoryMapping";
 import { PnlCategorie, SensStructure, Structure, structureParCategorie } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
@@ -179,7 +180,15 @@ export interface VueDetail {
   // zéro. Pure convention de visualisation : `montant` garde le signe réel.
   evolutionAbsolue: boolean;
   transactions: PartMappee[];
+  // Bloc "Ajustements de gestion" : ceux qui entrent dans l'indicateur affiché, regroupés par
+  // nature, les plus significatifs d'abord (MAX_AJUSTEMENTS_AFFICHES au plus). Vide quand une
+  // catégorie est sélectionnée : l'indicateur porte alors sur elle seule, sans ajustement.
+  ajustements: { lignes: LigneAjustement[]; nombreMasques: number };
+  // Ajustements de l'étage exploré, un par un, pour la liste de droite — à part des transactions.
+  ajustementsDetail: AjustementGestion[];
 }
+
+export const MAX_AJUSTEMENTS_AFFICHES = 5;
 
 function somme(parts: PartMappee[]): number {
   return parts.reduce((total, part) => total + part.montant, 0);
@@ -197,12 +206,18 @@ function somme(parts: PartMappee[]): number {
  *  - histogramme : tous les mois de la période, filtré par catégorie seulement — il reste entier
  *    pour montrer le mois sélectionné parmi les autres ;
  *  - transactions : parts de l'étage exploré, filtrées par mois ET catégorie, date décroissante.
+ *
+ * Les ajustements de gestion de la période entrent dans le KPI et l'histogramme de l'indicateur
+ * (étage par étage, comme dans le P&L) et suivent le filtre mois. Ils n'ont pas de catégorie : ils
+ * restent hors de la répartition par catégorie, et hors du périmètre dès qu'une catégorie est
+ * sélectionnée.
  */
 export function calculerDetail(
   parts: PartMappee[],
   metrique: MetriqueDetail,
   filtres: FiltresDetail,
-  periode: Periode
+  periode: Periode,
+  ajustements: AjustementGestion[] = []
 ): VueDetail {
   const config = METRIQUES_DETAIL[metrique];
   const categorie = filtres.categorie;
@@ -211,8 +226,14 @@ export function calculerDetail(
   const duKpi = (p: PartMappee) => (categorie === null ? config.etagesKpi.includes(p.etage) : p.sourceCategoryId === categorie);
   const duDetail = (p: PartMappee) => config.etagesDetail.includes(p.etage);
 
-  const montantKpi = somme(parts.filter((p) => duKpi(p) && duMois(p)));
-  const ca = somme(parts.filter((p) => p.etage === "revenue" && duMois(p)));
+  const ajustementsDuMois = ajustements.filter((a) => filtres.mois === null || moisDe(a.date) === filtres.mois);
+  // Ajustements qui entrent dans l'indicateur : ceux de ses étages, sauf si une catégorie est
+  // sélectionnée.
+  const ajustementsKpi = categorie === null ? ajustements.filter((a) => config.etagesKpi.includes(a.etage)) : [];
+  const ajustementsKpiDuMois = ajustementsKpi.filter((a) => filtres.mois === null || moisDe(a.date) === filtres.mois);
+
+  const montantKpi = somme(parts.filter((p) => duKpi(p) && duMois(p))) + sommeAjustements(ajustementsKpiDuMois, config.etagesKpi);
+  const ca = somme(parts.filter((p) => p.etage === "revenue" && duMois(p))) + sommeAjustements(ajustementsDuMois, ["revenue"]);
   const avecRatio = categorie !== null || config.ratioSurCa;
   const categorieSelectionnee =
     categorie === null ? null : (parts.find((p) => p.sourceCategoryId === categorie)?.sourceCategoryName ?? null);
@@ -250,7 +271,12 @@ export function calculerDetail(
     if (!duKpi(part)) continue;
     parMois.set(part.mois, (parMois.get(part.mois) ?? 0) + part.montant);
   }
+  for (const ajustement of ajustementsKpi) {
+    const mois = moisDe(ajustement.date);
+    parMois.set(mois, (parMois.get(mois) ?? 0) + ajustement.montant);
+  }
   const evolutionAbsolue = categorie !== null;
+  const lignesAjustements = regrouperAjustements(ajustementsKpiDuMois);
 
   return {
     kpi: {
@@ -269,6 +295,16 @@ export function calculerDetail(
     transactions: parts
       .filter((p) => duDetail(p) && duMois(p) && deLaCategorie(p))
       .sort((a, b) => (a.transactionDate < b.transactionDate ? 1 : a.transactionDate > b.transactionDate ? -1 : 0)),
+    ajustements: {
+      lignes: lignesAjustements.slice(0, MAX_AJUSTEMENTS_AFFICHES),
+      nombreMasques: Math.max(0, lignesAjustements.length - MAX_AJUSTEMENTS_AFFICHES),
+    },
+    ajustementsDetail:
+      categorie === null
+        ? ajustementsDuMois
+            .filter((a) => config.etagesDetail.includes(a.etage))
+            .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+        : [],
   };
 }
 

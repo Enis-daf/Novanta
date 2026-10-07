@@ -2540,6 +2540,83 @@ input[type="checkbox"] {
   gap: var(--space-2);
 }
 
+/* Histogramme mensuel et, à côté, le bloc des ajustements de gestion qu'il inclut. Sans
+   ajustement, l'histogramme garde toute la largeur (le bloc n'est pas rendu). */
+.passe-detail__evolution {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.passe-detail__evolution > .passe-structure {
+  flex: 3 1 320px;
+}
+
+.passe-ajustements {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.passe-ajustements ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--couleur-texte);
+}
+
+.passe-ajustements li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.passe-ajustements__montant {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Ajustements de gestion dans la colonne des transactions : au-dessus et à part, avec leur propre
+   intitulé — ce ne sont pas des opérations bancaires. */
+.passe-detail__ajustements {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+/* Réserve sur un ajustement (périodisation incertaine...) : un signalement, pas une erreur —
+   texte secondaire en italique, sans fond ni couleur d'alerte. */
+.passe-reserve {
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--couleur-texte-secondaire);
+  white-space: normal;
+}
+
+/* Trois colonnes courtes : pas besoin de toute la largeur de la surface. */
+.passe-stocks {
+  max-width: 640px;
+}
+
+.passe-stocks input {
+  width: 140px;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  padding: 6px var(--space-1);
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+  color: var(--couleur-texte);
+  background: var(--couleur-fond);
+}
+
 @media (max-width: 900px) {
   .passe {
     padding: var(--space-3);

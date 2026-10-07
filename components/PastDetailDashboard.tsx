@@ -3,9 +3,11 @@
 import { useMemo, useState } from "react";
 import PasseCategoriesChart from "./PasseCategoriesChart";
 import PasseEvolutionChart from "./PasseEvolutionChart";
+import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import { formatDateCourte } from "@/lib/dates";
-import { formatMontant, formatPourcentage } from "@/lib/format";
+import { formatMontant, formatMontantK, formatPourcentage } from "@/lib/format";
+import { AjustementGestion } from "@/lib/pastAdjustments";
 import {
   calculerDetail,
   FiltresDetail,
@@ -22,6 +24,9 @@ interface PastDetailDashboardProps {
   // rien et n'appelle aucun service — toute l'exploration se fait sur ces données.
   parts: PartMappee[];
   periode: Periode;
+  // Ajustements de gestion de la période (non bancaires) : ils entrent dans le KPI et
+  // l'histogramme, et s'affichent à part des transactions.
+  ajustements: AjustementGestion[];
   // Teinte attitrée de chaque catégorie, commune à tous les écrans du module (lib/dataviz.ts).
   teintes: ReadonlyMap<string, string>;
 }
@@ -36,7 +41,7 @@ const SANS_FILTRE: FiltresDetail = { categorie: null, mois: null };
 // (catégorie, mois) vivent ICI, en un seul état que les quatre blocs consomment ; ils s'ajoutent
 // à la période globale. Le parent remonte ce composant à chaque changement d'onglet (prop `key`),
 // ce qui réinitialise les filtres locaux sans toucher à la période.
-export default function PastDetailDashboard({ metrique, parts, periode, teintes }: PastDetailDashboardProps) {
+export default function PastDetailDashboard({ metrique, parts, periode, ajustements, teintes }: PastDetailDashboardProps) {
   const config = METRIQUES_DETAIL[metrique];
   const [filtres, setFiltres] = useState<FiltresDetail>(SANS_FILTRE);
   const [nombreAffiche, setNombreAffiche] = useState(PAS_AFFICHAGE);
@@ -49,7 +54,10 @@ export default function PastDetailDashboard({ metrique, parts, periode, teintes 
   const basculerCategorie = (cle: string) => changerFiltres({ ...filtres, categorie: filtres.categorie === cle ? null : cle });
   const basculerMois = (mois: string) => changerFiltres({ ...filtres, mois: filtres.mois === mois ? null : mois });
 
-  const vue = useMemo(() => calculerDetail(parts, metrique, filtres, periode), [parts, metrique, filtres, periode]);
+  const vue = useMemo(
+    () => calculerDetail(parts, metrique, filtres, periode, ajustements),
+    [parts, metrique, filtres, periode, ajustements]
+  );
 
   const filtreActif = filtres.categorie !== null || filtres.mois !== null;
   const transactionsAffichees = vue.transactions.slice(0, nombreAffiche);
@@ -120,13 +128,38 @@ export default function PastDetailDashboard({ metrique, parts, periode, teintes 
           />
         )}
 
-        <PasseEvolutionChart
-          titre={titreEvolution}
-          evolution={vue.evolution}
-          enValeurAbsolue={vue.evolutionAbsolue}
-          selection={filtres.mois}
-          onSelect={basculerMois}
-        />
+        {/* Histogramme et, à côté, les ajustements de gestion compris dans ses barreaux. Le bloc suit
+            les filtres (période, mois) mais n'en crée pas. */}
+        <div className="passe-detail__evolution">
+          <PasseEvolutionChart
+            titre={titreEvolution}
+            evolution={vue.evolution}
+            enValeurAbsolue={vue.evolutionAbsolue}
+            selection={filtres.mois}
+            onSelect={basculerMois}
+          />
+          {vue.ajustements.lignes.length > 0 && (
+            <section className="passe-ajustements">
+              <h3 className="eyebrow eyebrow--encre">Ajustements de gestion</h3>
+              <ul>
+                {vue.ajustements.lignes.map((ligne) => (
+                  <li key={ligne.cle}>
+                    <div>
+                      {ligne.label}
+                      <PasseNotesAjustement notes={ligne.notes} />
+                    </div>
+                    <span className="passe-ajustements__montant">{formatMontantK(ligne.montant)}</span>
+                  </li>
+                ))}
+              </ul>
+              {vue.ajustements.nombreMasques > 0 && (
+                <p className="passe-structure__note">
+                  + {vue.ajustements.nombreMasques} autre{vue.ajustements.nombreMasques > 1 ? "s" : ""}
+                </p>
+              )}
+            </section>
+          )}
+        </div>
 
       </div>
 
@@ -135,6 +168,29 @@ export default function PastDetailDashboard({ metrique, parts, periode, teintes 
           Transactions · {config.libelleDetail}
           <span className="passe-detail__compte"> {vue.transactions.length}</span>
         </h3>
+        {/* Ajustements de gestion de l'étage : à part, pour ne jamais passer pour des transactions bancaires. */}
+        {vue.ajustementsDetail.length > 0 && (
+          <div className="passe-detail__ajustements">
+            <p className="passe-message">Ajustements de gestion (hors banque)</p>
+            <table className="passe-table">
+              <tbody>
+                {vue.ajustementsDetail.map((ajustement) => (
+                  <tr key={ajustement.id}>
+                    <td className="passe-table__date">{formatDateCourte(ajustement.date)}</td>
+                    <td className="passe-table__libelle">
+                      {ajustement.label}
+                      <PasseNotesAjustement notes={ajustement.notes ? [ajustement.notes] : []} />
+                    </td>
+                    <td className="col-montant passe-table__montant">{formatMontant(ajustement.montant)}</td>
+                    <td>
+                      <span className="passe-statut">Ajustement de gestion</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         {vue.transactions.length === 0 ? (
           <p className="passe-structure__vide">
             {filtreActif ? "Aucune transaction ne correspond aux filtres actifs." : "Aucune transaction sur la période."}

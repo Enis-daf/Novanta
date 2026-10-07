@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { AjustementGestion, StockFinDeMois } from "./pastAdjustments";
 import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import {
   AffectationAnalytique,
@@ -143,6 +144,72 @@ export async function sauvegarderEtageCategorie(
     .select("source_category_id");
   if (error) throw error;
   if ((data ?? []).length === 0) throw new Error("Aucun mapping modifié.");
+}
+
+/** Tous les stocks de fin de mois de l'organisation (la série entière sert au calcul des variations). */
+export async function chargerStocks(supabase: SupabaseClient, organizationId: string): Promise<StockFinDeMois[]> {
+  const { data, error } = await supabase
+    .from("past_inventory_balances")
+    .select("month, ending_inventory_value")
+    .eq("organization_id", organizationId)
+    .order("month", { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as Row[]).map((row) => ({
+    mois: (row.month as string).slice(0, 7),
+    valeur: Number(row.ending_inventory_value),
+  }));
+}
+
+/** Enregistre (ou remplace) le stock de fin d'un mois "YYYY-MM". Auteur et dates : posés par trigger. */
+export async function sauvegarderStock(
+  supabase: SupabaseClient,
+  organizationId: string,
+  mois: string,
+  valeur: number
+): Promise<void> {
+  const { error } = await supabase
+    .from("past_inventory_balances")
+    .upsert(
+      { organization_id: organizationId, month: `${mois}-01`, ending_inventory_value: valeur },
+      { onConflict: "organization_id,month" }
+    );
+  if (error) throw error;
+}
+
+export async function supprimerStock(supabase: SupabaseClient, organizationId: string, mois: string): Promise<void> {
+  const { error } = await supabase
+    .from("past_inventory_balances")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("month", `${mois}-01`);
+  if (error) throw error;
+}
+
+/** Ajustements de gestion saisis tels quels (hors variation de stock, calculée à partir des stocks). */
+export async function chargerAjustementsGestion(
+  supabase: SupabaseClient,
+  organizationId: string
+): Promise<AjustementGestion[]> {
+  const { data, error } = await supabase
+    .from("past_management_adjustments")
+    .select("id, adjustment_date, label, amount, pnl_stage, adjustment_type, notes")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  return ((data ?? []) as Row[]).flatMap((row) =>
+    estEtagePnl(row.pnl_stage)
+      ? [
+          {
+            id: row.id as string,
+            date: row.adjustment_date as string,
+            label: row.label as string,
+            montant: Number(row.amount),
+            etage: row.pnl_stage,
+            type: row.adjustment_type as string,
+            notes: (row.notes as string | null) ?? null,
+          },
+        ]
+      : []
+  );
 }
 
 // --- Écriture Pennylane : SERVEUR UNIQUEMENT (client service_role). L'appelant est seul
