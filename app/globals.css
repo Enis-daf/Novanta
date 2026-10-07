@@ -2046,3 +2046,15 @@ input[type="checkbox"] {
   margin: 0;
   flex: 1 1 420px;
 }
+
+/* DIAGNOSTIC TEMPORAIRE — à retirer avec le journal de synchronisation. */
+.passe-diagnostic {
+  margin: 0;
+  padding: var(--space-2);
+  border: 1px dashed var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -37,10 +37,8 @@ const MAX_TRANCHES = 36;
 
 // DIAGNOSTIC TEMPORAIRE (404 de synchronisation) — à retirer une fois la panne localisée. Ne logue
 // que l'étape, l'endpoint, la méthode et le statut : jamais de token, de libellé ni de transaction.
-function diag(message: string) {
-  console.log(`[passe/sync] ${message}`);
-}
-
+// Les mêmes lignes sont renvoyées dans la réponse (champ `diagnostic`) pour être lisibles depuis la
+// page, sans passer par les logs d'hébergement.
 // DIAGNOSTIC TEMPORAIRE (catégories absentes du tableau) — forme de la réponse Pennylane, sans
 // aucune valeur métier : uniquement des noms de clés, des types et des compteurs.
 function typeDe(valeur: unknown): string {
@@ -50,6 +48,11 @@ function typeDe(valeur: unknown): string {
 }
 
 export async function POST(req: NextRequest) {
+  const journal: string[] = [];
+  const diag = (message: string) => {
+    console.log(`[passe/sync] ${message}`);
+    journal.push(message);
+  };
   if (!supabaseAdminConfigured || !supabaseAdmin) {
     console.error("[passe/sync] config serveur manquante: SUPABASE_SERVICE_ROLE_KEY absente");
     return NextResponse.json({ error: MESSAGE_ERREUR_SYNC }, { status: 500 });
@@ -114,7 +117,7 @@ export async function POST(req: NextRequest) {
   }
   if (!token) {
     diag("step=credential source=novanta status=404 (aucun token Pennylane pour cette société)");
-    return NextResponse.json({ error: "Aucune connexion Pennylane enregistrée." }, { status: 404 });
+    return NextResponse.json({ error: "Aucune connexion Pennylane enregistrée.", diagnostic: journal }, { status: 404 });
   }
 
   const provider = new CompanyApiTokenCredentialProvider(token);
@@ -218,11 +221,14 @@ export async function POST(req: NextRequest) {
           console.error(`[passe/sync] DB save (statut invalide) failed ${resumeErreurSupabaseSansSecret(dbErreur)}`);
         }
       }
-      return NextResponse.json({ error: messageErreurUtilisationPennylane(erreur.reason) }, { status: 400 });
+      return NextResponse.json(
+        { error: messageErreurUtilisationPennylane(erreur.reason), diagnostic: journal },
+        { status: 400 }
+      );
     }
     const err = erreur as { code?: string; message?: string } | null;
-    console.error(`[passe/sync] échec step=${etape.step} endpoint=${etape.endpoint}${etape.month ? ` month=${etape.month}` : ""} code=${err?.code ?? "inconnu"} message=${err?.message ?? "inconnu"}`);
-    return NextResponse.json({ error: MESSAGE_ERREUR_SYNC }, { status: 500 });
+    diag(`ECHEC step=${etape.step} endpoint=${etape.endpoint}${etape.month ? ` month=${etape.month}` : ""} code=${err?.code ?? "inconnu"} message=${err?.message ?? "inconnu"}`);
+    return NextResponse.json({ error: MESSAGE_ERREUR_SYNC, diagnostic: journal }, { status: 500 });
   }
 
   let nombreRetirees = 0;
@@ -232,10 +238,10 @@ export async function POST(req: NextRequest) {
     } catch (erreur) {
       // Les transactions sont à jour ; seul le retrait des lignes disparues a échoué. Non bloquant.
       const err = erreur as { code?: string; message?: string } | null;
-      console.error(`[passe/sync] retrait des lignes non revues échoué code=${err?.code ?? "inconnu"} message=${err?.message ?? "inconnu"}`);
+      diag(`ECHEC step=db_delete_stale code=${err?.code ?? "inconnu"} message=${err?.message ?? "inconnu"}`);
     }
   }
 
   console.log(`[passe/sync] OK company=${organizationId} synchronisees=${nombreSynchronisees} retirees=${nombreRetirees} complete=${complete}`);
-  return NextResponse.json({ nombreSynchronisees, nombreRetirees, complete, libellesAxesDisponibles });
+  return NextResponse.json({ nombreSynchronisees, nombreRetirees, complete, libellesAxesDisponibles, diagnostic: journal });
 }

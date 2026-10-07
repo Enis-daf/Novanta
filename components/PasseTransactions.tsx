@@ -66,6 +66,8 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   const [syncEnCours, setSyncEnCours] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncErreur, setSyncErreur] = useState<string | null>(null);
+  // DIAGNOSTIC TEMPORAIRE : journal technique de la dernière synchronisation (à retirer).
+  const [syncDiagnostic, setSyncDiagnostic] = useState<string[] | null>(null);
 
   const periodeOk = periodeValide(periode);
 
@@ -239,6 +241,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
         body: JSON.stringify({ dateDebut: periode.debut, dateFin: periode.fin }),
       });
       const data = await res.json().catch(() => ({}));
+      setSyncDiagnostic([`http_status=${res.status}`, ...(Array.isArray(data.diagnostic) ? data.diagnostic : [])]);
       if (!res.ok) {
         setSyncErreur(data.error || "La synchronisation Pennylane a échoué. Réessayez.");
         return;
@@ -327,6 +330,11 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
 
       {syncErreur && <p className="passe-message passe-message--erreur">{syncErreur}</p>}
       {syncMessage && <p className="passe-message">{syncMessage}</p>}
+      {syncDiagnostic && (
+        <pre className="passe-diagnostic">
+          {["Diagnostic temporaire de synchronisation", ...syncDiagnostic].join("\n")}
+        </pre>
+      )}
       {erreurAxe && <p className="passe-message passe-message--erreur">{erreurAxe}</p>}
 
       {!periodeOk ? (
