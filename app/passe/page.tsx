@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import LoginForm from "@/components/LoginForm";
 import NavigationModules from "@/components/NavigationModules";
+import PasseTransactions from "@/components/PasseTransactions";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { moduleActifPourOrganisation, ROUTE_FUTUR } from "@/lib/organizationModules";
@@ -18,6 +19,7 @@ export default function PassePage() {
   // courante a été explicitement confirmé. Tout autre cas (module absent/désactivé, erreur, mode
   // local sans Supabase) renvoie vers Futur.
   const [autorise, setAutorise] = useState(false);
+  const [organizationId, setOrganizationId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!supabaseConfigured) {
@@ -41,6 +43,7 @@ export default function PassePage() {
 
   useEffect(() => {
     setAutorise(false);
+    setOrganizationId(null);
     if (!supabaseConfigured || !session) return;
 
     let annule = false;
@@ -67,6 +70,7 @@ export default function PassePage() {
         router.replace(ROUTE_FUTUR);
         return;
       }
+      setOrganizationId(company.id);
       setAutorise(true);
     })().catch((error) => {
       if (annule) return;
@@ -83,7 +87,7 @@ export default function PassePage() {
     return <LoginForm />;
   }
 
-  if (!session || !autorise) {
+  if (!session || !autorise || !organizationId) {
     return <main className="cockpit-chargement">Vérification de votre accès…</main>;
   }
 
@@ -110,6 +114,7 @@ export default function PassePage() {
           </button>
         </div>
       </header>
+      <PasseTransactions organizationId={organizationId} accessToken={session.access_token} />
     </main>
   );
 }

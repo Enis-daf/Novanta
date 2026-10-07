@@ -48,6 +48,7 @@ import { PennylaneCredentialProvider } from "./pennylaneCredentialProvider";
 const BASE_URL = "https://app.pennylane.com";
 const ENDPOINT_ME = "/api/external/v2/me";
 const ENDPOINT_TRANSACTIONS = "/api/external/v2/transactions";
+const ENDPOINT_CATEGORY_GROUPS = "/api/external/v2/category_groups";
 const ENDPOINT_CUSTOMER_INVOICES = "/api/external/v2/customer_invoices";
 const ENDPOINT_SUPPLIER_INVOICES = "/api/external/v2/supplier_invoices";
 const LIMITE_PAR_PAGE = 100; // maximum autorisé par l'API, minimise le nombre d'appels
@@ -69,12 +70,31 @@ export class PennylaneApiError extends Error {
   }
 }
 
+/** Catégorie analytique rattachée à une transaction (champ `categories` de la liste). */
+export interface PennylaneTransactionCategoryRaw {
+  id: number | string;
+  label: string | null;
+  weight?: string | null; // part de la transaction affectée à cette catégorie, ex. "0.25"
+  category_group?: { id: number } | null;
+}
+
 export interface PennylaneTransactionRaw {
   id: number;
   date: string; // YYYY-MM-DD
   label: string | null;
   amount: string; // décimal signé, en euros (voir note de convention ci-dessus)
+  // Champs également renvoyés par la liste (documentation officielle, getTransactions), utilisés
+  // uniquement par le module Passé (lib/pastTransactionAdapters.ts) — optionnels ici pour ne rien
+  // imposer aux usages existants.
+  categories?: PennylaneTransactionCategoryRaw[] | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  archived_at?: string | null;
 }
+
+// Nombre maximal de transactions qu'un appel à listTransactions peut renvoyer (pagination bornée
+// par MAX_PAGES) : un résultat de cette taille exacte est potentiellement tronqué.
+export const MAX_TRANSACTIONS_PAR_APPEL = LIMITE_PAR_PAGE * MAX_PAGES;
 
 // --- Factures clients (customer_invoices) ---
 
@@ -253,4 +273,23 @@ export async function listSupplierInvoices(
 ): Promise<PennylaneSupplierInvoiceListItem[]> {
   const bearer = await credentialProvider.getBearerToken();
   return paginerParCurseur<PennylaneSupplierInvoiceListItem>(bearer, ENDPOINT_SUPPLIER_INVOICES, {});
+}
+
+/** Groupe de catégories analytiques (un "axe" analytique côté Pennylane). */
+export interface PennylaneCategoryGroupRaw {
+  id: number | string;
+  label: string | null;
+}
+
+/**
+ * Liste les groupes de catégories analytiques (GET /category_groups, pagination par curseur).
+ * Scope requis : categories:readonly — DISTINCT de transactions:readonly : un token déjà connecté
+ * peut ne pas l'avoir (-> PennylaneApiError "insufficient_scope", à traiter par l'appelant comme
+ * "libellés d'axes indisponibles", pas comme une connexion invalide).
+ */
+export async function listCategoryGroups(
+  credentialProvider: PennylaneCredentialProvider
+): Promise<PennylaneCategoryGroupRaw[]> {
+  const bearer = await credentialProvider.getBearerToken();
+  return paginerParCurseur<PennylaneCategoryGroupRaw>(bearer, ENDPOINT_CATEGORY_GROUPS, {});
 }
