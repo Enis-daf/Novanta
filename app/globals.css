@@ -1846,8 +1846,8 @@ input[type="checkbox"] {
   overflow: clip;
 }
 
-/* Les deux plages pastel signature, sur le modèle de .pilotage__decor-rose / -verte, couleurs
-   inversées par rapport au panneau Futur : verte au coin haut-droit, rose au coin bas-gauche. Ancres de taille nulle posées sur les coins de la
+/* Les deux plages pastel signature, sur le modèle de .pilotage__decor-rose / -verte, mêmes
+   couleurs aux mêmes coins que le panneau Futur : rose au coin haut-droit, verte au coin bas-gauche. Ancres de taille nulle posées sur les coins de la
    surface (hors flux : .passe est une colonne flex avec gap), le cercle vient du ::before. */
 .passe__decor-haut,
 .passe__decor-bas {
@@ -1880,7 +1880,7 @@ input[type="checkbox"] {
   height: 640px;
   right: -380px;
   top: -380px;
-  background: var(--couleur-fond-alt-vert);
+  background: var(--couleur-fond-alt-rose);
 }
 
 .passe__decor-bas::before {
@@ -1888,7 +1888,7 @@ input[type="checkbox"] {
   height: 560px;
   left: -300px;
   bottom: -300px;
-  background: var(--couleur-fond-alt-rose);
+  background: var(--couleur-fond-alt-vert);
 }
 
 /* Page courte (état vide, erreur) : sans ça, la grille .cockpit (min-height: 100vh) répartit la
