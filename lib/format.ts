@@ -24,3 +24,15 @@ export function formatDate(dateStr: string): string {
     year: "numeric",
   }).format(date);
 }
+
+/** Présentation comptable : un montant négatif s'écrit entre parenthèses, sans signe. */
+export function formatMontantComptable(montant: number): string {
+  const arrondi = Math.round(montant);
+  return arrondi < 0 ? `(${formatMontant(-arrondi)})` : formatMontant(arrondi === 0 ? 0 : arrondi);
+}
+
+/** Pourcentage français à une décimale ("57,6 %"). "—" si la valeur n'existe pas. */
+export function formatPourcentage(fraction: number | null): string {
+  if (fraction === null || !Number.isFinite(fraction)) return "—";
+  return new Intl.NumberFormat("fr-FR", { style: "percent", minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(fraction);
+}

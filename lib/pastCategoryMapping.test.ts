@@ -39,10 +39,10 @@ describe("étages P&L", () => {
       ETAGES_PNL.map((e) => [e.cle, e.libelle]),
       [
         ["revenue", "CA"],
-        ["gross_margin", "Marge brute"],
-        ["contribution_margin", "Marge contributive"],
-        ["ebitda", "EBITDA"],
-        ["extra_pnl", "Hors P&L"],
+        ["gross_margin", "Coûts directs"],
+        ["contribution_margin", "Coûts commerciaux"],
+        ["ebitda", "Coûts de structure"],
+        ["extra_pnl", "Extra P&L"],
       ]
     );
     assert.equal(estEtagePnl("ebitda"), true);

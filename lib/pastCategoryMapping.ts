@@ -13,14 +13,16 @@ import {
  * reclasse donc tout l'historique sans réécrire la moindre transaction.
  */
 
+// Les libellés nomment ce que l'étage CONTIENT (les coûts qui mènent à la marge), pas le solde
+// qu'il produit : la clé gross_margin porte les "Coûts directs", dont on déduit la marge brute.
 // Les 5 étages, fixes en V1 : ni création, ni suppression, ni renommage par l'utilisateur. Les clés
 // sont stables (stockées en base, voir la contrainte de past_category_mappings.pnl_stage).
 export const ETAGES_PNL = [
   { cle: "revenue", libelle: "CA" },
-  { cle: "gross_margin", libelle: "Marge brute" },
-  { cle: "contribution_margin", libelle: "Marge contributive" },
-  { cle: "ebitda", libelle: "EBITDA" },
-  { cle: "extra_pnl", libelle: "Hors P&L" },
+  { cle: "gross_margin", libelle: "Coûts directs" },
+  { cle: "contribution_margin", libelle: "Coûts commerciaux" },
+  { cle: "ebitda", libelle: "Coûts de structure" },
+  { cle: "extra_pnl", libelle: "Extra P&L" },
 ] as const;
 
 export type EtagePnl = (typeof ETAGES_PNL)[number]["cle"];

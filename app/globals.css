@@ -2050,7 +2050,8 @@ input[type="checkbox"] {
 /* Onglets du module Passé : Transactions / Correspondance P&L. */
 .passe-onglets {
   display: flex;
-  gap: var(--space-4);
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
   border-bottom: 1px solid var(--couleur-bordure);
 }
 
@@ -2134,4 +2135,204 @@ input[type="checkbox"] {
   background: var(--couleur-fond-alt-rose);
   color: var(--couleur-accent-fonce);
   font-weight: 600;
+}
+
+/* Onglet Général : un document de pilotage plutôt qu'un tableau de bord — une colonne de lecture
+   (le P&L), puis la structure des revenus et des coûts. */
+.passe-general {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-7);
+  padding-top: var(--space-3);
+}
+
+.passe-pnl {
+  width: 100%;
+  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+}
+
+.passe-pnl__ligne {
+  display: grid;
+  grid-template-columns: 1fr minmax(120px, auto) 72px;
+  align-items: baseline;
+  column-gap: var(--space-4);
+  padding: var(--space-2) 0;
+  font-size: 14px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-pnl__montant,
+.passe-pnl__ratio {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.passe-pnl__ratio {
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Soldes intermédiaires : un filet au-dessus, puis de l'air avant le bloc suivant. */
+.passe-pnl__ligne--solde {
+  margin-bottom: var(--space-4);
+  border-top: 1px solid var(--couleur-bordure);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+}
+
+.passe-pnl > .passe-pnl__ligne:first-child {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+}
+
+.passe-pnl__cash {
+  margin-top: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--couleur-fond-alt-vert);
+}
+
+.passe-pnl__cash .passe-pnl__ligne--solde {
+  margin-bottom: 0;
+  border-top-color: rgba(3, 10, 22, 0.12);
+}
+
+.passe-general__structures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: var(--space-7) var(--space-6);
+}
+
+.passe-structure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.passe-structure__titre {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+}
+
+.passe-structure__corps {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.passe-structure__graphique {
+  position: relative;
+  flex: 0 0 200px;
+  width: 200px;
+}
+
+/* Total au centre de l'anneau. */
+.passe-structure__total {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+  pointer-events: none;
+}
+
+.passe-structure__legende {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--couleur-texte);
+}
+
+.passe-structure__legende li {
+  display: grid;
+  grid-template-columns: 10px 1fr auto 52px;
+  align-items: baseline;
+  column-gap: var(--space-2);
+}
+
+.passe-structure__pastille {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  align-self: center;
+}
+
+.passe-structure__nom {
+  overflow-wrap: anywhere;
+}
+
+.passe-structure__montant,
+.passe-structure__part {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.passe-structure__part {
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-structure__vide,
+.passe-structure__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-structure__infobulle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--couleur-fond);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--couleur-texte);
+  box-shadow: 0 4px 16px rgba(3, 10, 22, 0.12);
+}
+
+/* Écrans détaillés à venir (CA, marges, EBITDA, Cash flow) : seul l'indicateur est rappelé. */
+.passe-indicateur-detail {
+  padding-top: var(--space-3);
+}
+
+.passe-indicateur-detail p {
+  margin: 0;
+}
+
+.passe-indicateur-detail__libelle {
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-indicateur-detail__montant {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--couleur-texte);
+  font-variant-numeric: tabular-nums;
+}
+
+.passe-indicateur-detail__ratio {
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
 }

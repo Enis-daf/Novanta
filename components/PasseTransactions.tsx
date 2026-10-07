@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DateField from "./DateField";
+import PasseGeneral from "./PasseGeneral";
 import PasseMappingTable from "./PasseMappingTable";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, todayISO } from "@/lib/dates";
-import { formatMontant } from "@/lib/format";
+import { formatMontant, formatMontantComptable, formatPourcentage } from "@/lib/format";
+import { calculerPnl } from "@/lib/pastPnl";
 import {
   appliquerAxe,
   AxeAnalytique,
@@ -27,6 +29,7 @@ import {
   compterAMapper,
   EtagePnl,
   FiltreMapping,
+  indexerMappings,
   lignesMapping,
   MappingCategorie,
 } from "@/lib/pastCategoryMapping";
@@ -45,6 +48,20 @@ interface PasseTransactionsProps {
 }
 
 const LIGNES_PAR_PAGE = 50;
+
+// Onglets du module Passé. La période, choisie une fois, s'applique à tous.
+const ONGLETS = [
+  { cle: "general", libelle: "Général" },
+  { cle: "ca", libelle: "CA" },
+  { cle: "marge_brute", libelle: "Marge brute" },
+  { cle: "marge_contributive", libelle: "Marge contributive" },
+  { cle: "ebitda", libelle: "EBITDA" },
+  { cle: "cash_flow", libelle: "Cash flow" },
+  { cle: "mapping", libelle: "Correspondance P&L" },
+  { cle: "transactions", libelle: "Transactions" },
+] as const;
+
+type Vue = (typeof ONGLETS)[number]["cle"];
 const formatNombre = new Intl.NumberFormat("fr-FR");
 
 function pluriel(nombre: number, singulier: string, plurielTexte: string): string {
@@ -64,7 +81,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   const [erreurAxe, setErreurAxe] = useState<string | null>(null);
   // Correspondance catégorie -> étage P&L : indépendante de la période, toujours accessible.
   const [mappings, setMappings] = useState<MappingCategorie[]>([]);
-  const [vue, setVue] = useState<"transactions" | "mapping">("transactions");
+  const [vue, setVue] = useState<Vue>("general");
   const [filtreMapping, setFiltreMapping] = useState<FiltreMapping>("toutes");
   const [erreurMapping, setErreurMapping] = useState<string | null>(null);
   const [chargement, setChargement] = useState(true);
@@ -182,6 +199,22 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
     [mappings, axe.axeId, stockees]
   );
   const nombreAMapper = useMemo(() => compterAMapper(lignesCorrespondance), [lignesCorrespondance]);
+
+  // P&L de la période : transaction -> catégories pondérées -> mapping courant -> étage. Recalculé
+  // dès qu'un mapping change, sans relire ni réécrire les transactions.
+  const pnl = useMemo(
+    () => calculerPnl(stockees, axe.axeId, indexerMappings(mappings)),
+    [stockees, axe.axeId, mappings]
+  );
+  // Écrans détaillés à venir : pour l'instant, seul l'indicateur de l'onglet est rappelé.
+  const indicateursDetail: Partial<Record<Vue, { libelle: string; montant: number; ratio?: number | null }>> = {
+    ca: { libelle: "Chiffre d'affaires", montant: pnl.ca },
+    marge_brute: { libelle: "Marge brute", montant: pnl.margeBrute, ratio: pnl.ratios.margeBrute },
+    marge_contributive: { libelle: "Marge contributive", montant: pnl.margeContributive, ratio: pnl.ratios.margeContributive },
+    ebitda: { libelle: "EBITDA", montant: pnl.ebitda, ratio: pnl.ratios.ebitda },
+    cash_flow: { libelle: "Cash flow", montant: pnl.cashFlow },
+  };
+  const indicateurDetail = indicateursDetail[vue];
 
   const changerEtage = (sourceCategoryId: string, etage: EtagePnl) => {
     const precedent = mappings.find((m) => m.sourceCategoryId === sourceCategoryId)?.pnlStage ?? null;
@@ -372,25 +405,21 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
       {erreurMapping && <p className="passe-message passe-message--erreur">{erreurMapping}</p>}
 
       <div className="passe-onglets" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={vue === "transactions"}
-          className={`passe-onglet${vue === "transactions" ? " passe-onglet--actif" : ""}`}
-          onClick={() => setVue("transactions")}
-        >
-          Transactions
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={vue === "mapping"}
-          className={`passe-onglet${vue === "mapping" ? " passe-onglet--actif" : ""}`}
-          onClick={() => setVue("mapping")}
-        >
-          Correspondance P&amp;L
-          {nombreAMapper > 0 && <span className="passe-onglet__pastille">{nombreAMapper}</span>}
-        </button>
+        {ONGLETS.map((onglet) => (
+          <button
+            key={onglet.cle}
+            type="button"
+            role="tab"
+            aria-selected={vue === onglet.cle}
+            className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}`}
+            onClick={() => setVue(onglet.cle)}
+          >
+            {onglet.libelle}
+            {onglet.cle === "mapping" && nombreAMapper > 0 && (
+              <span className="passe-onglet__pastille">{nombreAMapper}</span>
+            )}
+          </button>
+        ))}
       </div>
 
       {!periodeOk ? (
@@ -438,7 +467,27 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
             </div>
           )}
 
-          {axeAConfigurer ? null : vue === "mapping" ? (
+          {!axeAConfigurer && vue !== "mapping" && vue !== "transactions" && pnl.nonMappees.nombreCategories > 0 && (
+            <p className="passe-message">
+              Reporting incomplet :{" "}
+              {pnl.nonMappees.nombreCategories > 1
+                ? `${pnl.nonMappees.nombreCategories} catégories utilisées sur la période restent à mapper`
+                : "1 catégorie utilisée sur la période reste à mapper"}{" "}
+              ({formatMontantComptable(pnl.nonMappees.montant)} exclus des calculs).
+            </p>
+          )}
+
+          {axeAConfigurer ? null : vue === "general" ? (
+            <PasseGeneral pnl={pnl} />
+          ) : indicateurDetail ? (
+            <div className="passe-indicateur-detail">
+              <p className="passe-indicateur-detail__libelle">{indicateurDetail.libelle}</p>
+              <p className="passe-indicateur-detail__montant">{formatMontantComptable(indicateurDetail.montant)}</p>
+              {indicateurDetail.ratio !== undefined && (
+                <p className="passe-indicateur-detail__ratio">{formatPourcentage(indicateurDetail.ratio)} du CA</p>
+              )}
+            </div>
+          ) : vue === "mapping" ? (
             <PasseMappingTable
               lignes={lignesCorrespondance}
               filtre={filtreMapping}
