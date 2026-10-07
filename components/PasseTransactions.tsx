@@ -66,8 +66,6 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   const [syncEnCours, setSyncEnCours] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncErreur, setSyncErreur] = useState<string | null>(null);
-  // DIAGNOSTIC TEMPORAIRE : journal technique de la dernière synchronisation (à retirer).
-  const [syncDiagnostic, setSyncDiagnostic] = useState<string[] | null>(null);
 
   const periodeOk = periodeValide(periode);
 
@@ -155,17 +153,6 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
     return new Set([...selectionCategories].filter((cle) => proposees.has(cle)));
   }, [selectionCategories, categories]);
 
-  // DIAGNOSTIC TEMPORAIRE (catégories absentes du tableau) : compteurs à chaque étape côté
-  // navigateur, sans aucune donnée de transaction. À retirer.
-  useEffect(() => {
-    if (chargement) return;
-    console.info(
-      `[passe/front] charge=${stockees.length} avec_affectations=${stockees.filter((t) => t.affectations.length > 0).length} ` +
-        `axes=${axes.map((a) => a.groupId).join(",") || "-"} axe_configure=${axeConfigure ?? "-"} etat_axe=${axe.etat} axe_retenu=${axe.axeId ?? "-"} ` +
-        `categorisees=${categorisees.length} categories=${categories.length} non_categorisees=${nombreNonCategorisees}`
-    );
-  }, [chargement, stockees, axes, axeConfigure, axe, categorisees, categories, nombreNonCategorisees]);
-
   const transactionsFiltrees = useMemo(
     () => filtrerParCategories(categorisees, selectionEffective),
     [categorisees, selectionEffective]
@@ -241,7 +228,6 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
         body: JSON.stringify({ dateDebut: periode.debut, dateFin: periode.fin }),
       });
       const data = await res.json().catch(() => ({}));
-      setSyncDiagnostic([`http_status=${res.status}`, ...(Array.isArray(data.diagnostic) ? data.diagnostic : [])]);
       if (!res.ok) {
         setSyncErreur(data.error || "La synchronisation Pennylane a échoué. Réessayez.");
         return;
@@ -330,11 +316,6 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
 
       {syncErreur && <p className="passe-message passe-message--erreur">{syncErreur}</p>}
       {syncMessage && <p className="passe-message">{syncMessage}</p>}
-      {syncDiagnostic && (
-        <pre className="passe-diagnostic">
-          {["Diagnostic temporaire de synchronisation", ...syncDiagnostic].join("\n")}
-        </pre>
-      )}
       {erreurAxe && <p className="passe-message passe-message--erreur">{erreurAxe}</p>}
 
       {!periodeOk ? (
