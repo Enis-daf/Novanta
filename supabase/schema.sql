@@ -328,3 +328,26 @@ create table if not exists pennylane_connections (
 );
 
 alter table pennylane_connections enable row level security;
+
+-- Modules activables par organisation (entitlements) : voir
+-- migrations/20261007_organization_modules.sql pour le détail et la procédure d'activation.
+create table if not exists organization_modules (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references companies(id) on delete cascade,
+  module_key text not null,
+  enabled boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (organization_id, module_key)
+);
+
+alter table organization_modules enable row level security;
+
+drop policy if exists "Lecture des modules de sa société" on organization_modules;
+create policy "Lecture des modules de sa société" on organization_modules
+  for select
+  using (organization_id in (select id from companies where owner_id = auth.uid()));
+
+revoke all on public.organization_modules from anon;
+revoke insert, update, delete, truncate on public.organization_modules from authenticated;
+grant select on public.organization_modules to authenticated;

@@ -1446,6 +1446,13 @@ input[type="checkbox"] {
   background: var(--couleur-bordure);
 }
 
+.btn-module--actif,
+.btn-module--actif:hover {
+  background: var(--couleur-accent);
+  border-color: var(--couleur-accent);
+  color: #fff;
+}
+
 .btn-secondaire:disabled {
   background: var(--couleur-bordure);
   color: var(--couleur-texte-secondaire);
