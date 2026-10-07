@@ -8,9 +8,19 @@ interface PasseGeneralProps {
   pnl: Pnl;
 }
 
-function Ligne({ libelle, montant, solde, ratio }: { libelle: string; montant: number; solde?: boolean; ratio?: number | null }) {
+function Ligne({
+  libelle,
+  montant,
+  ratio,
+  niveau,
+}: {
+  libelle: string;
+  montant: number;
+  ratio?: number | null;
+  niveau?: "titre" | "solde";
+}) {
   return (
-    <div className={`passe-pnl__ligne${solde ? " passe-pnl__ligne--solde" : ""}`}>
+    <div className={`passe-pnl__ligne${niveau ? ` passe-pnl__ligne--${niveau}` : ""}`}>
       <span className="passe-pnl__libelle">{libelle}</span>
       <span className="passe-pnl__montant">{formatMontantComptable(montant)}</span>
       <span className="passe-pnl__ratio">{ratio === undefined ? "" : formatPourcentage(ratio)}</span>
@@ -23,22 +33,31 @@ function Ligne({ libelle, montant, solde, ratio }: { libelle: string; montant: n
 export default function PasseGeneral({ pnl }: PasseGeneralProps) {
   return (
     <div className="passe-general">
+      {/* Colonne gauche : la performance. Un bloc par étage, répartis sur toute la hauteur. */}
       <section className="passe-pnl" aria-label="P&L synthétique">
-        <Ligne libelle="Chiffre d'affaires" montant={pnl.ca} />
-        <Ligne libelle="Coûts directs" montant={pnl.coutsDirects} />
-        <Ligne libelle="Marge brute" montant={pnl.margeBrute} ratio={pnl.ratios.margeBrute} solde />
-        <Ligne libelle="Coûts commerciaux" montant={pnl.coutsCommerciaux} />
-        <Ligne libelle="Marge contributive" montant={pnl.margeContributive} ratio={pnl.ratios.margeContributive} solde />
-        <Ligne libelle="Coûts de structure" montant={pnl.coutsStructure} />
-        <Ligne libelle="EBITDA" montant={pnl.ebitda} ratio={pnl.ratios.ebitda} solde />
-
+        <div className="passe-pnl__bloc">
+          <Ligne libelle="Chiffre d'affaires" montant={pnl.ca} niveau="titre" />
+        </div>
+        <div className="passe-pnl__bloc">
+          <Ligne libelle="Coûts directs" montant={pnl.coutsDirects} />
+          <Ligne libelle="Marge brute" montant={pnl.margeBrute} ratio={pnl.ratios.margeBrute} niveau="solde" />
+        </div>
+        <div className="passe-pnl__bloc">
+          <Ligne libelle="Coûts commerciaux" montant={pnl.coutsCommerciaux} />
+          <Ligne libelle="Marge contributive" montant={pnl.margeContributive} ratio={pnl.ratios.margeContributive} niveau="solde" />
+        </div>
+        <div className="passe-pnl__bloc">
+          <Ligne libelle="Coûts de structure" montant={pnl.coutsStructure} />
+          <Ligne libelle="EBITDA" montant={pnl.ebitda} ratio={pnl.ratios.ebitda} niveau="solde" />
+        </div>
         {/* Cash flow : présenté à part du P&L opérationnel, sans ratio. */}
-        <div className="passe-pnl__cash">
+        <div className="passe-pnl__bloc passe-pnl__bloc--cash">
           <Ligne libelle="Extra P&L" montant={pnl.extraPnl} />
-          <Ligne libelle="Cash flow" montant={pnl.cashFlow} solde />
+          <Ligne libelle="Cash flow" montant={pnl.cashFlow} niveau="titre" />
         </div>
       </section>
 
+      {/* Colonne droite : la composition de cette performance, revenus puis coûts. */}
       <div className="passe-general__structures">
         <PasseStructureChart
           titre="Structure des revenus"

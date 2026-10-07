@@ -2137,29 +2137,55 @@ input[type="checkbox"] {
   font-weight: 600;
 }
 
-/* Onglet Général : un document de pilotage plutôt qu'un tableau de bord — une colonne de lecture
-   (le P&L), puis la structure des revenus et des coûts. */
+/* Onglet Général : un document de pilotage plutôt qu'un tableau de bord. Sur desktop, deux
+   colonnes égales — à gauche la performance (le P&L), à droite sa composition (structure des
+   revenus puis des coûts) — séparées par un simple filet ; une seule colonne sur écran étroit. */
 .passe-general {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: var(--space-7);
-  padding-top: var(--space-3);
+  padding-top: var(--space-4);
 }
 
+@media (min-width: 1024px) {
+  .passe-general {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .passe-pnl {
+    padding-right: var(--space-7);
+  }
+
+  .passe-general__structures {
+    padding-left: var(--space-7);
+    border-left: 1px solid var(--couleur-bordure);
+  }
+}
+
+/* Le P&L occupe toute la hauteur de sa colonne : les blocs se répartissent, sans cadre autour. */
 .passe-pnl {
-  width: 100%;
-  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.passe-pnl__bloc {
   display: flex;
   flex-direction: column;
 }
 
 .passe-pnl__ligne {
   display: grid;
-  grid-template-columns: 1fr minmax(120px, auto) 72px;
+  /* Colonnes de largeur fixe pour les chiffres : chaque ligne est sa propre grille, les montants
+     ne s'alignent d'une ligne à l'autre que si ces largeurs ne dépendent pas du contenu. */
+  grid-template-columns: minmax(0, 1fr) 132px 60px;
   align-items: baseline;
-  column-gap: var(--space-4);
+  column-gap: var(--space-3);
   padding: var(--space-2) 0;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--couleur-texte-secondaire);
 }
 
@@ -2172,40 +2198,44 @@ input[type="checkbox"] {
 
 .passe-pnl__ratio {
   font-size: 13px;
+  font-weight: 400;
   color: var(--couleur-texte-secondaire);
 }
 
-/* Soldes intermédiaires : un filet au-dessus, puis de l'air avant le bloc suivant. */
+/* Soldes intermédiaires : un filet léger au-dessus, la hiérarchie vient de la typographie. */
+.passe-pnl__ligne--solde,
+.passe-pnl__ligne--titre {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+}
+
 .passe-pnl__ligne--solde {
-  margin-bottom: var(--space-4);
+  padding-top: var(--space-3);
   border-top: 1px solid var(--couleur-bordure);
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--couleur-texte);
 }
 
-.passe-pnl > .passe-pnl__ligne:first-child {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--couleur-texte);
-}
-
-.passe-pnl__cash {
-  margin-top: var(--space-4);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  background: var(--couleur-fond-alt-vert);
-}
-
-.passe-pnl__cash .passe-pnl__ligne--solde {
-  margin-bottom: 0;
-  border-top-color: rgba(3, 10, 22, 0.12);
+/* Cash flow : à part du P&L opérationnel, détaché par l'espace et un filet plus marqué. */
+.passe-pnl__bloc--cash {
+  padding-top: var(--space-3);
+  border-top: 2px solid var(--couleur-texte);
 }
 
 .passe-general__structures {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
-  gap: var(--space-7) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.passe-general__structures > .passe-structure {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+.passe-general__structures > .passe-structure + .passe-structure {
+  margin-top: var(--space-6);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--couleur-bordure);
 }
 
 .passe-structure {
@@ -2335,4 +2365,30 @@ input[type="checkbox"] {
 .passe-indicateur-detail__ratio {
   font-size: 13px;
   color: var(--couleur-texte-secondaire);
+}
+
+/* "X transactions avec un signe inhabituel" : simple point d'attention, volontairement plus
+   discret que les deux indicateurs voisins (texte secondaire, filet gris) ; ouvre le détail. */
+.passe-signes {
+  padding: 5px 12px;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-fond);
+  color: var(--couleur-texte);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.passe-signes:hover {
+  background: var(--couleur-bordure);
+}
+
+.passe-signes-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-md);
 }
