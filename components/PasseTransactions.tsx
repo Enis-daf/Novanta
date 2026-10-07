@@ -10,17 +10,16 @@ import {
   appliquerAxe,
   AxeAnalytique,
   categoriesDisponibles,
-  CLE_NON_CATEGORISE,
   compterNonCategorisees,
   estNonCategorisee,
   filtrerParCategories,
-  LIBELLE_NON_CATEGORISE,
   libelleAxe,
   PastTransactionStockee,
   Periode,
   periodeAnneeCivile,
   periodeValide,
   resoudreAxeAnalytique,
+  transactionsCategorisees,
   trierParDateDecroissante,
 } from "@/lib/pastTransactions";
 import {
@@ -138,17 +137,25 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   // Le compteur suit la période uniquement : calculé sur toutes les transactions chargées, jamais
   // sur le résultat du filtre catégorie.
   const nombreNonCategorisees = useMemo(() => compterNonCategorisees(transactions), [transactions]);
+  // Rappel "dans Pennylane" seulement si c'est bien là que la catégorisation doit être faite.
+  const nonCategoriseesToutesPennylane = useMemo(
+    () => transactions.every((t) => !estNonCategorisee(t) || t.sourceType === "pennylane"),
+    [transactions]
+  );
+  // Le tableau n'expose que les transactions catégorisées : les autres ne sont pas modifiables
+  // dans Novanta, elles sont seulement comptées dans l'alerte.
+  const categorisees = useMemo(() => transactionsCategorisees(transactions), [transactions]);
 
   // Une catégorie sélectionnée puis absente de la nouvelle période ne doit pas vider le tableau
   // en silence : seules les clés encore proposées comptent.
   const selectionEffective = useMemo(() => {
-    const proposees = new Set<string>([...categories, CLE_NON_CATEGORISE]);
+    const proposees = new Set<string>(categories);
     return new Set([...selectionCategories].filter((cle) => proposees.has(cle)));
   }, [selectionCategories, categories]);
 
   const transactionsFiltrees = useMemo(
-    () => filtrerParCategories(transactions, selectionEffective),
-    [transactions, selectionEffective]
+    () => filtrerParCategories(categorisees, selectionEffective),
+    [categorisees, selectionEffective]
   );
 
   const nombrePages = Math.max(1, Math.ceil(transactionsFiltrees.length / LIGNES_PAR_PAGE));
@@ -203,8 +210,8 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   const libelleFiltre = () => {
     if (selectionEffective.size === 0) return "Toutes";
     if (selectionEffective.size === 1) {
-      const [cle] = selectionEffective;
-      return cle === CLE_NON_CATEGORISE ? LIBELLE_NON_CATEGORISE : cle;
+      const [nom] = selectionEffective;
+      return nom;
     }
     return `${selectionEffective.size} sélectionnées`;
   };
@@ -280,14 +287,6 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
                   {nom}
                 </label>
               ))}
-              <label className="passe-filtre__option">
-                <input
-                  type="checkbox"
-                  checked={selectionEffective.has(CLE_NON_CATEGORISE)}
-                  onChange={() => basculerCategorie(CLE_NON_CATEGORISE)}
-                />
-                {LIBELLE_NON_CATEGORISE}
-              </label>
             </div>
           )}
         </div>
@@ -338,7 +337,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
             <div className="passe-axe-a-configurer passe-axe">
               <p>
                 <strong>Axe analytique à configurer.</strong> Vos transactions sont catégorisées selon plusieurs axes
-                analytiques. Choisissez celui que le module Passé doit utiliser ; aucune catégorie n&apos;est affichée
+                analytiques. Choisissez celui que le module Passé doit utiliser ; aucune transaction n&apos;est listée
                 tant que ce choix n&apos;est pas fait.
               </p>
               {selecteurAxe("passe-axe-a-configurer-select")}
@@ -348,15 +347,19 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
               {nombreNonCategorisees > 0 && <span aria-hidden="true">⚠ </span>}
               {nombreNonCategorisees === 0
                 ? "Aucune transaction non catégorisée sur la période"
-                : pluriel(nombreNonCategorisees, "transaction non catégorisée", "transactions non catégorisées")}
+                : `${pluriel(nombreNonCategorisees, "transaction non catégorisée", "transactions non catégorisées")}${
+                    nonCategoriseesToutesPennylane ? " dans Pennylane" : ""
+                  }`}
             </p>
           )}
 
-          {transactions.length === 0 ? (
+          {axeAConfigurer ? null : transactions.length === 0 ? (
             <div className="passe-etat">
               <p>Aucune transaction sur cette période.</p>
               {pennylaneConnecte === true && <p>Synchronisez Pennylane pour récupérer vos transactions.</p>}
             </div>
+          ) : categorisees.length === 0 ? (
+            <div className="passe-etat">Aucune transaction catégorisée sur cette période.</div>
           ) : transactionsFiltrees.length === 0 ? (
             <div className="passe-etat">Aucune transaction ne correspond aux catégories sélectionnées.</div>
           ) : (
@@ -377,15 +380,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
                         <td className="passe-table__date">{formatDateCourte(t.transactionDate)}</td>
                         <td className="passe-table__libelle">{t.label || "—"}</td>
                         <td className="col-montant passe-table__montant">{formatMontant(t.amount)}</td>
-                        <td>
-                          {axeAConfigurer ? (
-                            <span className="passe-table__non-categorise">—</span>
-                          ) : estNonCategorisee(t) ? (
-                            <span className="passe-table__non-categorise">{LIBELLE_NON_CATEGORISE}</span>
-                          ) : (
-                            t.analyticCategoryName
-                          )}
-                        </td>
+                        <td>{t.analyticCategoryName}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -394,7 +389,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
               <div className="passe-pagination">
                 <span>
                   {pluriel(transactionsFiltrees.length, "transaction", "transactions")}
-                  {selectionEffective.size > 0 && ` sur ${formatNombre.format(transactions.length)}`}
+                  {selectionEffective.size > 0 && ` sur ${formatNombre.format(categorisees.length)}`}
                 </span>
                 {nombrePages > 1 && (
                   <div className="passe-pagination__actions">

@@ -92,7 +92,9 @@ export function normaliserNomCategorie(valeur: unknown): string | null {
 
 /**
  * SEULE définition de "non catégorisé" dans l'application : aucune catégorie analytique
- * exploitable (nom absent ou vide). Utilisée par le compteur, le filtre et l'affichage du tableau.
+ * exploitable (nom absent ou vide). Utilisée par le compteur et pour écarter ces transactions du
+ * tableau. À ne pas confondre avec une catégorie existante mais pas encore rattachée à un étage de
+ * reporting ("non mappée") : celle-ci est une vraie catégorie, et reste visible.
  */
 export function estNonCategorisee(transaction: Pick<PastTransaction, "analyticCategoryName">): boolean {
   return normaliserNomCategorie(transaction.analyticCategoryName) === null;
@@ -155,17 +157,6 @@ export function resoudreAxeAnalytique(axes: AxeAnalytique[], axeConfigure: strin
   return { etat: "a_configurer", axeId: null };
 }
 
-export const LIBELLE_NON_CATEGORISE = "Non catégorisé";
-
-// Clé du filtre pour "Non catégorisé" : ne peut pas entrer en collision avec un vrai nom de
-// catégorie (les noms sont normalisés, jamais préfixés d'un caractère nul).
-export const CLE_NON_CATEGORISE = "\u0000non-categorise";
-
-/** Clé de filtre d'une transaction : son nom de catégorie normalisé, ou CLE_NON_CATEGORISE. */
-export function cleCategorie(transaction: Pick<PastTransaction, "analyticCategoryName">): string {
-  return normaliserNomCategorie(transaction.analyticCategoryName) ?? CLE_NON_CATEGORISE;
-}
-
 /** Année civile contenant la date donnée : 1er janvier → 31 décembre. */
 export function periodeAnneeCivile(dateISO: string): Periode {
   const annee = parseDateISO(dateISO).getFullYear();
@@ -205,15 +196,26 @@ export function categoriesDisponibles(transactions: PastTransaction[]): string[]
 }
 
 /**
+ * Transactions exposées dans le tableau : les non catégorisées en sont exclues (elles ne sont pas
+ * modifiables dans Novanta ; elles restent stockées et comptées, voir compterNonCategorisees).
+ */
+export function transactionsCategorisees(transactions: PastTransaction[]): PastTransaction[] {
+  return transactions.filter((t) => !estNonCategorisee(t));
+}
+
+/**
  * Filtre multi-catégories : sélection vide = toutes les catégories ; sinon les transactions
- * appartenant à L'UNE des clés sélectionnées (voir cleCategorie / CLE_NON_CATEGORISE).
+ * appartenant à L'UNE des catégories sélectionnées (noms normalisés).
  */
 export function filtrerParCategories(transactions: PastTransaction[], selection: ReadonlySet<string>): PastTransaction[] {
   if (selection.size === 0) return transactions;
-  return transactions.filter((t) => selection.has(cleCategorie(t)));
+  return transactions.filter((t) => {
+    const nom = normaliserNomCategorie(t.analyticCategoryName);
+    return nom !== null && selection.has(nom);
+  });
 }
 
-/** Nombre de transactions non catégorisées — à appeler sur la période, jamais sur le résultat filtré. */
+/** Nombre de transactions non catégorisées — à appeler sur toute la période, jamais sur le tableau. */
 export function compterNonCategorisees(transactions: PastTransaction[]): number {
   return transactions.filter(estNonCategorisee).length;
 }

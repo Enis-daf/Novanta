@@ -1926,8 +1926,8 @@ input[type="checkbox"] {
   color: var(--couleur-accent-fonce);
 }
 
-/* Compteur "non catégorisé" : discret à zéro, identifiable (pastille rose pâle) au-delà, sans
-   prendre l'allure d'une alerte bloquante. */
+/* Compteur "non catégorisé" : discret à zéro ; au-delà, alerte visible dans l'accent rose de la
+   marque (même traitement que le bouton de module actif) — jamais un rouge "erreur". */
 .passe-non-categorise {
   align-self: flex-start;
   margin: 0;
@@ -1938,8 +1938,8 @@ input[type="checkbox"] {
 .passe-non-categorise--alerte {
   padding: 6px 12px;
   border-radius: var(--radius-sm);
-  background: var(--couleur-fond-alt-rose);
-  color: var(--couleur-accent-fonce);
+  background: var(--couleur-accent);
+  color: #fff;
   font-size: 13px;
   font-weight: 600;
 }
@@ -2001,11 +2001,6 @@ input[type="checkbox"] {
 
 .passe-table__libelle {
   overflow-wrap: anywhere;
-}
-
-.passe-table__non-categorise {
-  color: var(--couleur-texte-secondaire);
-  font-style: italic;
 }
 
 .passe-pagination {

@@ -8,7 +8,7 @@ import {
   GROUPE_INCONNU,
   libelleAxe,
   resoudreAxeAnalytique,
-  CLE_NON_CATEGORISE,
+  transactionsCategorisees,
   compterNonCategorisees,
   decouperPeriodeParMois,
   estNonCategorisee,
@@ -90,18 +90,15 @@ describe("catégorisation — définition unique de « non catégorisé »", () 
     assert.deepEqual(resultat.map((t) => t.id), ["a", "b", "f"]);
   });
 
-  test("« Non catégorisé » est un filtre à part entière, combinable", () => {
-    assert.deepEqual(filtrerParCategories(transactions, new Set([CLE_NON_CATEGORISE])).map((t) => t.id), ["d", "e"]);
-    assert.deepEqual(
-      filtrerParCategories(transactions, new Set([CLE_NON_CATEGORISE, "Achats"])).map((t) => t.id),
-      ["c", "d", "e"]
-    );
+  test("les transactions non catégorisées sont exclues du tableau", () => {
+    assert.deepEqual(transactionsCategorisees(transactions).map((t) => t.id), ["a", "b", "c", "f"]);
   });
 
-  test("le compteur porte sur la période, indépendamment du filtre catégorie", () => {
+  test("le compteur porte sur toute la période, indépendamment du tableau et du filtre catégorie", () => {
     assert.equal(compterNonCategorisees(transactions), 2);
-    const filtrees = filtrerParCategories(transactions, new Set(["CA"]));
+    const filtrees = filtrerParCategories(transactionsCategorisees(transactions), new Set(["CA"]));
     assert.equal(filtrees.length, 1);
+    assert.equal(compterNonCategorisees(filtrees), 0);
     assert.equal(compterNonCategorisees(transactions), 2);
   });
 
