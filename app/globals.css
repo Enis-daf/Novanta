@@ -1926,8 +1926,8 @@ input[type="checkbox"] {
   color: var(--couleur-accent-fonce);
 }
 
-/* Compteur "non catégorisé" : discret à zéro ; au-delà, alerte visible dans l'accent rose de la
-   marque (même traitement que le bouton de module actif) — jamais un rouge "erreur". */
+/* Compteur "non catégorisé" : discret à zéro ; au-delà, alerte (pas un bouton) en rose pâle avec
+   texte rose foncé de la palette — jamais un rouge "erreur". */
 .passe-non-categorise {
   align-self: flex-start;
   margin: 0;
@@ -1938,8 +1938,8 @@ input[type="checkbox"] {
 .passe-non-categorise--alerte {
   padding: 6px 12px;
   border-radius: var(--radius-sm);
-  background: var(--couleur-accent);
-  color: #fff;
+  background: var(--couleur-fond-alt-rose);
+  color: var(--couleur-accent-fonce);
   font-size: 13px;
   font-weight: 600;
 }
