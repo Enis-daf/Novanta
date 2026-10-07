@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import {
   AffectationAnalytique,
   AxeAnalytique,
@@ -106,6 +107,42 @@ export async function sauvegarderAxeConfigure(
       { onConflict: "organization_id" }
     );
   if (error) throw error;
+}
+
+/** Toutes les catégories connues de l'organisation et leur étage P&L courant (null = à mapper). */
+export async function chargerMappingsCategories(supabase: SupabaseClient, organizationId: string): Promise<MappingCategorie[]> {
+  const { data, error } = await supabase
+    .from("past_category_mappings")
+    .select("source_category_id, source_category_name, source_group_id, pnl_stage")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  return ((data ?? []) as Row[]).map((row) => ({
+    sourceCategoryId: row.source_category_id as string,
+    sourceCategoryName: row.source_category_name as string,
+    sourceGroupId: (row.source_group_id as string | null) ?? null,
+    pnlStage: estEtagePnl(row.pnl_stage) ? row.pnl_stage : null,
+  }));
+}
+
+/**
+ * Rattache une catégorie à un étage P&L. Seul pnl_stage est écrit : l'auteur, la date et la ligne
+ * d'historique sont posés par le trigger de la table (voir 20261009_past_category_mappings.sql).
+ * Lève une erreur si aucune ligne n'a été modifiée (catégorie inconnue ou accès refusé).
+ */
+export async function sauvegarderEtageCategorie(
+  supabase: SupabaseClient,
+  organizationId: string,
+  sourceCategoryId: string,
+  etage: EtagePnl
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("past_category_mappings")
+    .update({ pnl_stage: etage })
+    .eq("organization_id", organizationId)
+    .eq("source_category_id", sourceCategoryId)
+    .select("source_category_id");
+  if (error) throw error;
+  if ((data ?? []).length === 0) throw new Error("Aucun mapping modifié.");
 }
 
 // --- Écriture Pennylane : SERVEUR UNIQUEMENT (client service_role). L'appelant est seul
@@ -224,4 +261,38 @@ export async function supprimerPennylaneNonRevues(
     .select("id");
   if (error) throw error;
   return (data ?? []).length;
+}
+
+/**
+ * Fait connaître à la table de mapping les catégories rencontrées par une synchronisation. Une
+ * nouvelle catégorie est créée SANS étage (pnl_stage absent de la charge utile -> null, "à
+ * mapper") ; une catégorie déjà connue garde son étage, seuls son nom et son axe sont rafraîchis.
+ * Renvoie le nombre de catégories nouvelles.
+ */
+export async function enregistrerCategoriesConnues(
+  admin: SupabaseClient,
+  organizationId: string,
+  categories: CategorieSource[]
+): Promise<number> {
+  if (categories.length === 0) return 0;
+  const { data: existantes, error: erreurLecture } = await admin
+    .from("past_category_mappings")
+    .select("source_category_id")
+    .eq("organization_id", organizationId);
+  if (erreurLecture) throw erreurLecture;
+  const connues = new Set(((existantes ?? []) as Row[]).map((row) => row.source_category_id as string));
+
+  for (let i = 0; i < categories.length; i += TAILLE_LOT_ECRITURE) {
+    const lot = categories.slice(i, i + TAILLE_LOT_ECRITURE).map((c) => ({
+      organization_id: organizationId,
+      source_category_id: c.sourceCategoryId,
+      source_category_name: c.sourceCategoryName,
+      source_group_id: c.sourceGroupId,
+    }));
+    const { error } = await admin
+      .from("past_category_mappings")
+      .upsert(lot, { onConflict: "organization_id,source_category_id" });
+    if (error) throw error;
+  }
+  return categories.filter((c) => !connues.has(c.sourceCategoryId)).length;
 }

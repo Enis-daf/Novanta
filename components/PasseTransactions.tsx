@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DateField from "./DateField";
+import PasseMappingTable from "./PasseMappingTable";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, todayISO } from "@/lib/dates";
 import { formatMontant } from "@/lib/format";
@@ -23,10 +24,19 @@ import {
   trierParDateDecroissante,
 } from "@/lib/pastTransactions";
 import {
+  compterAMapper,
+  EtagePnl,
+  FiltreMapping,
+  lignesMapping,
+  MappingCategorie,
+} from "@/lib/pastCategoryMapping";
+import {
   chargerAxeConfigure,
   chargerAxesAnalytiques,
+  chargerMappingsCategories,
   chargerPastTransactions,
   sauvegarderAxeConfigure,
+  sauvegarderEtageCategorie,
 } from "@/lib/pastTransactionsRepository";
 
 interface PasseTransactionsProps {
@@ -52,6 +62,11 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   const [axes, setAxes] = useState<AxeAnalytique[]>([]);
   const [axeConfigure, setAxeConfigure] = useState<string | null>(null);
   const [erreurAxe, setErreurAxe] = useState<string | null>(null);
+  // Correspondance catégorie -> étage P&L : indépendante de la période, toujours accessible.
+  const [mappings, setMappings] = useState<MappingCategorie[]>([]);
+  const [vue, setVue] = useState<"transactions" | "mapping">("transactions");
+  const [filtreMapping, setFiltreMapping] = useState<FiltreMapping>("toutes");
+  const [erreurMapping, setErreurMapping] = useState<string | null>(null);
   const [chargement, setChargement] = useState(true);
   const [erreurChargement, setErreurChargement] = useState<string | null>(null);
   const [rechargement, setRechargement] = useState(0);
@@ -98,12 +113,14 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
       chargerPastTransactions(supabase!, organizationId, periode),
       chargerAxesAnalytiques(supabase!, organizationId),
       chargerAxeConfigure(supabase!, organizationId),
+      chargerMappingsCategories(supabase!, organizationId),
     ])
-      .then(([lignes, axesConnus, axeChoisi]) => {
+      .then(([lignes, axesConnus, axeChoisi, mappingsConnus]) => {
         if (annule) return;
         setStockees(trierParDateDecroissante(lignes));
         setAxes(axesConnus);
         setAxeConfigure(axeChoisi);
+        setMappings(mappingsConnus);
         setChargement(false);
       })
       .catch((error) => {
@@ -157,6 +174,36 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
     () => filtrerParCategories(categorisees, selectionEffective),
     [categorisees, selectionEffective]
   );
+
+  // Tableau de correspondance : toutes les catégories connues de l'axe retenu, avec leur activité
+  // sur la période. Le compteur "à mapper" porte sur ces catégories, quelle que soit la période.
+  const lignesCorrespondance = useMemo(
+    () => lignesMapping(mappings, axe.axeId, stockees),
+    [mappings, axe.axeId, stockees]
+  );
+  const nombreAMapper = useMemo(() => compterAMapper(lignesCorrespondance), [lignesCorrespondance]);
+
+  const changerEtage = (sourceCategoryId: string, etage: EtagePnl) => {
+    const precedent = mappings.find((m) => m.sourceCategoryId === sourceCategoryId)?.pnlStage ?? null;
+    if (precedent === etage) return;
+    const appliquer = (valeur: EtagePnl | null) =>
+      setMappings((prev) => prev.map((m) => (m.sourceCategoryId === sourceCategoryId ? { ...m, pnlStage: valeur } : m)));
+    appliquer(etage);
+    setErreurMapping(null);
+    sauvegarderEtageCategorie(supabase!, organizationId, sourceCategoryId, etage).catch((error) => {
+      const code = (error as { code?: string } | null)?.code ?? "inconnu";
+      console.error(
+        `[passe/mapping] step=update_pnl_stage organization=${organizationId} category=${sourceCategoryId} code=${code}`
+      );
+      appliquer(precedent);
+      setErreurMapping("Le mapping n'a pas pu être enregistré. Réessayez.");
+    });
+  };
+
+  const voirCategoriesAMapper = () => {
+    setVue("mapping");
+    setFiltreMapping("a_mapper");
+  };
 
   const nombrePages = Math.max(1, Math.ceil(transactionsFiltrees.length / LIGNES_PAR_PAGE));
   const pageCourante = Math.min(page, nombrePages - 1);
@@ -243,6 +290,9 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
           "Le token Pennylane ne permet pas de lire le nom des axes analytiques (autorisation « catégories » en lecture)."
         );
       }
+      if (data.nouvellesCategories > 0) {
+        phrases.push(`${pluriel(data.nouvellesCategories, "nouvelle catégorie", "nouvelles catégories")} à mapper.`);
+      }
       setSyncMessage(phrases.join(" "));
       setRechargement((n) => n + 1);
     } catch {
@@ -262,6 +312,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
           <DateField value={periode.fin} onChange={(v) => changerPeriode({ fin: v })} effacable={false} />
         </div>
 
+        {vue === "transactions" && (
         <div className="passe-controle passe-filtre" ref={filtreRef}>
           <span className="passe-controle__label">Catégories</span>
           <button
@@ -290,6 +341,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
             </div>
           )}
         </div>
+        )}
 
         {axes.length > 1 && !axeAConfigurer && (
           <div className="passe-controle passe-axe">
@@ -317,6 +369,29 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
       {syncErreur && <p className="passe-message passe-message--erreur">{syncErreur}</p>}
       {syncMessage && <p className="passe-message">{syncMessage}</p>}
       {erreurAxe && <p className="passe-message passe-message--erreur">{erreurAxe}</p>}
+      {erreurMapping && <p className="passe-message passe-message--erreur">{erreurMapping}</p>}
+
+      <div className="passe-onglets" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={vue === "transactions"}
+          className={`passe-onglet${vue === "transactions" ? " passe-onglet--actif" : ""}`}
+          onClick={() => setVue("transactions")}
+        >
+          Transactions
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={vue === "mapping"}
+          className={`passe-onglet${vue === "mapping" ? " passe-onglet--actif" : ""}`}
+          onClick={() => setVue("mapping")}
+        >
+          Correspondance P&amp;L
+          {nombreAMapper > 0 && <span className="passe-onglet__pastille">{nombreAMapper}</span>}
+        </button>
+      </div>
 
       {!periodeOk ? (
         <p className="passe-message passe-message--erreur">
@@ -343,17 +418,34 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
               {selecteurAxe("passe-axe-a-configurer-select")}
             </div>
           ) : (
-            <p className={`passe-non-categorise${nombreNonCategorisees > 0 ? " passe-non-categorise--alerte" : ""}`}>
-              {nombreNonCategorisees > 0 && <span aria-hidden="true">⚠ </span>}
-              {nombreNonCategorisees === 0
-                ? "Aucune transaction non catégorisée sur la période"
-                : `${pluriel(nombreNonCategorisees, "transaction non catégorisée", "transactions non catégorisées")}${
-                    nonCategoriseesToutesPennylane ? " dans Pennylane" : ""
-                  }`}
-            </p>
+            <div className="passe-indicateurs">
+              <p className={`passe-non-categorise${nombreNonCategorisees > 0 ? " passe-non-categorise--alerte" : ""}`}>
+                {nombreNonCategorisees > 0 && <span aria-hidden="true">⚠ </span>}
+                {nombreNonCategorisees === 0
+                  ? "Aucune transaction non catégorisée sur la période"
+                  : `${pluriel(nombreNonCategorisees, "transaction non catégorisée", "transactions non catégorisées")}${
+                      nonCategoriseesToutesPennylane ? " dans Pennylane" : ""
+                    }`}
+              </p>
+              {/* Notion distincte de la précédente : ici la catégorie existe, il lui manque un étage P&L. */}
+              {nombreAMapper === 0 ? (
+                <p className="passe-non-categorise">Aucune catégorie à mapper</p>
+              ) : (
+                <button type="button" className="passe-a-mapper" onClick={voirCategoriesAMapper}>
+                  {pluriel(nombreAMapper, "catégorie à mapper", "catégories à mapper")} →
+                </button>
+              )}
+            </div>
           )}
 
-          {axeAConfigurer ? null : transactions.length === 0 ? (
+          {axeAConfigurer ? null : vue === "mapping" ? (
+            <PasseMappingTable
+              lignes={lignesCorrespondance}
+              filtre={filtreMapping}
+              onChangeFiltre={setFiltreMapping}
+              onChangeEtage={changerEtage}
+            />
+          ) : transactions.length === 0 ? (
             <div className="passe-etat">
               <p>Aucune transaction sur cette période.</p>
               {pennylaneConnecte === true && <p>Synchronisez Pennylane pour récupérer vos transactions.</p>}

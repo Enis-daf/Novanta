@@ -15,7 +15,9 @@ import { cleChiffrementConfiguree } from "@/lib/pennylaneCrypto";
 import { MESSAGE_CONFIG_SERVEUR, codeErreurPennylane, messageErreurUtilisationPennylane } from "@/lib/pennylaneMessages";
 import { decouperPeriodeParMois, normaliserNomCategorie, Periode, periodeValide } from "@/lib/pastTransactions";
 import { depuisTransactionsPennylane } from "@/lib/pastTransactionAdapters";
+import { CategorieSource, categoriesDesTransactions } from "@/lib/pastCategoryMapping";
 import {
+  enregistrerCategoriesConnues,
   supprimerPennylaneNonRevues,
   upsertAxesAnalytiques,
   upsertPastTransactionsPennylane,
@@ -112,6 +114,9 @@ export async function POST(req: NextRequest) {
   // de catégories quand le token y a accès (scope categories:readonly), sinon il reste inconnu.
   const axes = new Map<string, string | null>();
   let libellesAxesDisponibles = true;
+  // Catégories rencontrées, à faire connaître à la table de mapping (jamais d'étage choisi ici).
+  const categories = new Map<string, CategorieSource>();
+  let nouvellesCategories = 0;
 
   try {
     try {
@@ -132,6 +137,7 @@ export async function POST(req: NextRequest) {
       await upsertPastTransactionsPennylane(supabaseAdmin, organizationId, normalisees, syncedAt);
       nombreSynchronisees += normalisees.length;
       for (const t of normalisees) for (const a of t.affectations) axesUtilises.add(a.groupId);
+      for (const c of categoriesDesTransactions(normalisees)) categories.set(c.sourceCategoryId, c);
     }
 
     // Seuls les axes réellement portés par des transactions sont proposés au module.
@@ -140,6 +146,7 @@ export async function POST(req: NextRequest) {
       organizationId,
       [...axesUtilises].map((groupId) => ({ groupId, name: axes.get(groupId) ?? null }))
     );
+    nouvellesCategories = await enregistrerCategoriesConnues(supabaseAdmin, organizationId, [...categories.values()]);
   } catch (erreur) {
     if (erreur instanceof PennylaneApiError) {
       console.log(`[passe/sync] Pennylane returned ${erreur.httpStatus ?? "?"} reason=${erreur.reason}`);
@@ -172,5 +179,11 @@ export async function POST(req: NextRequest) {
   }
 
   console.log(`[passe/sync] OK company=${organizationId} synchronisees=${nombreSynchronisees} retirees=${nombreRetirees} complete=${complete}`);
-  return NextResponse.json({ nombreSynchronisees, nombreRetirees, complete, libellesAxesDisponibles });
+  return NextResponse.json({
+    nombreSynchronisees,
+    nombreRetirees,
+    complete,
+    libellesAxesDisponibles,
+    nouvellesCategories,
+  });
 }

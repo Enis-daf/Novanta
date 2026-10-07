@@ -101,6 +101,10 @@ export function estNonCategorisee(transaction: Pick<PastTransaction, "analyticCa
 }
 
 /**
+ * Commodité d'AFFICHAGE uniquement (une ligne du tableau = une catégorie) : ce n'est pas la règle
+ * de répartition des montants, qui suit les pondérations (ventilerTransaction,
+ * lib/pastCategoryMapping.ts).
+ *
  * Catégorie principale d'une transaction DANS un axe donné : l'affectation de plus fort poids de
  * cet axe (à poids égal, la première par nom, pour un résultat stable). null si la transaction
  * n'a aucune affectation dans cet axe. Ne choisit jamais entre deux axes.
