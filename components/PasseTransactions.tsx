@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, todayISO } from "@/lib/dates";
 import { formatMontant, formatMontantComptable, formatPourcentage } from "@/lib/format";
 import { calculerPnl } from "@/lib/pastPnl";
+import { anomaliesDeSigne, compterTransactionsAvecAnomalie, LIBELLES_ANOMALIE_SIGNE } from "@/lib/pastSignChecks";
 import {
   appliquerAxe,
   AxeAnalytique,
@@ -29,6 +30,7 @@ import {
   compterAMapper,
   EtagePnl,
   FiltreMapping,
+  libelleEtagePnl,
   indexerMappings,
   lignesMapping,
   MappingCategorie,
@@ -84,6 +86,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   const [vue, setVue] = useState<Vue>("general");
   const [filtreMapping, setFiltreMapping] = useState<FiltreMapping>("toutes");
   const [erreurMapping, setErreurMapping] = useState<string | null>(null);
+  const [detailSignesOuvert, setDetailSignesOuvert] = useState(false);
   const [chargement, setChargement] = useState(true);
   const [erreurChargement, setErreurChargement] = useState<string | null>(null);
   const [rechargement, setRechargement] = useState(0);
@@ -202,10 +205,14 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
 
   // P&L de la période : transaction -> catégories pondérées -> mapping courant -> étage. Recalculé
   // dès qu'un mapping change, sans relire ni réécrire les transactions.
-  const pnl = useMemo(
-    () => calculerPnl(stockees, axe.axeId, indexerMappings(mappings)),
-    [stockees, axe.axeId, mappings]
+  const mappingsIndexes = useMemo(() => indexerMappings(mappings), [mappings]);
+  const pnl = useMemo(() => calculerPnl(stockees, axe.axeId, mappingsIndexes), [stockees, axe.axeId, mappingsIndexes]);
+  // Signes inhabituels sur la période : signalés seulement, jamais corrigés ni exclus du P&L.
+  const anomaliesSigne = useMemo(
+    () => anomaliesDeSigne(stockees, axe.axeId, mappingsIndexes),
+    [stockees, axe.axeId, mappingsIndexes]
   );
+  const nombreSignesInhabituels = useMemo(() => compterTransactionsAvecAnomalie(anomaliesSigne), [anomaliesSigne]);
   // Écrans détaillés à venir : pour l'instant, seul l'indicateur de l'onglet est rappelé.
   const indicateursDetail: Partial<Record<Vue, { libelle: string; montant: number; ratio?: number | null }>> = {
     ca: { libelle: "Chiffre d'affaires", montant: pnl.ca },
@@ -464,6 +471,58 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
                   {pluriel(nombreAMapper, "catégorie à mapper", "catégories à mapper")} →
                 </button>
               )}
+              {nombreSignesInhabituels > 0 && (
+                <button
+                  type="button"
+                  className="passe-signes"
+                  aria-expanded={detailSignesOuvert}
+                  onClick={() => setDetailSignesOuvert((o) => !o)}
+                >
+                  {pluriel(
+                    nombreSignesInhabituels,
+                    "transaction avec un signe inhabituel",
+                    "transactions avec un signe inhabituel"
+                  )}{" "}
+                  <span aria-hidden="true">{detailSignesOuvert ? "▴" : "▾"}</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {!axeAConfigurer && detailSignesOuvert && nombreSignesInhabituels > 0 && (
+            <div className="passe-signes-detail">
+              <p className="passe-message">
+                À vérifier, sans urgence : un signe inhabituel peut être légitime (remboursement client, avoir
+                fournisseur, correction bancaire). Ces montants restent pris en compte tels quels dans le reporting.
+              </p>
+              <div className="table-wrapper">
+                <table className="passe-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Libellé</th>
+                      <th className="col-montant">Montant</th>
+                      <th>Catégorie</th>
+                      <th>Étage P&amp;L</th>
+                      <th>Anomalie</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {anomaliesSigne.map((a) => (
+                      <tr key={`${a.transactionId}:${a.sourceCategoryId}`}>
+                        <td className="passe-table__date">{formatDateCourte(a.transactionDate)}</td>
+                        <td className="passe-table__libelle">{a.label || "—"}</td>
+                        <td className="col-montant passe-table__montant">{formatMontant(a.montant)}</td>
+                        <td>{a.sourceCategoryName}</td>
+                        <td>{libelleEtagePnl(a.etage)}</td>
+                        <td>
+                          <span className="passe-statut">{LIBELLES_ANOMALIE_SIGNE[a.type]}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
