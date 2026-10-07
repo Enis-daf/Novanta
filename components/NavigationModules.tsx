@@ -15,7 +15,7 @@ export default function NavigationModules({ moduleActif, passeDisponible }: Navi
     `btn-secondaire${moduleActif === module ? " btn-module--actif" : ""}`;
 
   return (
-    <>
+    <nav className="nav-modules" aria-label="Modules">
       <Link
         href={ROUTE_PASSE}
         className={classe("passe")}
@@ -30,6 +30,6 @@ export default function NavigationModules({ moduleActif, passeDisponible }: Navi
       >
         Futur
       </Link>
-    </>
+    </nav>
   );
 }
