@@ -1,7 +1,7 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { decimalesAxeK } from "./PasseEvolutionChart";
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { decimalesAxeK, libelleBarreauK, MAX_MOIS_AVEC_LIBELLES } from "./PasseEvolutionChart";
 import { graduationsAxe, NEUTRES, OPACITE_ATTENUEE, TEINTE_SERIE_PRINCIPALE, TEINTE_SERIE_SECONDAIRE } from "@/lib/dataviz";
 import { formatMontant, formatMontantK } from "@/lib/format";
 import { libelleMois, libelleMoisCourt } from "@/lib/pastDetail";
@@ -55,7 +55,7 @@ export default function PasseDecompositionChart({ titre, decomposition, selectio
         <ResponsiveContainer width="100%" height={240}>
           <BarChart
             data={decomposition}
-            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+            margin={{ top: 20, right: 8, left: 0, bottom: 0 }}
             barGap={2}
             onClick={(etat) => {
               if (typeof etat?.activeLabel === "string") onSelect(etat.activeLabel);
@@ -86,7 +86,7 @@ export default function PasseDecompositionChart({ titre, decomposition, selectio
             <Tooltip content={<InfoBulle />} cursor={{ fill: NEUTRES.bordure, fillOpacity: 0.5 }} />
             <ReferenceLine y={0} stroke={NEUTRES.secondaire} />
             {SERIES.map((serie) => (
-              <Bar key={serie.cle} dataKey={serie.cle} name={serie.libelle} radius={[4, 4, 0, 0]} maxBarSize={18} isAnimationActive={false}>
+              <Bar key={serie.cle} dataKey={serie.cle} name={serie.libelle} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false}>
                 {decomposition.map((d) => (
                   <Cell
                     key={d.mois}
@@ -94,6 +94,16 @@ export default function PasseDecompositionChart({ titre, decomposition, selectio
                     fillOpacity={selection !== null && selection !== d.mois ? OPACITE_ATTENUEE : 1}
                   />
                 ))}
+                {/* Deux barreaux par mois : libellés sans unité (rappelée dans le titre) pour tenir. */}
+                {decomposition.length <= MAX_MOIS_AVEC_LIBELLES && (
+                  <LabelList
+                    dataKey={serie.cle}
+                    position="top"
+                    formatter={(valeur: unknown) => libelleBarreauK(valeur, false)}
+                    fontSize={9}
+                    fill={NEUTRES.encre}
+                  />
+                )}
               </Bar>
             ))}
           </BarChart>

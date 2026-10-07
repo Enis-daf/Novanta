@@ -1,6 +1,6 @@
 "use client";
 
-import { Bar, BarChart, CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { graduationsAxe, NEUTRES, OPACITE_ATTENUEE, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
 import { formatMontant, formatMontantK } from "@/lib/format";
 import { libelleMois, libelleMoisCourt, PointEvolution } from "@/lib/pastDetail";
@@ -35,6 +35,17 @@ function InfoBulle({
   );
 }
 
+// Au-delà, les barreaux sont trop serrés pour porter chacun son libellé : l'infobulle prend le relais.
+export const MAX_MOIS_AVEC_LIBELLES = 12;
+
+/** Libellé d'un barreau en k€ ; rien sur un barreau nul. */
+export function libelleBarreauK(valeur: unknown, avecUnite = true): string {
+  if (typeof valeur !== "number" || valeur === 0) return "";
+  const texte = formatMontantK(valeur, Math.abs(valeur) < 10_000 ? 1 : 0);
+  // Espace insécable avant l'unité : le libellé tient sur une ligne au-dessus de son barreau.
+  return avecUnite ? texte.replace(" k€", "\u00a0k€") : texte.replace(" k€", "");
+}
+
 /** Décimales des graduations en k€ : davantage quand l'échelle est petite, pour ne pas les confondre. */
 export function decimalesAxeK(amplitude: number): number {
   return amplitude < 2_000 ? 2 : 1;
@@ -54,7 +65,7 @@ export default function PasseEvolutionChart({ titre, evolution, enValeurAbsolue 
         <ResponsiveContainer width="100%" height={240}>
           <BarChart
             data={evolution}
-            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+            margin={{ top: 20, right: 8, left: 0, bottom: 0 }}
             onClick={(etat) => {
               if (typeof etat?.activeLabel === "string") onSelect(etat.activeLabel);
             }}
@@ -91,6 +102,15 @@ export default function PasseEvolutionChart({ titre, evolution, enValeurAbsolue 
                   fillOpacity={selection !== null && selection !== e.mois ? OPACITE_ATTENUEE : 1}
                 />
               ))}
+              {evolution.length <= MAX_MOIS_AVEC_LIBELLES && (
+                <LabelList
+                  dataKey="valeur"
+                  position="top"
+                  formatter={(valeur: unknown) => libelleBarreauK(valeur)}
+                  fontSize={10}
+                  fill={NEUTRES.encre}
+                />
+              )}
             </Bar>
           </BarChart>
         </ResponsiveContainer>

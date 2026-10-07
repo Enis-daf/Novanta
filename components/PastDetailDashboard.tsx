@@ -116,7 +116,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, teintes 
 
         {vue.decomposition && (
           <PasseDecompositionChart
-            titre="EBITDA et Extra P&L par mois"
+            titre="EBITDA et Extra P&L par mois (k€)"
             decomposition={vue.decomposition}
             selection={filtres.mois}
             onSelect={basculerMois}
