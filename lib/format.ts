@@ -6,12 +6,14 @@ export function formatMontant(montant: number): string {
   }).format(montant);
 }
 
-/** Format compact en k€ (arrondi à 1 décimale max, sans décimale si le montant tombe juste). */
-export function formatMontantK(montant: number): string {
-  const valeurK = montant / 1000;
-  const signe = valeurK < 0 ? -1 : 1;
-  const arrondi = (Math.round(Math.abs(valeurK) * 10) / 10) * signe;
-  const texte = Number.isInteger(arrondi) ? String(arrondi) : arrondi.toFixed(1).replace(".", ",");
+/**
+ * Format compact en k€ ("12,4 k€"), arrondi à `decimales` décimales au plus (1 par défaut), sans
+ * décimale si le montant tombe juste.
+ */
+export function formatMontantK(montant: number, decimales = 1): string {
+  const facteur = 10 ** decimales;
+  const arrondi = Math.round((montant / 1000) * facteur) / facteur;
+  const texte = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: decimales }).format(arrondi === 0 ? 0 : arrondi);
   return `${texte} k€`;
 }
 

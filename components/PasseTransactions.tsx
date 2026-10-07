@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import DateField from "./DateField";
 import PasseGeneral from "./PasseGeneral";
 import PasseMappingTable from "./PasseMappingTable";
+import PastDetailDashboard from "./PastDetailDashboard";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, todayISO } from "@/lib/dates";
-import { formatMontant, formatMontantComptable, formatPourcentage } from "@/lib/format";
+import { formatMontant, formatMontantComptable } from "@/lib/format";
+import { teintesParCategorie } from "@/lib/dataviz";
+import { estMetriqueDetail, partsMappees } from "@/lib/pastDetail";
 import { calculerPnl } from "@/lib/pastPnl";
 import { anomaliesDeSigne, compterTransactionsAvecAnomalie, LIBELLES_ANOMALIE_SIGNE } from "@/lib/pastSignChecks";
 import {
@@ -213,15 +216,14 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
     [stockees, axe.axeId, mappingsIndexes]
   );
   const nombreSignesInhabituels = useMemo(() => compterTransactionsAvecAnomalie(anomaliesSigne), [anomaliesSigne]);
-  // Écrans détaillés à venir : pour l'instant, seul l'indicateur de l'onglet est rappelé.
-  const indicateursDetail: Partial<Record<Vue, { libelle: string; montant: number; ratio?: number | null }>> = {
-    ca: { libelle: "Chiffre d'affaires", montant: pnl.ca },
-    marge_brute: { libelle: "Marge brute", montant: pnl.margeBrute, ratio: pnl.ratios.margeBrute },
-    marge_contributive: { libelle: "Marge contributive", montant: pnl.margeContributive, ratio: pnl.ratios.margeContributive },
-    ebitda: { libelle: "EBITDA", montant: pnl.ebitda, ratio: pnl.ratios.ebitda },
-    cash_flow: { libelle: "Cash flow", montant: pnl.cashFlow },
-  };
-  const indicateurDetail = indicateursDetail[vue];
+  // Une catégorie = une teinte, fixée sur la période entière et partagée par tous les onglets.
+  const teintesCategories = useMemo(() => teintesParCategorie(pnl.categories), [pnl.categories]);
+  // Écrans détaillés : parts mappées de la période, matière commune du KPI, du camembert, de
+  // l'histogramme et de la liste de transactions de chaque écran.
+  const partsDetail = useMemo(
+    () => partsMappees(stockees, axe.axeId, mappingsIndexes),
+    [stockees, axe.axeId, mappingsIndexes]
+  );
 
   const changerEtage = (sourceCategoryId: string, etage: EtagePnl) => {
     const precedent = mappings.find((m) => m.sourceCategoryId === sourceCategoryId)?.pnlStage ?? null;
@@ -537,15 +539,17 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
           )}
 
           {axeAConfigurer ? null : vue === "general" ? (
-            <PasseGeneral pnl={pnl} />
-          ) : indicateurDetail ? (
-            <div className="passe-indicateur-detail">
-              <p className="passe-indicateur-detail__libelle">{indicateurDetail.libelle}</p>
-              <p className="passe-indicateur-detail__montant">{formatMontantComptable(indicateurDetail.montant)}</p>
-              {indicateurDetail.ratio !== undefined && (
-                <p className="passe-indicateur-detail__ratio">{formatPourcentage(indicateurDetail.ratio)} du CA</p>
-              )}
-            </div>
+            <PasseGeneral pnl={pnl} teintes={teintesCategories} />
+          ) : estMetriqueDetail(vue) ? (
+            // `key` : changer d'onglet remonte l'écran, donc réinitialise ses filtres locaux
+            // (catégorie, mois) ; la période, elle, vit ici et reste inchangée.
+            <PastDetailDashboard
+              key={vue}
+              metrique={vue}
+              parts={partsDetail}
+              periode={periode}
+              teintes={teintesCategories}
+            />
           ) : vue === "mapping" ? (
             <PasseMappingTable
               lignes={lignesCorrespondance}

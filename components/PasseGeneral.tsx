@@ -6,6 +6,8 @@ import { ETAGES_COUTS, ETAGES_REVENUS, Pnl, structureParCategorie } from "@/lib/
 
 interface PasseGeneralProps {
   pnl: Pnl;
+  // Teinte attitrée de chaque catégorie, commune à tous les écrans du module (lib/dataviz.ts).
+  teintes: ReadonlyMap<string, string>;
 }
 
 function Ligne({
@@ -30,7 +32,7 @@ function Ligne({
 
 // Onglet "Général" : P&L synthétique, Cash flow et structure des revenus / des coûts, sur la
 // période du module. Tout est dérivé à la lecture ; rien n'est interrogé chez Pennylane ici.
-export default function PasseGeneral({ pnl }: PasseGeneralProps) {
+export default function PasseGeneral({ pnl, teintes }: PasseGeneralProps) {
   return (
     <div className="passe-general">
       {/* Colonne gauche : la performance. Un bloc par étage, répartis sur toute la hauteur. */}
@@ -63,11 +65,13 @@ export default function PasseGeneral({ pnl }: PasseGeneralProps) {
           titre="Structure des revenus"
           structure={structureParCategorie(pnl.categories, ETAGES_REVENUS, "revenus")}
           messageVide="Aucun revenu mappé sur la période."
+          teintes={teintes}
         />
         <PasseStructureChart
           titre="Structure des coûts"
           structure={structureParCategorie(pnl.categories, ETAGES_COUTS, "couts")}
           messageVide="Aucun coût mappé sur la période."
+          teintes={teintes}
         />
       </div>
     </div>

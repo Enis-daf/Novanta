@@ -2291,11 +2291,37 @@ input[type="checkbox"] {
   color: var(--couleur-texte);
 }
 
-.passe-structure__legende li {
+.passe-structure__ligne {
+  width: 100%;
   display: grid;
   grid-template-columns: 10px 1fr auto 52px;
   align-items: baseline;
   column-gap: var(--space-2);
+  padding: 3px 6px;
+  margin: 0 -6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.passe-structure__ligne--cliquable {
+  cursor: pointer;
+}
+
+.passe-structure__ligne--cliquable:hover {
+  background: var(--couleur-bordure);
+}
+
+.passe-structure__ligne--attenuee {
+  opacity: 0.45;
+}
+
+.passe-structure__ligne--selection {
+  background: var(--couleur-fond-alt-rose);
+  font-weight: 600;
 }
 
 .passe-structure__pastille {
@@ -2340,31 +2366,151 @@ input[type="checkbox"] {
   box-shadow: 0 4px 16px rgba(3, 10, 22, 0.12);
 }
 
-/* Écrans détaillés à venir (CA, marges, EBITDA, Cash flow) : seul l'indicateur est rappelé. */
-.passe-indicateur-detail {
-  padding-top: var(--space-3);
+/* Écrans détaillés (CA, marges, EBITDA, Cash flow) : à gauche KPI, répartition et évolution ; à
+   droite les transactions qui expliquent le chiffre. Environ 55 / 45 sur desktop, une colonne sur
+   écran étroit. */
+.passe-detail {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-7);
+  padding-top: var(--space-4);
 }
 
-.passe-indicateur-detail p {
-  margin: 0;
+.passe-detail__gauche {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
 }
 
-.passe-indicateur-detail__libelle {
-  font-size: 13px;
+.passe-detail__droite {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .passe-detail {
+    grid-template-columns: minmax(0, 55fr) minmax(0, 45fr);
+    gap: 0;
+    align-items: start;
+  }
+
+  .passe-detail__gauche {
+    padding-right: var(--space-6);
+  }
+
+  /* La liste reste sous les yeux pendant qu'on clique à gauche, et défile dans sa colonne. */
+  .passe-detail__droite {
+    position: sticky;
+    top: var(--space-3);
+    max-height: calc(100vh - var(--space-5));
+    padding-left: var(--space-6);
+    border-left: 1px solid var(--couleur-bordure);
+  }
+
+  .passe-detail__table {
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .passe-detail__table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--couleur-fond);
+  }
+}
+
+.passe-detail__compte {
+  font-weight: 400;
   color: var(--couleur-texte-secondaire);
 }
 
-.passe-indicateur-detail__montant {
-  font-size: 34px;
+.passe-detail__source {
+  display: block;
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-kpi p {
+  margin: 0;
+}
+
+.passe-kpi__libelle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+}
+
+.passe-kpi__contexte {
+  font-weight: 400;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-kpi__montant {
+  font-size: 40px;
   font-weight: 700;
   letter-spacing: -0.01em;
+  line-height: 1.2;
   color: var(--couleur-texte);
   font-variant-numeric: tabular-nums;
 }
 
-.passe-indicateur-detail__ratio {
-  font-size: 13px;
+.passe-kpi__ratio {
+  font-size: 14px;
   color: var(--couleur-texte-secondaire);
+}
+
+.passe-filtres-actifs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  font-size: 12px;
+}
+
+.passe-filtres-actifs__titre {
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Filtre actif : même traitement que le bouton de module actif. */
+.passe-puce {
+  padding: 4px 10px;
+  border: 1px solid var(--couleur-accent);
+  border-radius: 999px;
+  background: var(--couleur-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.passe-puce:hover {
+  background: var(--couleur-accent-fonce);
+  border-color: var(--couleur-accent-fonce);
+}
+
+.passe-lien {
+  padding: 4px 6px;
+  border: none;
+  background: none;
+  color: var(--couleur-accent-fonce);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.passe-visuellement-cache {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 /* "X transactions avec un signe inhabituel" : simple point d'attention, volontairement plus
@@ -2391,4 +2537,20 @@ input[type="checkbox"] {
   padding: var(--space-3);
   border: 1px solid var(--couleur-bordure);
   border-radius: var(--radius-md);
+}
+
+.passe-decomposition__legende {
+  display: flex;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--couleur-texte);
+}
+
+.passe-decomposition__legende li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }

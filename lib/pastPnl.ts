@@ -133,18 +133,31 @@ export interface Structure {
 }
 
 export const CLE_AUTRES = "autres";
-export const MAX_PARTS_STRUCTURE = 6;
+// Par défaut, 5 catégories distinctes par camembert puis "Autres" (6 parts au plus). Un écran aux
+// catégories naturellement plus éclatées peut en demander davantage (voir lib/pastDetail.ts), dans
+// la limite du nombre de teintes distinctes disponibles (lib/dataviz.ts).
+export const MAX_CATEGORIES_STRUCTURE = 5;
+
+export type SensStructure = "revenus" | "couts";
+
+export interface OptionsStructure {
+  maxCategories?: number;
+  // Catégorie sélectionnée : elle garde toujours sa propre part, même petite — une autre petite
+  // catégorie rejoint "Autres" à sa place si la limite l'exige.
+  epingle?: string | null;
+}
 
 /**
  * Répartition par catégorie pour un camembert. `sens` fixe ce qu'une part représente : des
  * montants positifs (revenus) ou négatifs (coûts) ; la taille d'une part est la valeur absolue de
- * son montant, le montant lui-même reste signé. Au-delà de MAX_PARTS_STRUCTURE catégories, les
- * plus petites sont regroupées en une part "Autres" (les 5 plus grandes + Autres).
+ * son montant, le montant lui-même reste signé. Au-delà de `maxCategories`, les plus petites sont
+ * regroupées en une part "Autres (n catégories)".
  */
 export function structureParCategorie(
   categories: PnlCategorie[],
   etages: readonly EtagePnl[],
-  sens: "revenus" | "couts"
+  sens: SensStructure,
+  { maxCategories = MAX_CATEGORIES_STRUCTURE, epingle = null }: OptionsStructure = {}
 ): Structure {
   const concernees = categories.filter((c) => etages.includes(c.etage));
   const representables = concernees
@@ -152,8 +165,12 @@ export function structureParCategorie(
     .sort((a, b) => Math.abs(b.montant) - Math.abs(a.montant) || a.sourceCategoryName.localeCompare(b.sourceCategoryName, "fr"));
   const total = representables.reduce((somme, c) => somme + c.montant, 0);
 
-  const principales = representables.length > MAX_PARTS_STRUCTURE ? representables.slice(0, MAX_PARTS_STRUCTURE - 1) : representables;
-  const reste = representables.slice(principales.length);
+  let principales = representables.slice(0, maxCategories);
+  const epinglee = epingle ? representables.find((c) => c.sourceCategoryId === epingle) : undefined;
+  if (epinglee && !principales.includes(epinglee)) {
+    principales = [...principales.slice(0, maxCategories - 1), epinglee];
+  }
+  const reste = representables.filter((c) => !principales.includes(c));
   const parts: PartStructure[] = principales.map((c) => ({
     cle: c.sourceCategoryId,
     nom: c.sourceCategoryName,
@@ -162,7 +179,12 @@ export function structureParCategorie(
   }));
   if (reste.length > 0) {
     const montant = reste.reduce((somme, c) => somme + c.montant, 0);
-    parts.push({ cle: CLE_AUTRES, nom: `Autres (${reste.length} catégories)`, montant, part: montant / total });
+    parts.push({
+      cle: CLE_AUTRES,
+      nom: reste.length > 1 ? `Autres (${reste.length} catégories)` : "Autres (1 catégorie)",
+      montant,
+      part: montant / total,
+    });
   }
   return { parts, total, nombreNonRepresentees: concernees.length - representables.length };
 }
