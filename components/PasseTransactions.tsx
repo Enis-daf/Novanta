@@ -153,6 +153,17 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
     return new Set([...selectionCategories].filter((cle) => proposees.has(cle)));
   }, [selectionCategories, categories]);
 
+  // DIAGNOSTIC TEMPORAIRE (catégories absentes du tableau) : compteurs à chaque étape côté
+  // navigateur, sans aucune donnée de transaction. À retirer.
+  useEffect(() => {
+    if (chargement) return;
+    console.info(
+      `[passe/front] charge=${stockees.length} avec_affectations=${stockees.filter((t) => t.affectations.length > 0).length} ` +
+        `axes=${axes.map((a) => a.groupId).join(",") || "-"} axe_configure=${axeConfigure ?? "-"} etat_axe=${axe.etat} axe_retenu=${axe.axeId ?? "-"} ` +
+        `categorisees=${categorisees.length} categories=${categories.length} non_categorisees=${nombreNonCategorisees}`
+    );
+  }, [chargement, stockees, axes, axeConfigure, axe, categorisees, categories, nombreNonCategorisees]);
+
   const transactionsFiltrees = useMemo(
     () => filtrerParCategories(categorisees, selectionEffective),
     [categorisees, selectionEffective]
