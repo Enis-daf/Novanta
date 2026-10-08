@@ -2132,11 +2132,20 @@ input[type="checkbox"] {
 }
 
 /* Onglets du module Passé : Transactions / Correspondance P&L. */
+/* Deux groupes : consultation à gauche, actions (Stocks, Correspondance P&L) à droite, séparés
+   par l'espace libre. Faute de place, le second groupe passe à la ligne sans se mêler au premier. */
 .passe-onglets {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+.passe-onglets__groupe {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-4);
-  border-bottom: 1px solid var(--couleur-bordure);
 }
 
 .passe-onglet {

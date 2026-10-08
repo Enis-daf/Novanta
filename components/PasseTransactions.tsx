@@ -83,6 +83,8 @@ interface PasseTransactionsProps {
 const LIGNES_PAR_PAGE = 50;
 
 // Onglets du module Passé. La période, choisie une fois, s'applique à tous.
+// Deux groupes dans la navigation : à gauche ce qu'on CONSULTE (du général au particulier, dans
+// l'ordre du P&L, puis l'analyse transversale), à droite ce qu'on RENSEIGNE ou configure.
 const ONGLETS = [
   { cle: "general", libelle: "Général" },
   { cle: "ca", libelle: "CA" },
@@ -90,10 +92,11 @@ const ONGLETS = [
   { cle: "marge_contributive", libelle: "Marge contributive" },
   { cle: "ebitda", libelle: "EBITDA" },
   { cle: "cash_flow", libelle: "Cash flow" },
-  // Mis en avant dans la navigation (rose de marque) : c'est l'onglet qu'on doit repérer d'emblée.
+  // Dernier du groupe de consultation : ce n'est pas un étage de plus du P&L mais une lecture
+  // transversale. Mis en avant (rose de marque) même au repos, pour être repéré d'emblée.
   { cle: "ecarts", libelle: "Analyse d'écarts", vedette: true },
-  { cle: "stocks", libelle: "Stocks" },
-  { cle: "mapping", libelle: "Correspondance P&L" },
+  { cle: "stocks", libelle: "Stocks", actions: true },
+  { cle: "mapping", libelle: "Correspondance P&L", actions: true },
   // Plus proposé dans la navigation : une liste brute de transactions, sans contexte, n'explique
   // aucun chiffre. Les transactions se consultent dans les écrans de détail, par étage, catégorie
   // et mois. La vue reste définie (rien d'autre n'est retiré) mais n'est plus atteignable.
@@ -672,22 +675,26 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
       {erreurStock && <p className="login-erreur">{erreurStock}</p>}
 
       <div className="passe-onglets" role="tablist">
-        {ONGLETS.filter((onglet) => !("horsNavigation" in onglet)).map((onglet) => (
-          <button
-            key={onglet.cle}
-            type="button"
-            role="tab"
-            aria-selected={vue === onglet.cle}
-            className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}${
-              "vedette" in onglet ? " passe-onglet--vedette" : ""
-            }`}
-            onClick={() => setVue(onglet.cle)}
-          >
-            {onglet.libelle}
-            {onglet.cle === "mapping" && nombreAMapper > 0 && (
-              <span className="passe-onglet__pastille">{nombreAMapper}</span>
-            )}
-          </button>
+        {[false, true].map((actions) => (
+          <div key={String(actions)} className="passe-onglets__groupe" role="presentation">
+            {ONGLETS.filter((onglet) => !("horsNavigation" in onglet) && "actions" in onglet === actions).map((onglet) => (
+              <button
+                key={onglet.cle}
+                type="button"
+                role="tab"
+                aria-selected={vue === onglet.cle}
+                className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}${
+                  "vedette" in onglet ? " passe-onglet--vedette" : ""
+                }`}
+                onClick={() => setVue(onglet.cle)}
+              >
+                {onglet.libelle}
+                {onglet.cle === "mapping" && nombreAMapper > 0 && (
+                  <span className="passe-onglet__pastille">{nombreAMapper}</span>
+                )}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
 
