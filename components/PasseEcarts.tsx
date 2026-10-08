@@ -13,6 +13,7 @@ import {
   PRESETS_AVEC_MOIS,
   SelectionPeriode,
 } from "@/lib/fiscalPeriods";
+import { MatchMethod } from "@/lib/flowMatching";
 import { formatMontant, formatPourcentage } from "@/lib/format";
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import { EtagePnl, MappingCategorie } from "@/lib/pastCategoryMapping";
@@ -56,6 +57,13 @@ const TRIS: { cle: TriTransactions; libelle: string }[] = [
   { cle: "montant", libelle: "Montant" },
   { cle: "date", libelle: "Date" },
 ];
+
+const METHODES: Record<MatchMethod, string> = {
+  sepa_emitter_mandate: "même émetteur et même mandat SEPA",
+  structured_counterparty: "même contrepartie",
+  exact_normalized: "même libellé",
+  token_similarity: "contreparties voisines",
+};
 
 function signe(montant: number): string {
   return montant > 0 ? `+${formatMontant(montant)}` : formatMontant(montant);
@@ -428,8 +436,8 @@ export default function PasseEcarts({
             </h3>
             <p className="passe-reserve">
               Regroupement expérimental : les transactions d&apos;un même flux (même mandat de prélèvement, ou même
-              libellé hors dates) sont additionnées sur chaque période. Cliquez sur une ligne pour voir les transactions
-              d&apos;origine.
+              contrepartie une fois retirés l&apos;habillage bancaire et les références) sont additionnées sur chaque
+              période. Cliquez sur une ligne pour voir les transactions d&apos;origine.
             </p>
             {groupesAffiches.length === 0 ? (
               <p className="passe-structure__vide">
@@ -450,7 +458,13 @@ export default function PasseEcarts({
                     {groupesAffiches.slice(0, nombreAffiche).map((g) => (
                       <tr key={g.cle}>
                         <td className="passe-table__libelle">
-                          <button type="button" className="passe-lien-ligne" onClick={() => ouvrirGroupe(g.cle)}>
+                          {/* Infobulle : pourquoi ces transactions sont réunies (méthode et confiance). */}
+                          <button
+                            type="button"
+                            className="passe-lien-ligne"
+                            title={`Regroupement : ${METHODES[g.matchMethod]} (confiance ${Math.round(g.confidenceScore * 100)} %)`}
+                            onClick={() => ouvrirGroupe(g.cle)}
+                          >
                             {g.libelle || "—"}
                           </button>
                           {g.nombreA + g.nombreB > 1 && (

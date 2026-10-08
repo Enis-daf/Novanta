@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { analyserPrelevementSepa, fluxComparable, libStablePrelevement, normalizeTransactionLabel as n } from "./transactionLabel";
+import { normalizeTransactionLabel as n } from "./transactionLabel";
 
 const memeGroupe = (a: string, b: string, attendu: string) => {
   assert.equal(n(a), attendu, a);
@@ -131,76 +131,5 @@ describe("propriétés générales", () => {
     const source = "LOYER - Sept. 2026";
     n(source);
     assert.equal(source, "LOYER - Sept. 2026");
-  });
-});
-
-describe("flux comparable — clés de regroupement, de la plus sûre à la plus faible", () => {
-  const meta = (ech: string, ref: string) =>
-    `PRLV SEPA META PLATFORMS IRELAND ECH/${ech} ID EMETTEUR/IE63ZZZ307358 MDT/FBEUX7L00D76 REF/${ref} LIB/FACEBOOK ADS ${ref}`;
-
-  test("lecture des champs d'un prélèvement SEPA", () => {
-    assert.deepEqual(analyserPrelevementSepa(meta("260826", "BW6UVZ4AOC")), {
-      idEmetteur: "IE63ZZZ307358",
-      mandat: "FBEUX7L00D76",
-      creancier: "META PLATFORMS IRELAND",
-      lib: "FACEBOOK ADS BW6UVZ4AOC",
-    });
-    // Séparateur « : », espaces, casse, ordre des champs différent.
-    assert.deepEqual(analyserPrelevementSepa("prlv sepa bigblue  lib: BIGBLUE INV20260905  mdt: bb-2024-001  id emetteur : fr12zzz123456"), {
-      idEmetteur: "FR12ZZZ123456",
-      mandat: "BB-2024-001",
-      creancier: "bigblue",
-      lib: "BIGBLUE INV20260905",
-    });
-    assert.equal(analyserPrelevementSepa("VIR SEPA LOYER SEPTEMBRE"), null);
-    assert.equal(analyserPrelevementSepa("Amazon septembre 26"), null);
-  });
-
-  test("niveau 1 — même émetteur et même mandat : ECH et REF ne créent jamais un nouveau flux", () => {
-    const flux = ["BW6UVZ4AOC", "BW72V4VLS1", "BW74UAHZIE", "BW70UN8DE4", "BW6UW1KA7O"].map((ref, i) => fluxComparable(meta(`2${i}0826`, ref)));
-    assert.equal(new Set(flux.map((f) => f.cle)).size, 1);
-    assert.deepEqual(flux[0], { cle: "sepa:IE63ZZZ307358:FBEUX7L00D76", niveau: 1, titre: "Facebook Ads" });
-  });
-
-  test("mandats ou émetteurs différents : flux différents", () => {
-    const autreMandat = meta("260826", "BW6UVZ4AOC").replace("FBEUX7L00D76", "FBEUX7L00D77");
-    const autreEmetteur = meta("260826", "BW6UVZ4AOC").replace("IE63ZZZ307358", "IE63ZZZ307359");
-    assert.notEqual(fluxComparable(autreMandat).cle, fluxComparable(meta("260826", "BW6UVZ4AOC")).cle);
-    assert.notEqual(fluxComparable(autreEmetteur).cle, fluxComparable(meta("260826", "BW6UVZ4AOC")).cle);
-  });
-
-  test("niveau 2 — sans mandat : même émetteur et même LIB stable", () => {
-    const urssaf = (ref: string) => `PRLV SEPA URSSAF ECH/150826 ID EMETTEUR/FR45ZZZ000111 REF/${ref} LIB/COTISATIONS ${ref}`;
-    assert.deepEqual(fluxComparable(urssaf("A1B2C3D4")), { cle: "sepa:FR45ZZZ000111:lib:cotisations", niveau: 2, titre: "Cotisations" });
-    assert.equal(fluxComparable(urssaf("A1B2C3D4")).cle, fluxComparable(urssaf("Z9Y8X7W6")).cle);
-    // Même émetteur, LIB stable différent : on ne fusionne pas.
-    const autre = "PRLV SEPA URSSAF ID EMETTEUR/FR45ZZZ000111 REF/Q1W2E3R4 LIB/REGULARISATION Q1W2E3R4";
-    assert.notEqual(fluxComparable(autre).cle, fluxComparable(urssaf("A1B2C3D4")).cle);
-  });
-
-  test("partie stable du LIB : la référence répétée et les suffixes variables sont retirés", () => {
-    assert.equal(libStablePrelevement(meta("260826", "BW6UVZ4AOC")), "facebook ads");
-    assert.equal(libStablePrelevement("PRLV SEPA X ID EMETTEUR/FR1 MDT/M1 REF/FA2026 LIB/ABONNEMENT FA2026 PRO"), "abonnement pro");
-    assert.equal(libStablePrelevement("PRLV SEPA X ID EMETTEUR/FR1 MDT/M1 LIB/FACTURE 20260901123"), "facture");
-    assert.equal(libStablePrelevement("PRLV SEPA X ID EMETTEUR/FR1 MDT/M1 LIB/OFFRE 365"), "offre 365");
-  });
-
-  test("titre lisible : le LIB stable, sinon le créancier, jamais le libellé bancaire complet", () => {
-    assert.equal(fluxComparable("PRLV SEPA BIGBLUE ECH/050926 ID EMETTEUR/FR12ZZZ123456 MDT/BB-2024-001 REF/INV20260905 LIB/BIGBLUE INV20260905").titre, "Bigblue");
-    assert.equal(fluxComparable("PRLV SEPA ORANGE SA ID EMETTEUR/FR99ZZZ1 MDT/OR-77 REF/X1Y2Z3A4 LIB/X1Y2Z3A4").titre, "Orange Sa");
-    assert.equal(fluxComparable("PRLV SEPA ID EMETTEUR/FR99ZZZ1 MDT/OR-77").titre, "FR99ZZZ1");
-  });
-
-  test("niveau 3 — texte normalisé ; un libellé vide n'a pas de clé", () => {
-    assert.deepEqual(fluxComparable("Amazon septembre 26"), { cle: "texte:amazon", niveau: 3, titre: "Amazon" });
-    assert.equal(fluxComparable("Amazon août 26").cle, "texte:amazon");
-    assert.deepEqual(fluxComparable("Septembre 2026"), { cle: null, niveau: 3, titre: "Septembre 2026" });
-    assert.equal(fluxComparable("   ").cle, null);
-  });
-
-  test("un prélèvement sans mandat ni LIB exploitable retombe sur le texte normalisé", () => {
-    const flux = fluxComparable("PRLV SEPA EDF ID EMETTEUR/FR47ZZZ1 REF/123456789");
-    assert.equal(flux.niveau, 3);
-    assert.ok(flux.cle?.startsWith("texte:"));
   });
 });

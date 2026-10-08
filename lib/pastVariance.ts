@@ -3,7 +3,7 @@ import { EtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import { PartMappee, partsMappees } from "./pastDetail";
 import { calculerCashFlow } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
-import { fluxComparable } from "./transactionLabel";
+import { FlowIdentity, groupComparableTransactions, MatchMethod } from "./flowMatching";
 
 /**
  * Comparaison de deux périodes du module "Passé" : pourquoi le Cash flow s'améliore ou se dégrade.
@@ -174,15 +174,31 @@ export interface GroupeLibelle {
   nombreA: number;
   nombreB: number;
   statut: StatutEcart;
+  // Pourquoi ces transactions sont réunies (pour comprendre un regroupement, pas pour l'analyse).
+  matchMethod: MatchMethod;
+  confidenceScore: number;
 }
 
 export type PartComparee = PartMappee & { cote: "A" | "B" };
 
-// Jamais de rapprochement entre deux catégories : la catégorie fait partie de la clé. Un flux sans
-// clé (libellé vide après normalisation) reste seul.
-function cleGroupe(part: PartMappee): string {
-  const { cle } = fluxComparable(part.label);
-  return `${part.sourceCategoryId}|${cle ?? `seule:${part.transactionId}`}`;
+/**
+ * Identité de flux de chaque libellé, CATÉGORIE PAR CATÉGORIE : deux libellés identiques dans deux
+ * catégories différentes ne sont jamais rapprochés, et les voisinages (lib/flowMatching.ts) ne se
+ * calculent qu'entre libellés d'une même catégorie, sur les deux périodes réunies.
+ */
+function identitesDesFlux(parts: PartMappee[]): Map<string, Map<string, FlowIdentity>> {
+  const libellesParCategorie = new Map<string, Set<string>>();
+  for (const part of parts) {
+    if (!libellesParCategorie.has(part.sourceCategoryId)) libellesParCategorie.set(part.sourceCategoryId, new Set());
+    libellesParCategorie.get(part.sourceCategoryId)!.add(part.label);
+  }
+  return new Map([...libellesParCategorie].map(([categorie, libelles]) => [categorie, groupComparableTransactions(libelles)]));
+}
+
+// Un flux sans identité (libellé vide après normalisation) reste seul.
+function cleGroupe(part: PartMappee, identites: Map<string, Map<string, FlowIdentity>>): string {
+  const identite = identites.get(part.sourceCategoryId)?.get(part.label)?.canonicalFlowIdentity ?? null;
+  return `${part.sourceCategoryId}|${identite ?? `seule:${part.transactionId}`}`;
 }
 
 function partsComparees(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, categorie: string | null): PartComparee[] {
@@ -200,9 +216,12 @@ function partsComparees(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, c
  * résultat, jamais directement à partir des transactions.
  */
 export function groupesDeLibelles(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, categorie: string | null = null): GroupeLibelle[] {
+  // Les identités se calculent sur tout l'étage, AVANT le filtre catégorie : la clé d'un flux ne
+  // dépend ainsi pas du filtre affiché (elle reste valable d'un clic à l'autre).
+  const identites = identitesDesFlux(partsComparees(a, b, etage, null));
   const groupes = new Map<string, { parts: PartComparee[] }>();
   for (const part of partsComparees(a, b, etage, categorie)) {
-    const cle = cleGroupe(part);
+    const cle = cleGroupe(part, identites);
     if (!groupes.has(cle)) groupes.set(cle, { parts: [] });
     groupes.get(cle)!.parts.push(part);
   }
@@ -212,7 +231,12 @@ export function groupesDeLibelles(a: DonneesPeriode, b: DonneesPeriode, etage: E
     const montantB = cote("B").reduce((s, p) => s + p.montant, 0) * b.coefficient;
     const contribution = montantB - montantA;
     const representative = [...parts].sort((x, y) => Math.abs(y.montant) - Math.abs(x.montant) || x.label.localeCompare(y.label))[0];
-    const titre = fluxComparable(representative.label).titre;
+    const identite = identites.get(representative.sourceCategoryId)!.get(representative.label)!;
+    const titre = identite.title;
+    // La moins sûre des méthodes qui ont réuni ces transactions : c'est elle qu'il faut regarder.
+    const pire = parts
+      .map((p) => identites.get(p.sourceCategoryId)!.get(p.label)!)
+      .reduce((plusFaible, x) => (x.confidenceScore < plusFaible.confidenceScore ? x : plusFaible), identite);
     return {
       cle,
       nom: titre,
@@ -226,6 +250,8 @@ export function groupesDeLibelles(a: DonneesPeriode, b: DonneesPeriode, etage: E
       nombreA: cote("A").length,
       nombreB: cote("B").length,
       statut: (Math.abs(contribution) <= TOLERANCE_STABLE ? "stable" : "change") as StatutEcart,
+      matchMethod: pire.matchMethod,
+      confidenceScore: pire.confidenceScore,
     };
   });
   return parContributionDecroissante(resultat).map(({ nom: _nom, ...groupe }) => groupe);
@@ -236,5 +262,7 @@ export function groupesDeLibelles(a: DonneesPeriode, b: DonneesPeriode, etage: E
  * montant réel, même quand la comparaison est normalisée.
  */
 export function transactionsDuGroupe(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, cle: string): PartComparee[] {
-  return partsComparees(a, b, etage, null).filter((part) => cleGroupe(part) === cle);
+  const parts = partsComparees(a, b, etage, null);
+  const identites = identitesDesFlux(parts);
+  return parts.filter((part) => cleGroupe(part, identites) === cle);
 }

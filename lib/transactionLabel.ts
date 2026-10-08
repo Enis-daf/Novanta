@@ -1,5 +1,7 @@
 /**
- * Rapprochement de libellés de transactions pour la comparaison de périodes — EXPÉRIMENTAL.
+ * Normalisation de texte d'un libellé de transaction — EXPÉRIMENTAL. C'est le dernier recours du
+ * moteur de regroupement des flux (lib/flowMatching.ts), utilisé quand aucune contrepartie stable
+ * ne peut être extraite du libellé.
  *
  * Seul endroit où vivent ces règles : aucun composant ne normalise un libellé lui-même. Logique
  * déterministe, explicable et testable, sans référentiel de tiers, sans alias à maintenir, sans IA.
@@ -22,7 +24,7 @@
  *     rapproche d'aucune autre.
  */
 
-const MOIS = new Set([
+export const MOIS = new Set([
   // Français (accents déjà retirés à ce stade).
   "janvier", "janv", "jan", "fevrier", "fevr", "fev", "mars", "avril", "avr", "mai", "juin", "juillet", "juil",
   "aout", "septembre", "sept", "sep", "octobre", "oct", "novembre", "nov", "decembre", "dec",
@@ -77,98 +79,4 @@ export function normalizeTransactionLabel(label: string): string {
     else if (avantMois && estQuantieme(jeton)) retire[index] = true;
   });
   return jetons.filter((_, index) => !retire[index]).join(" ");
-}
-
-// --- Flux comparable : ce qui fait qu'un ensemble de transactions est « le même flux » ---
-
-/** Champs d'un prélèvement SEPA lus dans son libellé bancaire. */
-export interface PrelevementSepa {
-  idEmetteur: string; // identifiant créancier SEPA (ICS) : stable pour un créancier donné
-  mandat: string | null; // référence unique de mandat (MDT / RUM) : stable pour un contrat donné
-  creancier: string; // texte libre avant les champs balisés
-  lib: string; // contenu du champ LIB, tel quel
-}
-
-const BALISE = "(?:ECH|ID\\s*EMETTEUR|MDT|REF|LIB)";
-const champ = (nom: string) => new RegExp(`\\b${nom}\\s*[/:]\\s*(\\S+)`, "i");
-
-/**
- * Lit les champs balisés d'un prélèvement SEPA (« ID EMETTEUR/… MDT/… REF/… LIB/… », séparateur
- * « / » ou « : »). null si le libellé n'a pas d'identifiant émetteur : ce n'est pas un prélèvement
- * reconnaissable, on ne devine rien.
- */
-export function analyserPrelevementSepa(label: string): PrelevementSepa | null {
-  const idEmetteur = label.match(champ("ID\\s*EMETTEUR"))?.[1];
-  if (!idEmetteur) return null;
-  const lib = label.match(new RegExp(`\\bLIB\\s*[/:]\\s*(.*?)(?=\\s+${BALISE}\\s*[/:]|$)`, "i"))?.[1] ?? "";
-  const creancier = label
-    .replace(new RegExp(`\\b${BALISE}\\s*[/:].*$`, "i"), "")
-    .replace(/^\s*(?:PRLV|PRELEVEMENT)(?:\s+SEPA)?\b/i, "");
-  return {
-    idEmetteur: idEmetteur.toUpperCase(),
-    mandat: label.match(champ("MDT"))?.[1]?.toUpperCase() ?? null,
-    creancier: creancier.trim(),
-    lib: lib.trim(),
-  };
-}
-
-// Jeton « référence » : mélange de lettres et de chiffres, ou longue suite de chiffres. Dans un
-// champ LIB, c'est un numéro de facture ou de paiement qui change à chaque échéance.
-const estReferenceVolatile = (jeton: string) =>
-  (jeton.length >= 6 && /\d/.test(jeton) && /[a-z]/.test(jeton)) || /^\d{6,}$/.test(jeton);
-
-/**
- * Partie stable du champ LIB d'un prélèvement : sa forme normalisée, sans les références qui
- * changent d'une échéance à l'autre (« FACEBOOK ADS BW6UVZ4AOC » -> « facebook ads »). La valeur
- * du champ REF, quand elle est répétée dans LIB, est retirée en priorité.
- */
-export function libStablePrelevement(label: string): string {
-  const prelevement = analyserPrelevementSepa(label);
-  if (!prelevement) return "";
-  const reference = label.match(champ("REF"))?.[1]?.toLowerCase();
-  return normalizeTransactionLabel(prelevement.lib)
-    .split(" ")
-    .filter((jeton) => jeton !== "" && jeton !== reference && !estReferenceVolatile(jeton))
-    .join(" ");
-}
-
-function enTitre(texte: string): string {
-  return texte.replace(/(^|\s)(\p{L})/gu, (_, espace: string, lettre: string) => espace + lettre.toLocaleUpperCase("fr"));
-}
-
-export interface FluxComparable {
-  // Clé de regroupement À L'INTÉRIEUR d'une catégorie ; null = à ne rapprocher d'aucune autre ligne.
-  cle: string | null;
-  // 1 : prélèvement SEPA, même émetteur et même mandat (haute confiance).
-  // 2 : prélèvement SEPA sans mandat, même émetteur et même LIB stable.
-  // 3 : texte normalisé identique.
-  niveau: 1 | 2 | 3;
-  // Titre lisible du groupe, tiré de la partie stable — jamais le libellé bancaire complet, qui
-  // reste visible dans le détail des transactions.
-  titre: string;
-}
-
-/**
- * Flux auquel appartient une transaction, du critère le plus sûr au plus faible. Ce qui change à
- * chaque échéance (ECH, REF, numéro de facture, suffixe de référence dans LIB) n'entre JAMAIS dans
- * la clé : cinq prélèvements du même mandat sont un seul flux, pas cinq.
- */
-export function fluxComparable(label: string): FluxComparable {
-  const prelevement = analyserPrelevementSepa(label);
-  if (prelevement) {
-    const libStable = libStablePrelevement(label);
-    const titre = enTitre(libStable || normalizeTransactionLabel(prelevement.creancier) || prelevement.idEmetteur);
-    if (prelevement.mandat) return { cle: `sepa:${prelevement.idEmetteur}:${prelevement.mandat}`, niveau: 1, titre };
-    if (libStable) return { cle: `sepa:${prelevement.idEmetteur}:lib:${libStable}`, niveau: 2, titre };
-  }
-  const normalise = normalizeTransactionLabel(label);
-  return { cle: normalise === "" ? null : `texte:${normalise}`, niveau: 3, titre: normalise === "" ? label.trim() : enTitre(normalise) };
-}
-
-/**
- * Clé de comparaison d'un libellé. Vide quand la normalisation ne laisse rien : l'appelant ne doit
- * alors rapprocher la ligne d'aucune autre — il n'existe jamais de groupe commun « vide ».
- */
-export function cleLibelleComparable(label: string): string {
-  return normalizeTransactionLabel(label);
 }
