@@ -2164,6 +2164,17 @@ input[type="checkbox"] {
   border-bottom-color: var(--couleur-accent);
 }
 
+/* Onglet mis en avant : toujours un onglet de navigation, simplement en rose de marque. L'état
+   actif reste lisible par le soulignement commun à tous les onglets et un texte plus soutenu. */
+.passe-onglet--vedette,
+.passe-onglet--vedette:hover {
+  color: var(--couleur-accent);
+}
+
+.passe-onglet--vedette.passe-onglet--actif {
+  color: var(--couleur-accent-fonce);
+}
+
 .passe-onglet__pastille {
   padding: 1px 7px;
   border-radius: 999px;
@@ -2656,6 +2667,11 @@ input[type="checkbox"] {
   gap: var(--space-2);
 }
 
+.passe-ecarts__normalisation {
+  margin: 0;
+  align-self: flex-start;
+}
+
 .passe-ecarts__kpi {
   display: flex;
   flex-wrap: wrap;
@@ -2717,13 +2733,6 @@ input[type="checkbox"] {
 
 .passe-table__libelle .passe-statut {
   margin-left: var(--space-1);
-}
-
-.passe-badge-absent {
-  padding: 2px var(--space-1);
-  border-radius: var(--radius-sm);
-  background: var(--couleur-bordure);
-  font-weight: 600;
 }
 
 .passe-badge-periode {

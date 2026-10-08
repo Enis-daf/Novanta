@@ -290,6 +290,69 @@ export function selectionApresChoix(
   };
 }
 
+// --- Durée d'une période, pour comparer deux périodes de longueurs différentes ---
+
+/** Durée fiscale naturelle de chaque preset, en mois. */
+const DUREE_MOIS_PRESET: Record<PresetPeriode, number> = {
+  mois_m1: 1,
+  mois_m2: 1,
+  exercice: 12,
+  exercice_n1: 12,
+  semestre_actuel: 6,
+  s1: 6,
+  s2: 6,
+  trimestre_actuel: 3,
+  q1: 3,
+  q2: 3,
+  q3: 3,
+  q4: 3,
+};
+
+/** Nombre de jours calendaires d'une période, bornes incluses. */
+export function nombreDeJours(periode: Periode): number {
+  const jour = 24 * 60 * 60 * 1000;
+  return Math.round((parseDateISO(periode.fin).getTime() - parseDateISO(periode.debut).getTime()) / jour) + 1;
+}
+
+export interface DureePeriode {
+  // Durée fiscale naturelle d'un preset ; null pour des dates libres, qui n'ont pas de nombre de
+  // mois exact — on ne leur en invente pas un.
+  mois: number | null;
+  jours: number;
+}
+
+export function dureeDeLaSelection(selection: SelectionPeriode, aujourdhui: string, config: ConfigExercice): DureePeriode {
+  return {
+    mois: selection.choix === "personnalise" ? null : DUREE_MOIS_PRESET[selection.choix],
+    jours: nombreDeJours(periodeDeLaSelection(selection, aujourdhui, config)),
+  };
+}
+
+/**
+ * Mise à l'échelle de deux périodes de durées différentes : la plus LONGUE est ramenée à la durée
+ * de la plus courte (coefficient = durée courte / durée longue). Unité : le mois quand les deux
+ * périodes sont des presets (un mois vaut un mois, qu'il ait 30 ou 31 jours), le jour dès que
+ * l'une des deux est faite de dates libres. Durées égales : aucun coefficient, tout reste réel.
+ */
+export interface Normalisation {
+  coefficientA: number;
+  coefficientB: number;
+  // null quand rien n'est normalisé.
+  detail: { cote: "A" | "B"; duree: string } | null;
+}
+
+export function normaliserDurees(a: DureePeriode, b: DureePeriode): Normalisation {
+  const enMois = a.mois !== null && b.mois !== null;
+  const dureeA = enMois ? (a.mois as number) : a.jours;
+  const dureeB = enMois ? (b.mois as number) : b.jours;
+  if (dureeA === dureeB || dureeA <= 0 || dureeB <= 0) return { coefficientA: 1, coefficientB: 1, detail: null };
+  const courte = Math.min(dureeA, dureeB);
+  const duree = enMois ? `${courte} mois` : `${courte} jour${courte > 1 ? "s" : ""}`;
+  return dureeA > dureeB
+    ? { coefficientA: dureeB / dureeA, coefficientB: 1, detail: { cote: "A", duree } }
+    : { coefficientA: 1, coefficientB: dureeA / dureeB, detail: { cote: "B", duree } };
+}
+
 // --- Persistance locale de la dernière période utilisée, PAR ORGANISATION ---
 
 /** Clé de stockage local : une par organisation, pour ne jamais mélanger les périodes de deux sociétés. */

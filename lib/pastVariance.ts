@@ -3,7 +3,7 @@ import { EtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import { PartMappee, partsMappees } from "./pastDetail";
 import { calculerCashFlow } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
-import { cleLibelleComparable } from "./transactionLabel";
+import { fluxComparable } from "./transactionLabel";
 
 /**
  * Comparaison de deux périodes du module "Passé" : pourquoi le Cash flow s'améliore ou se dégrade.
@@ -32,6 +32,12 @@ export interface DonneesPeriode {
   periode: Periode;
   parts: PartMappee[];
   ajustements: AjustementGestion[];
+  // Mise à l'échelle des AGRÉGATS de la période quand elle est comparée à une période plus courte
+  // (lib/fiscalPeriods.ts, normaliserDurees) ; 1 = montants réels. Il s'applique au Cash flow, aux
+  // étages, aux catégories et aux groupes de libellés — une moyenne de référence, pas un
+  // historique. Les parts elles-mêmes gardent toujours leur montant réel : une transaction n'est
+  // jamais normalisée.
+  coefficient: number;
 }
 
 export function donneesPeriode(
@@ -39,10 +45,12 @@ export function donneesPeriode(
   axeId: string | null,
   mappings: ReadonlyMap<string, MappingCategorie>,
   tousLesAjustements: AjustementGestion[],
-  periode: Periode
+  periode: Periode,
+  coefficient = 1
 ): DonneesPeriode {
   return {
     periode,
+    coefficient,
     parts: partsMappees(transactions, axeId, mappings),
     ajustements: ajustementsDeLaPeriode(tousLesAjustements, periode),
   };
@@ -50,7 +58,7 @@ export function donneesPeriode(
 
 function totalEtage(donnees: DonneesPeriode, etages: readonly EtagePnl[]): number {
   const parts = donnees.parts.reduce((total, p) => (etages.includes(p.etage) ? total + p.montant : total), 0);
-  return parts + sommeAjustements(donnees.ajustements, etages);
+  return (parts + sommeAjustements(donnees.ajustements, etages)) * donnees.coefficient;
 }
 
 export interface ContributionEtage {
@@ -125,23 +133,22 @@ export function categoriesDeLEtage(a: DonneesPeriode, b: DonneesPeriode, etage: 
   };
   for (const [donnees, cote] of [[a, "montantA"], [b, "montantB"]] as const) {
     for (const part of donnees.parts) {
-      if (part.etage === etage) ligne(part.sourceCategoryId, part.sourceCategoryName, false)[cote] += part.montant;
+      if (part.etage === etage) {
+        ligne(part.sourceCategoryId, part.sourceCategoryName, false)[cote] += part.montant * donnees.coefficient;
+      }
     }
     for (const ajustement of regrouperAjustements(donnees.ajustements.filter((x) => x.etage === etage))) {
-      ligne(`ajustement:${ajustement.cle}`, ajustement.label, true)[cote] += ajustement.montant;
+      ligne(`ajustement:${ajustement.cle}`, ajustement.label, true)[cote] += ajustement.montant * donnees.coefficient;
     }
   }
   return parContributionDecroissante([...lignes.values()].map((l) => ({ ...l, contribution: l.montantB - l.montantA })));
 }
 
+// Les périodes A et B se choisissent dans n'importe quel ordre : un flux présent d'un seul côté
+// n'est ni « nouveau » ni « absent », il a simplement un montant d'un côté et rien de l'autre.
 export type StatutEcart =
-  // Présent en B seulement.
-  | "nouveau"
-  // Présent en A seulement.
-  | "absent"
-  // Présent des deux côtés, montant différent.
   | "change"
-  // Présent des deux côtés, même montant à l'euro près : masqué par défaut.
+  // Même montant à l'euro près des deux côtés : masqué par défaut.
   | "stable";
 
 // Seuil volontairement absolu et minuscule : un seuil relatif masquerait des écarts matériels sur
@@ -149,11 +156,14 @@ export type StatutEcart =
 // un contributeur significatif.
 const TOLERANCE_STABLE = 1;
 
-/** Groupe de transactions au libellé comparable, dans une catégorie, sur les deux périodes. */
+/**
+ * Flux comparable : toutes les transactions d'un même flux (même mandat de prélèvement, ou même
+ * libellé normalisé) dans une catégorie, agrégées sur chacune des deux périodes. C'est le niveau
+ * principal de l'analyse ; les transactions individuelles n'apparaissent qu'au clic.
+ */
 export interface GroupeLibelle {
   cle: string;
-  // Libellé d'origine le plus représentatif du groupe (celui de sa plus grosse ligne) : toujours
-  // un vrai libellé source, jamais la forme normalisée.
+  // Titre lisible tiré de la partie stable du flux (« Facebook Ads »), pas un libellé bancaire.
   libelle: string;
   nombreLibelles: number;
   sourceCategoryId: string;
@@ -168,10 +178,11 @@ export interface GroupeLibelle {
 
 export type PartComparee = PartMappee & { cote: "A" | "B" };
 
+// Jamais de rapprochement entre deux catégories : la catégorie fait partie de la clé. Un flux sans
+// clé (libellé vide après normalisation) reste seul.
 function cleGroupe(part: PartMappee): string {
-  const cle = cleLibelleComparable(part.label);
-  // Libellé vide après normalisation : la ligne n'est rapprochée d'aucune autre.
-  return `${part.sourceCategoryId}|${cle === "" ? `seule:${part.transactionId}` : cle}`;
+  const { cle } = fluxComparable(part.label);
+  return `${part.sourceCategoryId}|${cle ?? `seule:${part.transactionId}`}`;
 }
 
 function partsComparees(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, categorie: string | null): PartComparee[] {
@@ -183,9 +194,10 @@ function partsComparees(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, c
 }
 
 /**
- * Ce qui change entre A et B dans un étage (ou une de ses catégories), par groupe de libellés
- * comparables. Les libellés ne sont rapprochés qu'à l'intérieur d'une même catégorie. Classés par
- * |contribution| décroissante.
+ * Ce qui change entre A et B dans un étage (ou une de ses catégories), par flux comparable.
+ * Pipeline : clé de flux de chaque transaction -> regroupement -> agrégation par période -> écart
+ * -> tri par |écart agrégé| décroissant. Les lignes de l'écran sont construites à partir de ce
+ * résultat, jamais directement à partir des transactions.
  */
 export function groupesDeLibelles(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, categorie: string | null = null): GroupeLibelle[] {
   const groupes = new Map<string, { parts: PartComparee[] }>();
@@ -196,20 +208,15 @@ export function groupesDeLibelles(a: DonneesPeriode, b: DonneesPeriode, etage: E
   }
   const resultat = [...groupes.entries()].map(([cle, { parts }]) => {
     const cote = (c: "A" | "B") => parts.filter((p) => p.cote === c);
-    const montantA = cote("A").reduce((s, p) => s + p.montant, 0);
-    const montantB = cote("B").reduce((s, p) => s + p.montant, 0);
+    const montantA = cote("A").reduce((s, p) => s + p.montant, 0) * a.coefficient;
+    const montantB = cote("B").reduce((s, p) => s + p.montant, 0) * b.coefficient;
     const contribution = montantB - montantA;
     const representative = [...parts].sort((x, y) => Math.abs(y.montant) - Math.abs(x.montant) || x.label.localeCompare(y.label))[0];
-    let statut: StatutEcart;
-    if (cote("A").length === 0) statut = "nouveau";
-    else if (cote("B").length === 0) statut = "absent";
-    else {
-      statut = Math.abs(contribution) <= TOLERANCE_STABLE ? "stable" : "change";
-    }
+    const titre = fluxComparable(representative.label).titre;
     return {
       cle,
-      nom: representative.label,
-      libelle: representative.label,
+      nom: titre,
+      libelle: titre,
       nombreLibelles: new Set(parts.map((p) => p.label)).size,
       sourceCategoryId: representative.sourceCategoryId,
       categorie: representative.sourceCategoryName,
@@ -218,13 +225,16 @@ export function groupesDeLibelles(a: DonneesPeriode, b: DonneesPeriode, etage: E
       contribution,
       nombreA: cote("A").length,
       nombreB: cote("B").length,
-      statut,
+      statut: (Math.abs(contribution) <= TOLERANCE_STABLE ? "stable" : "change") as StatutEcart,
     };
   });
   return parContributionDecroissante(resultat).map(({ nom: _nom, ...groupe }) => groupe);
 }
 
-/** Transactions d'origine d'un groupe, des deux périodes, chacune marquée A ou B. */
+/**
+ * Transactions d'origine d'un groupe, des deux périodes, chacune marquée A ou B — toujours à leur
+ * montant réel, même quand la comparaison est normalisée.
+ */
 export function transactionsDuGroupe(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, cle: string): PartComparee[] {
   return partsComparees(a, b, etage, null).filter((part) => cleGroupe(part) === cle);
 }

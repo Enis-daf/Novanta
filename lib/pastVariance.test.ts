@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { AjustementGestion } from "./pastAdjustments";
 import { indexerMappings, MappingCategorie } from "./pastCategoryMapping";
 import { trierTransactions } from "./pastDetail";
+import { dureeDeLaSelection, normaliserDurees, selectionDuPreset } from "./fiscalPeriods";
 import { calculerPnl } from "./pastPnl";
 import { PastTransactionStockee } from "./pastTransactions";
 import { categoriesDeLEtage, comparerPeriodes, donneesPeriode, groupesDeLibelles, transactionsDuGroupe } from "./pastVariance";
@@ -172,14 +173,22 @@ describe("ce qui change — groupes de libellés comparables", () => {
     assert.deepEqual([amazon.montantA, amazon.montantB, amazon.contribution, amazon.statut], [-4_200, -7_500, -3_300, "change"]);
   });
 
-  test("présent uniquement en B : Nouveau", () => {
+  test("flux présent d'un seul côté : un montant, rien en face, écart = B − A — sans badge", () => {
     const agence = parLibelle("Agence RH");
-    assert.deepEqual([agence.statut, agence.nombreA, agence.montantB, agence.contribution], ["nouveau", 0, -6_000, -6_000]);
+    assert.deepEqual([agence.nombreA, agence.montantA, agence.montantB, agence.contribution], [0, 0, -6_000, -6_000]);
+    // Une charge qui n'existe plus en B améliore le Cash flow.
+    const bureau = parLibelle("Ancien bureau");
+    assert.deepEqual([bureau.nombreB, bureau.montantA, bureau.montantB, bureau.contribution], [0, -4_000, 0, 4_000]);
+    assert.ok(groupes.every((g) => g.statut === "change" || g.statut === "stable"));
   });
 
-  test("présent uniquement en A : Absent, avec un impact positif pour une charge qui disparaît", () => {
-    const bureau = parLibelle("Ancien bureau");
-    assert.deepEqual([bureau.statut, bureau.nombreB, bureau.montantA, bureau.contribution], ["absent", 0, -4_000, 4_000]);
+  test("le sens A / B est libre : inverser les périodes inverse seulement le signe des écarts", () => {
+    const inverse = groupesDeLibelles(B, A, "ebitda");
+    for (const g of groupes) {
+      const miroir = inverse.find((x) => x.cle === g.cle)!;
+      assert.equal(miroir.contribution + g.contribution, 0);
+      assert.equal(miroir.statut, g.statut);
+    }
   });
 
   test("montant identique des deux côtés : stable", () => {
@@ -203,16 +212,16 @@ describe("ce qui change — groupes de libellés comparables", () => {
   test("libellés rapprochés malgré le mois et l'année, dans la même catégorie seulement", () => {
     const a = donnees([tx("2026-08-08", -4_200, "Structure", "Amazon août 26"), tx("2026-08-09", -900, "Bureaux", "Amazon août 26")], AOUT);
     const b = donnees([tx("2026-09-08", -7_500, "Structure", "Amazon septembre 26")], SEPTEMBRE);
-    assert.deepEqual(groupesDeLibelles(a, b, "ebitda").map((g) => [g.categorie, g.statut, g.contribution, g.nombreLibelles]), [
-      ["Structure", "change", -3_300, 2],
-      ["Bureaux", "absent", 900, 1],
+    assert.deepEqual(groupesDeLibelles(a, b, "ebitda").map((g) => [g.categorie, g.libelle, g.contribution, g.nombreLibelles]), [
+      ["Structure", "Amazon", -3_300, 2],
+      ["Bureaux", "Amazon", 900, 1],
     ]);
   });
 
   test("deux libellés purement temporels ne forment jamais un groupe", () => {
     const a = donnees([tx("2026-08-01", -100, "Structure", "Août 2026")], AOUT);
     const b = donnees([tx("2026-09-01", -100, "Structure", "Septembre 2026")], SEPTEMBRE);
-    assert.deepEqual(groupesDeLibelles(a, b, "ebitda").map((g) => g.statut).sort(), ["absent", "nouveau"]);
+    assert.deepEqual(groupesDeLibelles(a, b, "ebitda").map((g) => [g.nombreA, g.nombreB]).sort(), [[0, 1], [1, 0]]);
   });
 
   test("classés par |contribution| décroissante", () => {
@@ -224,18 +233,19 @@ describe("ce qui change — groupes de libellés comparables", () => {
   });
 
   test("le filtre catégorie restreint les groupes ; un même libellé dans deux catégories reste séparé", () => {
-    assert.deepEqual(groupesDeLibelles(A, B, "ebitda", "Bureaux").map((g) => g.libelle), ["Ancien bureau"]);
+    assert.deepEqual(groupesDeLibelles(A, B, "ebitda", "Bureaux").map((g) => g.libelle), ["Ancien Bureau"]);
     const a = donnees([tx("2026-08-01", -100, "Structure", "Orange"), tx("2026-08-01", -50, "Bureaux", "Orange")], AOUT);
     const b = donnees([tx("2026-09-01", -100, "Structure", "Orange")], SEPTEMBRE);
-    assert.deepEqual(groupesDeLibelles(a, b, "ebitda").map((g) => [g.categorie, g.statut]), [
-      ["Bureaux", "absent"],
-      ["Structure", "stable"],
+    assert.deepEqual(groupesDeLibelles(a, b, "ebitda").map((g) => [g.categorie, g.nombreA, g.nombreB, g.statut]), [
+      ["Bureaux", 1, 0, "change"],
+      ["Structure", 1, 1, "stable"],
     ]);
   });
 
-  test("le libellé affiché est toujours un libellé source réel", () => {
-    const sources = new Set([...aout, ...septembre].map((t) => t.label));
-    assert.ok(groupes.every((g) => sources.has(g.libelle)));
+  test("le titre d'un flux est sa partie stable, lisible ; les libellés d'origine restent dans le détail", () => {
+    assert.deepEqual(groupes.map((g) => g.libelle), ["Agence Rh", "Ancien Bureau", "Amazon", "Divers", "Loyer"]);
+    const amazon = parLibelle("Amazon");
+    assert.deepEqual(transactionsDuGroupe(A, B, "ebitda", amazon.cle).map((p) => p.label).sort(), ["Amazon", "amazon"]);
   });
 
   test("transaction ventilée : seule la part de la catégorie entre dans le groupe", () => {
@@ -261,5 +271,151 @@ describe("transactions d'un groupe", () => {
     const a = donnees([tx("2026-08-01", -10, "Structure", ""), tx("2026-08-02", -20, "Structure", "  ")], AOUT);
     const b = donnees([tx("2026-09-01", -30, "Structure", "")], SEPTEMBRE);
     assert.equal(groupesDeLibelles(a, b, "ebitda").length, 3);
+  });
+});
+
+describe("périodes de durées différentes — la plus longue est ramenée à la plus courte", () => {
+  const preset = (mois: number, jours: number) => ({ mois, jours });
+  const libre = (jours: number) => ({ mois: null, jours });
+
+  test("exercice contre mois : coefficient 1/12 sur l'exercice, en mois", () => {
+    assert.deepEqual(normaliserDurees(preset(12, 365), preset(1, 30)), {
+      coefficientA: 1 / 12,
+      coefficientB: 1,
+      detail: { cote: "A", duree: "1 mois" },
+    });
+    assert.deepEqual(normaliserDurees(preset(3, 92), preset(6, 181)).detail, { cote: "B", duree: "3 mois" });
+    assert.equal(normaliserDurees(preset(3, 92), preset(6, 181)).coefficientB, 0.5);
+  });
+
+  test("même durée fiscale : aucune normalisation, même si les mois n'ont pas le même nombre de jours", () => {
+    for (const [a, b] of [[preset(1, 31), preset(1, 30)], [preset(3, 92), preset(3, 90)], [preset(6, 184), preset(6, 181)], [preset(12, 365), preset(12, 366)]]) {
+      assert.deepEqual(normaliserDurees(a, b), { coefficientA: 1, coefficientB: 1, detail: null });
+    }
+  });
+
+  test("dès qu'une période est faite de dates libres, la durée se compte en jours exacts", () => {
+    assert.deepEqual(normaliserDurees(libre(45), preset(1, 30)), {
+      coefficientA: 30 / 45,
+      coefficientB: 1,
+      detail: { cote: "A", duree: "30 jours" },
+    });
+    assert.deepEqual(normaliserDurees(libre(10), libre(10)).detail, null);
+    assert.deepEqual(normaliserDurees(libre(1), libre(7)).detail, { cote: "B", duree: "1 jour" });
+  });
+
+  test("durée d'une sélection : mois naturels pour un preset, jours pour des dates libres", () => {
+    const config = { mois: 11, jour: 1 };
+    const jour = "2026-10-08";
+    assert.deepEqual(dureeDeLaSelection(selectionDuPreset("exercice", jour, config), jour, config), { mois: 12, jours: 365 });
+    assert.deepEqual(dureeDeLaSelection(selectionDuPreset("mois_m1", jour, config), jour, config), { mois: 1, jours: 30 });
+    assert.deepEqual(dureeDeLaSelection(selectionDuPreset("q3", jour, config), jour, config), { mois: 3, jours: 92 });
+    assert.deepEqual(
+      dureeDeLaSelection({ choix: "personnalise", personnalisee: { debut: "2026-02-01", fin: "2026-03-15" } }, jour, config),
+      { mois: null, jours: 43 }
+    );
+  });
+
+  // Exercice de 12 mois à 1 200 000 € de Cash flow, comparé à un mois à 80 000 €.
+  const exercice = Array.from({ length: 12 }, (_, i) => [
+    tx(`2025-${String(i + 1).padStart(2, "0")}-10`, 150_000, "Ventes", "Stripe"),
+    tx(`2025-${String(i + 1).padStart(2, "0")}-11`, -45_000, "Structure", "Loyer"),
+    tx(`2025-${String(i + 1).padStart(2, "0")}-12`, -5_000, "Structure", `Amazon ${i + 1}/2025`),
+  ]).flat();
+  const mois = [tx("2026-09-10", 140_000, "Ventes", "Stripe"), tx("2026-09-11", -45_000, "Structure", "Loyer"), tx("2026-09-12", -15_000, "Structure", "Amazon 09/2026")];
+  const stock = [{ id: "s", date: "2025-06-30", label: "Variation de stock", montant: -24_000, etage: "gross_margin" as const, type: "inventory_variation", notes: null }];
+  const a = donneesPeriode(exercice, AXE, mappings, stock, { debut: "2025-01-01", fin: "2025-12-31" }, 1 / 12);
+  const b = donneesPeriode(mois, AXE, mappings, stock, SEPTEMBRE);
+  const proche = (reel: number, attendu: number) => assert.ok(Math.abs(reel - attendu) < 1e-6, `${reel} ≠ ${attendu}`);
+
+  test("le Cash flow de la période longue est ramené à la durée courte", () => {
+    const comparaison = comparerPeriodes(a, b);
+    proche(comparaison.cashFlowA, (1_200_000 - 24_000) / 12);
+    proche(comparaison.cashFlowB, 80_000);
+    proche(comparaison.ecart, 80_000 - 98_000);
+  });
+
+  test("la waterfall normalisée réconcilie toujours A et B, ajustements compris", () => {
+    const comparaison = comparerPeriodes(a, b);
+    proche(comparaison.cashFlowA + comparaison.etages.reduce((s, e) => s + e.contribution, 0), comparaison.cashFlowB);
+    proche(comparaison.etages.find((e) => e.etage === "gross_margin")!.contribution, 2_000);
+    proche(comparaison.variationEbitda + comparaison.variationExtraPnl, comparaison.ecart);
+  });
+
+  test("catégories et groupes de libellés : référence normalisée contre montant réel de la période courte", () => {
+    const structure = categoriesDeLEtage(a, b, "ebitda").find((l) => l.nom === "Structure")!;
+    proche(structure.montantA, -50_000);
+    proche(structure.montantB, -60_000);
+    proche(structure.contribution, -10_000);
+    const amazon = groupesDeLibelles(a, b, "ebitda").find((g) => g.libelle.startsWith("Amazon"))!;
+    proche(amazon.montantA, -5_000);
+    proche(amazon.contribution, -10_000);
+    assert.equal(amazon.nombreA, 12);
+  });
+
+  test("les transactions restent à leur montant réel : aucune n'est divisée", () => {
+    const amazon = groupesDeLibelles(a, b, "ebitda").find((g) => g.libelle.startsWith("Amazon"))!;
+    const lignes = transactionsDuGroupe(a, b, "ebitda", amazon.cle);
+    assert.equal(lignes.length, 13);
+    assert.deepEqual([...new Set(lignes.filter((l) => l.cote === "A").map((l) => l.montant))], [-5_000]);
+    assert.ok(a.parts.every((p) => Number.isInteger(p.montant)));
+  });
+
+  test("sans coefficient, rien ne change : même durée = valeurs réelles", () => {
+    assert.equal(A.coefficient, 1);
+    assert.equal(comparerPeriodes(A, B).ecart, -48_000);
+  });
+});
+
+describe("flux comparable — un prélèvement récurrent est un seul bloc", () => {
+  const meta = (ech: string, ref: string) =>
+    `PRLV SEPA META PLATFORMS IRELAND ECH/${ech} ID EMETTEUR/IE63ZZZ307358 MDT/FBEUX7L00D76 REF/${ref} LIB/FACEBOOK ADS ${ref}`;
+  const mapPub = indexerMappings([mapping("Publicité & marketing", "contribution_margin"), mapping("Logistique", "contribution_margin")]);
+  const d = (transactions: PastTransactionStockee[], periode: typeof AOUT) => donneesPeriode(transactions, AXE, mapPub, [], periode);
+  const a = d(
+    [
+      tx("2026-08-26", -581, "Publicité & marketing", meta("260826", "BW6UVZ4AOC")),
+      tx("2026-08-27", -554, "Publicité & marketing", meta("270826", "BW6UW1KA7O")),
+      tx("2026-08-28", -551, "Publicité & marketing", meta("280826", "BW6UX2KB8P")),
+      tx("2026-08-05", -900, "Logistique", "PRLV SEPA BIGBLUE ECH/050826 ID EMETTEUR/FR12ZZZ123456 MDT/BB-2024-001 REF/INV20260805 LIB/BIGBLUE INV20260805"),
+    ],
+    AOUT
+  );
+  const b = d(
+    [
+      tx("2026-09-08", -595, "Publicité & marketing", meta("080926", "BW70UN8DE4")),
+      tx("2026-09-28", -549, "Publicité & marketing", meta("280926", "BW74UAHZIE")),
+      tx("2026-09-29", -610, "Publicité & marketing", meta("290926", "BW72V4VLS1")),
+      tx("2026-09-05", -1_250, "Logistique", "PRLV SEPA BIGBLUE ECH/050926 ID EMETTEUR/FR12ZZZ123456 MDT/BB-2024-001 REF/INV20260905 LIB/BIGBLUE INV20260905"),
+    ],
+    SEPTEMBRE
+  );
+  const groupes = groupesDeLibelles(a, b, "contribution_margin");
+
+  test("six prélèvements Meta aux ECH et REF différents : UN bloc, agrégé par période", () => {
+    assert.deepEqual(
+      groupes.map((g) => [g.libelle, g.categorie, g.nombreA, g.nombreB, g.montantA, g.montantB, g.contribution]),
+      [
+        ["Bigblue", "Logistique", 1, 1, -900, -1_250, -350],
+        ["Facebook Ads", "Publicité & marketing", 3, 3, -1_686, -1_754, -68],
+      ]
+    );
+  });
+
+  test("le classement suit l'écart AGRÉGÉ du flux, pas le montant d'une transaction", () => {
+    // Bigblue (−350 € d'écart) passe devant Meta (−68 €), alors que Meta pèse plus en montant.
+    assert.deepEqual(groupes.map((g) => g.libelle), ["Bigblue", "Facebook Ads"]);
+  });
+
+  test("au clic : toutes les transactions brutes du flux, des deux périodes, à leur montant réel", () => {
+    const facebook = groupes.find((g) => g.libelle === "Facebook Ads")!;
+    const lignes = transactionsDuGroupe(a, b, "contribution_margin", facebook.cle);
+    assert.deepEqual(lignes.map((l) => [l.cote, l.montant]), [["A", -581], ["A", -554], ["A", -551], ["B", -595], ["B", -549], ["B", -610]]);
+    assert.ok(lignes.every((l) => l.label.startsWith("PRLV SEPA META")));
+  });
+
+  test("même émetteur et même mandat dans deux catégories : deux flux distincts", () => {
+    const croise = d([tx("2026-08-01", -10, "Publicité & marketing", meta("010826", "AAAAAA1111")), tx("2026-08-02", -20, "Logistique", meta("020826", "BBBBBB2222"))], AOUT);
+    assert.equal(groupesDeLibelles(croise, d([], SEPTEMBRE), "contribution_margin").length, 2);
   });
 });

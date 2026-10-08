@@ -5,7 +5,14 @@ import PasseSelecteurPeriode from "./PasseSelecteurPeriode";
 import PasseWaterfallChart from "./PasseWaterfallChart";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte } from "@/lib/dates";
-import { ConfigExercice, periodeDeLaSelection, PRESETS_AVEC_MOIS, SelectionPeriode } from "@/lib/fiscalPeriods";
+import {
+  ConfigExercice,
+  dureeDeLaSelection,
+  normaliserDurees,
+  periodeDeLaSelection,
+  PRESETS_AVEC_MOIS,
+  SelectionPeriode,
+} from "@/lib/fiscalPeriods";
 import { formatMontant, formatPourcentage } from "@/lib/format";
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import { EtagePnl, MappingCategorie } from "@/lib/pastCategoryMapping";
@@ -82,6 +89,15 @@ export default function PasseEcarts({
   const periodeA = useMemo<Periode>(() => ({ debut: bornesA.debut, fin: bornesA.fin }), [bornesA.debut, bornesA.fin]);
   const periodeB = useMemo<Periode>(() => ({ debut: bornesB.debut, fin: bornesB.fin }), [bornesB.debut, bornesB.fin]);
   const periodesOk = periodeValide(periodeA) && periodeValide(periodeB);
+  // Durées différentes : la période la plus longue est ramenée à la plus courte, pour les agrégats
+  // uniquement. Toujours annoncé à l'écran, jamais silencieux.
+  const dureeA = dureeDeLaSelection(selections.a, aujourdhui, configExercice);
+  const dureeB = dureeDeLaSelection(selections.b, aujourdhui, configExercice);
+  const { coefficientA, coefficientB, detail: normalisation } = useMemo(
+    () => normaliserDurees(dureeA, dureeB),
+    // Dépendances : les quatre nombres, pas les objets (recréés à chaque rendu).
+    [dureeA.mois, dureeA.jours, dureeB.mois, dureeB.jours]
+  );
 
   const [transactions, setTransactions] = useState<{ a: PastTransactionStockee[]; b: PastTransactionStockee[] } | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -124,10 +140,10 @@ export default function PasseEcarts({
   const donnees = useMemo(
     () =>
       transactions && {
-        a: donneesPeriode(transactions.a, axeId, mappings, ajustements, periodeA),
-        b: donneesPeriode(transactions.b, axeId, mappings, ajustements, periodeB),
+        a: donneesPeriode(transactions.a, axeId, mappings, ajustements, periodeA, coefficientA),
+        b: donneesPeriode(transactions.b, axeId, mappings, ajustements, periodeB, coefficientB),
       },
-    [transactions, axeId, mappings, ajustements, periodeA, periodeB]
+    [transactions, axeId, mappings, ajustements, periodeA, periodeB, coefficientA, coefficientB]
   );
   const comparaison = useMemo(() => donnees && comparerPeriodes(donnees.a, donnees.b), [donnees]);
   const categories = useMemo(() => (donnees && etage ? categoriesDeLEtage(donnees.a, donnees.b, etage) : []), [donnees, etage]);
@@ -168,6 +184,23 @@ export default function PasseEcarts({
   const groupeOuvert = groupe ? (groupes.find((g) => g.cle === groupe) ?? null) : null;
   const groupesStables = groupes.filter((g) => g.statut === "stable").length;
   const groupesAffiches = voirTout ? groupes : groupes.filter((g) => g.statut !== "stable");
+  // Libellé d'un Cash flow : une période normalisée est une moyenne ramenée à une durée, jamais
+  // présentée comme le chiffre réel de ses dates.
+  // Période non terminée : elle ne contient que les transactions à ce jour. Si c'est elle qui est
+  // normalisée, sa moyenne est calculée sur sa durée COMPLÈTE et se trouve donc sous-estimée — une
+  // limite à dire, pas à corriger en silence.
+  const periodesEnCours = (
+    [
+      ["A", periodeA],
+      ["B", periodeB],
+    ] as const
+  ).filter(([, periode]) => periode.fin >= aujourdhui);
+
+  const enTete = (cote: "A" | "B") => (normalisation?.cote === cote ? `${cote} (normalisé)` : cote);
+  const libelleCashFlow = (cote: "A" | "B", periode: Periode) =>
+    normalisation?.cote === cote
+      ? `Cash flow ${cote} · ramené à ${normalisation.duree} (moyenne sur ${libellePeriode(periode)})`
+      : `Cash flow ${cote} · ${libellePeriode(periode)}`;
 
   return (
     <div className="passe-detail">
@@ -210,13 +243,30 @@ export default function PasseEcarts({
           <div className="passe-etat">Chargement des deux périodes…</div>
         ) : (
           <>
+            {normalisation && (
+              <p className="login-info passe-ecarts__normalisation">
+                <strong>Comparaison normalisée sur {normalisation.duree}.</strong> La période {normalisation.cote}, plus
+                longue, est ramenée à {normalisation.duree} : ses montants sont des moyennes sur une durée équivalente, pas
+                un historique.
+              </p>
+            )}
+
+            {periodesEnCours.map(([cote, periode]) => (
+              <p key={cote} className="passe-reserve">
+                La période {cote} n&apos;est pas terminée (elle court jusqu&apos;au {formatDateCourte(periode.fin)}) : elle ne
+                contient que les transactions enregistrées à ce jour.
+                {normalisation?.cote === cote &&
+                  ` Elle est pourtant ramenée à ${normalisation.duree} sur sa durée complète : sa moyenne est sous-estimée.`}
+              </p>
+            ))}
+
             <section className="passe-ecarts__kpi">
               <div>
-                <p className="passe-ecarts__kpi-libelle">Cash flow A · {libellePeriode(periodeA)}</p>
+                <p className="passe-ecarts__kpi-libelle">{libelleCashFlow("A", periodeA)}</p>
                 <p className="passe-ecarts__kpi-valeur">{formatMontant(comparaison.cashFlowA)}</p>
               </div>
               <div>
-                <p className="passe-ecarts__kpi-libelle">Cash flow B · {libellePeriode(periodeB)}</p>
+                <p className="passe-ecarts__kpi-libelle">{libelleCashFlow("B", periodeB)}</p>
                 <p className="passe-ecarts__kpi-valeur">{formatMontant(comparaison.cashFlowB)}</p>
               </div>
               <div>
@@ -232,7 +282,13 @@ export default function PasseEcarts({
 
             <section className="passe-structure">
               <h3 className="eyebrow eyebrow--encre">Ce qui fait varier le Cash flow</h3>
-              <PasseWaterfallChart comparaison={comparaison} libelleA="A" libelleB="B" selection={etage} onSelect={choisirEtage} />
+              <PasseWaterfallChart
+                comparaison={comparaison}
+                libelleA={enTete("A")}
+                libelleB={enTete("B")}
+                selection={etage}
+                onSelect={choisirEtage}
+              />
               {/* L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L n'intervient qu'après. */}
               <p className="passe-message">
                 Dont variation d&apos;EBITDA : {signe(comparaison.variationEbitda)} · variation d&apos;Extra P&amp;L :{" "}
@@ -251,8 +307,8 @@ export default function PasseEcarts({
                       <thead>
                         <tr>
                           <th>Catégorie</th>
-                          <th className="col-montant">A</th>
-                          <th className="col-montant">B</th>
+                          <th className="col-montant">{enTete("A")}</th>
+                          <th className="col-montant">{enTete("B")}</th>
                           <th className="col-montant">Impact Cash flow</th>
                         </tr>
                       </thead>
@@ -301,6 +357,12 @@ export default function PasseEcarts({
               {groupeOuvert.libelle}
               <span className="passe-detail__compte"> {transactionsGroupe.length}</span>
             </h3>
+            {normalisation && (
+              <p className="passe-reserve">
+                Les montants de comparaison sont normalisés sur {normalisation.duree}. Les transactions ci-dessous sont
+                affichées à leur valeur réelle.
+              </p>
+            )}
             <div className="passe-tri">
               <button type="button" className="btn-secondaire" onClick={() => setGroupe(null)}>
                 ← Retour
@@ -365,9 +427,9 @@ export default function PasseEcarts({
               <span className="passe-detail__compte"> {groupesAffiches.length}</span>
             </h3>
             <p className="passe-reserve">
-              Rapprochement des libellés expérimental : deux lignes ne sont réunies que si leurs libellés sont identiques
-              une fois retirés la casse, les accents et les mentions de mois ou de date. Cliquez sur un libellé pour voir
-              les transactions d&apos;origine.
+              Regroupement expérimental : les transactions d&apos;un même flux (même mandat de prélèvement, ou même
+              libellé hors dates) sont additionnées sur chaque période. Cliquez sur une ligne pour voir les transactions
+              d&apos;origine.
             </p>
             {groupesAffiches.length === 0 ? (
               <p className="passe-structure__vide">
@@ -378,9 +440,9 @@ export default function PasseEcarts({
                 <table className="passe-table">
                   <thead>
                     <tr>
-                      <th>Libellé</th>
-                      <th className="col-montant">A</th>
-                      <th className="col-montant">B</th>
+                      <th>Flux</th>
+                      <th className="col-montant">{enTete("A")}</th>
+                      <th className="col-montant">{enTete("B")}</th>
                       <th className="col-montant">Impact Cash flow</th>
                     </tr>
                   </thead>
@@ -391,8 +453,9 @@ export default function PasseEcarts({
                           <button type="button" className="passe-lien-ligne" onClick={() => ouvrirGroupe(g.cle)}>
                             {g.libelle || "—"}
                           </button>
-                          {g.statut === "nouveau" && <span className="passe-statut passe-statut--a-mapper">Nouveau</span>}
-                          {g.statut === "absent" && <span className="passe-statut passe-badge-absent">Absent</span>}
+                          {g.nombreA + g.nombreB > 1 && (
+                            <span className="passe-statut">{g.nombreA + g.nombreB} transactions</span>
+                          )}
                           {categorie === null && <span className="passe-detail__source">{g.categorie}</span>}
                         </td>
                         <td className="col-montant passe-table__montant">{g.nombreA === 0 ? "—" : formatMontant(g.montantA)}</td>

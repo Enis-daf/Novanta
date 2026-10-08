@@ -90,7 +90,8 @@ const ONGLETS = [
   { cle: "marge_contributive", libelle: "Marge contributive" },
   { cle: "ebitda", libelle: "EBITDA" },
   { cle: "cash_flow", libelle: "Cash flow" },
-  { cle: "ecarts", libelle: "Écarts" },
+  // Mis en avant dans la navigation (rose de marque) : c'est l'onglet qu'on doit repérer d'emblée.
+  { cle: "ecarts", libelle: "Analyse d'écarts", vedette: true },
   { cle: "stocks", libelle: "Stocks" },
   { cle: "mapping", libelle: "Correspondance P&L" },
   // Plus proposé dans la navigation : une liste brute de transactions, sans contexte, n'explique
@@ -677,7 +678,9 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
             type="button"
             role="tab"
             aria-selected={vue === onglet.cle}
-            className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}`}
+            className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}${
+              "vedette" in onglet ? " passe-onglet--vedette" : ""
+            }`}
             onClick={() => setVue(onglet.cle)}
           >
             {onglet.libelle}
