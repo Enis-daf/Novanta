@@ -19,6 +19,7 @@ import BandeauPeriodeFiltre from "@/components/BandeauPeriodeFiltre";
 import ControleMensuel from "@/components/ControleMensuel";
 import LoginForm from "@/components/LoginForm";
 import IconTelechargement from "@/components/IconTelechargement";
+import NavigationModules from "@/components/NavigationModules";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 const ImportHistoriqueBancaire = dynamic(() => import("@/components/ImportHistoriqueBancaire"), { ssr: false });
@@ -70,6 +71,7 @@ import {
 } from "@/lib/types";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
+import { moduleActifPourOrganisation } from "@/lib/organizationModules";
 import {
   chargerOuInitialiserDonnees,
   sauvegarderAutreDepense,
@@ -140,6 +142,9 @@ export default function Home() {
   const [syncPennylaneEnCours, setSyncPennylaneEnCours] = useState(false);
   const [syncPennylaneResultat, setSyncPennylaneResultat] = useState<ResultatSyncPennylane | null>(null);
   const [syncPennylaneErreur, setSyncPennylaneErreur] = useState<string | null>(null);
+  // Entitlement "past" de la société courante : ne sert qu'à afficher ou non le bouton "Passé"
+  // dans l'en-tête (la route /passe revérifie elle-même). false par défaut et en cas d'erreur.
+  const [modulePasseActif, setModulePasseActif] = useState(false);
 
   const [soldeInitial, setSoldeInitial] = useState(SOLDE_BANCAIRE_INITIAL);
   const [dateReleve, setDateReleve] = useState(() => todayISO());
@@ -222,6 +227,24 @@ export default function Home() {
       annule = true;
     };
   }, [session]);
+
+  useEffect(() => {
+    if (!supabaseConfigured || !companyId) {
+      setModulePasseActif(false);
+      return;
+    }
+    let annule = false;
+    moduleActifPourOrganisation(supabase!, companyId, "past")
+      .then((actif) => {
+        if (!annule) setModulePasseActif(actif);
+      })
+      .catch(() => {
+        if (!annule) setModulePasseActif(false);
+      });
+    return () => {
+      annule = true;
+    };
+  }, [companyId]);
 
   useEffect(() => {
     if (!supabaseConfigured) return;
@@ -907,6 +930,7 @@ export default function Home() {
         {supabaseConfigured && session && (
           <div className="page-intro__actions">
             <span className="page-intro__email">{session.user.email}</span>
+            <NavigationModules moduleActif="futur" passeDisponible={modulePasseActif} />
             <Link href="/account/billing" className="btn-secondaire">
               Abonnement
             </Link>

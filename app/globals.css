@@ -134,6 +134,13 @@ input[type="checkbox"] {
   font-size: 19px;
 }
 
+/* Variante en encre pour les titres de blocs du module Passé : même typographie (capitales
+   espacées) sans le rose, qui reste un accent — un écran qui compte plusieurs blocs ne doit pas
+   avoir tous ses titres en rose. */
+.eyebrow--encre {
+  color: var(--couleur-texte);
+}
+
 /* Titre de page compact : "Novanta" reprend le traitement de .eyebrow (rose, capitales, tracking)
    directement suivi du nom du produit en noir, sur une seule ligne — pas de gros H1 séparé. */
 .page-intro__titre-compact {
@@ -1446,6 +1453,38 @@ input[type="checkbox"] {
   background: var(--couleur-bordure);
 }
 
+/* Couple Passé / Futur dans l'en-tête : écart interne réduit de moitié par rapport aux autres
+   boutons, et écart doublé de part et d'autre pour le détacher du reste de .page-intro__actions. */
+.nav-modules {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--space-2) / 2);
+  margin: 0 var(--space-2);
+}
+
+/* Séparateurs "//" de part et d'autre du couple (décoratifs, hors arbre d'accessibilité). */
+.nav-modules::before,
+.nav-modules::after {
+  content: "//" / "";
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.nav-modules::before {
+  margin-right: calc(var(--space-2) / 2);
+}
+
+.nav-modules::after {
+  margin-left: calc(var(--space-2) / 2);
+}
+
+.btn-module--actif,
+.btn-module--actif:hover {
+  background: var(--couleur-accent);
+  border-color: var(--couleur-accent);
+  color: var(--couleur-fond);
+}
+
 .btn-secondaire:disabled {
   background: var(--couleur-bordure);
   color: var(--couleur-texte-secondaire);
@@ -1782,4 +1821,836 @@ input[type="checkbox"] {
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: 14px;
+}
+
+/* Module Passé : contrôles (période, catégories, synchronisation), compteur et tableau des
+   transactions. Pleine largeur sous l'en-tête (la grille .cockpit a deux colonnes). */
+/* Une seule grande surface pour tout le module, comme .pilotage côté Futur : les blocs s'y
+   distinguent par l'espace et la typographie, pas par des cadres. */
+.passe {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  background: var(--couleur-fond);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  position: relative;
+  /* isolation : borne le z-index:-1 des deux bulles à cette surface (elles passent derrière le
+     contenu, pas derrière son fond). overflow:clip et non hidden : les bulles sont découpées au
+     cadre arrondi SANS faire de .passe un conteneur de défilement, ce qui casserait le
+     position:sticky de la liste de transactions des écrans de détail. */
+  isolation: isolate;
+  overflow: clip;
+}
+
+/* Les deux plages pastel signature, sur le modèle de .pilotage__decor-rose / -verte, mêmes
+   couleurs aux mêmes coins que le panneau Futur : rose au coin haut-droit, verte au coin bas-gauche. Ancres de taille nulle posées sur les coins de la
+   surface (hors flux : .passe est une colonne flex avec gap), le cercle vient du ::before. */
+.passe__decor-haut,
+.passe__decor-bas {
+  position: absolute;
+  width: 0;
+  height: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.passe__decor-haut {
+  top: 0;
+  right: 0;
+}
+
+.passe__decor-bas {
+  bottom: 0;
+  left: 0;
+}
+
+.passe__decor-haut::before,
+.passe__decor-bas::before {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+}
+
+.passe__decor-haut::before {
+  width: 640px;
+  height: 640px;
+  right: -380px;
+  top: -380px;
+  background: var(--couleur-fond-alt-rose);
+}
+
+.passe__decor-bas::before {
+  width: 560px;
+  height: 560px;
+  left: -300px;
+  bottom: -300px;
+  background: var(--couleur-fond-alt-vert);
+}
+
+/* Une information, pas une alerte : texte secondaire, sans fond ni rose. */
+.passe-disclaimer {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  text-align: center;
+}
+
+/* Page courte (état vide, erreur) : sans ça, la grille .cockpit (min-height: 100vh) répartit la
+   hauteur restante entre ses rangées et décolle la surface de l'en-tête. */
+.cockpit:has(> .passe) {
+  align-content: start;
+}
+
+/* .login-erreur est pensé pour une carte en colonne ; ici il ne doit ni s'étirer ni ajouter de marge. */
+.passe .login-erreur {
+  align-self: flex-start;
+  margin: 0;
+}
+
+.passe-controles {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.passe-controle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.passe-controle__label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+}
+
+.passe-controle__separateur {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-controle .date-field__bouton {
+  padding: 6px 10px;
+  font-size: 12px;
+  width: 104px;
+}
+
+.passe-controles__actions {
+  margin-left: auto;
+}
+
+.passe-controles__actions .btn-add {
+  margin-top: 0;
+}
+
+.passe-filtre {
+  position: relative;
+}
+
+.passe-filtre__bouton {
+  min-width: 140px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+.passe-filtre__popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1);
+  background: var(--couleur-fond);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 16px rgba(3, 10, 22, 0.12);
+}
+
+.passe-filtre__popover hr {
+  width: 100%;
+  margin: 4px 0;
+  border: none;
+  border-top: 1px solid var(--couleur-bordure);
+}
+
+.passe-filtre__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--couleur-texte);
+  cursor: pointer;
+}
+
+.passe-filtre__option:hover {
+  background: var(--couleur-bordure);
+}
+
+.passe-message {
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Compteur "non catégorisé" : discret à zéro ; au-delà, alerte (pas un bouton) en rose pâle avec
+   texte rose foncé de la palette — jamais un rouge "erreur". */
+.passe-non-categorise {
+  align-self: flex-start;
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-non-categorise--alerte {
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-fond-alt-rose);
+  color: var(--couleur-accent-fonce);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.passe-etat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-7) var(--space-4);
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+  text-align: center;
+}
+
+.passe-etat p {
+  margin: 0;
+}
+
+.passe-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.passe-table th,
+.passe-table td {
+  padding: 9px var(--space-2);
+  border-bottom: 1px solid var(--couleur-bordure);
+  text-align: left;
+  vertical-align: top;
+}
+
+.passe-table th {
+  color: var(--couleur-texte-secondaire);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.passe-table th.col-montant,
+.passe-table td.col-montant {
+  text-align: right;
+}
+
+.passe-table tbody tr:hover {
+  background: var(--couleur-fond-alt-vert);
+}
+
+.passe-table__date,
+.passe-table__montant {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* min-width : dans un tableau qui défile horizontalement (écran étroit), la colonne de texte ne
+   doit pas se réduire à quelques lettres par ligne pour laisser la place aux colonnes en nowrap. */
+.passe-table__libelle {
+  min-width: 140px;
+  overflow-wrap: anywhere;
+}
+
+.passe-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-pagination__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.passe-axe select {
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--couleur-texte);
+  background: var(--couleur-fond);
+  max-width: 360px;
+}
+
+/* Plusieurs axes analytiques et aucun choisi : état explicite, le module ne tranche pas seul. */
+.passe-axe-a-configurer {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--couleur-fond-alt-rose);
+  font-size: 13px;
+  color: var(--couleur-texte);
+}
+
+.passe-axe-a-configurer p {
+  margin: 0;
+  flex: 1 1 420px;
+}
+
+/* Onglets du module Passé : Transactions / Correspondance P&L. */
+.passe-onglets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+.passe-onglet {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+  margin-bottom: -1px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--couleur-texte-secondaire);
+  cursor: pointer;
+}
+
+.passe-onglet:hover {
+  color: var(--couleur-texte);
+}
+
+.passe-onglet--actif {
+  color: var(--couleur-texte);
+  border-bottom-color: var(--couleur-accent);
+}
+
+.passe-onglet__pastille {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--couleur-fond-alt-rose);
+  color: var(--couleur-accent-fonce);
+  font-size: 11px;
+}
+
+.passe-indicateurs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.passe-indicateurs .passe-non-categorise {
+  align-self: auto;
+}
+
+.passe-filtres-actifs .btn-secondaire {
+  white-space: nowrap;
+}
+
+.passe-mapping {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.passe-statut {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  white-space: nowrap;
+}
+
+.passe-statut--a-mapper {
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-fond-alt-rose);
+  color: var(--couleur-accent-fonce);
+  font-weight: 600;
+}
+
+/* Onglet Général : un document de pilotage plutôt qu'un tableau de bord. Sur desktop, deux
+   colonnes égales — à gauche la performance (le P&L), à droite sa composition (structure des
+   revenus puis des coûts) — séparées par un simple filet ; une seule colonne sous 900px, le point de rupture de l'app. */
+.passe-general {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-7);
+  padding-top: var(--space-4);
+}
+
+@media (min-width: 901px) {
+  .passe-general {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .passe-pnl {
+    padding-right: var(--space-7);
+  }
+
+  .passe-general__structures {
+    padding-left: var(--space-7);
+    border-left: 1px solid var(--couleur-bordure);
+  }
+}
+
+/* Le P&L occupe toute la hauteur de sa colonne : les blocs se répartissent, sans cadre autour. */
+.passe-pnl {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.passe-pnl__bloc {
+  display: flex;
+  flex-direction: column;
+}
+
+.passe-pnl__ligne {
+  display: grid;
+  /* Colonnes de largeur fixe pour les chiffres : chaque ligne est sa propre grille, les montants
+     ne s'alignent d'une ligne à l'autre que si ces largeurs ne dépendent pas du contenu. */
+  grid-template-columns: minmax(0, 1fr) 132px 60px;
+  align-items: baseline;
+  column-gap: var(--space-3);
+  padding: var(--space-2) 0;
+  font-size: 15px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-pnl__montant,
+.passe-pnl__ratio {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.passe-pnl__ratio {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Soldes intermédiaires : un filet léger au-dessus, la hiérarchie vient de la typographie. */
+.passe-pnl__ligne--solde,
+.passe-pnl__ligne--titre {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+}
+
+.passe-pnl__ligne--solde {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--couleur-bordure);
+}
+
+/* Cash flow : à part du P&L opérationnel, détaché par l'espace et un filet plus marqué. */
+.passe-pnl__bloc--cash {
+  padding-top: var(--space-3);
+  border-top: 2px solid var(--couleur-texte);
+}
+
+.passe-general__structures {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.passe-general__structures > .passe-structure {
+  flex: 1 1 0;
+  justify-content: center;
+}
+
+.passe-general__structures > .passe-structure + .passe-structure {
+  margin-top: var(--space-6);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--couleur-bordure);
+}
+
+.passe-structure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.passe-structure__corps {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.passe-structure__graphique {
+  position: relative;
+  flex: 0 0 200px;
+  width: 200px;
+}
+
+/* Total au centre de l'anneau. */
+.passe-structure__total {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+  pointer-events: none;
+}
+
+.passe-structure__legende {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--couleur-texte);
+}
+
+.passe-structure__ligne {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 10px 1fr auto 52px;
+  align-items: baseline;
+  column-gap: var(--space-2);
+  padding: 3px 6px;
+  margin: 0 -6px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+
+.passe-structure__ligne--cliquable {
+  cursor: pointer;
+}
+
+.passe-structure__ligne--cliquable:hover {
+  background: var(--couleur-bordure);
+}
+
+.passe-structure__ligne--attenuee {
+  opacity: 0.45;
+}
+
+.passe-structure__ligne--selection {
+  background: var(--couleur-fond-alt-rose);
+  font-weight: 600;
+}
+
+.passe-structure__pastille {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  align-self: center;
+}
+
+.passe-structure__nom {
+  overflow-wrap: anywhere;
+}
+
+.passe-structure__montant,
+.passe-structure__part {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.passe-structure__part {
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-structure__vide,
+.passe-structure__note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-structure__infobulle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1) 10px;
+  background: var(--couleur-fond);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--couleur-texte);
+  box-shadow: 0 4px 16px rgba(3, 10, 22, 0.12);
+}
+
+/* Écrans détaillés (CA, marges, EBITDA, Cash flow) : à gauche KPI, répartition et évolution ; à
+   droite les transactions qui expliquent le chiffre. Environ 55 / 45 sur desktop, une colonne sur
+   écran étroit. */
+.passe-detail {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-7);
+  padding-top: var(--space-4);
+}
+
+.passe-detail__gauche {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+.passe-detail__droite {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+@media (min-width: 901px) {
+  .passe-detail {
+    grid-template-columns: minmax(0, 55fr) minmax(0, 45fr);
+    gap: 0;
+    align-items: start;
+  }
+
+  .passe-detail__gauche {
+    padding-right: var(--space-6);
+  }
+
+  /* La liste reste sous les yeux pendant qu'on clique à gauche, et défile dans sa colonne. */
+  .passe-detail__droite {
+    position: sticky;
+    top: var(--space-3);
+    max-height: calc(100vh - var(--space-5));
+    padding-left: var(--space-6);
+    border-left: 1px solid var(--couleur-bordure);
+  }
+
+  .passe-detail__table {
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .passe-detail__table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--couleur-fond);
+  }
+}
+
+.passe-tri {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 12px;
+}
+
+.passe-detail__compte {
+  font-weight: 400;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-detail__source {
+  display: block;
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Le niveau analytique accolé au nom de la catégorie reste un contexte, pas un titre. */
+.passe-kpi__contexte {
+  font-weight: 400;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-kpi__montant,
+.passe-kpi__ratio {
+  margin: 0;
+}
+
+.passe-kpi__montant {
+  font-size: 40px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  color: var(--couleur-texte);
+  font-variant-numeric: tabular-nums;
+}
+
+.passe-kpi__ratio {
+  font-size: 14px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-filtres-actifs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  font-size: 12px;
+}
+
+.passe-filtres-actifs__titre {
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-visuellement-cache {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.passe-signes-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Histogramme mensuel et, à côté, le bloc des ajustements de gestion qu'il inclut. Sans
+   ajustement, l'histogramme garde toute la largeur (le bloc n'est pas rendu). */
+.passe-detail__evolution {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.passe-detail__evolution > .passe-structure {
+  flex: 3 1 320px;
+}
+
+.passe-ajustements {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.passe-ajustements ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--couleur-texte);
+}
+
+.passe-ajustements li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.passe-ajustements__montant {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Ajustements de gestion dans la colonne des transactions : au-dessus et à part, avec leur propre
+   intitulé — ce ne sont pas des opérations bancaires. */
+.passe-detail__ajustements {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+/* Réserve sur un ajustement (périodisation incertaine...) : un signalement, pas une erreur —
+   texte secondaire en italique, sans fond ni couleur d'alerte. */
+.passe-reserve {
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 400;
+  color: var(--couleur-texte-secondaire);
+  white-space: normal;
+}
+
+/* Trois colonnes courtes : pas besoin de toute la largeur de la surface. */
+.passe-stocks {
+  max-width: 640px;
+}
+
+.passe-stocks input {
+  width: 140px;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  padding: 6px var(--space-1);
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+  color: var(--couleur-texte);
+  background: var(--couleur-fond);
+}
+
+@media (max-width: 900px) {
+  .passe {
+    padding: var(--space-3);
+  }
+
+  /* Masquées sur petit écran, comme celles du panneau Futur. */
+  .passe__decor-haut,
+  .passe__decor-bas {
+    display: none;
+  }
+
+  .passe-controles__actions {
+    margin-left: 0;
+  }
+}
+
+/* Le tableau défile dans sa propre boîte plutôt que d'élargir la page. overflow-x explicite :
+   overflow-y:auto (desktop) forcerait sinon overflow-x à auto de toute façon. */
+.passe-detail__table {
+  overflow-x: auto;
 }

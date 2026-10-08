@@ -328,3 +328,446 @@ create table if not exists pennylane_connections (
 );
 
 alter table pennylane_connections enable row level security;
+
+-- Modules activables par organisation (entitlements) : voir
+-- migrations/20261007_organization_modules.sql pour le détail et la procédure d'activation.
+create table if not exists organization_modules (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references companies(id) on delete cascade,
+  module_key text not null,
+  enabled boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (organization_id, module_key)
+);
+
+alter table organization_modules enable row level security;
+
+drop policy if exists "Lecture des modules de sa société" on organization_modules;
+create policy "Lecture des modules de sa société" on organization_modules
+  for select
+  using (organization_id in (select id from companies where owner_id = auth.uid()));
+
+revoke all on public.organization_modules from anon;
+revoke insert, update, delete, truncate on public.organization_modules from authenticated;
+grant select on public.organization_modules to authenticated;
+
+-- Module "Passé" : transactions internes normalisées (sources Pennylane / Excel). Voir
+-- migrations/20261008_past_transactions.sql pour le modèle d'identité et les règles d'accès.
+create table if not exists past_import_batches (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references companies(id) on delete cascade,
+  source_type text not null default 'excel' check (source_type in ('excel')),
+  file_name text,
+  file_hash text,
+  row_count integer not null default 0,
+  created_at timestamptz not null default now(),
+  unique (organization_id, file_hash)
+);
+
+create table if not exists past_transactions (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references companies(id) on delete cascade,
+
+  source_type text not null check (source_type in ('pennylane', 'excel')),
+  source_transaction_id text,
+  import_batch_id uuid references past_import_batches(id) on delete cascade,
+  source_row_index integer,
+
+  transaction_date date not null,
+  label text not null default '',
+  amount numeric not null,
+  currency text,
+
+  source_created_at timestamptz,
+  source_updated_at timestamptz,
+  synced_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint past_transactions_identite_source check (
+    (source_type = 'pennylane' and source_transaction_id is not null)
+    or (source_type = 'excel' and import_batch_id is not null and source_row_index is not null)
+  ),
+  -- Clé d'upsert Pennylane. Les lignes Excel (source_transaction_id null) n'entrent jamais en
+  -- conflit ici : en SQL, deux NULL sont distincts dans une contrainte unique.
+  constraint past_transactions_source_unique unique (organization_id, source_type, source_transaction_id),
+  constraint past_transactions_ligne_lot_unique unique (import_batch_id, source_row_index)
+);
+
+alter table past_transactions drop column if exists analytic_category_id;
+alter table past_transactions drop column if exists analytic_category_name;
+
+create table if not exists past_analytic_groups (
+  organization_id uuid not null references companies(id) on delete cascade,
+  group_id text not null,
+  name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (organization_id, group_id)
+);
+
+create table if not exists past_transaction_categories (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references companies(id) on delete cascade,
+  transaction_id uuid not null references past_transactions(id) on delete cascade,
+  analytic_group_id text not null,
+  analytic_category_id text,
+  analytic_category_name text not null,
+  weight numeric not null default 1,
+  created_at timestamptz not null default now()
+);
+
+-- Paramètres du module Passé, par organisation. reporting_analytic_group_id : l'axe analytique
+-- utilisé par le module (null = non configuré ; jamais choisi arbitrairement par le code).
+create table if not exists past_settings (
+  organization_id uuid primary key references companies(id) on delete cascade,
+  reporting_analytic_group_id text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_past_transaction_categories_transaction
+  on past_transaction_categories(transaction_id);
+create index if not exists idx_past_transaction_categories_org
+  on past_transaction_categories(organization_id);
+create index if not exists idx_past_transactions_org_date
+  on past_transactions(organization_id, transaction_date desc);
+create index if not exists idx_past_import_batches_org on past_import_batches(organization_id);
+
+alter table past_import_batches enable row level security;
+alter table past_transactions enable row level security;
+alter table past_analytic_groups enable row level security;
+alter table past_transaction_categories enable row level security;
+alter table past_settings enable row level security;
+
+drop policy if exists "Lecture des transactions Passé de sa société" on past_transactions;
+create policy "Lecture des transactions Passé de sa société" on past_transactions
+  for select
+  using (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_transactions.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  );
+
+drop policy if exists "Import Excel Passé de sa société" on past_transactions;
+create policy "Import Excel Passé de sa société" on past_transactions
+  for insert
+  with check (
+    source_type = 'excel'
+    and organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_transactions.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  );
+
+drop policy if exists "Suppression import Excel Passé de sa société" on past_transactions;
+create policy "Suppression import Excel Passé de sa société" on past_transactions
+  for delete
+  using (
+    source_type = 'excel'
+    and organization_id in (select id from companies where owner_id = auth.uid())
+  );
+
+drop policy if exists "Lots d'import Passé de sa société" on past_import_batches;
+create policy "Lots d'import Passé de sa société" on past_import_batches
+  for all
+  using (organization_id in (select id from companies where owner_id = auth.uid()))
+  with check (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_import_batches.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  );
+
+drop policy if exists "Lecture des affectations analytiques de sa société" on past_transaction_categories;
+create policy "Lecture des affectations analytiques de sa société" on past_transaction_categories
+  for select
+  using (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_transaction_categories.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  );
+
+-- Insertion côté client : uniquement pour une transaction Excel de sa propre organisation. La
+-- suppression passe par la cascade depuis past_transactions (aucun droit delete direct).
+drop policy if exists "Affectations d'un import Excel de sa société" on past_transaction_categories;
+create policy "Affectations d'un import Excel de sa société" on past_transaction_categories
+  for insert
+  with check (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from past_transactions t
+      where t.id = past_transaction_categories.transaction_id
+        and t.organization_id = past_transaction_categories.organization_id
+        and t.source_type = 'excel'
+    )
+  );
+
+drop policy if exists "Lecture des axes analytiques de sa société" on past_analytic_groups;
+create policy "Lecture des axes analytiques de sa société" on past_analytic_groups
+  for select
+  using (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_analytic_groups.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  );
+
+drop policy if exists "Axe Excel de sa société" on past_analytic_groups;
+create policy "Axe Excel de sa société" on past_analytic_groups
+  for insert
+  with check (
+    group_id = 'excel'
+    and organization_id in (select id from companies where owner_id = auth.uid())
+  );
+
+drop policy if exists "Paramètres Passé de sa société" on past_settings;
+create policy "Paramètres Passé de sa société" on past_settings
+  for all
+  using (organization_id in (select id from companies where owner_id = auth.uid()))
+  with check (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_settings.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  );
+
+revoke all on public.past_transactions from anon;
+revoke all on public.past_import_batches from anon;
+revoke update, truncate on public.past_transactions from authenticated;
+revoke update, truncate on public.past_import_batches from authenticated;
+grant select, insert, delete on public.past_transactions to authenticated;
+grant select, insert, delete on public.past_import_batches to authenticated;
+
+revoke all on public.past_analytic_groups from anon;
+revoke all on public.past_transaction_categories from anon;
+revoke all on public.past_settings from anon;
+revoke update, delete, truncate on public.past_analytic_groups from authenticated;
+revoke update, delete, truncate on public.past_transaction_categories from authenticated;
+revoke delete, truncate on public.past_settings from authenticated;
+grant select, insert on public.past_analytic_groups to authenticated;
+grant select, insert on public.past_transaction_categories to authenticated;
+grant select, insert, update on public.past_settings to authenticated;
+
+-- Module "Passé" : correspondance catégorie source -> étage P&L. Voir
+-- migrations/20261009_past_category_mappings.sql (modèle, droits, journal d'audit).
+create table if not exists past_category_mappings (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references companies(id) on delete cascade,
+  source_category_id text not null,
+  source_category_name text not null,
+  source_group_id text,
+  pnl_stage text check (pnl_stage in ('revenue', 'gross_margin', 'contribution_margin', 'ebitda', 'extra_pnl')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  updated_by uuid,
+  unique (organization_id, source_category_id)
+);
+
+create table if not exists past_category_mapping_history (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references companies(id) on delete cascade,
+  source_category_id text not null,
+  source_category_name text not null,
+  previous_pnl_stage text,
+  new_pnl_stage text,
+  changed_by uuid,
+  changed_at timestamptz not null default now()
+);
+
+create index if not exists idx_past_category_mapping_history_org
+  on past_category_mapping_history(organization_id, changed_at desc);
+
+-- La clé du 5e étage s'est d'abord appelée autrement dans une version antérieure de ce fichier :
+-- sur une base où elle a été appliquée, la contrainte est retirée AVANT de renommer les valeurs
+-- (sinon l'UPDATE serait rejeté), puis recréée. Sans effet sur une base neuve.
+alter table past_category_mappings drop constraint if exists past_category_mappings_pnl_stage_check;
+update past_category_mappings set pnl_stage = 'extra_pnl' where pnl_stage = 'outside_pnl';
+update past_category_mapping_history set previous_pnl_stage = 'extra_pnl' where previous_pnl_stage = 'outside_pnl';
+update past_category_mapping_history set new_pnl_stage = 'extra_pnl' where new_pnl_stage = 'outside_pnl';
+alter table past_category_mappings add constraint past_category_mappings_pnl_stage_check
+  check (pnl_stage in ('revenue', 'gross_margin', 'contribution_margin', 'ebitda', 'extra_pnl'));
+
+-- Journalise chaque changement d'étage et date/signe la ligne. Un simple renommage de catégorie
+-- par la synchronisation (pnl_stage inchangé) ne produit aucune ligne d'historique.
+create or replace function past_category_mappings_journaliser()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.pnl_stage is distinct from old.pnl_stage then
+    new.updated_at := now();
+    new.updated_by := auth.uid();
+    insert into past_category_mapping_history
+      (organization_id, source_category_id, source_category_name, previous_pnl_stage, new_pnl_stage, changed_by)
+    values
+      (new.organization_id, new.source_category_id, new.source_category_name, old.pnl_stage, new.pnl_stage, auth.uid());
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists past_category_mappings_journal on past_category_mappings;
+create trigger past_category_mappings_journal
+  before update on past_category_mappings
+  for each row execute function past_category_mappings_journaliser();
+
+alter table past_category_mappings enable row level security;
+alter table past_category_mapping_history enable row level security;
+
+drop policy if exists "Lecture des mappings de sa société" on past_category_mappings;
+create policy "Lecture des mappings de sa société" on past_category_mappings
+  for select
+  using (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_category_mappings.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  );
+
+drop policy if exists "Modification des mappings de sa société" on past_category_mappings;
+create policy "Modification des mappings de sa société" on past_category_mappings
+  for update
+  using (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_category_mappings.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  )
+  with check (organization_id in (select id from companies where owner_id = auth.uid()));
+
+drop policy if exists "Lecture de l'historique de mapping de sa société" on past_category_mapping_history;
+create policy "Lecture de l'historique de mapping de sa société" on past_category_mapping_history
+  for select
+  using (organization_id in (select id from companies where owner_id = auth.uid()));
+
+revoke all on public.past_category_mappings from anon;
+revoke all on public.past_category_mapping_history from anon;
+revoke insert, update, delete, truncate on public.past_category_mappings from authenticated;
+revoke insert, update, delete, truncate on public.past_category_mapping_history from authenticated;
+grant select on public.past_category_mappings to authenticated;
+grant update (pnl_stage) on public.past_category_mappings to authenticated;
+grant select on public.past_category_mapping_history to authenticated;
+
+-- Module "Passé" : ajustements de gestion et stocks de fin de mois. Voir
+-- migrations/20261010_past_management_adjustments.sql (modèle, calcul à la lecture, droits).
+create table if not exists past_management_adjustments (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references companies(id) on delete cascade,
+  adjustment_date date not null,
+  label text not null,
+  amount numeric not null,
+  pnl_stage text not null check (pnl_stage in ('revenue', 'gross_margin', 'contribution_margin', 'ebitda', 'extra_pnl')),
+  adjustment_type text not null check (adjustment_type <> ''),
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by uuid,
+  updated_by uuid
+);
+
+create table if not exists past_inventory_balances (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references companies(id) on delete cascade,
+  -- Toujours le premier jour du mois : une seule valeur de stock par mois et par organisation.
+  month date not null check (month = date_trunc('month', month)::date),
+  ending_inventory_value numeric not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by uuid,
+  updated_by uuid,
+  unique (organization_id, month)
+);
+
+create index if not exists idx_past_management_adjustments_org_date
+  on past_management_adjustments(organization_id, adjustment_date);
+
+-- Auteur et horodatage, communs aux deux tables.
+create or replace function past_poser_audit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    new.created_by := auth.uid();
+  end if;
+  new.updated_by := auth.uid();
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists past_management_adjustments_audit on past_management_adjustments;
+create trigger past_management_adjustments_audit
+  before insert or update on past_management_adjustments
+  for each row execute function past_poser_audit();
+
+drop trigger if exists past_inventory_balances_audit on past_inventory_balances;
+create trigger past_inventory_balances_audit
+  before insert or update on past_inventory_balances
+  for each row execute function past_poser_audit();
+
+alter table past_management_adjustments enable row level security;
+alter table past_inventory_balances enable row level security;
+
+drop policy if exists "Lecture des ajustements de gestion de sa société" on past_management_adjustments;
+create policy "Lecture des ajustements de gestion de sa société" on past_management_adjustments
+  for select
+  using (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_management_adjustments.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  );
+
+drop policy if exists "Stocks de fin de mois de sa société" on past_inventory_balances;
+create policy "Stocks de fin de mois de sa société" on past_inventory_balances
+  for all
+  using (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_inventory_balances.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  )
+  with check (
+    organization_id in (select id from companies where owner_id = auth.uid())
+    and exists (
+      select 1 from organization_modules m
+      where m.organization_id = past_inventory_balances.organization_id
+        and m.module_key = 'past' and m.enabled
+    )
+  );
+
+revoke all on public.past_management_adjustments from anon;
+revoke all on public.past_inventory_balances from anon;
+revoke insert, update, delete, truncate on public.past_management_adjustments from authenticated;
+revoke truncate on public.past_inventory_balances from authenticated;
+grant select on public.past_management_adjustments to authenticated;
+grant select, insert, update, delete on public.past_inventory_balances to authenticated;
