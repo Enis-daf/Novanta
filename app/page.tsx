@@ -246,10 +246,18 @@ export default function Home() {
     };
   }, [companyId]);
 
+  // La vérification d'accès et le chargement des données se rejouent quand L'UTILISATEUR change,
+  // pas quand l'objet de session change : Supabase réémet la session (nouvel objet, même
+  // utilisateur) à chaque retour sur l'onglet du navigateur et à chaque rafraîchissement de jeton.
+  // Dépendre de `session` repassait alors par les écrans d'attente et démontait tout le cockpit
+  // (sections repliées, défilement, saisie en cours). Conséquence assumée : revenir sur l'onglet ne
+  // recharge plus les données depuis la base.
+  const userId = session?.user.id ?? null;
+
   useEffect(() => {
     if (!supabaseConfigured) return;
 
-    if (!session) {
+    if (!userId) {
       setCompanyId(null);
       setEtatAcces("verification");
       setDonneesChargees(false);
@@ -312,7 +320,7 @@ export default function Home() {
     return () => {
       annule = true;
     };
-  }, [session, router, tentativeVerification]);
+  }, [userId, router, tentativeVerification]);
 
   const resultat = useMemo(
     () =>

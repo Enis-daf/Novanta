@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AjustementGestion, StockFinDeMois } from "./pastAdjustments";
+import { ConfigExercice, configExerciceValide, normaliserConfigExercice } from "./fiscalPeriods";
 import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import {
   AffectationAnalytique,
@@ -94,6 +95,41 @@ export async function chargerAxeConfigure(supabase: SupabaseClient, organization
     .maybeSingle();
   if (error) throw error;
   return ((data as Row | null)?.reporting_analytic_group_id as string | null) ?? null;
+}
+
+/**
+ * Début d'exercice de l'organisation (1er janvier par défaut). Lu avec `select("*")` : sur une base
+ * où les colonnes d'exercice n'existent pas encore, la lecture ne plante pas, elle renvoie le défaut.
+ */
+export async function chargerExercice(supabase: SupabaseClient, organizationId: string): Promise<ConfigExercice> {
+  const { data, error } = await supabase
+    .from("past_settings")
+    .select("*")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (error) throw error;
+  const row = data as Row | null;
+  return normaliserConfigExercice(row?.fiscal_year_start_month, row?.fiscal_year_start_day);
+}
+
+export async function sauvegarderExercice(
+  supabase: SupabaseClient,
+  organizationId: string,
+  exercice: ConfigExercice
+): Promise<void> {
+  // Même règle que l'écran et que la contrainte de la table : rien n'est envoyé si la date de
+  // début n'existe pas tous les ans.
+  if (!configExerciceValide(exercice)) throw new Error("Début d'exercice invalide.");
+  const { error } = await supabase.from("past_settings").upsert(
+    {
+      organization_id: organizationId,
+      fiscal_year_start_month: exercice.mois,
+      fiscal_year_start_day: exercice.jour,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "organization_id" }
+  );
+  if (error) throw error;
 }
 
 export async function sauvegarderAxeConfigure(
