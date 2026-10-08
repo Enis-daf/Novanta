@@ -2485,6 +2485,13 @@ input[type="checkbox"] {
   }
 }
 
+.passe-tri {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 12px;
+}
+
 .passe-detail__compte {
   font-weight: 400;
   color: var(--couleur-texte-secondaire);

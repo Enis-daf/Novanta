@@ -15,6 +15,9 @@ import {
   METRIQUES_DETAIL,
   MetriqueDetail,
   PartMappee,
+  TRI_TRANSACTIONS_PAR_DEFAUT,
+  trierTransactions,
+  TriTransactions,
 } from "@/lib/pastDetail";
 import { Periode } from "@/lib/pastTransactions";
 
@@ -33,6 +36,11 @@ interface PastDetailDashboardProps {
 
 const PAS_AFFICHAGE = 100;
 const SANS_FILTRE: FiltresDetail = { categorie: null, mois: null };
+// Le sens de chaque tri est fixe (voir trierTransactions) : on choisit le critère, pas l'ordre.
+const TRIS: { cle: TriTransactions; libelle: string }[] = [
+  { cle: "montant", libelle: "Montant" },
+  { cle: "date", libelle: "Date" },
+];
 
 // Écran de détail générique, commun à CA, Marge brute, Marge contributive, EBITDA et Cash flow :
 // KPI -> répartition par catégorie -> évolution mensuelle -> transactions. Seule la forme de la
@@ -45,6 +53,14 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
   const config = METRIQUES_DETAIL[metrique];
   const [filtres, setFiltres] = useState<FiltresDetail>(SANS_FILTRE);
   const [nombreAffiche, setNombreAffiche] = useState(PAS_AFFICHAGE);
+  // État local de l'écran, jamais enregistré : conservé quand un filtre change, remis à
+  // « Montant » quand on change d'onglet (l'écran est remonté).
+  const [tri, setTri] = useState<TriTransactions>(TRI_TRANSACTIONS_PAR_DEFAUT);
+
+  const changerTri = (suivant: TriTransactions) => {
+    setTri(suivant);
+    setNombreAffiche(PAS_AFFICHAGE);
+  };
 
   const changerFiltres = (suivant: FiltresDetail) => {
     setFiltres(suivant);
@@ -60,7 +76,9 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
   );
 
   const filtreActif = filtres.categorie !== null || filtres.mois !== null;
-  const transactionsAffichees = vue.transactions.slice(0, nombreAffiche);
+  // Tri sur TOUTES les transactions qui correspondent aux filtres, puis découpage en lots.
+  const transactionsTriees = useMemo(() => trierTransactions(vue.transactions, tri), [vue.transactions, tri]);
+  const transactionsAffichees = transactionsTriees.slice(0, nombreAffiche);
   const titreEvolution = vue.kpi.categorie
     ? `${vue.kpi.categorie} par mois (en valeur absolue)`
     : `${config.libelle} par mois`;
@@ -197,6 +215,20 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
           </p>
         ) : (
           <>
+            <div className="passe-tri" role="group" aria-label="Trier les transactions">
+              <span className="passe-filtres-actifs__titre">Trier par :</span>
+              {TRIS.map((option) => (
+                <button
+                  key={option.cle}
+                  type="button"
+                  className={`btn-secondaire${tri === option.cle ? " btn-module--actif" : ""}`}
+                  aria-pressed={tri === option.cle}
+                  onClick={() => changerTri(option.cle)}
+                >
+                  {option.libelle}
+                </button>
+              ))}
+            </div>
             <div className="passe-detail__table">
               <table className="passe-table">
                 <thead>

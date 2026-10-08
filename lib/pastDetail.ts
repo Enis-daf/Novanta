@@ -205,7 +205,7 @@ function somme(parts: PartMappee[]): number {
  *    les autres ;
  *  - histogramme : tous les mois de la période, filtré par catégorie seulement — il reste entier
  *    pour montrer le mois sélectionné parmi les autres ;
- *  - transactions : parts de l'étage exploré, filtrées par mois ET catégorie, date décroissante.
+ *  - transactions : parts de l'étage exploré, filtrées par mois ET catégorie.
  *
  * Les ajustements de gestion de la période entrent dans le KPI et l'histogramme de l'indicateur
  * (étage par étage, comme dans le P&L) et suivent le filtre mois. Ils n'ont pas de catégorie : ils
@@ -292,9 +292,8 @@ export function calculerDetail(
       return { mois, montant, valeur: evolutionAbsolue ? Math.abs(montant) : montant };
     }),
     evolutionAbsolue,
-    transactions: parts
-      .filter((p) => duDetail(p) && duMois(p) && deLaCategorie(p))
-      .sort((a, b) => (a.transactionDate < b.transactionDate ? 1 : a.transactionDate > b.transactionDate ? -1 : 0)),
+    // Non triées ici : l'ordre d'affichage est un choix de l'écran (voir trierTransactions).
+    transactions: parts.filter((p) => duDetail(p) && duMois(p) && deLaCategorie(p)),
     ajustements: {
       lignes: lignesAjustements.slice(0, MAX_AJUSTEMENTS_AFFICHES),
       nombreMasques: Math.max(0, lignesAjustements.length - MAX_AJUSTEMENTS_AFFICHES),
@@ -306,6 +305,42 @@ export function calculerDetail(
             .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         : [],
   };
+}
+
+export type TriTransactions = "montant" | "date";
+
+export const TRI_TRANSACTIONS_PAR_DEFAUT: TriTransactions = "montant";
+
+/**
+ * SEULE logique de tri des listes de transactions des écrans de détail. À appliquer à l'ensemble
+ * des parts qui correspondent aux filtres actifs, AVANT toute limitation d'affichage : l'ordre est
+ * alors global, et « Afficher 100 de plus » ne fait que dérouler la suite.
+ *
+ *  - "montant" : valeur absolue décroissante — ce qui pèse le plus d'abord, encaissement ou
+ *    décaissement. Le montant comparé est celui de la PART (le montant attribué à la catégorie
+ *    pour une transaction ventilée), jamais le montant bancaire total ; il reste affiché signé.
+ *  - "date" : de la plus récente à la plus ancienne.
+ *
+ * Le sens est fixe dans les deux cas. À égalité, l'autre critère départage, puis l'identifiant de
+ * la transaction et celui de la catégorie : l'ordre ne varie jamais d'un chargement à l'autre. Un
+ * montant ou une date inexploitable ne fait pas échouer le tri : la ligne passe en dernier, sans
+ * que la donnée soit modifiée.
+ */
+export function trierTransactions(parts: PartMappee[], tri: TriTransactions): PartMappee[] {
+  const poids = (p: PartMappee) => (Number.isFinite(p.montant) ? Math.abs(p.montant) : -1);
+  const date = (p: PartMappee) => (estDateValide(p.transactionDate) ? p.transactionDate : "");
+  const parMontant = (a: PartMappee, b: PartMappee) => poids(b) - poids(a);
+  const parDate = (a: PartMappee, b: PartMappee) => (date(a) < date(b) ? 1 : date(a) > date(b) ? -1 : 0);
+  const parIdentite = (a: PartMappee, b: PartMappee) =>
+    a.transactionId.localeCompare(b.transactionId) || a.sourceCategoryId.localeCompare(b.sourceCategoryId);
+  const criteres = tri === "montant" ? [parMontant, parDate, parIdentite] : [parDate, parMontant, parIdentite];
+  return [...parts].sort((a, b) => {
+    for (const critere of criteres) {
+      const ecart = critere(a, b);
+      if (ecart !== 0) return ecart;
+    }
+    return 0;
+  });
 }
 
 const NOMS_MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];

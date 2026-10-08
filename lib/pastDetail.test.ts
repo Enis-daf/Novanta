@@ -1,7 +1,17 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { indexerMappings, MappingCategorie } from "./pastCategoryMapping";
-import { calculerDetail, FiltresDetail, libelleMois, libelleMoisCourt, moisDeLaPeriode, partsMappees } from "./pastDetail";
+import {
+  calculerDetail,
+  FiltresDetail,
+  libelleMois,
+  libelleMoisCourt,
+  moisDeLaPeriode,
+  PartMappee,
+  partsMappees,
+  TRI_TRANSACTIONS_PAR_DEFAUT,
+  trierTransactions,
+} from "./pastDetail";
 import { calculerPnl, CLE_AUTRES } from "./pastPnl";
 import { PastTransactionStockee } from "./pastTransactions";
 
@@ -125,9 +135,9 @@ describe("écran de détail sans filtre local — cohérent avec le P&L de l'ong
     assert.deepEqual(coutsSeuls.evolution.map((e) => e.valeur), [0, -1_000, -14_800]);
   });
 
-  test("les transactions sont celles de l'étage exploré, date décroissante, sans non mappées", () => {
+  test("les transactions sont celles de l'étage exploré, sans non mappées", () => {
     assert.deepEqual(
-      detail("marge_contributive").transactions.map((p) => [p.transactionId, p.sourceCategoryId, p.montant]),
+      trierTransactions(detail("marge_contributive").transactions, "date").map((p) => [p.transactionId, p.sourceCategoryId, p.montant]),
       [
         ["mixte-sept", "pub", -700],
         ["mixte-sept", "logistique", -300],
@@ -172,7 +182,7 @@ describe("cross-filtering — une seule source de vérité pour les quatre blocs
     const vue = detail("marge_contributive", { categorie: "pub", mois: "2026-09" });
     assert.equal(vue.kpi.montant, -4_700);
     assert.equal(vue.kpi.ratio, -4_700 / 20_000);
-    assert.deepEqual(vue.transactions.map((p) => [p.transactionId, p.montant]), [
+    assert.deepEqual(trierTransactions(vue.transactions, "date").map((p) => [p.transactionId, p.montant]), [
       ["mixte-sept", -700],
       ["pub-sept-2", -1_500],
       ["pub-sept-1", -2_500],
@@ -184,7 +194,7 @@ describe("cross-filtering — une seule source de vérité pour les quatre blocs
   test("le filtre catégorie prend la part pondérée d'une transaction ventilée, pas son montant total", () => {
     const vue = detail("marge_contributive", { categorie: "logistique", mois: "2026-09" });
     assert.equal(vue.kpi.montant, -1_100);
-    assert.deepEqual(vue.transactions.map((p) => [p.transactionId, p.montant, p.montantSource]), [
+    assert.deepEqual(trierTransactions(vue.transactions, "date").map((p) => [p.transactionId, p.montant, p.montantSource]), [
       ["mixte-sept", -300, -1_000],
       ["log-sept", -800, -800],
     ]);
@@ -257,5 +267,93 @@ describe("camembert — lisibilité", () => {
     assert.deepEqual(vue.structure!.parts.map((p) => p.cle), ["c0", "c1", "c2", "c3", "c4", "c5", "c9", CLE_AUTRES]);
     assert.equal(vue.structure!.parts[7].nom, "Autres (3 catégories)");
     assert.equal(vue.structure!.parts.reduce((s, p) => s + p.montant, 0), -5_500);
+  });
+});
+
+describe("tri des listes de transactions", () => {
+  const part = (id: string, date: string, montant: number, categorie = "c"): PartMappee => ({
+    transactionId: id,
+    transactionDate: date,
+    mois: date.slice(0, 7),
+    label: id,
+    montant,
+    montantSource: montant,
+    weight: 1,
+    sourceCategoryId: categorie,
+    sourceCategoryName: categorie,
+    etage: "ebitda",
+  });
+  const ids = (liste: PartMappee[]) => liste.map((p) => p.transactionId);
+
+  test("Montant est le tri par défaut", () => {
+    assert.equal(TRI_TRANSACTIONS_PAR_DEFAUT, "montant");
+  });
+
+  test("Montant : valeur absolue décroissante, le signe réel est conservé", () => {
+    const liste = [part("a", "2026-01-01", 800), part("b", "2026-01-02", -4_200), part("c", "2026-01-03", 9_500), part("d", "2026-01-04", -12_000)];
+    const triee = trierTransactions(liste, "montant");
+    assert.deepEqual(triee.map((p) => p.montant), [-12_000, 9_500, -4_200, 800]);
+    // Le tri ne modifie pas la liste d'origine.
+    assert.deepEqual(ids(liste), ["a", "b", "c", "d"]);
+  });
+
+  test("Date : de la plus récente à la plus ancienne", () => {
+    const liste = [part("a", "2026-03-01", -1), part("b", "2026-09-15", -2), part("c", "2026-01-20", -3)];
+    assert.deepEqual(ids(trierTransactions(liste, "date")), ["b", "a", "c"]);
+  });
+
+  test("à égalité, l'ordre est déterministe quel que soit l'ordre de départ", () => {
+    const liste = [part("b", "2026-03-01", -100), part("a", "2026-03-01", -100), part("c", "2026-03-01", -100)];
+    for (const tri of ["montant", "date"] as const) {
+      assert.deepEqual(ids(trierTransactions(liste, tri)), ["a", "b", "c"]);
+      assert.deepEqual(ids(trierTransactions([...liste].reverse(), tri)), ["a", "b", "c"]);
+    }
+    // Même montant : la plus récente d'abord. Même date : la plus lourde d'abord.
+    assert.deepEqual(ids(trierTransactions([part("x", "2026-01-01", -50), part("y", "2026-02-01", 50)], "montant")), ["y", "x"]);
+    assert.deepEqual(ids(trierTransactions([part("x", "2026-01-01", -50), part("y", "2026-01-01", 900)], "date")), ["y", "x"]);
+  });
+
+  test("transaction ventilée : triée sur le montant attribué à la catégorie, pas sur le montant bancaire", () => {
+    const transactions = [
+      tx("ventilee", "2026-09-01", -10_000, [["pub", 0.7], ["logistique", 0.3]]),
+      tx("simple", "2026-09-02", -5_000, [["pub", 1]]),
+      tx("petite", "2026-09-03", -4_000, [["logistique", 1]]),
+    ];
+    const vue = (categorie: string) =>
+      trierTransactions(
+        calculerDetail(partsMappees(transactions, AXE, mappings), "marge_contributive", { categorie, mois: null }, PERIODE).transactions,
+        "montant"
+      ).map((p) => [p.transactionId, p.montant]);
+    assert.deepEqual(vue("pub"), [["ventilee", -7_000], ["simple", -5_000]]);
+    // Dans le contexte Logistique, la même transaction ne pèse que 3 000 : elle passe derrière.
+    assert.deepEqual(vue("logistique"), [["petite", -4_000], ["ventilee", -3_000]]);
+  });
+
+  test("le tri porte sur tout le résultat filtré avant le découpage en lots de 100", () => {
+    const liste = Array.from({ length: 350 }, (_, i) => part(`t${String(i).padStart(3, "0")}`, "2026-05-01", i % 2 === 0 ? -(i + 1) : i + 1));
+    const triee = trierTransactions(liste, "montant");
+    assert.equal(triee.length, 350);
+    assert.deepEqual(triee.slice(0, 3).map((p) => Math.abs(p.montant)), [350, 349, 348]);
+    // Lots successifs : 1–100, 101–200, 201–300, 301–350, sans trou ni redite.
+    assert.deepEqual(triee.slice(100, 102).map((p) => Math.abs(p.montant)), [250, 249]);
+    assert.equal(triee.slice(300).length, 50);
+    assert.equal(Math.abs(triee[349].montant), 1);
+  });
+
+  test("le tri s'applique après les filtres catégorie et mois", () => {
+    const vue = calculerDetail(parts, "marge_contributive", { categorie: "pub", mois: "2026-09" }, PERIODE);
+    assert.deepEqual(trierTransactions(vue.transactions, "montant").map((p) => [p.transactionId, p.montant]), [
+      ["pub-sept-1", -2_500],
+      ["pub-sept-2", -1_500],
+      ["mixte-sept", -700],
+    ]);
+    assert.deepEqual(ids(trierTransactions(vue.transactions, "date")), ["mixte-sept", "pub-sept-2", "pub-sept-1"]);
+  });
+
+  test("donnée anormale : le tri ne plante pas, la ligne passe en dernier sans être modifiée", () => {
+    const liste = [part("nan", "2026-01-01", Number.NaN), part("ok", "2026-01-02", -5), part("sans-date", "", -900)];
+    assert.deepEqual(ids(trierTransactions(liste, "montant")), ["sans-date", "ok", "nan"]);
+    assert.deepEqual(ids(trierTransactions(liste, "date")), ["ok", "nan", "sans-date"]);
+    assert.ok(Number.isNaN(liste[0].montant));
   });
 });
