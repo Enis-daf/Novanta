@@ -1891,6 +1891,15 @@ input[type="checkbox"] {
   background: var(--couleur-fond-alt-vert);
 }
 
+/* Une information, pas une alerte : texte secondaire, sans fond ni rose. */
+.passe-disclaimer {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  text-align: center;
+}
+
 /* Page courte (état vide, erreur) : sans ça, la grille .cockpit (min-height: 100vh) répartit la
    hauteur restante entre ses rangées et décolle la surface de l'en-tête. */
 .cockpit:has(> .passe) {

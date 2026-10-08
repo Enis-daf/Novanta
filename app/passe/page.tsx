@@ -115,6 +115,11 @@ export default function PassePage() {
         </div>
       </header>
       <PasseTransactions organizationId={organizationId} accessToken={session.access_token} />
+      {/* Rappel permanent, commun à tous les onglets du module : posé ici, sous la surface du module,
+          pour ne dépendre d'aucun écran en particulier. */}
+      <p className="passe-disclaimer">
+        Tous les chiffres sont bien des transactions et non des chiffres comptables. Ils sont TTC.
+      </p>
     </main>
   );
 }
