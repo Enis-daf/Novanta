@@ -7,12 +7,13 @@ import {
   obtenirTokenPennylane,
   resumeErreurSupabaseSansSecret,
 } from "@/lib/pennylaneRepository";
-import { CompanyApiTokenCredentialProvider, PennylaneCredentialProvider } from "@/lib/pennylaneCredentialProvider";
+import { CompanyApiTokenCredentialProvider } from "@/lib/pennylaneCredentialProvider";
 import { listCustomerInvoices, listSupplierInvoices, PennylaneApiError } from "@/lib/pennylaneClient";
 import {
-  candidatFactureClient,
-  candidatFactureFournisseur,
   CandidatFacturePennylane,
+  candidatsClientsPennylane,
+  candidatsFournisseursPennylane,
+  CandidatsPennylane,
 } from "@/lib/pennylaneInvoiceAdapter";
 import { cleChiffrementConfiguree } from "@/lib/pennylaneCrypto";
 import { MESSAGE_CONFIG_SERVEUR, codeErreurPennylane, messageErreurUtilisationPennylane } from "@/lib/pennylaneMessages";
@@ -25,29 +26,20 @@ interface ReponseType {
 }
 
 /**
- * paid (booléen) et invoice_number sont présents directement dans les DEUX listes Pennylane —
- * aucun appel détail par facture n'est nécessaire pour ni l'un ni l'autre type (voir
- * lib/pennylaneClient.ts et lib/pennylaneInvoiceAdapter.ts pour la vérification). Un seul aller-
- * retour paginé par catégorie, quel que soit le volume d'historique.
+ * Un seul aller-retour paginé par catégorie : le statut de paiement, le statut comptable et le
+ * numéro sont dans les listes Pennylane, aucun appel détail par facture n'est nécessaire. La
+ * décision « payée / archivée / doublon » est prise dans lib/pennylaneInvoiceAdapter.ts.
  */
-async function candidatsClients(provider: PennylaneCredentialProvider): Promise<CandidatFacturePennylane[]> {
-  const brutes = await listCustomerInvoices(provider);
-  const candidats: CandidatFacturePennylane[] = [];
-  for (const brute of brutes) {
-    const candidat = candidatFactureClient(brute);
-    if (candidat) candidats.push(candidat);
+function journaliser(categorie: string, companyId: string, { candidats, statutsInconnus }: CandidatsPennylane) {
+  const soldees = (motif: string) => candidats.filter((c) => c.motifSolde === motif).length;
+  console.log(
+    `[pennylane/invoices] ${categorie} OK company=${companyId} candidats=${candidats.length} payees=${soldees("payee")} archivees=${soldees("archivee")} doublons=${soldees("doublon")}`
+  );
+  // Statut de paiement que le code ne connaît pas : visible dans les logs plutôt que classé en
+  // silence. La facture concernée suit le booléen `paid` de Pennylane.
+  for (const [statut, nombre] of Object.entries(statutsInconnus)) {
+    console.warn(`[pennylane/invoices] ${categorie} payment_status inconnu="${statut}" occurrences=${nombre} company=${companyId}`);
   }
-  return candidats;
-}
-
-async function candidatsFournisseurs(provider: PennylaneCredentialProvider): Promise<CandidatFacturePennylane[]> {
-  const brutes = await listSupplierInvoices(provider);
-  const candidats: CandidatFacturePennylane[] = [];
-  for (const brute of brutes) {
-    const candidat = candidatFactureFournisseur(brute);
-    if (candidat) candidats.push(candidat);
-  }
-  return candidats;
 }
 
 export async function POST(req: NextRequest) {
@@ -124,15 +116,17 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    resultat.fournisseurCandidates = await candidatsFournisseurs(provider);
-    console.log(`[pennylane/invoices] fournisseurs OK company=${companyId} candidats=${resultat.fournisseurCandidates.length}`);
+    const fournisseurs = candidatsFournisseursPennylane(await listSupplierInvoices(provider));
+    resultat.fournisseurCandidates = fournisseurs.candidats;
+    journaliser("fournisseurs", companyId, fournisseurs);
   } catch (erreur) {
     resultat.erreurFournisseurs = await traiterErreur("fournisseurs", erreur);
   }
 
   try {
-    resultat.clientCandidates = await candidatsClients(provider);
-    console.log(`[pennylane/invoices] clients OK company=${companyId} candidats=${resultat.clientCandidates.length}`);
+    const clients = candidatsClientsPennylane(await listCustomerInvoices(provider));
+    resultat.clientCandidates = clients.candidats;
+    journaliser("clients", companyId, clients);
   } catch (erreur) {
     resultat.erreurClients = await traiterErreur("clients", erreur);
   }

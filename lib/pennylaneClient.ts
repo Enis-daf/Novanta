@@ -112,6 +112,10 @@ export interface PennylaneCustomerInvoiceListItem {
   deadline: string | null;
   paid: boolean;
   draft: boolean;
+  // Statut textuel de la facture (« paid », « late », « upcoming », « archived », « cancelled »...) et
+  // date d'archivage : lus par pennylaneInvoiceAdapter.ts pour ne pas dépendre du seul booléen paid.
+  status?: string | null;
+  archived_at?: string | null;
 }
 
 // --- Factures fournisseurs (supplier_invoices) ---
@@ -125,6 +129,17 @@ export interface PennylaneSupplierInvoiceListItem {
   amount: string;
   deadline: string | null;
   paid: boolean;
+  // Présents dans la liste (documentation officielle, getSupplierInvoices) et indispensables pour
+  // interpréter correctement une facture — voir pennylaneInvoiceAdapter.ts :
+  //  - payment_status : to_be_processed, to_be_paid, partially_paid, payment_error,
+  //    payment_scheduled, payment_in_progress, payment_emitted, payment_found, paid_offline,
+  //    fully_paid ;
+  //  - accounting_status : draft, archived, entry, validation_needed, complete ;
+  //  - archived_at : renseigné quand la facture a été archivée (version remplacée ou écartée).
+  payment_status?: string | null;
+  accounting_status?: string | null;
+  archived_at?: string | null;
+  supplier?: { id: number | string } | null;
 }
 
 interface ReponsePagineeGenerique<T> {
