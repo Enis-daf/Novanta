@@ -6,11 +6,21 @@ export function formatMontant(montant: number): string {
   }).format(montant);
 }
 
+/** Format compact en k€ (arrondi à 1 décimale max, sans décimale si le montant tombe juste). */
+export function formatMontantK(montant: number): string {
+  const valeurK = montant / 1000;
+  const signe = valeurK < 0 ? -1 : 1;
+  const arrondi = (Math.round(Math.abs(valeurK) * 10) / 10) * signe;
+  const texte = Number.isInteger(arrondi) ? String(arrondi) : arrondi.toFixed(1).replace(".", ",");
+  return `${texte} k€`;
+}
+
 /**
- * Format compact en k€ ("12,4 k€"), arrondi à `decimales` décimales au plus (1 par défaut), sans
- * décimale si le montant tombe juste.
+ * k€ des graphiques du module Passé ("12,4 k€", "1 586 k€") : séparateur de milliers et nombre de
+ * décimales réglable. Distinct de formatMontantK, dont le rendu exact est celui du module Futur et
+ * ne doit pas bouger.
  */
-export function formatMontantK(montant: number, decimales = 1): string {
+export function formatKiloEuros(montant: number, decimales = 1): string {
   const facteur = 10 ** decimales;
   const arrondi = Math.round((montant / 1000) * facteur) / facteur;
   const texte = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: decimales }).format(arrondi === 0 ? 0 : arrondi);

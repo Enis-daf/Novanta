@@ -3,7 +3,7 @@
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { decimalesAxeK, libelleBarreauK } from "./PasseEvolutionChart";
 import { graduationsAxe, NEUTRES, OPACITE_ATTENUEE, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
-import { formatMontant, formatMontantK } from "@/lib/format";
+import { formatMontant, formatKiloEuros } from "@/lib/format";
 
 type BarreCategorie = { cle: string; nom: string; montant: number };
 
@@ -58,7 +58,7 @@ export default function PasseCategoriesChart({ titre, categories, messageVide, s
                 type="number"
                 ticks={graduations}
                 domain={[graduations[0], graduations[graduations.length - 1]]}
-                tickFormatter={(valeur: number) => formatMontantK(valeur, decimales)}
+                tickFormatter={(valeur: number) => formatKiloEuros(valeur, decimales)}
                 fontSize={11}
                 tick={{ fill: NEUTRES.secondaire }}
                 axisLine={false}

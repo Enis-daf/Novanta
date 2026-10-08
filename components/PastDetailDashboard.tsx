@@ -6,7 +6,7 @@ import PasseEvolutionChart from "./PasseEvolutionChart";
 import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import { formatDateCourte } from "@/lib/dates";
-import { formatMontant, formatMontantK, formatPourcentage } from "@/lib/format";
+import { formatMontant, formatKiloEuros, formatPourcentage } from "@/lib/format";
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import {
   calculerDetail,
@@ -166,7 +166,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
                       {ligne.label}
                       <PasseNotesAjustement notes={ligne.notes} />
                     </div>
-                    <span className="passe-ajustements__montant">{formatMontantK(ligne.montant)}</span>
+                    <span className="passe-ajustements__montant">{formatKiloEuros(ligne.montant)}</span>
                   </li>
                 ))}
               </ul>

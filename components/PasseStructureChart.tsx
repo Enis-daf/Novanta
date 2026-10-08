@@ -2,7 +2,7 @@
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { NEUTRES, OPACITE_ATTENUEE, teintesDesParts } from "@/lib/dataviz";
-import { formatMontant, formatMontantK, formatPourcentage } from "@/lib/format";
+import { formatMontant, formatKiloEuros, formatPourcentage } from "@/lib/format";
 import { CLE_AUTRES, PartStructure, Structure } from "@/lib/pastPnl";
 
 interface PasseStructureChartProps {
@@ -81,7 +81,7 @@ export default function PasseStructureChart({
                 <Tooltip content={<InfoBulle />} />
               </PieChart>
             </ResponsiveContainer>
-            <p className="passe-structure__total">{formatMontantK(total)}</p>
+            <p className="passe-structure__total">{formatKiloEuros(total)}</p>
           </div>
           <ul className="passe-structure__legende">
             {parts.map((part, index) => {
@@ -89,7 +89,7 @@ export default function PasseStructureChart({
                 <>
                   <span className="passe-structure__pastille" style={{ background: couleurs[index] }} aria-hidden="true" />
                   <span className="passe-structure__nom">{part.nom}</span>
-                  <span className="passe-structure__montant">{formatMontantK(part.montant)}</span>
+                  <span className="passe-structure__montant">{formatKiloEuros(part.montant)}</span>
                   <span className="passe-structure__part">{formatPourcentage(part.part)}</span>
                 </>
               );

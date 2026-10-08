@@ -2,7 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { graduationsAxe, NEUTRES, OPACITE_ATTENUEE, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
-import { formatMontant, formatMontantK } from "@/lib/format";
+import { formatMontant, formatKiloEuros } from "@/lib/format";
 import { libelleMois, libelleMoisCourt, PointEvolution } from "@/lib/pastDetail";
 
 interface PasseEvolutionChartProps {
@@ -41,7 +41,7 @@ export const MAX_MOIS_AVEC_LIBELLES = 12;
 /** Libellé d'un barreau en k€ ; rien sur un barreau nul. */
 export function libelleBarreauK(valeur: unknown, avecUnite = true): string {
   if (typeof valeur !== "number" || valeur === 0) return "";
-  const texte = formatMontantK(valeur, Math.abs(valeur) < 10_000 ? 1 : 0);
+  const texte = formatKiloEuros(valeur, Math.abs(valeur) < 10_000 ? 1 : 0);
   // Espace insécable avant l'unité : le libellé tient sur une ligne au-dessus de son barreau.
   return avecUnite ? texte.replace(" k€", "\u00a0k€") : texte.replace(" k€", "");
 }
@@ -81,7 +81,7 @@ export default function PasseEvolutionChart({ titre, evolution, enValeurAbsolue 
               minTickGap={4}
             />
             <YAxis
-              tickFormatter={(valeur: number) => formatMontantK(valeur, decimales)}
+              tickFormatter={(valeur: number) => formatKiloEuros(valeur, decimales)}
               // Graduations rondes, zéro toujours dans le cadre : un barreau part de zéro, vers le
               // haut (positif) ou vers le bas (négatif).
               ticks={graduations}
