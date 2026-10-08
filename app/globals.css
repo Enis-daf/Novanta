@@ -2649,6 +2649,101 @@ input[type="checkbox"] {
   align-self: flex-start;
 }
 
+/* Onglet Écarts : deux sélecteurs de période, les trois chiffres du Cash flow, puis la waterfall. */
+.passe-ecarts__periodes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.passe-ecarts__kpi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+}
+
+.passe-ecarts__kpi p {
+  margin: 0;
+}
+
+.passe-ecarts__kpi-libelle {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-ecarts__kpi-valeur {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--couleur-texte);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Impact sur le Cash flow : le signe est toujours écrit, la couleur ne fait que le souligner. */
+.passe-ecart {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.passe-ecart--positif {
+  color: #0f766e;
+}
+
+.passe-ecart--negatif {
+  color: var(--couleur-accent-fonce);
+}
+
+/* Libellé cliquable dans un tableau : un lien discret, pas un bouton. */
+.passe-lien-ligne {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--couleur-bordure);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.passe-lien-ligne:hover {
+  text-decoration-color: var(--couleur-texte);
+}
+
+.passe-ligne--selection {
+  background: var(--couleur-fond-alt-rose);
+}
+
+.passe-table__libelle .passe-statut {
+  margin-left: var(--space-1);
+}
+
+.passe-badge-absent {
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-bordure);
+  font-weight: 600;
+}
+
+.passe-badge-periode {
+  display: inline-block;
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  text-align: center;
+  color: var(--couleur-texte);
+}
+
+.passe-badge-periode--a {
+  background: var(--couleur-bordure);
+}
+
+.passe-badge-periode--b {
+  background: var(--couleur-fond-alt-vert);
+}
+
 @media (max-width: 900px) {
   .passe {
     padding: var(--space-3);
