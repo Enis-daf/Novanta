@@ -41,10 +41,17 @@ export default function PassePage() {
     return () => subscription.unsubscribe();
   }, [router]);
 
+  // L'accès se revérifie quand L'UTILISATEUR change, pas quand l'objet de session change : Supabase
+  // réémet la session (nouvel objet, même utilisateur) à chaque retour sur l'onglet du navigateur
+  // et à chaque rafraîchissement de jeton. Dépendre de `session` relançait alors la vérification,
+  // repassait par l'écran d'attente et démontait tout le module — qui perdait sa période, ses
+  // filtres et son onglet courant.
+  const userId = session?.user.id ?? null;
+
   useEffect(() => {
     setAutorise(false);
     setOrganizationId(null);
-    if (!supabaseConfigured || !session) return;
+    if (!supabaseConfigured || !userId) return;
 
     let annule = false;
 
@@ -81,7 +88,7 @@ export default function PassePage() {
     return () => {
       annule = true;
     };
-  }, [session, router]);
+  }, [userId, router]);
 
   if (supabaseConfigured && sessionChargee && !session) {
     return <LoginForm />;
@@ -114,7 +121,9 @@ export default function PassePage() {
           </button>
         </div>
       </header>
-      <PasseTransactions organizationId={organizationId} accessToken={session.access_token} />
+      {/* `key` : une organisation = une instance du module ; son état (période comprise) ne passe
+          jamais à une autre organisation. */}
+      <PasseTransactions key={organizationId} organizationId={organizationId} accessToken={session.access_token} />
       {/* Rappel permanent, commun à tous les onglets du module : posé ici, sous la surface du module,
           pour ne dépendre d'aucun écran en particulier. */}
       <p className="passe-disclaimer">

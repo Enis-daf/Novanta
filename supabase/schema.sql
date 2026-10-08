@@ -771,3 +771,22 @@ revoke insert, update, delete, truncate on public.past_management_adjustments fr
 revoke truncate on public.past_inventory_balances from authenticated;
 grant select on public.past_management_adjustments to authenticated;
 grant select, insert, update, delete on public.past_inventory_balances to authenticated;
+
+-- Module "Passé" : début d'exercice par organisation. Voir migrations/20261011_past_fiscal_year.sql.
+alter table past_settings add column if not exists fiscal_year_start_month integer not null default 1;
+alter table past_settings add column if not exists fiscal_year_start_day integer not null default 1;
+
+alter table past_settings drop constraint if exists past_settings_fiscal_year_start_month_check;
+alter table past_settings add constraint past_settings_fiscal_year_start_month_check
+  check (fiscal_year_start_month between 1 and 12);
+
+alter table past_settings drop constraint if exists past_settings_fiscal_year_start_day_check;
+alter table past_settings add constraint past_settings_fiscal_year_start_day_check
+  check (
+    fiscal_year_start_day >= 1
+    and fiscal_year_start_day <= case
+      when fiscal_year_start_month = 2 then 28
+      when fiscal_year_start_month in (4, 6, 9, 11) then 30
+      else 31
+    end
+  );

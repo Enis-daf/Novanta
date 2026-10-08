@@ -2633,6 +2633,22 @@ input[type="checkbox"] {
   background: var(--couleur-fond);
 }
 
+/* Réglage du début d'exercice, dans le même panneau flottant que le filtre de catégories. */
+.passe-exercice {
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.passe-exercice__champs {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.passe-exercice .btn-add {
+  margin-top: 0;
+  align-self: flex-start;
+}
+
 @media (max-width: 900px) {
   .passe {
     padding: var(--space-3);

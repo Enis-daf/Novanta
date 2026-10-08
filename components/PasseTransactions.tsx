@@ -9,6 +9,25 @@ import PasseStocks from "./PasseStocks";
 import PastDetailDashboard from "./PastDetailDashboard";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, todayISO } from "@/lib/dates";
+import {
+  ChoixPeriode,
+  cleStockagePeriode,
+  ConfigExercice,
+  descriptionExercice,
+  deserialiserSelection,
+  EXERCICE_PAR_DEFAUT,
+  configExerciceValide,
+  GROUPES_PRESETS,
+  jourMaxDebutExercice,
+  nomMoisExercice,
+  periodeDeLaSelection,
+  periodeDuPreset,
+  presetCorrespondant,
+  PRESETS_PERIODE,
+  SelectionPeriode,
+  selectionParDefaut,
+  serialiserSelection,
+} from "@/lib/fiscalPeriods";
 import { formatMontant, formatMontantComptable } from "@/lib/format";
 import { teintesParCategorie } from "@/lib/dataviz";
 import {
@@ -30,7 +49,6 @@ import {
   libelleAxe,
   PastTransactionStockee,
   Periode,
-  periodeAnneeCivile,
   periodeValide,
   resoudreAxeAnalytique,
   transactionsCategorisees,
@@ -49,11 +67,13 @@ import {
   chargerAxeConfigure,
   chargerAjustementsGestion,
   chargerAxesAnalytiques,
+  chargerExercice,
   chargerMappingsCategories,
   chargerStocks,
   chargerPastTransactions,
   sauvegarderAxeConfigure,
   sauvegarderEtageCategorie,
+  sauvegarderExercice,
   sauvegarderStock,
   supprimerStock,
 } from "@/lib/pastTransactionsRepository";
@@ -92,7 +112,44 @@ function pluriel(nombre: number, singulier: string, plurielTexte: string): strin
 // directement) : la source d'une transaction n'a aucune incidence sur l'affichage.
 export default function PasseTransactions({ organizationId, accessToken }: PasseTransactionsProps) {
   const router = useRouter();
-  const [periode, setPeriode] = useState<Periode>(() => periodeAnneeCivile(todayISO()));
+  // PÉRIODE DU MODULE — source unique pour tous les onglets. Elle tient en deux états :
+  //  - l'exercice de l'organisation (en base ; null tant qu'il n'est pas lu) ;
+  //  - la sélection de l'utilisateur : un preset, dont les dates se recalculent, ou des dates
+  //    libres. Relue du stockage local de CETTE organisation au montage, puis réécrite à chaque
+  //    changement ; null = jamais choisie, donc « Exercice en cours ».
+  const aujourdhui = todayISO();
+  const [exercice, setExercice] = useState<ConfigExercice | null>(null);
+  const [selection, setSelection] = useState<SelectionPeriode | null>(() => {
+    try {
+      return deserialiserSelection(window.localStorage.getItem(cleStockagePeriode(organizationId)));
+    } catch {
+      return null;
+    }
+  });
+  const configExercice = exercice ?? EXERCICE_PAR_DEFAUT;
+  const selectionCourante = selection ?? selectionParDefaut(aujourdhui, configExercice);
+  const bornes = periodeDeLaSelection(selectionCourante, aujourdhui, configExercice);
+  // Même objet tant que les dates ne changent pas : la période sert de dépendance à des effets.
+  const periode = useMemo<Periode>(() => ({ debut: bornes.debut, fin: bornes.fin }), [bornes.debut, bornes.fin]);
+
+  const choisirPeriode = (suivante: SelectionPeriode) => {
+    setSelection(suivante);
+    try {
+      window.localStorage.setItem(cleStockagePeriode(organizationId), serialiserSelection(suivante));
+    } catch {
+      // Stockage local indisponible (navigation privée, quota) : la période reste valable pour la
+      // session en cours, elle ne sera simplement pas restaurée au prochain chargement.
+    }
+  };
+
+  const [reglageExerciceOuvert, setReglageExerciceOuvert] = useState(false);
+  // Saisie en cours du début d'exercice. jour null = à (re)saisir : une combinaison jour/mois qui
+  // n'existe pas tous les ans (31 avril, 29 février) vide le jour au lieu d'être corrigée d'office.
+  const [brouillonExercice, setBrouillonExercice] = useState<{ mois: number; jour: number | null }>(EXERCICE_PAR_DEFAUT);
+  const [jourExerciceRefuse, setJourExerciceRefuse] = useState(false);
+  const [erreurExercice, setErreurExercice] = useState<string | null>(null);
+  const [enregistrementExercice, setEnregistrementExercice] = useState(false);
+  const reglageExerciceRef = useRef<HTMLDivElement>(null);
   // Transactions telles que stockées (avec toutes leurs affectations analytiques) ; la catégorie
   // affichée en est dérivée plus bas, selon l'axe analytique retenu.
   const [stockees, setStockees] = useState<PastTransactionStockee[]>([]);
@@ -143,6 +200,34 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   }, [accessToken]);
 
   useEffect(() => {
+    let annule = false;
+    chargerExercice(supabase!, organizationId)
+      .then((config) => {
+        if (!annule) setExercice(config);
+      })
+      .catch((error) => {
+        if (annule) return;
+        // Sans exercice lisible, le module reste utilisable sur l'année civile.
+        console.error("Échec de la lecture de l'exercice du module Passé :", error);
+        setExercice(EXERCICE_PAR_DEFAUT);
+      });
+    return () => {
+      annule = true;
+    };
+  }, [organizationId]);
+
+  useEffect(() => {
+    if (!reglageExerciceOuvert) return;
+    const gererClicExterieur = (e: MouseEvent) => {
+      if (reglageExerciceRef.current && !reglageExerciceRef.current.contains(e.target as Node)) setReglageExerciceOuvert(false);
+    };
+    document.addEventListener("mousedown", gererClicExterieur);
+    return () => document.removeEventListener("mousedown", gererClicExterieur);
+  }, [reglageExerciceOuvert]);
+
+  useEffect(() => {
+    // L'exercice détermine les dates d'un preset : on attend de le connaître avant de charger.
+    if (exercice === null) return;
     if (!periodeOk) {
       setStockees([]);
       setChargement(false);
@@ -180,7 +265,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
     return () => {
       annule = true;
     };
-  }, [organizationId, periode, periodeOk, rechargement]);
+  }, [organizationId, periode, periodeOk, rechargement, exercice]);
 
   useEffect(() => {
     if (!filtreOuvert) return;
@@ -310,12 +395,64 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   const pageCourante = Math.min(page, nombrePages - 1);
   const lignesPage = transactionsFiltrees.slice(pageCourante * LIGNES_PAR_PAGE, (pageCourante + 1) * LIGNES_PAR_PAGE);
 
-  const changerPeriode = (patch: Partial<Periode>) => {
-    setPeriode((prev) => ({ ...prev, ...patch }));
+  const apresChangementDePeriode = () => {
     setPage(0);
     setSyncMessage(null);
     setSyncErreur(null);
   };
+
+  // Saisie libre d'une date : la sélection devient « Personnalisé », sauf si les dates tombent
+  // EXACTEMENT sur un preset — jamais de rapprochement vers le plus proche.
+  const changerPeriode = (patch: Partial<Periode>) => {
+    const dates = { ...periode, ...patch };
+    choisirPeriode({ choix: presetCorrespondant(dates, aujourdhui, configExercice) ?? "personnalise", personnalisee: dates });
+    apresChangementDePeriode();
+  };
+
+  // Choix dans la liste : un preset garde en réserve la dernière période libre ; « Personnalisé »
+  // part des dates affichées.
+  const choisirPreset = (choix: ChoixPeriode) => {
+    choisirPeriode({ choix, personnalisee: choix === "personnalise" ? periode : selectionCourante.personnalisee });
+    apresChangementDePeriode();
+  };
+
+  const ouvrirReglageExercice = () => {
+    setBrouillonExercice(configExercice);
+    setJourExerciceRefuse(false);
+    setErreurExercice(null);
+    setReglageExerciceOuvert((ouvert) => !ouvert);
+  };
+
+  // Les presets se recalculent dès que l'exercice change ; une période personnalisée n'est pas touchée.
+  const saisirExercice = (patch: { mois?: number; jour?: number | null }) => {
+    const suivant = { ...brouillonExercice, ...patch };
+    const refuse = suivant.jour !== null && suivant.jour > jourMaxDebutExercice(suivant.mois);
+    setBrouillonExercice(refuse ? { ...suivant, jour: null } : suivant);
+    setJourExerciceRefuse(refuse);
+  };
+  const exerciceSaisi: ConfigExercice | null =
+    brouillonExercice.jour !== null && configExerciceValide({ mois: brouillonExercice.mois, jour: brouillonExercice.jour })
+      ? { mois: brouillonExercice.mois, jour: brouillonExercice.jour }
+      : null;
+
+  const enregistrerExercice = async () => {
+    if (!exerciceSaisi) return;
+    setEnregistrementExercice(true);
+    setErreurExercice(null);
+    try {
+      await sauvegarderExercice(supabase!, organizationId, exerciceSaisi);
+      setExercice(exerciceSaisi);
+      setReglageExerciceOuvert(false);
+      apresChangementDePeriode();
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code ?? "inconnu";
+      console.error(`[passe/exercice] step=save organization=${organizationId} code=${code}`);
+      setErreurExercice("L'exercice n'a pas pu être enregistré. Réessayez.");
+    } finally {
+      setEnregistrementExercice(false);
+    }
+  };
+
 
   const basculerCategorie = (cle: string) => {
     setSelectionCategories(() => {
@@ -408,11 +545,86 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
       <div className="passe__decor-haut" aria-hidden="true" />
       <div className="passe__decor-bas" aria-hidden="true" />
       <div className="passe-controles">
-        <div className="passe-controle">
-          <span className="passe-controle__label">Période</span>
+        <div className="passe-controle passe-axe">
+          <label className="passe-controle__label" htmlFor="passe-periode-preset">
+            Période
+          </label>
+          <select
+            id="passe-periode-preset"
+            value={selectionCourante.choix}
+            onChange={(e) => choisirPreset(e.target.value as ChoixPeriode)}
+          >
+            {GROUPES_PRESETS.map((groupe) => (
+              <optgroup key={groupe} label={groupe}>
+                {PRESETS_PERIODE.filter((preset) => preset.groupe === groupe).map((preset) => {
+                  const dates = periodeDuPreset(preset.cle, aujourdhui, configExercice);
+                  return (
+                    <option key={preset.cle} value={preset.cle}>
+                      {preset.libelle} — {formatDateCourte(dates.debut)} → {formatDateCourte(dates.fin)}
+                    </option>
+                  );
+                })}
+              </optgroup>
+            ))}
+            <option value="personnalise">Personnalisé</option>
+          </select>
           <DateField value={periode.debut} onChange={(v) => changerPeriode({ debut: v })} effacable={false} />
           <span className="passe-controle__separateur">→</span>
           <DateField value={periode.fin} onChange={(v) => changerPeriode({ fin: v })} effacable={false} />
+
+          <div className="passe-filtre" ref={reglageExerciceRef}>
+            <button
+              type="button"
+              className="btn-secondaire"
+              aria-haspopup="true"
+              aria-expanded={reglageExerciceOuvert}
+              onClick={ouvrirReglageExercice}
+            >
+              Paramétrer l&apos;exercice
+            </button>
+            {reglageExerciceOuvert && (
+              <div className="passe-filtre__popover passe-exercice">
+                <span className="passe-controle__label">Début de l&apos;exercice</span>
+                <div className="passe-exercice__champs">
+                  <select
+                    aria-label="Jour de début de l'exercice"
+                    value={brouillonExercice.jour ?? ""}
+                    onChange={(e) => saisirExercice({ jour: e.target.value === "" ? null : Number(e.target.value) })}
+                  >
+                    <option value="">Jour</option>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((jour) => (
+                      <option key={jour} value={jour}>
+                        {String(jour).padStart(2, "0")}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Mois de début de l'exercice"
+                    value={brouillonExercice.mois}
+                    onChange={(e) => saisirExercice({ mois: Number(e.target.value) })}
+                  >
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((mois) => (
+                      <option key={mois} value={mois}>
+                        {nomMoisExercice(mois)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {jourExerciceRefuse ? (
+                  <p className="login-erreur">
+                    Cette date n&apos;existe pas chaque année en {nomMoisExercice(brouillonExercice.mois)}. Choisissez un
+                    autre jour.
+                  </p>
+                ) : (
+                  exerciceSaisi && <p className="passe-message">{descriptionExercice(exerciceSaisi)}</p>
+                )}
+                {erreurExercice && <p className="login-erreur">{erreurExercice}</p>}
+                <button type="button" className="btn-add" onClick={enregistrerExercice} disabled={enregistrementExercice || !exerciceSaisi}>
+                  {enregistrementExercice ? "Enregistrement…" : "Enregistrer"}
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {vue === "transactions" && (
