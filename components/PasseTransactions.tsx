@@ -75,7 +75,10 @@ const ONGLETS = [
   { cle: "cash_flow", libelle: "Cash flow" },
   { cle: "stocks", libelle: "Stocks" },
   { cle: "mapping", libelle: "Correspondance P&L" },
-  { cle: "transactions", libelle: "Transactions" },
+  // Plus proposé dans la navigation : une liste brute de transactions, sans contexte, n'explique
+  // aucun chiffre. Les transactions se consultent dans les écrans de détail, par étage, catégorie
+  // et mois. La vue reste définie (rien d'autre n'est retiré) mais n'est plus atteignable.
+  { cle: "transactions", libelle: "Transactions", horsNavigation: true },
 ] as const;
 
 type Vue = (typeof ONGLETS)[number]["cle"];
@@ -473,7 +476,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
       {erreurStock && <p className="login-erreur">{erreurStock}</p>}
 
       <div className="passe-onglets" role="tablist">
-        {ONGLETS.map((onglet) => (
+        {ONGLETS.filter((onglet) => !("horsNavigation" in onglet)).map((onglet) => (
           <button
             key={onglet.cle}
             type="button"
