@@ -2,7 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { indexerMappings, MappingCategorie } from "./pastCategoryMapping";
 import { calculerPnl } from "./pastPnl";
-import { anomalieDeSigne, anomaliesDeSigne, compterTransactionsAvecAnomalie } from "./pastSignChecks";
+import { anomalieDeSigne, anomaliesDeSigne, compterTransactionsAvecAnomalie, repartirAnomalies, ValidationSigne } from "./pastSignChecks";
 import { PastTransactionStockee } from "./pastTransactions";
 
 const AXE = "229";
@@ -150,5 +150,79 @@ describe("anomalies de signe sur une période", () => {
     const anomalies = anomaliesDeSigne([ventilee], AXE, mappings);
     assert.equal(anomalies.length, 2);
     assert.equal(compterTransactionsAvecAnomalie(anomalies), 1);
+  });
+});
+
+describe("validation des signes inhabituels — repartirAnomalies", () => {
+  const transactions = [
+    tx("remboursement", -9500, [["ca", 1]]),
+    tx("avoir", 10000, [["direct", 1]]),
+    tx("petit-avoir", 45, [["direct", 1]]),
+    tx("vente", 2000, [["ca", 1]]),
+  ];
+  const validation = (transactionId: string, sourceCategoryId: string, etage: ValidationSigne["etage"], type: ValidationSigne["type"]): ValidationSigne => ({
+    transactionId,
+    sourceCategoryId,
+    etage,
+    type,
+    validatedAt: "2026-10-09T10:00:00Z",
+  });
+  const ids = (liste: { transactionId: string }[]) => liste.map((a) => a.transactionId);
+
+  test("sans validation : tout est à vérifier, trié par valeur absolue décroissante", () => {
+    const { aVerifier, validees } = repartirAnomalies(anomaliesDeSigne(transactions, AXE, mappings), []);
+    assert.deepEqual(aVerifier.map((a) => a.montant), [10000, -9500, 45]);
+    assert.deepEqual(validees, []);
+  });
+
+  test("une transaction validée quitte la liste à vérifier et rejoint les validées", () => {
+    const { aVerifier, validees } = repartirAnomalies(anomaliesDeSigne(transactions, AXE, mappings), [
+      validation("avoir", "direct", "gross_margin", "cout_positif"),
+    ]);
+    assert.deepEqual(ids(aVerifier), ["remboursement", "petit-avoir"]);
+    assert.deepEqual(ids(validees), ["avoir"]);
+    assert.equal(validees[0].validatedAt, "2026-10-09T10:00:00Z");
+    assert.equal(validees[0].montant, 10000);
+  });
+
+  test("valider ne change rien au reporting", () => {
+    const avant = calculerPnl(transactions, AXE, mappings);
+    repartirAnomalies(anomaliesDeSigne(transactions, AXE, mappings), [validation("avoir", "direct", "gross_margin", "cout_positif")]);
+    assert.deepEqual(calculerPnl(transactions, AXE, mappings), avant);
+  });
+
+  test("catégorie remappée vers un étage où la règle change : l'anomalie revient à vérifier", () => {
+    // « ca » était un coût direct quand son montant positif a été validé ; elle est aujourd'hui
+    // en revenue, où c'est le remboursement (négatif) qui est inhabituel.
+    const { aVerifier, validees } = repartirAnomalies(anomaliesDeSigne(transactions, AXE, mappings), [
+      validation("remboursement", "ca", "gross_margin", "cout_positif"),
+    ]);
+    assert.ok(ids(aVerifier).includes("remboursement"));
+    assert.deepEqual(validees, []);
+  });
+
+  test("catégorie remappée vers un autre étage de coûts : même règle, mais étage différent -> à revérifier", () => {
+    const { aVerifier } = repartirAnomalies(anomaliesDeSigne(transactions, AXE, mappings), [
+      validation("avoir", "direct", "ebitda", "cout_positif"),
+    ]);
+    assert.ok(ids(aVerifier).includes("avoir"));
+  });
+
+  test("transaction ventilée : chaque part se valide séparément", () => {
+    const ventilee = [tx("mixte", 100, [["direct", 0.5], ["structure", 0.5]])];
+    const { aVerifier, validees } = repartirAnomalies(anomaliesDeSigne(ventilee, AXE, mappings), [
+      validation("mixte", "direct", "gross_margin", "cout_positif"),
+    ]);
+    assert.deepEqual(aVerifier.map((a) => a.sourceCategoryId), ["structure"]);
+    assert.deepEqual(validees.map((a) => a.sourceCategoryId), ["direct"]);
+  });
+
+  test("validation d'une transaction qui n'est plus une anomalie ou plus dans la période : ignorée", () => {
+    const { aVerifier, validees } = repartirAnomalies(anomaliesDeSigne(transactions, AXE, mappings), [
+      validation("vente", "ca", "revenue", "ca_negatif"),
+      validation("disparue", "direct", "gross_margin", "cout_positif"),
+    ]);
+    assert.equal(aVerifier.length, 3);
+    assert.deepEqual(validees, []);
   });
 });

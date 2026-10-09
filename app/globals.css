@@ -2560,6 +2560,16 @@ input[type="checkbox"] {
   gap: var(--space-2);
 }
 
+.passe-signes-detail__retour {
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-signes-detail__action {
+  text-align: right;
+  white-space: nowrap;
+}
+
 /* Histogramme mensuel et, à côté, le bloc des ajustements de gestion qu'il inclut. Sans
    ajustement, l'histogramme garde toute la largeur (le bloc n'est pas rendu). */
 .passe-detail__evolution {

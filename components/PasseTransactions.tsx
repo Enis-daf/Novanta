@@ -8,7 +8,7 @@ import PasseMappingTable from "./PasseMappingTable";
 import PasseStocks from "./PasseStocks";
 import PastDetailDashboard from "./PastDetailDashboard";
 import { supabase } from "@/lib/supabaseClient";
-import { formatDateCourte, todayISO } from "@/lib/dates";
+import { formatDateCourte, todayISO, toISODate } from "@/lib/dates";
 import {
   ChoixPeriode,
   cleStockagePeriode,
@@ -39,7 +39,14 @@ import {
 import { estMetriqueDetail, FiltresDetail, moisDeLaPeriode, partsMappees } from "@/lib/pastDetail";
 import { nomFichierPdf, pagesExportPdf } from "@/lib/pastPdfModel";
 import { calculerPnl } from "@/lib/pastPnl";
-import { anomaliesDeSigne, compterTransactionsAvecAnomalie, LIBELLES_ANOMALIE_SIGNE } from "@/lib/pastSignChecks";
+import {
+  AnomalieSigne,
+  anomaliesDeSigne,
+  compterTransactionsAvecAnomalie,
+  LIBELLES_ANOMALIE_SIGNE,
+  repartirAnomalies,
+  ValidationSigne,
+} from "@/lib/pastSignChecks";
 import {
   appliquerAxe,
   AxeAnalytique,
@@ -65,6 +72,7 @@ import {
   MappingCategorie,
 } from "@/lib/pastCategoryMapping";
 import {
+  annulerValidationSigne,
   chargerAxeConfigure,
   chargerAjustementsGestion,
   chargerAxesAnalytiques,
@@ -72,11 +80,13 @@ import {
   chargerMappingsCategories,
   chargerStocks,
   chargerPastTransactions,
+  chargerValidationsSigne,
   sauvegarderAxeConfigure,
   sauvegarderEtageCategorie,
   sauvegarderExercice,
   sauvegarderStock,
   supprimerStock,
+  validerSigne,
 } from "@/lib/pastTransactionsRepository";
 
 interface PasseTransactionsProps {
@@ -165,6 +175,11 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   const [filtreMapping, setFiltreMapping] = useState<FiltreMapping>("toutes");
   const [erreurMapping, setErreurMapping] = useState<string | null>(null);
   const [detailSignesOuvert, setDetailSignesOuvert] = useState(false);
+  // Anomalies de signe que l'utilisateur a vérifiées et acceptées (en base, par organisation).
+  const [validationsSigne, setValidationsSigne] = useState<ValidationSigne[]>([]);
+  const [vueSignes, setVueSignes] = useState<"a_verifier" | "validees">("a_verifier");
+  const [messageSigne, setMessageSigne] = useState<string | null>(null);
+  const [erreurSigne, setErreurSigne] = useState<string | null>(null);
   // Ajustements de gestion : ceux saisis tels quels, et les stocks de fin de mois dont dérive la
   // variation de stock. Les deux séries sont chargées entières (indépendantes de la période).
   const [ajustementsSaisis, setAjustementsSaisis] = useState<AjustementGestion[]>([]);
@@ -273,6 +288,16 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         setErreurChargement("Impossible de charger les transactions pour le moment.");
         setChargement(false);
       });
+    // Chargées à part : si elles sont indisponibles, le reporting s'affiche quand même et toutes
+    // les anomalies restent simplement « à vérifier ».
+    chargerValidationsSigne(supabase!, organizationId)
+      .then((validations) => {
+        if (!annule) setValidationsSigne(validations);
+      })
+      .catch((error) => {
+        const code = (error as { code?: string } | null)?.code ?? "inconnu";
+        console.error(`[passe/signes] step=load organization=${organizationId} code=${code}`);
+      });
     return () => {
       annule = true;
     };
@@ -344,7 +369,11 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     () => anomaliesDeSigne(stockees, axe.axeId, mappingsIndexes),
     [stockees, axe.axeId, mappingsIndexes]
   );
-  const nombreSignesInhabituels = useMemo(() => compterTransactionsAvecAnomalie(anomaliesSigne), [anomaliesSigne]);
+  // Les anomalies validées par l'utilisateur sortent de la liste à vérifier, sans rien changer aux
+  // calculs ; le compteur et l'alerte ne portent plus que sur ce qui reste à vérifier.
+  const signes = useMemo(() => repartirAnomalies(anomaliesSigne, validationsSigne), [anomaliesSigne, validationsSigne]);
+  const nombreSignesInhabituels = useMemo(() => compterTransactionsAvecAnomalie(signes.aVerifier), [signes.aVerifier]);
+  const nombreSignesValides = useMemo(() => compterTransactionsAvecAnomalie(signes.validees), [signes.validees]);
   // Une catégorie = une teinte, fixée sur la période entière et partagée par tous les onglets.
   const teintesCategories = useMemo(() => teintesParCategorie(pnl.categories), [pnl.categories]);
   // Écrans détaillés : parts mappées de la période, matière commune du KPI, du camembert, de
@@ -395,6 +424,44 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       stocks.filter((s) => s.mois !== mois),
       () => supprimerStock(supabase!, organizationId, mois),
       mois
+    );
+
+  // Validation d'un signe inhabituel : la ligne change de liste tout de suite, puis
+  // l'enregistrement ; en cas d'échec, retour à l'état précédent.
+  useEffect(() => {
+    if (!messageSigne) return;
+    const minuteur = setTimeout(() => setMessageSigne(null), 3000);
+    return () => clearTimeout(minuteur);
+  }, [messageSigne]);
+  const modifierValidations = (suivant: ValidationSigne[], enregistrer: () => Promise<void>, message: string, etape: string) => {
+    const precedent = validationsSigne;
+    setValidationsSigne(suivant);
+    setErreurSigne(null);
+    setMessageSigne(message);
+    enregistrer().catch((error) => {
+      const code = (error as { code?: string } | null)?.code ?? "inconnu";
+      console.error(`[passe/signes] step=${etape} organization=${organizationId} code=${code}`);
+      setValidationsSigne(precedent);
+      setMessageSigne(null);
+      setErreurSigne("La modification n'a pas pu être enregistrée. Réessayez.");
+    });
+  };
+  const memePart = (v: ValidationSigne, a: AnomalieSigne) => v.transactionId === a.transactionId && v.sourceCategoryId === a.sourceCategoryId;
+  const validerAnomalie = (a: AnomalieSigne) => {
+    const validation = { transactionId: a.transactionId, sourceCategoryId: a.sourceCategoryId, etage: a.etage, type: a.type };
+    modifierValidations(
+      [...validationsSigne.filter((v) => !memePart(v, a)), { ...validation, validatedAt: new Date().toISOString() }],
+      () => validerSigne(supabase!, organizationId, validation),
+      "Transaction validée",
+      "validate"
+    );
+  };
+  const annulerValidation = (a: AnomalieSigne) =>
+    modifierValidations(
+      validationsSigne.filter((v) => !memePart(v, a)),
+      () => annulerValidationSigne(supabase!, organizationId, a.transactionId, a.sourceCategoryId),
+      "Validation annulée",
+      "unvalidate"
     );
 
   const voirCategoriesAMapper = () => {
@@ -806,58 +873,114 @@ export default function PasseTransactions({ organizationId, organizationName, ac
                   {pluriel(nombreAMapper, "catégorie à mapper", "catégories à mapper")} →
                 </button>
               )}
-              {nombreSignesInhabituels > 0 && (
+              {(nombreSignesInhabituels > 0 || nombreSignesValides > 0) && (
                 <button
                   type="button"
                   className="btn-secondaire"
                   aria-expanded={detailSignesOuvert}
                   onClick={() => setDetailSignesOuvert((o) => !o)}
                 >
-                  {pluriel(
-                    nombreSignesInhabituels,
-                    "transaction avec un signe inhabituel",
-                    "transactions avec un signe inhabituel"
-                  )}{" "}
+                  {nombreSignesInhabituels > 0
+                    ? pluriel(nombreSignesInhabituels, "transaction avec un signe inhabituel", "transactions avec un signe inhabituel")
+                    : `Signes inhabituels : ${pluriel(nombreSignesValides, "transaction validée", "transactions validées")}`}{" "}
                   <span aria-hidden="true">{detailSignesOuvert ? "▴" : "▾"}</span>
                 </button>
               )}
             </div>
           )}
 
-          {!axeAConfigurer && detailSignesOuvert && nombreSignesInhabituels > 0 && (
+          {!axeAConfigurer && detailSignesOuvert && (nombreSignesInhabituels > 0 || nombreSignesValides > 0) && (
             <div className="passe-signes-detail">
-              <p className="passe-message">
-                À vérifier, sans urgence : un signe inhabituel peut être légitime (remboursement client, avoir
-                fournisseur, correction bancaire). Ces montants restent pris en compte tels quels dans le reporting.
-              </p>
-              <div className="table-wrapper">
-                <table className="passe-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Libellé</th>
-                      <th className="col-montant">Montant</th>
-                      <th>Catégorie</th>
-                      <th>Étage P&amp;L</th>
-                      <th>Anomalie</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {anomaliesSigne.map((a) => (
-                      <tr key={`${a.transactionId}:${a.sourceCategoryId}`}>
-                        <td className="passe-table__date">{formatDateCourte(a.transactionDate)}</td>
-                        <td className="passe-table__libelle">{a.label || "—"}</td>
-                        <td className="col-montant passe-table__montant">{formatMontant(a.montant)}</td>
-                        <td>{a.sourceCategoryName}</td>
-                        <td>{libelleEtagePnl(a.etage)}</td>
-                        <td>
-                          <span className="passe-statut">{LIBELLES_ANOMALIE_SIGNE[a.type]}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="passe-tri" role="group" aria-label="Signes inhabituels à afficher">
+                <button
+                  type="button"
+                  className={`btn-secondaire${vueSignes === "a_verifier" ? " btn-module--actif" : ""}`}
+                  aria-pressed={vueSignes === "a_verifier"}
+                  onClick={() => setVueSignes("a_verifier")}
+                >
+                  À vérifier <span className="passe-detail__compte">{signes.aVerifier.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`btn-secondaire${vueSignes === "validees" ? " btn-module--actif" : ""}`}
+                  aria-pressed={vueSignes === "validees"}
+                  onClick={() => setVueSignes("validees")}
+                >
+                  Validées <span className="passe-detail__compte">{signes.validees.length}</span>
+                </button>
+                {/* Retour discret après une action ; s'efface seul. */}
+                <span className="passe-signes-detail__retour" role="status">
+                  {messageSigne}
+                </span>
               </div>
+              {erreurSigne && <p className="login-erreur">{erreurSigne}</p>}
+              <p className="passe-message">
+                {vueSignes === "a_verifier"
+                  ? "À vérifier, sans urgence : un signe inhabituel peut être légitime (remboursement client, avoir fournisseur, correction bancaire). « C'est OK » retire la ligne de cette liste ; le montant reste pris en compte tel quel dans le reporting."
+                  : "Transactions que vous avez vérifiées et jugées normales. Elles restent comptées telles quelles dans le reporting."}
+              </p>
+              {(vueSignes === "a_verifier" ? signes.aVerifier : signes.validees).length === 0 ? (
+                <p className="passe-structure__vide">
+                  {vueSignes === "a_verifier" ? "Aucune transaction à vérifier sur la période." : "Aucune transaction validée sur la période."}
+                </p>
+              ) : (
+                <div className="table-wrapper">
+                  <table className="passe-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Libellé</th>
+                        <th className="col-montant">Montant</th>
+                        <th>Catégorie</th>
+                        <th>Étage P&amp;L</th>
+                        <th>Anomalie</th>
+                        {vueSignes === "validees" && <th>Validée le</th>}
+                        <th>
+                          <span className="passe-visuellement-cache">Action</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vueSignes === "a_verifier"
+                        ? signes.aVerifier.map((a) => (
+                            <tr key={`${a.transactionId}:${a.sourceCategoryId}`}>
+                              <td className="passe-table__date">{formatDateCourte(a.transactionDate)}</td>
+                              <td className="passe-table__libelle">{a.label || "—"}</td>
+                              <td className="col-montant passe-table__montant">{formatMontant(a.montant)}</td>
+                              <td>{a.sourceCategoryName}</td>
+                              <td>{libelleEtagePnl(a.etage)}</td>
+                              <td>
+                                <span className="passe-statut">{LIBELLES_ANOMALIE_SIGNE[a.type]}</span>
+                              </td>
+                              <td className="passe-signes-detail__action">
+                                <button type="button" className="btn-secondaire" onClick={() => validerAnomalie(a)}>
+                                  C&apos;est OK
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        : signes.validees.map((a) => (
+                            <tr key={`${a.transactionId}:${a.sourceCategoryId}`}>
+                              <td className="passe-table__date">{formatDateCourte(a.transactionDate)}</td>
+                              <td className="passe-table__libelle">{a.label || "—"}</td>
+                              <td className="col-montant passe-table__montant">{formatMontant(a.montant)}</td>
+                              <td>{a.sourceCategoryName}</td>
+                              <td>{libelleEtagePnl(a.etage)}</td>
+                              <td>
+                                <span className="passe-statut">{LIBELLES_ANOMALIE_SIGNE[a.type]}</span>
+                              </td>
+                              <td className="passe-table__date">{formatDateCourte(toISODate(new Date(a.validatedAt)))}</td>
+                              <td className="passe-signes-detail__action">
+                                <button type="button" className="btn-secondaire" onClick={() => annulerValidation(a)}>
+                                  Annuler la validation
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
