@@ -28,15 +28,15 @@ interface ReponseType {
 /**
  * Un seul aller-retour paginé par catégorie : le statut de paiement, le statut comptable et le
  * numéro sont dans les listes Pennylane, aucun appel détail par facture n'est nécessaire. La
- * décision « payée / archivée / doublon » est prise dans lib/pennylaneInvoiceAdapter.ts.
+ * décision « payée / archivée » est prise dans lib/pennylaneInvoiceAdapter.ts.
  */
 function journaliser(categorie: string, companyId: string, { candidats, statutsInconnus }: CandidatsPennylane) {
   const soldees = (motif: string) => candidats.filter((c) => c.motifSolde === motif).length;
   console.log(
-    `[pennylane/invoices] ${categorie} OK company=${companyId} candidats=${candidats.length} payees=${soldees("payee")} archivees=${soldees("archivee")} doublons=${soldees("doublon")}`
+    `[pennylane/invoices] ${categorie} OK company=${companyId} candidats=${candidats.length} payees=${soldees("payee")} archivees=${soldees("archivee")}`
   );
   // Statut de paiement que le code ne connaît pas : visible dans les logs plutôt que classé en
-  // silence. La facture concernée reste impayée.
+  // silence. La facture concernée suit le booléen `paid` de Pennylane.
   for (const [statut, nombre] of Object.entries(statutsInconnus)) {
     console.warn(`[pennylane/invoices] ${categorie} payment_status inconnu="${statut}" occurrences=${nombre} company=${companyId}`);
   }

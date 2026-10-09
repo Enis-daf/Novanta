@@ -92,6 +92,7 @@ import {
   supprimerChargeFixe,
   supprimerFactureClient,
   supprimerFactureFournisseur,
+  supprimerFacturesFournisseurs,
   supprimerFinancement,
   supprimerRentreeReguliere,
 } from "@/lib/supabaseRepository";
@@ -575,7 +576,8 @@ export default function Home() {
     nouvellesFacturesClients: FactureClient[],
     nouvellesFacturesFournisseurs: FactureFournisseur[],
     idsClientsAMettreAJourPayee: string[],
-    idsFournisseursAMettreAJourPayee: string[]
+    idsFournisseursAMettreAJourPayee: string[],
+    idsFournisseursASupprimer: string[]
   ) => {
     if (nouvellesFacturesClients.length > 0) {
       setFacturesClients((prev) => [...prev, ...nouvellesFacturesClients]);
@@ -601,6 +603,12 @@ export default function Home() {
         prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant } : f))
       );
       persist(() => marquerFacturesFournisseursPayees(idsFournisseursAMettreAJourPayee));
+    }
+    // Versions archivées dans Pennylane : ce ne sont plus des factures de trésorerie.
+    if (idsFournisseursASupprimer.length > 0) {
+      const idsASupprimer = new Set(idsFournisseursASupprimer);
+      setFacturesFournisseurs((prev) => prev.filter((f) => !idsASupprimer.has(f.id)));
+      persist(() => supprimerFacturesFournisseurs(idsFournisseursASupprimer));
     }
   };
 
@@ -640,6 +648,7 @@ export default function Home() {
       let nombreFournisseursAjoutes = 0;
       let idsClientsAMettreAJourPayee: string[] = [];
       let idsFournisseursAMettreAJourPayee: string[] = [];
+      let idsFournisseursASupprimer: string[] = [];
       let nouvellesFacturesClients: FactureClient[] = [];
       let nouvellesFacturesFournisseurs: FactureFournisseur[] = [];
 
@@ -654,12 +663,13 @@ export default function Home() {
       }
 
       if (data.fournisseurCandidates) {
-        const { aInserer, idsAMettreAJourPayee } = calculerSynchronisation(
+        const { aInserer, idsAMettreAJourPayee, idsASupprimer } = calculerSynchronisation(
           data.fournisseurCandidates,
           facturesFournisseursExistantesPourSync
         );
         nouvellesFacturesFournisseurs = aInserer.map(candidatVersFactureFournisseur);
         idsFournisseursAMettreAJourPayee = idsAMettreAJourPayee;
+        idsFournisseursASupprimer = idsASupprimer;
         nombreFournisseursAjoutes = nouvellesFacturesFournisseurs.length;
       }
 
@@ -667,7 +677,8 @@ export default function Home() {
         nouvellesFacturesClients,
         nouvellesFacturesFournisseurs,
         idsClientsAMettreAJourPayee,
-        idsFournisseursAMettreAJourPayee
+        idsFournisseursAMettreAJourPayee,
+        idsFournisseursASupprimer
       );
 
       setSyncPennylaneResultat({
@@ -676,6 +687,7 @@ export default function Home() {
         nombreClientsAjoutes,
         nombreFournisseursAjoutes,
         nombreMarquesPayees: idsClientsAMettreAJourPayee.length + idsFournisseursAMettreAJourPayee.length,
+        nombreArchiveesRetirees: idsFournisseursASupprimer.length,
         erreurClients: data.erreurClients ?? null,
         erreurFournisseurs: data.erreurFournisseurs ?? null,
       });

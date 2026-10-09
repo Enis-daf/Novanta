@@ -11,7 +11,6 @@ import {
   candidatsFournisseursPennylane,
   decisionPaiementClient,
   decisionPaiementFournisseur,
-  doublonsFournisseursEcartes,
   estAvoir,
   estPayeeFournisseur,
   extraireTiersEtNumero,
@@ -155,7 +154,7 @@ describe("candidatFactureFournisseur", () => {
     assert.equal(candidat, null);
   });
 
-  test("paid: true sans aucun payment_status -> candidat payee=true (seul cas où `paid` est lu)", () => {
+  test("paid: true -> candidat payee=true", () => {
     const candidat = candidatFactureFournisseur(supplierItemFactice({ paid: true }));
     assert.equal(candidat!.payee, true);
   });
@@ -317,6 +316,7 @@ describe("messageSyncPennylane — distingue explicitement analysée (trouvée) 
       nombreClientsAjoutes: 0,
       nombreFournisseursAjoutes: 0,
       nombreMarquesPayees: 0,
+      nombreArchiveesRetirees: 0,
       erreurClients: null,
       erreurFournisseurs: null,
       ...overrides,
@@ -347,144 +347,70 @@ describe("messageSyncPennylane — distingue explicitement analysée (trouvée) 
     assert.ok(!msg.includes("1 facture fournisseurs"));
     assert.ok(msg.includes("1 nouvelle importée"));
     assert.ok(msg.includes("1 facture marquée payée"));
+    assert.ok(!msg.includes("archivée"));
+  });
+
+  test("factures archivées retirées -> mentionnées, avec le bon pluriel", () => {
+    assert.ok(messageSyncPennylane(resultat({ nombreArchiveesRetirees: 1 })).includes("1 facture archivée dans Pennylane retirée."));
+    assert.ok(messageSyncPennylane(resultat({ nombreArchiveesRetirees: 73 })).includes("73 factures archivées dans Pennylane retirées."));
   });
 });
 
-// Non-régression du bug « factures payées dans Pennylane importées comme impayées ». Les cas
-// reprennent la forme de factures réelles (statuts, montants, reste à payer), sous des noms fictifs.
-// Le booléen `paid` y est volontairement à false : c'est précisément le cas où il ne suffit pas.
+// Statut payé d'une facture fournisseur ACTIVE : le booléen `paid` de Pennylane arbitre, quel que
+// soit payment_status (qui décrit le workflow) et sans jamais lire le reste à payer. Les cas
+// reprennent la forme de factures réelles, sous des noms fictifs.
 describe("statut de paiement fournisseur — decisionPaiementFournisseur", () => {
-  const fournisseur = { id: 501 };
-
-  test("fully_paid -> payée", () => {
-    const item = supplierItemFactice({ payment_status: "fully_paid", accounting_status: "complete" });
+  test("to_be_processed, reste à payer 0, paid=true -> payée", () => {
+    const item = supplierItemFactice({ amount: "9043.21", payment_status: "to_be_processed", accounting_status: "complete", paid: true });
     assert.deepEqual(decisionPaiementFournisseur(item), { payee: true, motifSolde: "payee", statutInconnu: null });
     assert.equal(candidatFactureFournisseur(item)!.payee, true);
   });
 
-  test("paid_offline -> payée, même si `paid` est false et que le reste à payer n'a pas été soldé", () => {
-    const item = supplierItemFactice({ amount: "1000.0", payment_status: "paid_offline", accounting_status: "complete", paid: false });
-    assert.equal(candidatFactureFournisseur(item)!.payee, true);
+  test("to_be_processed, reste à payer 0, paid=false -> impayée", () => {
+    const item = supplierItemFactice({ amount: "9043.21", payment_status: "to_be_processed", accounting_status: "complete", paid: false });
+    assert.deepEqual(decisionPaiementFournisseur(item), { payee: false, motifSolde: null, statutInconnu: null });
   });
 
-  test("payée mais en attente de validation comptable (validation_needed) -> payée", () => {
-    const item = supplierItemFactice({ payment_status: "fully_paid", accounting_status: "validation_needed", paid: false });
-    assert.equal(candidatFactureFournisseur(item)!.payee, true);
+  test("to_be_paid, paid=true -> payée ; paid=false -> impayée", () => {
+    assert.equal(estPayeeFournisseur(supplierItemFactice({ payment_status: "to_be_paid", accounting_status: "complete", paid: true })), true);
+    assert.equal(estPayeeFournisseur(supplierItemFactice({ payment_status: "to_be_paid", accounting_status: "complete", paid: false })), false);
   });
 
-  test("facture réellement impayée (to_be_paid, to_be_processed) -> impayée", () => {
-    for (const payment_status of ["to_be_paid", "to_be_processed"]) {
-      const item = supplierItemFactice({ payment_status, accounting_status: "complete" });
-      assert.deepEqual(decisionPaiementFournisseur(item), { payee: false, motifSolde: null, statutInconnu: null });
+  test("fully_paid, paid=true -> payée", () => {
+    assert.equal(estPayeeFournisseur(supplierItemFactice({ payment_status: "fully_paid", accounting_status: "complete", paid: true })), true);
+  });
+
+  // Non-régression du premier bug : `paid` reste à false sur des factures pourtant réglées.
+  test("fully_paid ou paid_offline avec paid=false (y compris en attente de validation comptable) -> payée", () => {
+    for (const payment_status of ["fully_paid", "paid_offline"]) {
+      for (const accounting_status of ["complete", "validation_needed"]) {
+        const item = supplierItemFactice({ payment_status, accounting_status, paid: false });
+        assert.equal(candidatFactureFournisseur(item)!.payee, true, `${payment_status}/${accounting_status}`);
+      }
     }
   });
 
-  test("partiellement payée -> reste ouverte (pas de reste à payer suivi en V1)", () => {
-    const item = supplierItemFactice({ payment_status: "partially_paid", accounting_status: "complete" });
-    assert.equal(candidatFactureFournisseur(item)!.payee, false);
-  });
-
-  test("paiement seulement émis, planifié ou en erreur -> reste ouverte", () => {
-    for (const payment_status of ["payment_emitted", "payment_scheduled", "payment_in_progress", "payment_found", "payment_error"]) {
-      const decision = decisionPaiementFournisseur(supplierItemFactice({ payment_status }));
-      assert.equal(decision.payee, false, payment_status);
-      assert.equal(decision.statutInconnu, null, payment_status);
+  test("statuts de workflow (partiel, émis, planifié, en erreur...) -> suivent `paid`", () => {
+    for (const payment_status of ["partially_paid", "payment_emitted", "payment_scheduled", "payment_in_progress", "payment_found", "payment_error"]) {
+      assert.deepEqual(decisionPaiementFournisseur(supplierItemFactice({ payment_status, paid: false })), { payee: false, motifSolde: null, statutInconnu: null }, payment_status);
+      assert.equal(decisionPaiementFournisseur(supplierItemFactice({ payment_status, paid: true })).payee, true, payment_status);
     }
   });
 
-  test("to_be_paid / to_be_processed avec paid=true (reste à payer nul ou négatif) -> impayée : payment_status fait foi", () => {
-    for (const payment_status of ["to_be_paid", "to_be_processed"]) {
-      const item = supplierItemFactice({ payment_status, accounting_status: "complete", paid: true });
-      assert.deepEqual(decisionPaiementFournisseur(item), { payee: false, motifSolde: null, statutInconnu: null }, payment_status);
-      assert.equal(estPayeeFournisseur(item), false, payment_status);
-    }
+  test("statut inconnu -> jamais deviné : suit `paid`, et le statut est remonté", () => {
+    const impayee = decisionPaiementFournisseur(supplierItemFactice({ payment_status: "statut_futur", paid: false }));
+    assert.deepEqual(impayee, { payee: false, motifSolde: null, statutInconnu: "statut_futur" });
+    const payee = decisionPaiementFournisseur(supplierItemFactice({ payment_status: "statut_futur", paid: true }));
+    assert.deepEqual(payee, { payee: true, motifSolde: "payee", statutInconnu: "statut_futur" });
   });
 
-  test("statut inconnu -> jamais deviné : impayée même si paid=true, et le statut est remonté", () => {
-    for (const paid of [false, true]) {
-      const decision = decisionPaiementFournisseur(supplierItemFactice({ payment_status: "statut_futur", paid }));
-      assert.deepEqual(decision, { payee: false, motifSolde: null, statutInconnu: "statut_futur" });
-    }
-  });
-
-  test("ancienne réponse sans payment_status -> comportement inchangé (booléen `paid`)", () => {
+  test("réponse sans payment_status -> booléen `paid`", () => {
     assert.equal(decisionPaiementFournisseur(supplierItemFactice({ paid: true })).payee, true);
     assert.deepEqual(decisionPaiementFournisseur(supplierItemFactice()), { payee: false, motifSolde: null, statutInconnu: null });
   });
 
-  test("archivée (accounting_status ou archived_at) -> écartée de l'import, mais jamais payée pour autant", () => {
-    const parStatut = supplierItemFactice({ payment_status: "to_be_processed", accounting_status: "archived", paid: true });
-    assert.deepEqual(decisionPaiementFournisseur(parStatut), { payee: false, motifSolde: "archivee", statutInconnu: null });
-    const parDate = supplierItemFactice({ payment_status: "to_be_paid", accounting_status: "complete", archived_at: "2026-09-12T08:00:00Z" });
-    assert.deepEqual(decisionPaiementFournisseur(parDate), { payee: false, motifSolde: "archivee", statutInconnu: null });
-    const archiveePayee = supplierItemFactice({ payment_status: "paid_offline", accounting_status: "archived" });
-    assert.deepEqual(decisionPaiementFournisseur(archiveePayee), { payee: true, motifSolde: "archivee", statutInconnu: null });
-  });
-
-  // Faux positifs constatés après la première correction : marquées Payée dans Novanta alors que
-  // Pennylane les tient pour impayées (formes réelles, noms fictifs).
-  test("faux positifs réels : archivée to_be_paid à reste à payer négatif, complète to_be_processed à reste à payer nul -> impayées", () => {
-    const archiveeNegative = supplierItemFactice({ id: 70, amount: "14864.4", payment_status: "to_be_paid", accounting_status: "archived", paid: true });
-    const completeSoldee = supplierItemFactice({ id: 71, amount: "9043.21", payment_status: "to_be_processed", accounting_status: "complete", paid: true });
-    const existantes: FactureExistantePourSync[] = [
-      { id: "novanta-70", pennylaneId: "70", payee: false },
-      { id: "novanta-71", pennylaneId: "71", payee: false },
-    ];
-    const { candidats } = candidatsFournisseursPennylane([archiveeNegative, completeSoldee]);
-    assert.deepEqual(candidats.map((c) => c.payee), [false, false]);
-    assert.deepEqual(calculerSynchronisation(candidats, existantes).idsAMettreAJourPayee, []);
-  });
-
-  test("avoir fournisseur (montant et reste à payer négatifs) -> jamais importé, quel que soit le statut", () => {
-    assert.equal(candidatFactureFournisseur(supplierItemFactice({ amount: "-52.1", payment_status: "to_be_paid", supplier: fournisseur })), null);
-  });
-});
-
-describe("factures fournisseurs en double — candidatsFournisseursPennylane", () => {
-  const fournisseur = { id: 501 };
-
-  test("version archivée impayée + version complète payée du même numéro -> aucune facture ouverte", () => {
-    const archivee = supplierItemFactice({ id: 3345, invoice_number: "9BEF-3925", amount: "1221.96", supplier: fournisseur, payment_status: "to_be_processed", accounting_status: "archived" });
-    const complete = supplierItemFactice({ id: 3350, invoice_number: "9BEF-3925", amount: "1221.96", supplier: fournisseur, payment_status: "paid_offline", accounting_status: "complete" });
-    const { candidats } = candidatsFournisseursPennylane([archivee, complete]);
-    assert.deepEqual(candidats.map((c) => [c.pennylaneId, c.payee, c.motifSolde]), [["3345", false, "archivee"], ["3350", true, "payee"]]);
-    // Rien n'est importé...
-    assert.deepEqual(calculerSynchronisation(candidats, []).aInserer, []);
-    // ...et la version archivée déjà importée n'est pas marquée payée : son payment_status est ouvert.
-    const existantes: FactureExistantePourSync[] = [{ id: "novanta-1", pennylaneId: "3345", payee: false }];
-    assert.deepEqual(calculerSynchronisation(candidats, existantes).idsAMettreAJourPayee, []);
-  });
-
-  test("version archivée + version complète réellement impayée -> une seule facture ouverte, la complète", () => {
-    const archivee = supplierItemFactice({ id: 10, invoice_number: "F-77", supplier: fournisseur, payment_status: "to_be_paid", accounting_status: "archived" });
-    const complete = supplierItemFactice({ id: 11, invoice_number: "F-77", supplier: fournisseur, payment_status: "to_be_paid", accounting_status: "complete" });
-    const { candidats } = candidatsFournisseursPennylane([archivee, complete]);
-    assert.deepEqual(calculerSynchronisation(candidats, []).aInserer.map((c) => c.pennylaneId), ["11"]);
-  });
-
-  test("deux versions non archivées impayées -> la plus aboutie est gardée, l'autre écartée comme doublon sans être payée", () => {
-    const aValider = supplierItemFactice({ id: 21, invoice_number: "F-88", supplier: fournisseur, payment_status: "to_be_paid", accounting_status: "validation_needed" });
-    const complete = supplierItemFactice({ id: 20, invoice_number: "F-88", supplier: fournisseur, payment_status: "to_be_paid", accounting_status: "complete" });
-    assert.deepEqual([...doublonsFournisseursEcartes([aValider, complete])], ["21"]);
-    const { candidats } = candidatsFournisseursPennylane([aValider, complete]);
-    const doublon = candidats.find((c) => c.pennylaneId === "21")!;
-    assert.deepEqual([doublon.payee, doublon.motifSolde], [false, "doublon"]);
-    assert.deepEqual(calculerSynchronisation(candidats, [{ id: "novanta-21", pennylaneId: "21", payee: false }]).idsAMettreAJourPayee, []);
-    assert.deepEqual(calculerSynchronisation(candidats, []).aInserer.map((c) => c.pennylaneId), ["20"]);
-  });
-
-  test("à statut comptable égal, la version la plus récente (identifiant le plus grand) est gardée", () => {
-    const ancienne = supplierItemFactice({ id: 30, invoice_number: "F-99", supplier: fournisseur, accounting_status: "complete" });
-    const recente = supplierItemFactice({ id: 31, invoice_number: "F-99", supplier: fournisseur, accounting_status: "complete" });
-    assert.deepEqual([...doublonsFournisseursEcartes([ancienne, recente])], ["30"]);
-  });
-
-  test("même numéro chez deux fournisseurs différents, ou fournisseur inconnu -> pas un doublon", () => {
-    const a = supplierItemFactice({ id: 40, invoice_number: "2026-001", supplier: { id: 1 } });
-    const b = supplierItemFactice({ id: 41, invoice_number: "2026-001", supplier: { id: 2 } });
-    const c = supplierItemFactice({ id: 42, invoice_number: "2026-001" });
-    const d = supplierItemFactice({ id: 43, invoice_number: "2026-001" });
-    assert.equal(doublonsFournisseursEcartes([a, b, c, d]).size, 0);
+  test("avoir fournisseur (montant négatif) -> jamais importé, quel que soit le statut", () => {
+    assert.equal(candidatFactureFournisseur(supplierItemFactice({ amount: "-52.1", payment_status: "to_be_paid" })), null);
   });
 
   test("les statuts inconnus sont comptés pour être journalisés", () => {
@@ -497,21 +423,77 @@ describe("factures fournisseurs en double — candidatsFournisseursPennylane", (
   });
 });
 
+// Une version archivée dans Pennylane n'est pas une facture de trésorerie : ni importée, ni
+// marquée Payée, et retirée de Novanta si elle y est déjà.
+describe("factures fournisseurs archivées", () => {
+  test("archivée (accounting_status ou archived_at), paid true ou false -> candidat à retirer", () => {
+    for (const paid of [true, false]) {
+      const parStatut = candidatFactureFournisseur(supplierItemFactice({ payment_status: "to_be_paid", accounting_status: "archived", paid }));
+      assert.equal(parStatut!.aRetirer, true);
+      assert.equal(parStatut!.motifSolde, "archivee");
+    }
+    const parDate = candidatFactureFournisseur(supplierItemFactice({ accounting_status: "complete", archived_at: "2026-09-12T08:00:00Z" }));
+    assert.equal(parDate!.aRetirer, true);
+    assert.equal(candidatFactureFournisseur(supplierItemFactice({ accounting_status: "complete" }))!.aRetirer, undefined);
+  });
+
+  test("archivée absente de Novanta -> jamais importée, payée ou non", () => {
+    for (const paid of [true, false]) {
+      const { candidats } = candidatsFournisseursPennylane([supplierItemFactice({ id: 70, payment_status: "to_be_processed", accounting_status: "archived", paid })]);
+      assert.deepEqual(calculerSynchronisation(candidats, []), { aInserer: [], idsAMettreAJourPayee: [], idsASupprimer: [] });
+    }
+  });
+
+  test("facture importée active, puis archivée dans Pennylane -> retirée à la synchronisation suivante", () => {
+    const active = supplierItemFactice({ id: 71, payment_status: "to_be_paid", accounting_status: "complete" });
+    const premiere = calculerSynchronisation(candidatsFournisseursPennylane([active]).candidats, []);
+    assert.deepEqual(premiere.aInserer.map((c) => c.pennylaneId), ["71"]);
+
+    const archivee = supplierItemFactice({ id: 71, payment_status: "to_be_paid", accounting_status: "archived" });
+    for (const payee of [false, true]) {
+      const existantes: FactureExistantePourSync[] = [{ id: "novanta-71", pennylaneId: "71", payee }];
+      const seconde = calculerSynchronisation(candidatsFournisseursPennylane([archivee]).candidats, existantes);
+      assert.deepEqual(seconde, { aInserer: [], idsAMettreAJourPayee: [], idsASupprimer: ["novanta-71"] });
+    }
+  });
+
+  test("version archivée + version active du même numéro -> chacune traitée par son identifiant", () => {
+    const archivee = supplierItemFactice({ id: 3345, invoice_number: "9BEF-3925", payment_status: "to_be_processed", accounting_status: "archived" });
+    const activePayee = supplierItemFactice({ id: 3350, invoice_number: "9BEF-3925", payment_status: "paid_offline", accounting_status: "complete" });
+    const activeOuverte = supplierItemFactice({ id: 3351, invoice_number: "9BEF-3925", payment_status: "to_be_paid", accounting_status: "complete" });
+    const existantes: FactureExistantePourSync[] = [{ id: "novanta-1", pennylaneId: "3345", payee: true }];
+    const { candidats } = candidatsFournisseursPennylane([archivee, activePayee, activeOuverte]);
+    const resultat = calculerSynchronisation(candidats, existantes);
+    assert.deepEqual(resultat.aInserer.map((c) => c.pennylaneId), ["3351"]);
+    assert.deepEqual(resultat.idsASupprimer, ["novanta-1"]);
+  });
+
+  test("facture client archivée -> jamais retirée (comportement client inchangé)", () => {
+    const { candidats } = candidatsClientsPennylane([customerItemFactice({ id: 80, status: "cancelled" })]);
+    const resultat = calculerSynchronisation(candidats, [{ id: "novanta-80", pennylaneId: "80", payee: false }]);
+    assert.deepEqual(resultat, { aInserer: [], idsAMettreAJourPayee: ["novanta-80"], idsASupprimer: [] });
+  });
+});
+
 describe("synchronisations successives — création puis mise à jour", () => {
-  test("facture impayée importée, puis payée dans Pennylane -> marquée payée à la synchronisation suivante", () => {
+  test("facture impayée importée, puis `paid` passe à true dans Pennylane -> marquée payée à la synchronisation suivante", () => {
     const impayee = supplierItemFactice({ id: 60, payment_status: "to_be_paid", accounting_status: "complete" });
     const premiere = calculerSynchronisation(candidatsFournisseursPennylane([impayee]).candidats, []);
     assert.deepEqual(premiere.aInserer.map((c) => c.pennylaneId), ["60"]);
 
     const existantes: FactureExistantePourSync[] = [{ id: "novanta-60", pennylaneId: "60", payee: false }];
-    const reglee = supplierItemFactice({ id: 60, payment_status: "paid_offline", accounting_status: "complete", paid: false });
-    const seconde = calculerSynchronisation(candidatsFournisseursPennylane([reglee]).candidats, existantes);
-    assert.deepEqual(seconde, { aInserer: [], idsAMettreAJourPayee: ["novanta-60"] });
+    for (const reglee of [
+      supplierItemFactice({ id: 60, payment_status: "to_be_processed", accounting_status: "complete", paid: true }),
+      supplierItemFactice({ id: 60, payment_status: "paid_offline", accounting_status: "complete", paid: false }),
+    ]) {
+      const seconde = calculerSynchronisation(candidatsFournisseursPennylane([reglee]).candidats, existantes);
+      assert.deepEqual(seconde, { aInserer: [], idsAMettreAJourPayee: ["novanta-60"], idsASupprimer: [] });
+    }
   });
 
   test("facture payée dès la première synchronisation -> jamais créée", () => {
-    const payee = supplierItemFactice({ id: 61, payment_status: "fully_paid", accounting_status: "validation_needed", paid: false });
-    assert.deepEqual(calculerSynchronisation(candidatsFournisseursPennylane([payee]).candidats, []), { aInserer: [], idsAMettreAJourPayee: [] });
+    const payee = supplierItemFactice({ id: 61, payment_status: "to_be_processed", accounting_status: "complete", paid: true });
+    assert.deepEqual(calculerSynchronisation(candidatsFournisseursPennylane([payee]).candidats, []), { aInserer: [], idsAMettreAJourPayee: [], idsASupprimer: [] });
   });
 });
 
