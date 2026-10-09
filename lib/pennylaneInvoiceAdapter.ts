@@ -137,24 +137,40 @@ export interface DecisionPaiement {
   statutInconnu: string | null;
 }
 
+// Part du montant qu'un règlement rapproché doit couvrir pour que la facture soit tenue pour réglée.
+// Choix de Novanta, pas une donnée Pennylane : les règlements observés à montant différent de la
+// facture (change, frais, prélèvement forfaitaire) couvrent au moins 85 % ; un acompte reste en dessous.
+export const SEUIL_COUVERTURE_REGLEMENT = 0.8;
+
 /**
- * Facture fournisseur ACTIVE réglée ? Trois signaux, chacun suffisant, tous constatés sur la
+ * Facture fournisseur ACTIVE réglée ? Quatre signaux, chacun suffisant, tous constatés sur la
  * réponse réelle de l'API :
  *  1. `paid` à true — y compris quand payment_status est encore to_be_processed / to_be_paid ;
  *  2. payment_status fully_paid ou paid_offline — `paid` y reste parfois à false ;
  *  3. reste à payer exactement nul — une facture entièrement couverte par ses règlements mais en
- *     attente de validation comptable garde `paid` à false et un statut ouvert.
- * Un reste à payer NÉGATIF ne vaut jamais « payée » : sur une facture fournisseur il désigne ce qui
- * reste dû (voir PennylaneSupplierInvoiceListItem). Absent ou illisible, il n'est pas pris en compte.
+ *     attente de validation comptable garde `paid` à false et un statut ouvert ;
+ *  4. règlement rapproché couvrant au moins SEUIL_COUVERTURE_REGLEMENT du montant — la facture est
+ *     réglée par une transaction d'un montant légèrement différent, et le reliquat n'est pas un
+ *     décaissement à venir.
+ * Le reste à payer d'une facture fournisseur est NÉGATIF tant qu'il reste dû, et vaut
+ * -(montant - total rapproché) : `montant + reste` est donc le total rapproché. Un reste égal à
+ * -montant (rien de rapproché) ou un acompte ne valent jamais « payée ». Absent ou illisible, le
+ * reste à payer n'est pas pris en compte.
  */
 export function estPayeeFournisseur(item: {
   paid: boolean;
   payment_status?: string | null;
   remaining_amount_with_tax?: string | null;
+  amount?: string | null;
 }): boolean {
-  const reste = item.remaining_amount_with_tax;
-  const resteNul = typeof reste === "string" && reste.trim() !== "" && Number(reste) === 0;
-  return item.paid === true || inclut(STATUTS_PAIEMENT_FOURNISSEUR.payes, item.payment_status) || resteNul;
+  if (item.paid === true || inclut(STATUTS_PAIEMENT_FOURNISSEUR.payes, item.payment_status)) return true;
+  const brut = item.remaining_amount_with_tax;
+  if (typeof brut !== "string" || brut.trim() === "") return false;
+  const reste = Number(brut);
+  if (!Number.isFinite(reste)) return false;
+  if (reste === 0) return true;
+  const montant = Number(item.amount);
+  return Number.isFinite(montant) && montant > 0 && reste < 0 && montant + reste >= SEUIL_COUVERTURE_REGLEMENT * montant;
 }
 
 /** Version archivée d'une facture fournisseur (accounting_status "archived" ou archived_at renseigné). */
@@ -170,6 +186,7 @@ export function decisionPaiementFournisseur(item: {
   paid: boolean;
   payment_status?: string | null;
   remaining_amount_with_tax?: string | null;
+  amount?: string | null;
   accounting_status?: string | null;
   archived_at?: string | null;
 }): DecisionPaiement {
