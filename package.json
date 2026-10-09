@@ -12,11 +12,13 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
     "exceljs": "^4.4.0",
+    "jspdf": "^4.2.1",
     "next": "14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.12.7",
     "stripe": "^22.4.0",
+    "svg2pdf.js": "^2.8.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz"
   },
   "devDependencies": {
