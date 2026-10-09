@@ -6,7 +6,8 @@ import { trierTransactions } from "./pastDetail";
 import { dureeDeLaSelection, normaliserDurees, selectionDuPreset } from "./fiscalPeriods";
 import { calculerPnl } from "./pastPnl";
 import { PastTransactionStockee } from "./pastTransactions";
-import { categoriesDeLEtage, comparerPeriodes, donneesPeriode, groupesDeLibelles, transactionsDuGroupe } from "./pastVariance";
+import { fusionnerFlux, indexerGroupesManuels } from "./flowGroups";
+import { categoriesDeLEtage, comparerPeriodes, donneesPeriode, fluxConnus, groupesDeLibelles, transactionsDuGroupe } from "./pastVariance";
 
 const AXE = "229";
 const AOUT = { debut: "2026-08-01", fin: "2026-08-31" };
@@ -486,5 +487,79 @@ describe("alias de flux — le nom donné par l'organisation", () => {
     const cleVoisine = g.clesAlias.map((c) => c.cle).find((cle) => cle !== "tiers:europcam")!;
     const seule = groupesDeLibelles(voisinesA, donnees([], SEPTEMBRE), "ebitda", null, new Map([[cleVoisine, "Europcam"]]));
     assert.equal(seule[0].libelle, "Europcam");
+  });
+});
+
+describe("regroupement manuel de flux", () => {
+  const OCTOBRE = { debut: "2026-10-01", fin: "2026-10-31" };
+  const PISP = "VIREMENT RECU PISP BRIDG KARMEN 4411";
+  const FCT = "VIR SEPA FCT KARMEN FACTOR 8820";
+  const a = donnees([tx("2026-08-04", 5_000, "TVA", PISP), tx("2026-08-10", -1_000, "TVA", FCT), tx("2026-08-12", -700, "TVA", "Loyer parking")], AOUT);
+  const b = donnees([tx("2026-09-04", 6_500, "TVA", PISP), tx("2026-09-10", -1_800, "TVA", FCT), tx("2026-09-12", -700, "TVA", "Loyer parking")], SEPTEMBRE);
+  const connus = fluxConnus(a, b);
+  const fluxDe = (libelle: string) => connus.find((f) => f.membres.some((m) => m.exemple === libelle))!;
+  const karmen = fusionnerFlux([], [...fluxDe(PISP).membres, ...fluxDe(FCT).membres], "Karmen", "g1").groupes;
+  const manuels = indexerGroupesManuels(karmen);
+
+  test("sans regroupement : le moteur les tient pour deux flux distincts", () => {
+    assert.equal(groupesDeLibelles(a, b, "extra_pnl", null, undefined, undefined).length, 3);
+    assert.notEqual(fluxDe(PISP).cle, fluxDe(FCT).cle);
+  });
+
+  test("deux flux fusionnés : une seule ligne, sommes de A et de B, écart B − A", () => {
+    const groupes = groupesDeLibelles(a, b, "extra_pnl", null, undefined, manuels);
+    assert.equal(groupes.length, 2);
+    const g = groupes.find((x) => x.groupeManuel)!;
+    assert.deepEqual([g.libelle, g.montantA, g.montantB, g.contribution], ["Karmen", 4_000, 4_700, 700]);
+    assert.deepEqual([g.nombreA, g.nombreB], [2, 2]);
+    assert.equal(g.clesAlias.length, 2);
+  });
+
+  test("nouvelle période, nouvelles transactions des mêmes flux : elles rejoignent le groupe", () => {
+    const octobre = donnees([tx("2026-10-04", 7_000, "TVA", "VIREMENT RECU PISP BRIDG KARMEN 9902"), tx("2026-10-11", -2_000, "TVA", "VIR SEPA FCT KARMEN FACTOR 1177")], OCTOBRE);
+    const groupes = groupesDeLibelles(b, octobre, "extra_pnl", null, undefined, manuels);
+    const g = groupes.find((x) => x.groupeManuel)!;
+    assert.deepEqual([g.libelle, g.montantA, g.montantB], ["Karmen", 4_700, 5_000]);
+  });
+
+  test("trois flux fusionnés", () => {
+    const trois = indexerGroupesManuels(fusionnerFlux(karmen, [...fluxDe(PISP).membres, ...fluxDe("Loyer parking").membres], "Tout", "g2").groupes);
+    const groupes = groupesDeLibelles(a, b, "extra_pnl", null, undefined, trois);
+    assert.equal(groupes.length, 1);
+    assert.deepEqual([groupes[0].libelle, groupes[0].montantA, groupes[0].montantB], ["Tout", 3_300, 4_000]);
+  });
+
+  test("le détail du groupe réunit les transactions d'origine de tous ses flux", () => {
+    const g = groupesDeLibelles(a, b, "extra_pnl", null, undefined, manuels).find((x) => x.groupeManuel)!;
+    assert.deepEqual([...new Set(transactionsDuGroupe(a, b, "extra_pnl", g.cle, manuels).map((p) => p.label))].sort(), [FCT, PISP].sort());
+  });
+
+  test("le nom du groupe passe avant les alias individuels, qui reprennent effet hors du groupe", () => {
+    const alias = new Map([[fluxDe(PISP).membres[0].cle, "Encaissements Karmen"]]);
+    assert.equal(groupesDeLibelles(a, b, "extra_pnl", null, alias, manuels).find((x) => x.groupeManuel)!.libelle, "Karmen");
+    assert.ok(groupesDeLibelles(a, b, "extra_pnl", null, alias).some((x) => x.libelle === "Encaissements Karmen"));
+  });
+
+  test("flux réunis même s'ils sont dans deux catégories du même étage", () => {
+    const a2 = donnees([tx("2026-08-04", -100, "Structure", PISP), tx("2026-08-10", -50, "Bureaux", FCT)], AOUT);
+    const b2 = donnees([tx("2026-09-04", -120, "Structure", PISP)], SEPTEMBRE);
+    const [g, ...autres] = groupesDeLibelles(a2, b2, "ebitda", null, undefined, manuels);
+    assert.equal(autres.length, 0);
+    assert.deepEqual([g.categorie, g.montantA, g.montantB], ["Plusieurs catégories", -150, -120]);
+  });
+
+  test("ni les totaux, ni les lignes hors groupe, ni les identités du moteur ne changent", () => {
+    const sans = groupesDeLibelles(a, b, "extra_pnl");
+    const avec = groupesDeLibelles(a, b, "extra_pnl", null, undefined, manuels);
+    const total = (groupes: typeof sans) => groupes.reduce((s, g) => s + g.contribution, 0);
+    assert.equal(total(avec), total(sans));
+    assert.deepEqual(avec.find((g) => g.libelle === "Loyer Parking"), sans.find((g) => g.libelle === "Loyer Parking"));
+    assert.deepEqual(avec.flatMap((g) => g.clesAlias.map((c) => c.cle)).sort(), sans.flatMap((g) => g.clesAlias.map((c) => c.cle)).sort());
+    assert.deepEqual(comparerPeriodes(a, b), comparerPeriodes(a, b));
+  });
+
+  test("flux proposés à la fusion : un groupe manuel n'y figure qu'une fois, avec ses flux", () => {
+    const propositions = fluxConnus(a, b, undefined, manuels);
+    assert.deepEqual(propositions.map((f) => [f.libelle, f.membres.length]), [["Karmen", 2], ["Loyer Parking", 1]]);
   });
 });

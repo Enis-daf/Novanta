@@ -13,18 +13,30 @@ import {
   PRESETS_AVEC_MOIS,
   SelectionPeriode,
 } from "@/lib/fiscalPeriods";
-import { FlowAlias, LONGUEUR_MAX_ALIAS, MatchMethod, normaliserNomAlias } from "@/lib/flowMatching";
+import { dissocierFlux, fusionnerFlux, GroupeManuel, indexerGroupesManuels, nomDeGroupePropose } from "@/lib/flowGroups";
+import { buildCanonicalFlowIdentity, FlowAlias, LONGUEUR_MAX_ALIAS, MatchMethod, normaliserNomAlias } from "@/lib/flowMatching";
 import { formatMontant, formatPourcentage } from "@/lib/format";
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import { EtagePnl, MappingCategorie } from "@/lib/pastCategoryMapping";
 import { TRI_TRANSACTIONS_PAR_DEFAUT, trierTransactions, TriTransactions } from "@/lib/pastDetail";
 import { PastTransactionStockee, Periode, periodeValide } from "@/lib/pastTransactions";
-import { chargerAliasFlux, chargerPastTransactions, sauvegarderAliasFlux, supprimerAliasFlux } from "@/lib/pastTransactionsRepository";
+import {
+  chargerAliasFlux,
+  chargerGroupesFlux,
+  chargerPastTransactions,
+  enregistrerGroupeFlux,
+  renommerGroupeFlux,
+  retirerFluxDuGroupe,
+  sauvegarderAliasFlux,
+  supprimerAliasFlux,
+  supprimerGroupeFlux,
+} from "@/lib/pastTransactionsRepository";
 import {
   categoriesDeLEtage,
   comparerPeriodes,
   donneesPeriode,
   ETAGES_ECARTS,
+  fluxConnus,
   GroupeLibelle,
   groupesDeLibelles,
   PartComparee,
@@ -54,6 +66,8 @@ interface PasseEcartsProps {
 }
 
 const PAS_AFFICHAGE = 100;
+// Au-delà, la recherche du panneau de fusion doit être précisée.
+const MAX_PROPOSITIONS_FUSION = 8;
 const TRIS: { cle: TriTransactions; libelle: string }[] = [
   { cle: "montant", libelle: "Montant" },
   { cle: "date", libelle: "Date" },
@@ -125,6 +139,13 @@ export default function PasseEcarts({
   const [renommage, setRenommage] = useState<{ cle: string; saisie: string } | null>(null);
   const [erreurAlias, setErreurAlias] = useState<string | null>(null);
   const aliasParCle = useMemo(() => new Map(aliasFlux.map((a) => [a.canonicalFlowKey, a.displayName])), [aliasFlux]);
+  // Regroupements manuels de l'organisation (en base) : ils réunissent des flux que le moteur
+  // laisse séparés, et passent avant lui.
+  const [groupesManuels, setGroupesManuels] = useState<GroupeManuel[]>([]);
+  const manuels = useMemo(() => indexerGroupesManuels(groupesManuels), [groupesManuels]);
+  // Panneau « Fusionner » ouvert sur une ligne : recherche, flux choisi, nom du groupe.
+  const [fusion, setFusion] = useState<{ cle: string; recherche: string; cible: string | null; nom: string } | null>(null);
+  const [versionGroupes, setVersionGroupes] = useState(0);
 
   useEffect(() => {
     let annule = false;
@@ -141,6 +162,22 @@ export default function PasseEcarts({
       annule = true;
     };
   }, [organizationId]);
+
+  useEffect(() => {
+    let annule = false;
+    // Indisponibles : l'analyse s'affiche quand même, avec les seuls regroupements du moteur.
+    chargerGroupesFlux(supabase!, organizationId)
+      .then((groupesConnus) => {
+        if (!annule) setGroupesManuels(groupesConnus);
+      })
+      .catch((error) => {
+        const code = (error as { code?: string } | null)?.code ?? "inconnu";
+        console.error(`[passe/groupes] step=load organization=${organizationId} code=${code}`);
+      });
+    return () => {
+      annule = true;
+    };
+  }, [organizationId, versionGroupes]);
 
   useEffect(() => {
     if (!periodesOk) {
@@ -179,15 +216,17 @@ export default function PasseEcarts({
   const comparaison = useMemo(() => donnees && comparerPeriodes(donnees.a, donnees.b), [donnees]);
   const categories = useMemo(() => (donnees && etage ? categoriesDeLEtage(donnees.a, donnees.b, etage) : []), [donnees, etage]);
   const groupes = useMemo(
-    () => (donnees && etage ? groupesDeLibelles(donnees.a, donnees.b, etage, categorie, aliasParCle) : []),
-    [donnees, etage, categorie, aliasParCle]
+    () => (donnees && etage ? groupesDeLibelles(donnees.a, donnees.b, etage, categorie, aliasParCle, manuels) : []),
+    [donnees, etage, categorie, aliasParCle, manuels]
   );
+  // Flux proposés à la fusion : ceux des deux périodes comparées, tous étages confondus.
+  const connus = useMemo(() => (donnees ? fluxConnus(donnees.a, donnees.b, aliasParCle, manuels) : []), [donnees, aliasParCle, manuels]);
   const transactionsGroupe = useMemo(
     () =>
       donnees && etage && groupe
-        ? (trierTransactions(transactionsDuGroupe(donnees.a, donnees.b, etage, groupe), tri) as PartComparee[])
+        ? (trierTransactions(transactionsDuGroupe(donnees.a, donnees.b, etage, groupe, manuels), tri) as PartComparee[])
         : [],
-    [donnees, etage, groupe, tri]
+    [donnees, etage, groupe, tri, manuels]
   );
 
   const choisirEtage = (suivant: EtagePnl) => {
@@ -219,9 +258,67 @@ export default function PasseEcarts({
       setErreurAlias("Le nom n'a pas pu être enregistré. Réessayez.");
     });
   };
+  // Regroupement manuel : même principe (effet immédiat, puis enregistrement). Plusieurs écritures
+  // se suivent ; si l'une échoue, l'état est relu en base plutôt que deviné.
+  const modifierGroupes = (suivant: GroupeManuel[], enregistrer: () => Promise<void>, etape: string) => {
+    setGroupesManuels(suivant);
+    setErreurAlias(null);
+    enregistrer().catch((error) => {
+      const code = (error as { code?: string } | null)?.code ?? "inconnu";
+      console.error(`[passe/groupes] step=${etape} organization=${organizationId} code=${code}`);
+      setVersionGroupes((v) => v + 1);
+      setErreurAlias("Le regroupement n'a pas pu être enregistré. Réessayez.");
+    });
+  };
+  // Flux « connu » correspondant à une ligne : ses identités propres, avec leur nom détecté.
+  const fluxDeLaLigne = (g: GroupeLibelle) => connus.find((f) => f.membres.some((m) => g.clesAlias.some((c) => c.cle === m.cle))) ?? null;
+  const ouvrirFusion = (g: GroupeLibelle) => {
+    setRenommage(null);
+    setFusion({ cle: g.cle, recherche: "", cible: null, nom: g.groupeManuel?.nom ?? "" });
+  };
+  const confirmerFusion = (g: GroupeLibelle) => {
+    const courant = fluxDeLaLigne(g);
+    const cible = fusion ? connus.find((f) => f.cle === fusion.cible) : undefined;
+    const nom = fusion ? normaliserNomAlias(fusion.nom) : null;
+    if (!courant || !cible || nom === null) return;
+    const resultat = fusionnerFlux(groupesManuels, [...courant.membres, ...cible.membres], nom, crypto.randomUUID());
+    setFusion(null);
+    modifierGroupes(
+      resultat.groupes,
+      async () => {
+        await enregistrerGroupeFlux(supabase!, organizationId, resultat.groupe);
+        for (const id of resultat.supprimes) await supprimerGroupeFlux(supabase!, organizationId, id);
+      },
+      "merge"
+    );
+  };
+  const dissocier = (cle: string) => {
+    const resultat = dissocierFlux(groupesManuels, cle);
+    if (resultat.groupeSupprime) setFusion(null);
+    modifierGroupes(
+      resultat.groupes,
+      () =>
+        resultat.groupeSupprime
+          ? supprimerGroupeFlux(supabase!, organizationId, resultat.groupeSupprime)
+          : retirerFluxDuGroupe(supabase!, organizationId, cle),
+      "unmerge"
+    );
+  };
+
   const enregistrerNom = (g: GroupeLibelle) => {
     const nom = renommage ? normaliserNomAlias(renommage.saisie) : null;
     if (nom === null || g.clesAlias.length === 0) return;
+    // Un groupe manuel porte son propre nom : c'est lui qu'on renomme, pas les alias de ses flux.
+    if (g.groupeManuel) {
+      const id = g.groupeManuel.id;
+      setRenommage(null);
+      modifierGroupes(
+        groupesManuels.map((x) => (x.id === id ? { ...x, nom } : x)),
+        () => renommerGroupeFlux(supabase!, organizationId, id, nom),
+        "rename"
+      );
+      return;
+    }
     const cles = new Set(g.clesAlias.map((c) => c.cle));
     modifierAlias(
       [...aliasFlux.filter((a) => !cles.has(a.canonicalFlowKey)), ...g.clesAlias.map((c) => ({ canonicalFlowKey: c.cle, displayName: nom }))],
@@ -242,6 +339,35 @@ export default function PasseEcarts({
     onChangeSelections(suivantes);
     setGroupe(null);
   };
+
+  // Panneau de fusion : la ligne concernée, son éventuel groupe manuel, les flux proposés (tous
+  // sauf elle), et l'aperçu de ce que la fusion réunirait.
+  const ligneFusion = fusion ? (groupes.find((g) => g.cle === fusion.cle) ?? null) : null;
+  const groupeFusion = ligneFusion?.groupeManuel ? (groupesManuels.find((g) => g.id === ligneFusion.groupeManuel!.id) ?? null) : null;
+  const fluxLigneFusion = ligneFusion ? fluxDeLaLigne(ligneFusion) : null;
+  const sansAccents = (texte: string) => texte.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("fr");
+  const propositionsFusion =
+    fusion && fluxLigneFusion
+      ? connus.filter(
+          (f) =>
+            f.cle !== fluxLigneFusion.cle &&
+            [f.libelle, ...f.membres.map((m) => m.nomDetecte)].some((nom) => sansAccents(nom).includes(sansAccents(fusion.recherche.trim())))
+        )
+      : [];
+  const cibleFusion = fusion?.cible ? (connus.find((f) => f.cle === fusion.cible) ?? null) : null;
+  const apercuFusion =
+    fluxLigneFusion && cibleFusion
+      ? [
+          ...new Set(
+            [
+              ...(groupeFusion?.membres ?? []),
+              ...fluxLigneFusion.membres,
+              ...(groupesManuels.find((g) => g.id === cibleFusion.groupeManuel?.id)?.membres ?? []),
+              ...cibleFusion.membres,
+            ].map((m) => m.nomDetecte || m.exemple)
+          ),
+        ]
+      : [];
 
   const libelleEtage = etage ? ETAGES_ECARTS.find((e) => e.etage === etage)!.libelle : null;
   const nomCategorie = categorie ? (categories.find((c) => c.cle === categorie)?.nom ?? null) : null;
@@ -422,6 +548,7 @@ export default function PasseEcarts({
               <span className="passe-detail__compte"> {transactionsGroupe.length}</span>
             </h3>
             {groupeOuvert.alias && <p className="passe-detail__source">Flux détecté : {groupeOuvert.libelleDetecte}</p>}
+            {groupeOuvert.groupeManuel && <p className="passe-detail__source">Regroupement manuel</p>}
             {normalisation && (
               <p className="passe-reserve">
                 Les montants de comparaison sont normalisés sur {normalisation.duree}. Les transactions ci-dessous sont
@@ -465,7 +592,11 @@ export default function PasseEcarts({
                         <span className={`passe-statut passe-badge-periode passe-badge-periode--${part.cote.toLowerCase()}`}>{part.cote}</span>
                       </td>
                       <td className="passe-table__date">{formatDateCourte(part.transactionDate)}</td>
-                      <td className="passe-table__libelle">{part.label || "—"}</td>
+                      <td className="passe-table__libelle">
+                        {part.label || "—"}
+                        {/* Groupe manuel : le flux d'origine de chaque transaction reste lisible. */}
+                        {groupeOuvert.groupeManuel && <span className="passe-detail__source">Flux : {buildCanonicalFlowIdentity(part.label).title}</span>}
+                      </td>
                       <td className="col-montant passe-table__montant">
                         {formatMontant(part.montant)}
                         {part.weight !== 1 && (
@@ -497,6 +628,106 @@ export default function PasseEcarts({
               période. Cliquez sur une ligne pour voir les transactions d&apos;origine.
             </p>
             {erreurAlias && <p className="login-erreur">{erreurAlias}</p>}
+            {ligneFusion && fusion && (
+              <section className="passe-fusion" aria-label="Fusion de flux">
+                <h4 className="passe-fusion__titre">
+                  {groupeFusion ? `Regroupement « ${groupeFusion.nom} »` : `Fusionner « ${ligneFusion.libelle} » avec…`}
+                </h4>
+                {groupeFusion && (
+                  <ul className="passe-fusion__liste">
+                    {groupeFusion.membres.map((membre) => (
+                      <li key={membre.cle}>
+                        <span>{membre.nomDetecte || membre.exemple || membre.cle}</span>
+                        <button type="button" className="passe-lien-ligne" onClick={() => dissocier(membre.cle)}>
+                          Dissocier
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <input
+                  type="search"
+                  aria-label="Rechercher un flux à fusionner"
+                  placeholder={groupeFusion ? "Ajouter un flux au regroupement…" : "Rechercher un flux…"}
+                  value={fusion.recherche}
+                  autoFocus
+                  onChange={(e) => setFusion({ ...fusion, recherche: e.target.value })}
+                />
+                {propositionsFusion.length === 0 ? (
+                  <p className="passe-renommage__aide">Aucun autre flux ne correspond sur les deux périodes comparées.</p>
+                ) : (
+                  <ul className="passe-fusion__liste">
+                    {propositionsFusion.slice(0, MAX_PROPOSITIONS_FUSION).map((f) => (
+                      <li key={f.cle}>
+                        <button
+                          type="button"
+                          className={`btn-secondaire${fusion.cible === f.cle ? " btn-module--actif" : ""}`}
+                          aria-pressed={fusion.cible === f.cle}
+                          onClick={() =>
+                            setFusion({
+                              ...fusion,
+                              cible: f.cle,
+                              nom: groupeFusion?.nom ?? f.groupeManuel?.nom ?? nomDeGroupePropose([ligneFusion.libelle, f.libelle]),
+                            })
+                          }
+                        >
+                          {f.libelle}
+                        </button>
+                        <span className="passe-renommage__aide">{f.groupeManuel ? "Regroupement manuel" : f.categorie}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {propositionsFusion.length > MAX_PROPOSITIONS_FUSION && (
+                  <p className="passe-renommage__aide">
+                    {propositionsFusion.length - MAX_PROPOSITIONS_FUSION} autres flux : précisez la recherche.
+                  </p>
+                )}
+                {cibleFusion && (
+                  <form
+                    className="passe-fusion__apercu"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      confirmerFusion(ligneFusion);
+                    }}
+                  >
+                    <p className="passe-renommage__aide">Flux regroupés :</p>
+                    <ul className="passe-fusion__liste">
+                      {apercuFusion.map((nom) => (
+                        <li key={nom}>{nom}</li>
+                      ))}
+                    </ul>
+                    <label className="passe-fusion__nom">
+                      <span className="passe-renommage__aide">Nom du groupe</span>
+                      <input
+                        type="text"
+                        value={fusion.nom}
+                        maxLength={LONGUEUR_MAX_ALIAS}
+                        onChange={(e) => setFusion({ ...fusion, nom: e.target.value })}
+                      />
+                    </label>
+                    <p className="passe-renommage__aide">
+                      Leurs futures transactions rejoindront automatiquement ce groupe. Aucune transaction n&apos;est modifiée.
+                    </p>
+                    <div className="passe-tri">
+                      <button type="submit" className="btn-secondaire btn-module--actif" disabled={normaliserNomAlias(fusion.nom) === null}>
+                        Fusionner
+                      </button>
+                      <button type="button" className="btn-secondaire" onClick={() => setFusion(null)}>
+                        Annuler
+                      </button>
+                    </div>
+                  </form>
+                )}
+                {!cibleFusion && (
+                  <div className="passe-tri">
+                    <button type="button" className="btn-secondaire" onClick={() => setFusion(null)}>
+                      Fermer
+                    </button>
+                  </div>
+                )}
+              </section>
+            )}
             {groupesAffiches.length === 0 ? (
               <p className="passe-structure__vide">
                 {groupes.length === 0 ? "Aucune transaction dans ce périmètre sur les deux périodes." : "Aucun changement : tout est stable."}
@@ -547,7 +778,9 @@ export default function PasseEcarts({
                                 </button>
                               )}
                               <span className="passe-renommage__aide">
-                                Ce nom sera réutilisé automatiquement pour les futurs flux reconnus comme « {g.libelleDetecte} ».
+                                {g.groupeManuel
+                                  ? "Nom du regroupement : il s'applique à tous les flux qu'il réunit."
+                                  : `Ce nom sera réutilisé automatiquement pour les futurs flux reconnus comme « ${g.libelleDetecte} ».`}
                               </span>
                             </form>
                           ) : (
@@ -556,26 +789,48 @@ export default function PasseEcarts({
                               <button
                                 type="button"
                                 className="passe-lien-ligne"
-                                title={`Regroupement : ${METHODES[g.matchMethod]} (confiance ${Math.round(g.confidenceScore * 100)} %)`}
+                                title={
+                                  g.groupeManuel
+                                    ? "Regroupement manuel"
+                                    : `Regroupement : ${METHODES[g.matchMethod]} (confiance ${Math.round(g.confidenceScore * 100)} %)`
+                                }
                                 onClick={() => ouvrirGroupe(g.cle)}
                               >
                                 {g.libelle || "—"}
                               </button>
-                              {/* Un flux sans identité ne peut pas être reconnu plus tard : pas de renommage. */}
+                              {/* Un flux sans identité ne peut pas être reconnu plus tard : ni renommage ni fusion. */}
                               {g.clesAlias.length > 0 && (
+                                <span className="passe-flux-actions">
                                 <button
                                   type="button"
                                   className="passe-renommer"
                                   aria-label={`Renommer le flux ${g.libelle}`}
                                   title="Renommer ce flux"
-                                  onClick={() => setRenommage({ cle: g.cle, saisie: g.alias ?? g.libelleDetecte })}
+                                  onClick={() => {
+                                    setFusion(null);
+                                    setRenommage({ cle: g.cle, saisie: g.groupeManuel?.nom ?? g.alias ?? g.libelleDetecte });
+                                  }}
                                 >
                                   <span aria-hidden="true">✎</span>
                                 </button>
+                                <button
+                                  type="button"
+                                  className="passe-renommer"
+                                  aria-label={g.groupeManuel ? `Gérer le regroupement ${g.libelle}` : `Fusionner le flux ${g.libelle} avec un autre`}
+                                  aria-expanded={fusion?.cle === g.cle}
+                                  title={g.groupeManuel ? "Gérer ce regroupement" : "Fusionner avec un autre flux"}
+                                  onClick={() => (fusion?.cle === g.cle ? setFusion(null) : ouvrirFusion(g))}
+                                >
+                                  <svg aria-hidden="true" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M3 2v3.5C3 8 5 9 8 9s5 1 5 3.5V14M13 2v3.5C13 8 11 9 8 9" />
+                                  </svg>
+                                </button>
+                                </span>
                               )}
                             </>
                           )}
                           {g.alias && renommage?.cle !== g.cle && <span className="passe-detail__source">Flux détecté : {g.libelleDetecte}</span>}
+                          {g.groupeManuel && renommage?.cle !== g.cle && <span className="passe-detail__source">Regroupement manuel</span>}
                           {g.nombreA + g.nombreB > 1 && (
                             <span className="passe-statut">{g.nombreA + g.nombreB} transactions</span>
                           )}

@@ -3,7 +3,7 @@ import { ETAGES_PNL, EtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import { PartMappee, partsMappees } from "./pastDetail";
 import { calculerCashFlow } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
-import { aliasFlowKey, FlowIdentity, groupComparableTransactions, MatchMethod, resoudreAlias } from "./flowMatching";
+import { aliasFlowKey, buildCanonicalFlowIdentity, FlowIdentity, groupComparableTransactions, MatchMethod, resoudreAlias } from "./flowMatching";
 
 /**
  * Comparaison de deux périodes du module "Passé" : pourquoi le Cash flow s'améliore ou se dégrade.
@@ -166,6 +166,8 @@ export interface GroupeLibelle {
   // libellé bancaire d'exemple : ce sont les clés sous lesquelles un alias s'enregistre. Vide pour
   // un flux sans identité, qui ne peut donc pas être renommé.
   clesAlias: { cle: string; exemple: string }[];
+  // Groupe manuel de l'organisation auquel cette ligne correspond (lib/flowGroups.ts), sinon null.
+  groupeManuel: { id: string; nom: string } | null;
   nombreLibelles: number;
   sourceCategoryId: string;
   categorie: string;
@@ -196,8 +198,22 @@ function identitesDesFlux(parts: PartMappee[]): Map<string, Map<string, FlowIden
   return new Map([...libellesParCategorie].map(([categorie, libelles]) => [categorie, groupComparableTransactions(libelles)]));
 }
 
-// Un flux sans identité (libellé vide après normalisation) reste seul.
-function cleGroupe(part: PartMappee, identites: Map<string, Map<string, FlowIdentity>>): string {
+/** Regroupements manuels de l'organisation : identité propre d'un flux -> groupe (lib/flowGroups.ts). */
+export type GroupesManuels = ReadonlyMap<string, { id: string; nom: string }>;
+
+const AUCUN_GROUPE_MANUEL: GroupesManuels = new Map();
+const PREFIXE_MANUEL = "manuel:";
+
+// Le regroupement manuel a priorité sur le rapprochement automatique, et réunit ses flux quelle
+// que soit leur catégorie : c'est une décision explicite de l'utilisateur. Sinon, identité du
+// moteur à l'intérieur de la catégorie ; un flux sans identité (libellé vide après normalisation)
+// reste seul.
+function cleGroupe(part: PartMappee, identites: Map<string, Map<string, FlowIdentity>>, manuels: GroupesManuels): string {
+  if (manuels.size > 0) {
+    const propre = aliasFlowKey(part.label);
+    const manuel = propre === null ? undefined : manuels.get(propre);
+    if (manuel) return `${PREFIXE_MANUEL}${manuel.id}`;
+  }
   const identite = identites.get(part.sourceCategoryId)?.get(part.label)?.canonicalFlowIdentity ?? null;
   return `${part.sourceCategoryId}|${identite ?? `seule:${part.transactionId}`}`;
 }
@@ -223,14 +239,17 @@ export function groupesDeLibelles(
   categorie: string | null = null,
   // Alias de l'organisation (identité propre -> nom). Ils ne changent QUE le nom affiché : ni les
   // groupes, ni leurs montants, ni leur ordre.
-  alias: ReadonlyMap<string, string> = new Map()
+  alias: ReadonlyMap<string, string> = new Map(),
+  // Regroupements manuels : ils réunissent des lignes que le moteur laisse séparées, sans toucher
+  // aux autres ni au moteur.
+  manuels: GroupesManuels = AUCUN_GROUPE_MANUEL
 ): GroupeLibelle[] {
   // Les identités se calculent sur tout l'étage, AVANT le filtre catégorie : la clé d'un flux ne
   // dépend ainsi pas du filtre affiché (elle reste valable d'un clic à l'autre).
   const identites = identitesDesFlux(partsComparees(a, b, etage, null));
   const groupes = new Map<string, { parts: PartComparee[] }>();
   for (const part of partsComparees(a, b, etage, categorie)) {
-    const cle = cleGroupe(part, identites);
+    const cle = cleGroupe(part, identites, manuels);
     if (!groupes.has(cle)) groupes.set(cle, { parts: [] });
     groupes.get(cle)!.parts.push(part);
   }
@@ -251,18 +270,23 @@ export function groupesDeLibelles(
       const propre = aliasFlowKey(libelle);
       if (propre !== null && !exemples.has(propre)) exemples.set(propre, libelle);
     }
-    const nomAlias = resoudreAlias([...exemples.keys()], identite.canonicalFlowIdentity, alias);
+    // Dans un groupe manuel, c'est le nom du groupe qui s'affiche ; les alias individuels de ses
+    // flux sont conservés mais ne jouent plus tant qu'ils en font partie.
+    const groupeManuel = cle.startsWith(PREFIXE_MANUEL) ? (manuels.get([...exemples.keys()][0]) ?? null) : null;
+    const nomAlias = groupeManuel ? null : resoudreAlias([...exemples.keys()], identite.canonicalFlowIdentity, alias);
+    const categoriesDuGroupe = new Set(parts.map((p) => p.sourceCategoryId));
     return {
       cle,
       // Le départage à contribution égale se fait sur le titre détecté : renommer ne déplace rien.
       nom: titre,
-      libelle: nomAlias ?? titre,
+      libelle: groupeManuel?.nom ?? nomAlias ?? titre,
       libelleDetecte: titre,
       alias: nomAlias,
       clesAlias: [...exemples].map(([cleAlias, exemple]) => ({ cle: cleAlias, exemple })),
+      groupeManuel,
       nombreLibelles: new Set(parts.map((p) => p.label)).size,
       sourceCategoryId: representative.sourceCategoryId,
-      categorie: representative.sourceCategoryName,
+      categorie: categoriesDuGroupe.size > 1 ? "Plusieurs catégories" : representative.sourceCategoryName,
       montantA,
       montantB,
       contribution,
@@ -270,7 +294,7 @@ export function groupesDeLibelles(
       nombreB: cote("B").length,
       statut: (Math.abs(contribution) <= TOLERANCE_STABLE ? "stable" : "change") as StatutEcart,
       matchMethod: pire.matchMethod,
-      confidenceScore: pire.confidenceScore,
+      confidenceScore: groupeManuel ? 1 : pire.confidenceScore,
     };
   });
   return parContributionDecroissante(resultat).map(({ nom: _nom, ...groupe }) => groupe);
@@ -280,8 +304,50 @@ export function groupesDeLibelles(
  * Transactions d'origine d'un groupe, des deux périodes, chacune marquée A ou B — toujours à leur
  * montant réel, même quand la comparaison est normalisée.
  */
-export function transactionsDuGroupe(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, cle: string): PartComparee[] {
+export function transactionsDuGroupe(
+  a: DonneesPeriode,
+  b: DonneesPeriode,
+  etage: EtagePnl,
+  cle: string,
+  manuels: GroupesManuels = AUCUN_GROUPE_MANUEL
+): PartComparee[] {
   const parts = partsComparees(a, b, etage, null);
   const identites = identitesDesFlux(parts);
-  return parts.filter((part) => cleGroupe(part, identites) === cle);
+  return parts.filter((part) => cleGroupe(part, identites, manuels) === cle);
+}
+
+/** Flux qu'on peut proposer à la fusion : ceux des deux périodes comparées, tous étages confondus. */
+export interface FluxConnu {
+  cle: string; // identifiant stable de la proposition (groupe manuel, ou identités propres réunies)
+  libelle: string;
+  categorie: string;
+  membres: { cle: string; nomDetecte: string; exemple: string }[];
+  groupeManuel: { id: string; nom: string } | null;
+}
+
+/**
+ * Tous les flux identifiables des deux périodes, une entrée par flux : un même flux présent dans
+ * plusieurs étages ou catégories n'est proposé qu'une fois, un groupe manuel aussi. Triés par nom.
+ */
+export function fluxConnus(
+  a: DonneesPeriode,
+  b: DonneesPeriode,
+  alias: ReadonlyMap<string, string> = new Map(),
+  manuels: GroupesManuels = AUCUN_GROUPE_MANUEL
+): FluxConnu[] {
+  const connus = new Map<string, FluxConnu>();
+  for (const { etage } of ETAGES_ECARTS) {
+    for (const groupe of groupesDeLibelles(a, b, etage, null, alias, manuels)) {
+      if (groupe.clesAlias.length === 0) continue;
+      const cle = groupe.groupeManuel ? `${PREFIXE_MANUEL}${groupe.groupeManuel.id}` : groupe.clesAlias.map((c) => c.cle).sort().join("|");
+      const membres = groupe.clesAlias.map((c) => ({ cle: c.cle, nomDetecte: buildCanonicalFlowIdentity(c.exemple).title, exemple: c.exemple }));
+      const existant = connus.get(cle);
+      if (!existant) {
+        connus.set(cle, { cle, libelle: groupe.libelle, categorie: groupe.categorie, membres, groupeManuel: groupe.groupeManuel });
+      } else {
+        for (const membre of membres) if (!existant.membres.some((m) => m.cle === membre.cle)) existant.membres.push(membre);
+      }
+    }
+  }
+  return [...connus.values()].sort((x, y) => x.libelle.localeCompare(y.libelle, "fr") || x.cle.localeCompare(y.cle));
 }

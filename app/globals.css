@@ -2780,6 +2780,60 @@ input[type="checkbox"] {
   color: var(--couleur-texte-secondaire);
 }
 
+/* Fusion manuelle de flux : panneau léger au-dessus de la liste, dans le style du renommage. */
+/* Les deux pictos (renommer, fusionner) restent côte à côte, même sous un nom long. */
+.passe-flux-actions {
+  white-space: nowrap;
+}
+
+.passe-renommer svg {
+  vertical-align: -1px;
+}
+
+.passe-fusion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-md);
+  background: var(--couleur-fond);
+  font-size: 13px;
+}
+
+.passe-fusion__titre {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.passe-fusion__liste {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.passe-fusion__liste li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.passe-fusion__liste .passe-renommage__aide {
+  flex-basis: auto;
+}
+
+.passe-fusion__apercu,
+.passe-fusion__nom {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 .passe-lien-ligne:hover {
   text-decoration-color: var(--couleur-texte);
 }

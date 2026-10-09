@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AjustementGestion, StockFinDeMois } from "./pastAdjustments";
 import { ConfigExercice, configExerciceValide, normaliserConfigExercice } from "./fiscalPeriods";
 import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./pastCategoryMapping";
+import { GroupeManuel } from "./flowGroups";
 import { FLOW_ENGINE_VERSION, FlowAlias } from "./flowMatching";
 import { ValidationSigne } from "./pastSignChecks";
 import {
@@ -324,6 +325,74 @@ export async function supprimerAliasFlux(supabase: SupabaseClient, organizationI
   );
   const erreur = resultats.find((r) => r.error)?.error;
   if (erreur) throw erreur;
+}
+
+/** Regroupements manuels de flux de l'organisation, avec leurs membres (voir lib/flowGroups.ts). */
+export async function chargerGroupesFlux(supabase: SupabaseClient, organizationId: string): Promise<GroupeManuel[]> {
+  const { data, error } = await supabase
+    .from("past_flow_groups")
+    .select("id, display_name, past_flow_group_members(canonical_flow_key, detected_name, sample_label)")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  return ((data ?? []) as Row[]).map((row) => ({
+    id: row.id as string,
+    nom: row.display_name as string,
+    membres: ((row.past_flow_group_members as Row[] | null) ?? []).map((membre) => ({
+      cle: membre.canonical_flow_key as string,
+      nomDetecte: (membre.detected_name as string | null) ?? "",
+      exemple: (membre.sample_label as string | null) ?? "",
+    })),
+  }));
+}
+
+/**
+ * Enregistre un groupe manuel et ses membres : crée ou renomme le groupe, puis y rattache chaque
+ * flux. Un flux déjà membre d'un autre groupe en change (une seule appartenance par organisation).
+ */
+export async function enregistrerGroupeFlux(supabase: SupabaseClient, organizationId: string, groupe: GroupeManuel): Promise<void> {
+  const { error } = await supabase
+    .from("past_flow_groups")
+    .upsert({ id: groupe.id, organization_id: organizationId, display_name: groupe.nom }, { onConflict: "id" });
+  if (error) throw error;
+  const { error: erreurMembres } = await supabase.from("past_flow_group_members").upsert(
+    groupe.membres.map((membre) => ({
+      organization_id: organizationId,
+      flow_group_id: groupe.id,
+      canonical_flow_key: membre.cle,
+      detected_name: membre.nomDetecte,
+      sample_label: membre.exemple,
+      engine_version: FLOW_ENGINE_VERSION,
+    })),
+    { onConflict: "organization_id,canonical_flow_key" }
+  );
+  if (erreurMembres) throw erreurMembres;
+}
+
+export async function renommerGroupeFlux(supabase: SupabaseClient, organizationId: string, groupeId: string, nom: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("past_flow_groups")
+    .update({ display_name: nom })
+    .eq("organization_id", organizationId)
+    .eq("id", groupeId)
+    .select("id");
+  if (error) throw error;
+  if ((data ?? []).length === 0) throw new Error("Aucun groupe modifié.");
+}
+
+/** Retire un flux de son groupe manuel. */
+export async function retirerFluxDuGroupe(supabase: SupabaseClient, organizationId: string, cle: string): Promise<void> {
+  const { error } = await supabase
+    .from("past_flow_group_members")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("canonical_flow_key", cle);
+  if (error) throw error;
+}
+
+/** Supprime un groupe manuel ; ses membres partent avec lui et redeviennent des flux individuels. */
+export async function supprimerGroupeFlux(supabase: SupabaseClient, organizationId: string, groupeId: string): Promise<void> {
+  const { error } = await supabase.from("past_flow_groups").delete().eq("organization_id", organizationId).eq("id", groupeId);
+  if (error) throw error;
 }
 
 /** Ajustements de gestion saisis tels quels (hors variation de stock, calculée à partir des stocks). */
