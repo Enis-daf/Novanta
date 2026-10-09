@@ -79,6 +79,11 @@ const MOTS_FAIBLES = new Set([
 
 const MOTS_DE_LIAISON = new Set(["de", "du", "des", "le", "la", "les", "et", "di", "of", "the", "fr", "com"]);
 
+// Prélèvement : un marqueur de paiement peut précéder la contrepartie (« Prelevement Facture
+// <contrepartie> Facture N <référence> »). Placé là, il fait partie de l'habillage ; placé après la
+// contrepartie, il ouvre la zone propre à l'opération (voir MARQUEURS).
+const MARQUEURS_AVANT_CONTREPARTIE = new Set(["facture", "factures", "fact", "fac"]);
+
 // Bénéficiaire désigné comme une PERSONNE (« M ou Mme Durand ») : la civilité ouvre la contrepartie
 // et fait partie de son identité.
 const CIVILITES = new Set(["m", "mr", "mme", "mlle", "mrs", "monsieur", "madame", "mademoiselle"]);
@@ -123,6 +128,8 @@ export function extractStableTokens(label: string): StableTokens {
   const jetons = normalizeLabel(label.split(/\r?\n/)[0]).split(" ").filter(Boolean);
   let debut = 0;
   while (debut < jetons.length && (PREFIXES_BANCAIRES.has(jetons[debut]) || /^x\d{3,4}$/.test(jetons[debut]))) debut++;
+  const prelevement = jetons.slice(0, debut).some((jeton) => jeton === "prelevement" || jeton === "prlv" || jeton === "prelevt");
+  if (prelevement) while (debut < jetons.length && MARQUEURS_AVANT_CONTREPARTIE.has(jetons[debut])) debut++;
   while (debut < jetons.length && FORMES_JURIDIQUES.has(jetons[debut])) debut++;
 
   // Virement émis : « virement / vir » et « emis » dans l'habillage bancaire retiré.
@@ -328,7 +335,7 @@ export function groupComparableTransactions(labels: Iterable<string>): Map<strin
  * change une identité existante (voir le test « contrat des identités ») : les alias enregistrés
  * sous l'ancienne version doivent alors être recalculés à partir de leur libellé d'exemple.
  */
-export const FLOW_ENGINE_VERSION = "2";
+export const FLOW_ENGINE_VERSION = "3";
 
 export const LONGUEUR_MAX_ALIAS = 80;
 

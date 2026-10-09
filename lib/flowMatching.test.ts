@@ -232,7 +232,7 @@ describe("rapprochement prudent entre contreparties voisines", () => {
 // retrouvés. Il faut alors incrémenter FLOW_ENGINE_VERSION et recalculer les alias enregistrés à
 // partir de leur libellé d'exemple (colonne sample_label), pas seulement corriger ce test.
 describe("contrat des identités (clés des alias de flux)", () => {
-  test("version du moteur", () => assert.equal(FLOW_ENGINE_VERSION, "2"));
+  test("version du moteur", () => assert.equal(FLOW_ENGINE_VERSION, "3"));
 
   const attendues: [string, string | null][] = [
     ["PRELEVEMENT CREANCE 021618 RECLAMEE", "tiers:creance"],
@@ -246,6 +246,8 @@ describe("contrat des identités (clés des alias de flux)", () => {
     ["Virement Emis Vir Inst Vers M Ou Mme Durand Do Salaire", "tiers:m ou mme durand"],
     ["Virement Emis Web M Ou Mme Durand Domi Salaire Salaire", "tiers:m ou mme durand"],
     ["VIR SEPA CABINET MARTEL SALAIRE MARS", "tiers:cabinet martel"],
+    // Version 3 : marqueur de paiement avant la contrepartie d'un prélèvement.
+    ["PRELEVEMENT FACTURE LABORATOIRE ALTEA FACTURE N 123456", "tiers:laboratoire altea"],
   ];
   for (const [libelle, cle] of attendues) {
     test(`« ${libelle} » -> ${cle}`, () => assert.equal(aliasFlowKey(libelle), cle));
@@ -355,11 +357,57 @@ describe("virements émis — le bénéficiaire prime sur le canal et le motif",
   });
 });
 
+// Structure : « Prelevement [marqueur] <contrepartie> Facture N <référence> ». Noms fictifs.
+describe("prélèvements — la contrepartie prime sur le numéro de facture ou la référence", () => {
+  const cle = (libelle: string) => buildCanonicalFlowIdentity(libelle).canonicalFlowIdentity;
+
+  test("même contrepartie, numéro de facture différent : même flux", () => {
+    const a = buildCanonicalFlowIdentity("PRELEVEMENT FACTURE LABORATOIRE ALTEA FACTURE N 123456");
+    assert.equal(a.canonicalFlowIdentity, "tiers:laboratoire altea");
+    assert.equal(a.title, "Laboratoire Altea");
+    assert.equal(cle("PRELEVEMENT FACTURE LABORATOIRE ALTEA FACTURE N 789012"), a.canonicalFlowIdentity);
+    const groupes = groupComparableTransactions(["PRELEVEMENT FACTURE LABORATOIRE ALTEA FACTURE N 123456", "PRELEVEMENT FACTURE LABORATOIRE ALTEA FACTURE N 789012"]);
+    assert.equal(new Set([...groupes.values()].map((i) => i.canonicalFlowIdentity)).size, 1);
+  });
+
+  test("même contrepartie, référence différente, quel que soit le marqueur", () => {
+    for (const libelle of [
+      "PRELEVEMENT FACTURE LABORATOIRE ALTEA FACTURE FA-2026-0091",
+      "PRELEVEMENT FACT LABORATOIRE ALTEA FACT 55120",
+      "PRLV FACTURE LABORATOIRE ALTEA REF AB12CD34",
+      "PRELEVEMENT LABORATOIRE ALTEA REFERENCE 2026/10/441",
+      "PRELEVEMENT FACTURE LABORATOIRE ALTEA NUMERO 9001",
+      "PRELEVEMENT FACTURE SAS LABORATOIRE ALTEA N 77",
+    ]) {
+      assert.equal(cle(libelle), "tiers:laboratoire altea", libelle);
+    }
+  });
+
+  test("contrepartie différente, même format : flux différents", () => {
+    assert.notEqual(cle("PRELEVEMENT FACTURE LABORATOIRE ALTEA FACTURE N 123456"), cle("PRELEVEMENT FACTURE LABORATOIRE BOREAL FACTURE N 123456"));
+  });
+
+  test("le marqueur en tête n'est retiré que pour un prélèvement, et seulement avant la contrepartie", () => {
+    // Hors prélèvement : « Facture … » en tête reste un marqueur, comme avant.
+    assert.equal(buildCanonicalFlowIdentity("VIREMENT RECU FACTURE LABORATOIRE ALTEA FACTURE N 123456").matchMethod, "exact_normalized");
+    // Sans contrepartie derrière le marqueur : aucune identité de tiers n'est inventée.
+    assert.equal(buildCanonicalFlowIdentity("PRELEVEMENT FACTURE N 123456").matchMethod, "exact_normalized");
+  });
+
+  test("un nombre hors zone transactionnelle n'est pas effacé : sans contrepartie stable, il reste dans l'identité", () => {
+    assert.equal(cle("PRELEVEMENT LOT 4410"), "texte:prelevement lot 4410");
+    assert.notEqual(cle("PRELEVEMENT LOT 4410"), cle("PRELEVEMENT LOT 4411"));
+  });
+});
+
 describe("clesARecalculer — alias et groupes enregistrés sous une version antérieure du moteur", () => {
   const WEB = "Virement Emis Web M Ou Mme Durand Domi Salaire Salaire";
 
   test("identité changée par la nouvelle version : la clé est à déplacer", () => {
     const { deplacees, confirmees } = clesARecalculer([{ cle: "texte:virement emis web m ou mme durand domi salaire salaire", exemple: WEB, version: "1" }]);
+    assert.deepEqual(clesARecalculer([{ cle: "texte:prelevement facture laboratoire altea facture n", exemple: "PRELEVEMENT FACTURE LABORATOIRE ALTEA FACTURE N 123456", version: "2" }]).deplacees, [
+      { ancienne: "texte:prelevement facture laboratoire altea facture n", nouvelle: "tiers:laboratoire altea" },
+    ]);
     assert.deepEqual(deplacees, [{ ancienne: "texte:virement emis web m ou mme durand domi salaire salaire", nouvelle: "tiers:m ou mme durand" }]);
     assert.deepEqual(confirmees, []);
   });
