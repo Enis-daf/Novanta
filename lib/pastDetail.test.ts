@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { indexerMappings, MappingCategorie } from "./pastCategoryMapping";
 import {
   calculerDetail,
+  evolutionDesCoutsAssocies,
   FiltresDetail,
   libelleMois,
   libelleMoisCourt,
@@ -355,5 +356,48 @@ describe("tri des listes de transactions", () => {
     assert.deepEqual(ids(trierTransactions(liste, "montant")), ["sans-date", "ok", "nan"]);
     assert.deepEqual(ids(trierTransactions(liste, "date")), ["ok", "nan", "sans-date"]);
     assert.ok(Number.isNaN(liste[0].montant));
+  });
+});
+
+describe("histogramme « Coûts associés » des écrans de marge", () => {
+  const couts = (metrique: Parameters<typeof calculerDetail>[1], filtres = SANS_FILTRE) => evolutionDesCoutsAssocies(parts, metrique, filtres, PERIODE);
+
+  test("chaque marge montre les coûts de son étage, mois par mois, en valeur absolue", () => {
+    assert.deepEqual(couts("marge_brute")!.map((p) => [p.mois, p.montant, p.valeur]), [["2026-07", 0, 0], ["2026-08", 0, 0], ["2026-09", -6_000, 6_000]]);
+    assert.deepEqual(couts("marge_contributive")!.map((p) => [p.mois, p.montant, p.valeur]), [["2026-07", 0, 0], ["2026-08", -1_000, 1_000], ["2026-09", -5_800, 5_800]]);
+    assert.deepEqual(couts("ebitda")!.map((p) => [p.mois, p.montant, p.valeur]), [["2026-07", 0, 0], ["2026-08", 0, 0], ["2026-09", -3_000, 3_000]]);
+  });
+
+  test("CA et Cash flow n'ont pas cette lecture", () => {
+    assert.equal(couts("ca"), null);
+    assert.equal(couts("cash_flow"), null);
+  });
+
+  test("un total mensuel positif (avoirs supérieurs aux achats) reste un barreau positif, montant réel conservé", () => {
+    const avecAvoir = partsMappees([...transactions, tx("avoir-juil", "2026-07-08", 400, [["matieres", 1]])], AXE, mappings);
+    const [juillet] = evolutionDesCoutsAssocies(avecAvoir, "marge_brute", SANS_FILTRE, PERIODE)!;
+    assert.deepEqual([juillet.montant, juillet.valeur], [400, 400]);
+  });
+
+  test("catégorie sélectionnée : l'évolution de cette catégorie, comme en mode Marge", () => {
+    const pub = couts("marge_contributive", { categorie: "pub", mois: null })!;
+    assert.deepEqual(pub.map((p) => p.valeur), [0, 1_000, 4_700]);
+    assert.deepEqual(pub, detail("marge_contributive", { categorie: "pub", mois: null }).evolution);
+  });
+
+  test("le filtre mois ne retire aucun barreau : il reste entier pour situer le mois choisi", () => {
+    assert.deepEqual(couts("marge_contributive", { categorie: null, mois: "2026-09" }), couts("marge_contributive"));
+  });
+
+  test("les ajustements de gestion ne sont pas des coûts de l'étage : dans la marge, pas dans les coûts associés", () => {
+    const stock = [{ id: "s1", date: "2026-09-30", label: "Variation de stock", montant: 2_000, etage: "gross_margin" as const, type: "inventory_variation", notes: null }];
+    const marge = calculerDetail(parts, "marge_brute", SANS_FILTRE, PERIODE, stock);
+    assert.equal(marge.evolution.find((p) => p.mois === "2026-09")!.montant, 20_000 - 6_000 + 2_000);
+    assert.equal(couts("marge_brute")!.find((p) => p.mois === "2026-09")!.montant, -6_000);
+    assert.equal(marge.ajustements.lignes.length, 1);
+  });
+
+  test("le mode Marge est inchangé : l'indicateur signé, ajustements compris", () => {
+    assert.deepEqual(detail("marge_contributive").evolution.map((p) => [p.montant, p.valeur]), [[10_000, 10_000], [11_000, 11_000], [8_200, 8_200]]);
   });
 });

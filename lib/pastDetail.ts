@@ -74,6 +74,9 @@ interface ConfigMetrique {
   repartition: { type: "camembert"; sens: SensStructure; maxCategories: number } | { type: "barres" };
   // Rapport au CA affiché sous l'indicateur (jamais pour le CA lui-même ni pour le Cash flow).
   ratioSurCa: boolean;
+  // L'histogramme mensuel peut montrer, au choix, l'indicateur ou les coûts de l'étage exploré
+  // (voir evolutionDesCoutsAssocies). Vrai pour les trois marges, qui se lisent « revenus − coûts ».
+  coutsAssocies: boolean;
 }
 
 /**
@@ -93,6 +96,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     libelleDetail: "CA",
     repartition: { type: "camembert", sens: "revenus", maxCategories: 5 },
     ratioSurCa: false,
+    coutsAssocies: false,
   },
   marge_brute: {
     libelle: "Marge brute",
@@ -101,6 +105,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     libelleDetail: "Coûts directs",
     repartition: { type: "camembert", sens: "couts", maxCategories: 5 },
     ratioSurCa: true,
+    coutsAssocies: true,
   },
   marge_contributive: {
     libelle: "Marge contributive",
@@ -109,6 +114,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     libelleDetail: libelleEtagePnl("contribution_margin"),
     repartition: { type: "camembert", sens: "couts", maxCategories: 5 },
     ratioSurCa: true,
+    coutsAssocies: true,
   },
   // Les coûts de structure sont naturellement plus éclatés : 7 catégories, puis "Autres".
   ebitda: {
@@ -118,6 +124,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     libelleDetail: "Coûts de structure",
     repartition: { type: "camembert", sens: "couts", maxCategories: 7 },
     ratioSurCa: true,
+    coutsAssocies: true,
   },
   cash_flow: {
     libelle: "Cash flow",
@@ -126,6 +133,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     libelleDetail: "Extra P&L",
     repartition: { type: "barres" },
     ratioSurCa: false,
+    coutsAssocies: false,
   },
 };
 
@@ -305,6 +313,40 @@ export function calculerDetail(
             .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         : [],
   };
+}
+
+/**
+ * Histogramme « Coûts associés » d'un écran de marge : l'évolution mensuelle des coûts de l'étage
+ * exploré (Coûts directs pour la Marge brute, etc.), au lieu de celle de l'indicateur. null pour
+ * un écran qui n'a pas cette lecture (CA, Cash flow).
+ *
+ * Simple mode de lecture de l'histogramme : le KPI, la répartition et la liste de transactions ne
+ * changent pas, et les filtres sont les mêmes — tous les mois de la période, filtrés par catégorie
+ * seulement.
+ *  - Les barreaux montrent la VALEUR ABSOLUE du total mensuel : un barreau plus haut, c'est plus de
+ *    coûts. `montant` garde le total réel signé.
+ *  - Seules les transactions de l'étage comptent. Les ajustements de gestion (une variation de
+ *    stock, par exemple) ne sont pas des coûts de l'étage : ils restent dans l'indicateur et dans
+ *    leur bloc, pas ici.
+ */
+export function evolutionDesCoutsAssocies(
+  parts: PartMappee[],
+  metrique: MetriqueDetail,
+  filtres: FiltresDetail,
+  periode: Periode
+): PointEvolution[] | null {
+  const config = METRIQUES_DETAIL[metrique];
+  if (!config.coutsAssocies) return null;
+  const parMois = new Map<string, number>();
+  for (const part of parts) {
+    if (!config.etagesDetail.includes(part.etage)) continue;
+    if (filtres.categorie !== null && part.sourceCategoryId !== filtres.categorie) continue;
+    parMois.set(part.mois, (parMois.get(part.mois) ?? 0) + part.montant);
+  }
+  return moisDeLaPeriode(periode).map((mois) => {
+    const montant = parMois.get(mois) ?? 0;
+    return { mois, montant, valeur: Math.abs(montant) };
+  });
 }
 
 export type TriTransactions = "montant" | "date";

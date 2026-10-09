@@ -10,6 +10,7 @@ import { formatMontant, formatKiloEuros, formatPourcentage } from "@/lib/format"
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import {
   calculerDetail,
+  evolutionDesCoutsAssocies,
   FiltresDetail,
   libelleMois,
   METRIQUES_DETAIL,
@@ -45,6 +46,11 @@ const TRIS: { cle: TriTransactions; libelle: string }[] = [
   { cle: "date", libelle: "Date" },
 ];
 
+const SERIES: { cle: "marge" | "couts"; libelle: string }[] = [
+  { cle: "marge", libelle: "Marge" },
+  { cle: "couts", libelle: "Coûts associés" },
+];
+
 // Écran de détail générique, commun à CA, Marge brute, Marge contributive, EBITDA et Cash flow :
 // KPI -> répartition par catégorie -> évolution mensuelle -> transactions. Seule la forme de la
 // répartition varie : un camembert, ou un histogramme par catégorie pour le Cash flow, dont
@@ -59,6 +65,9 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
   // État local de l'écran, jamais enregistré : conservé quand un filtre change, remis à
   // « Montant » quand on change d'onglet (l'écran est remonté).
   const [tri, setTri] = useState<TriTransactions>(TRI_TRANSACTIONS_PAR_DEFAUT);
+  // Ce que montre l'histogramme mensuel des écrans de marge : l'indicateur, ou les coûts de l'étage.
+  // Simple mode de lecture, propre à l'écran : il revient à « Marge » quand on change d'onglet.
+  const [serie, setSerie] = useState<"marge" | "couts">("marge");
 
   useEffect(() => {
     onFiltresChange?.(filtres);
@@ -86,9 +95,16 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
   // Tri sur TOUTES les transactions qui correspondent aux filtres, puis découpage en lots.
   const transactionsTriees = useMemo(() => trierTransactions(vue.transactions, tri), [vue.transactions, tri]);
   const transactionsAffichees = transactionsTriees.slice(0, nombreAffiche);
+  const evolutionCouts = useMemo(
+    () => evolutionDesCoutsAssocies(parts, metrique, filtres, periode),
+    [parts, metrique, filtres, periode]
+  );
+  const voirLesCouts = serie === "couts" && evolutionCouts !== null;
   const titreEvolution = vue.kpi.categorie
     ? `${vue.kpi.categorie} par mois (en valeur absolue)`
-    : `${config.libelle} par mois`;
+    : voirLesCouts
+      ? `${config.libelleDetail} par mois`
+      : `${config.libelle} par mois`;
 
   return (
     <div className="passe-detail">
@@ -155,11 +171,26 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
 
         {/* Histogramme et, à côté, les ajustements de gestion compris dans ses barreaux. Le bloc suit
             les filtres (période, mois) mais n'en crée pas. */}
+        {evolutionCouts !== null && (
+          <div className="passe-tri" role="group" aria-label="Série de l'histogramme mensuel">
+            {SERIES.map((option) => (
+              <button
+                key={option.cle}
+                type="button"
+                className={`btn-secondaire${serie === option.cle ? " btn-module--actif" : ""}`}
+                aria-pressed={serie === option.cle}
+                onClick={() => setSerie(option.cle)}
+              >
+                {option.libelle}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="passe-detail__evolution">
           <PasseEvolutionChart
             titre={titreEvolution}
-            evolution={vue.evolution}
-            enValeurAbsolue={vue.evolutionAbsolue}
+            evolution={voirLesCouts ? evolutionCouts : vue.evolution}
+            enValeurAbsolue={voirLesCouts || vue.evolutionAbsolue}
             selection={filtres.mois}
             onSelect={basculerMois}
           />
