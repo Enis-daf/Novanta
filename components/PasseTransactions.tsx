@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import DateField from "./DateField";
 import PasseGeneral from "./PasseGeneral";
@@ -36,7 +36,8 @@ import {
   ajustementsDepuisStocks,
   StockFinDeMois,
 } from "@/lib/pastAdjustments";
-import { estMetriqueDetail, moisDeLaPeriode, partsMappees } from "@/lib/pastDetail";
+import { estMetriqueDetail, FiltresDetail, moisDeLaPeriode, partsMappees } from "@/lib/pastDetail";
+import { nomFichierPdf, pagesExportPdf } from "@/lib/pastPdfModel";
 import { calculerPnl } from "@/lib/pastPnl";
 import { anomaliesDeSigne, compterTransactionsAvecAnomalie, LIBELLES_ANOMALIE_SIGNE } from "@/lib/pastSignChecks";
 import {
@@ -80,6 +81,8 @@ import {
 
 interface PasseTransactionsProps {
   organizationId: string;
+  // Nom affiché en tête de l'export PDF et repris dans le nom du fichier.
+  organizationName: string;
   accessToken: string;
 }
 
@@ -110,7 +113,7 @@ function pluriel(nombre: number, singulier: string, plurielTexte: string): strin
 
 // Tableau des transactions du module Passé. Lit uniquement past_transactions (jamais Pennylane
 // directement) : la source d'une transaction n'a aucune incidence sur l'affichage.
-export default function PasseTransactions({ organizationId, accessToken }: PasseTransactionsProps) {
+export default function PasseTransactions({ organizationId, organizationName, accessToken }: PasseTransactionsProps) {
   const router = useRouter();
   // PÉRIODE DU MODULE — source unique pour tous les onglets. Elle tient en deux états :
   //  - l'exercice de l'organisation (en base ; null tant qu'il n'est pas lu) ;
@@ -181,6 +184,14 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
   const [syncEnCours, setSyncEnCours] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncErreur, setSyncErreur] = useState<string | null>(null);
+  // Export PDF. Les filtres locaux de l'écran de détail affiché sont seulement LUS ici (une
+  // référence, pas un état) : ils restent propres à cet écran et se réinitialisent avec lui.
+  const [exportEnCours, setExportEnCours] = useState(false);
+  const [exportErreur, setExportErreur] = useState<string | null>(null);
+  const filtresOngletOuvert = useRef<FiltresDetail>({ categorie: null, mois: null });
+  const retenirFiltresOnglet = useCallback((filtres: FiltresDetail) => {
+    filtresOngletOuvert.current = filtres;
+  }, []);
 
   const periodeOk = periodeValide(periode);
 
@@ -540,6 +551,50 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
     }
   };
 
+  // Export PDF : une page par onglet de résultats, sur la période active. Seul l'onglet affiché a
+  // des filtres locaux connus ; les autres pages sont exportées sans filtre.
+  const exportPossible = periodeOk && !chargement && !erreurChargement && !axeAConfigurer;
+  const exporterPdf = async () => {
+    if (exportEnCours || !exportPossible) return;
+    setExportEnCours(true);
+    setExportErreur(null);
+    try {
+      const avertissements: string[] = [];
+      if (nombreNonCategorisees > 0) {
+        avertissements.push(
+          `${pluriel(nombreNonCategorisees, "transaction non catégorisée", "transactions non catégorisées")} sur la période, hors reporting.`
+        );
+      }
+      if (pnl.nonMappees.nombreCategories > 0) {
+        avertissements.push(
+          `Reporting incomplet : ${pluriel(pnl.nonMappees.nombreCategories, "catégorie reste", "catégories restent")} à mapper (${formatMontantComptable(pnl.nonMappees.montant)} exclus des calculs).`
+        );
+      }
+      if (nombreSignesInhabituels > 0) {
+        avertissements.push(
+          `${pluriel(nombreSignesInhabituels, "transaction avec un signe inhabituel", "transactions avec un signe inhabituel")}, prises en compte telles quelles.`
+        );
+      }
+      const pages = pagesExportPdf({
+        pnl,
+        parts: partsDetail,
+        periode,
+        ajustements,
+        avertissements,
+        ongletOuvert: vue,
+        filtresOngletOuvert: estMetriqueDetail(vue) ? filtresOngletOuvert.current : { categorie: null, mois: null },
+      });
+      const { genererPdfPasse, telechargerPdf } = await import("@/lib/pastPdfDocument");
+      const blob = await genererPdfPasse({ organisation: organizationName, periode, pages, teintes: teintesCategories });
+      telechargerPdf(blob, nomFichierPdf(organizationName, periode));
+    } catch (error) {
+      console.error("Échec de l'export PDF du module Passé :", error);
+      setExportErreur("Le PDF n'a pas pu être généré. Réessayez.");
+    } finally {
+      setExportEnCours(false);
+    }
+  };
+
   return (
     <section className="passe">
       <div className="passe__decor-haut" aria-hidden="true" />
@@ -668,6 +723,9 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
         )}
 
         <div className="passe-controles__actions">
+          <button type="button" className="btn-secondaire" onClick={exporterPdf} disabled={exportEnCours || !exportPossible}>
+            {exportEnCours ? "Génération du PDF…" : "Exporter en PDF"}
+          </button>
           {pennylaneConnecte === true && (
             <button type="button" className="btn-add" onClick={synchroniser} disabled={syncEnCours || !periodeOk}>
               {syncEnCours ? "Synchronisation…" : "Synchroniser Pennylane"}
@@ -681,6 +739,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
         </div>
       </div>
 
+      {exportErreur && <p className="login-erreur">{exportErreur}</p>}
       {syncErreur && <p className="login-erreur">{syncErreur}</p>}
       {syncMessage && <p className="passe-message">{syncMessage}</p>}
       {erreurAxe && <p className="login-erreur">{erreurAxe}</p>}
@@ -824,6 +883,7 @@ export default function PasseTransactions({ organizationId, accessToken }: Passe
               periode={periode}
               ajustements={ajustements}
               teintes={teintesCategories}
+              onFiltresChange={retenirFiltresOnglet}
             />
           ) : vue === "stocks" ? (
             <PasseStocks

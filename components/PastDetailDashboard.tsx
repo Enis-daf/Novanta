@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PasseCategoriesChart from "./PasseCategoriesChart";
 import PasseEvolutionChart from "./PasseEvolutionChart";
 import PasseNotesAjustement from "./PasseNotesAjustement";
@@ -32,6 +32,9 @@ interface PastDetailDashboardProps {
   ajustements: AjustementGestion[];
   // Teinte attitrée de chaque catégorie, commune à tous les écrans du module (lib/dataviz.ts).
   teintes: ReadonlyMap<string, string>;
+  // Informe le parent des filtres locaux en cours (pour l'export PDF, qui reprend ceux de l'écran
+  // affiché). Lecture seule : les filtres restent décidés ici.
+  onFiltresChange?: (filtres: FiltresDetail) => void;
 }
 
 const PAS_AFFICHAGE = 100;
@@ -49,13 +52,17 @@ const TRIS: { cle: TriTransactions; libelle: string }[] = [
 // (catégorie, mois) vivent ICI, en un seul état que les quatre blocs consomment ; ils s'ajoutent
 // à la période globale. Le parent remonte ce composant à chaque changement d'onglet (prop `key`),
 // ce qui réinitialise les filtres locaux sans toucher à la période.
-export default function PastDetailDashboard({ metrique, parts, periode, ajustements, teintes }: PastDetailDashboardProps) {
+export default function PastDetailDashboard({ metrique, parts, periode, ajustements, teintes, onFiltresChange }: PastDetailDashboardProps) {
   const config = METRIQUES_DETAIL[metrique];
   const [filtres, setFiltres] = useState<FiltresDetail>(SANS_FILTRE);
   const [nombreAffiche, setNombreAffiche] = useState(PAS_AFFICHAGE);
   // État local de l'écran, jamais enregistré : conservé quand un filtre change, remis à
   // « Montant » quand on change d'onglet (l'écran est remonté).
   const [tri, setTri] = useState<TriTransactions>(TRI_TRANSACTIONS_PAR_DEFAUT);
+
+  useEffect(() => {
+    onFiltresChange?.(filtres);
+  }, [filtres, onFiltresChange]);
 
   const changerTri = (suivant: TriTransactions) => {
     setTri(suivant);
