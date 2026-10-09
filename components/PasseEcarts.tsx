@@ -144,7 +144,14 @@ export default function PasseEcarts({
   const [groupesManuels, setGroupesManuels] = useState<GroupeManuel[]>([]);
   const manuels = useMemo(() => indexerGroupesManuels(groupesManuels), [groupesManuels]);
   // Panneau « Fusionner » ouvert sur une ligne : recherche, flux choisi, nom du groupe.
-  const [fusion, setFusion] = useState<{ cle: string; recherche: string; cible: string | null; nom: string } | null>(null);
+  const [fusion, setFusion] = useState<{
+    cle: string;
+    recherche: string;
+    cible: string | null;
+    nom: string;
+    // Flux dont la dissociation attend une confirmation (identité propre), sinon null.
+    aDissocier: string | null;
+  } | null>(null);
   const [versionGroupes, setVersionGroupes] = useState(0);
 
   useEffect(() => {
@@ -274,7 +281,7 @@ export default function PasseEcarts({
   const fluxDeLaLigne = (g: GroupeLibelle) => connus.find((f) => f.membres.some((m) => g.clesAlias.some((c) => c.cle === m.cle))) ?? null;
   const ouvrirFusion = (g: GroupeLibelle) => {
     setRenommage(null);
-    setFusion({ cle: g.cle, recherche: "", cible: null, nom: g.groupeManuel?.nom ?? "" });
+    setFusion({ cle: g.cle, recherche: "", cible: null, nom: g.groupeManuel?.nom ?? "", aDissocier: null });
   };
   const confirmerFusion = (g: GroupeLibelle) => {
     const courant = fluxDeLaLigne(g);
@@ -294,7 +301,7 @@ export default function PasseEcarts({
   };
   const dissocier = (cle: string) => {
     const resultat = dissocierFlux(groupesManuels, cle);
-    if (resultat.groupeSupprime) setFusion(null);
+    setFusion(resultat.groupeSupprime || !fusion ? null : { ...fusion, aDissocier: null });
     modifierGroupes(
       resultat.groupes,
       () =>
@@ -631,24 +638,48 @@ export default function PasseEcarts({
             {ligneFusion && fusion && (
               <section className="passe-fusion" aria-label="Fusion de flux">
                 <h4 className="passe-fusion__titre">
-                  {groupeFusion ? `Regroupement « ${groupeFusion.nom} »` : `Fusionner « ${ligneFusion.libelle} » avec…`}
+                  {groupeFusion ? `Groupe « ${groupeFusion.nom} »` : `Fusionner « ${ligneFusion.libelle} » avec…`}
                 </h4>
                 {groupeFusion && (
-                  <ul className="passe-fusion__liste">
-                    {groupeFusion.membres.map((membre) => (
-                      <li key={membre.cle}>
-                        <span>{membre.nomDetecte || membre.exemple || membre.cle}</span>
-                        <button type="button" className="passe-lien-ligne" onClick={() => dissocier(membre.cle)}>
-                          Dissocier
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                  <>
+                    <p className="passe-renommage__aide">Membres :</p>
+                    <ul className="passe-fusion__liste">
+                      {groupeFusion.membres.map((membre) => {
+                        const nomMembre = aliasParCle.get(membre.cle) ?? (membre.nomDetecte || membre.exemple || membre.cle);
+                        return (
+                          <li key={membre.cle}>
+                            {fusion.aDissocier === membre.cle ? (
+                              // Confirmation légère, sur place : pas de fenêtre modale.
+                              <>
+                                <span>
+                                  Dissocier « {nomMembre} » du groupe « {groupeFusion.nom} » ?
+                                </span>
+                                <button type="button" className="btn-secondaire btn-module--actif" onClick={() => dissocier(membre.cle)}>
+                                  Dissocier
+                                </button>
+                                <button type="button" className="btn-secondaire" onClick={() => setFusion({ ...fusion, aDissocier: null })}>
+                                  Annuler
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <span>{nomMembre}</span>
+                                <button type="button" className="passe-lien-ligne" onClick={() => setFusion({ ...fusion, aDissocier: membre.cle })}>
+                                  Dissocier ce flux
+                                </button>
+                              </>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    <p className="passe-renommage__aide">Ajouter un flux ou un groupe :</p>
+                  </>
                 )}
                 <input
                   type="search"
                   aria-label="Rechercher un flux à fusionner"
-                  placeholder={groupeFusion ? "Ajouter un flux au regroupement…" : "Rechercher un flux…"}
+                  placeholder="Rechercher un flux ou un groupe…"
                   value={fusion.recherche}
                   autoFocus
                   onChange={(e) => setFusion({ ...fusion, recherche: e.target.value })}
@@ -804,8 +835,8 @@ export default function PasseEcarts({
                                 <button
                                   type="button"
                                   className="passe-renommer"
-                                  aria-label={`Renommer le flux ${g.libelle}`}
-                                  title="Renommer ce flux"
+                                  aria-label="Renommer"
+                                  data-infobulle="Renommer"
                                   onClick={() => {
                                     setFusion(null);
                                     setRenommage({ cle: g.cle, saisie: g.groupeManuel?.nom ?? g.alias ?? g.libelleDetecte });
@@ -816,9 +847,9 @@ export default function PasseEcarts({
                                 <button
                                   type="button"
                                   className="passe-renommer"
-                                  aria-label={g.groupeManuel ? `Gérer le regroupement ${g.libelle}` : `Fusionner le flux ${g.libelle} avec un autre`}
+                                  aria-label="Fusionner"
+                                  data-infobulle="Fusionner"
                                   aria-expanded={fusion?.cle === g.cle}
-                                  title={g.groupeManuel ? "Gérer ce regroupement" : "Fusionner avec un autre flux"}
                                   onClick={() => (fusion?.cle === g.cle ? setFusion(null) : ouvrirFusion(g))}
                                 >
                                   <svg aria-hidden="true" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">

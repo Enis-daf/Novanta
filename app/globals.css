@@ -2746,13 +2746,29 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 
-/* Renommage d'un flux (Analyse d'écarts) : un crayon discret à côté du nom, puis un champ en ligne. */
-.passe-renommer {
+/* Actions d'un flux (Analyse d'écarts) : deux pictos discrets accolés au nom — renommer, fusionner. */
+.passe-flux-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
   margin-left: var(--space-1);
-  padding: 0 var(--space-1);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.passe-renommer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border: none;
+  border-radius: var(--radius-sm);
   background: none;
   font: inherit;
+  line-height: 1;
   color: var(--couleur-texte-secondaire);
   cursor: pointer;
 }
@@ -2760,6 +2776,34 @@ input[type="checkbox"] {
 .passe-renommer:hover,
 .passe-renommer:focus-visible {
   color: var(--couleur-texte);
+  background: var(--couleur-bordure);
+}
+
+/* Infobulle légère, au survol comme au focus clavier. Placée à droite du groupe de pictos (son
+   repère de position) : au-dessus ou au-dessous, elle serait rognée par le tableau défilant. */
+.passe-renommer[data-infobulle]::after {
+  content: attr(data-infobulle);
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 6px);
+  transform: translateY(-50%);
+  z-index: 30;
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-texte);
+  color: var(--couleur-fond);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.passe-renommer[data-infobulle]:hover::after,
+.passe-renommer[data-infobulle]:focus-visible::after {
+  opacity: 1;
+  transition-delay: 0.15s;
 }
 
 .passe-renommage {
@@ -2781,15 +2825,6 @@ input[type="checkbox"] {
 }
 
 /* Fusion manuelle de flux : panneau léger au-dessus de la liste, dans le style du renommage. */
-/* Les deux pictos (renommer, fusionner) restent côte à côte, même sous un nom long. */
-.passe-flux-actions {
-  white-space: nowrap;
-}
-
-.passe-renommer svg {
-  vertical-align: -1px;
-}
-
 .passe-fusion {
   display: flex;
   flex-direction: column;

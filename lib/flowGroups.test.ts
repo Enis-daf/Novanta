@@ -76,3 +76,20 @@ describe("nomDeGroupePropose", () => {
     assert.equal(nomDeGroupePropose([]), "");
   });
 });
+
+describe("invariants des groupes manuels", () => {
+  test("après une suite de fusions : groupes à plat, aucun membre en double, aucune clé dans deux groupes", () => {
+    let groupes = fusionnerFlux([], [membre("a"), membre("b")], "A", "g1").groupes;
+    groupes = fusionnerFlux(groupes, [membre("c"), membre("d")], "B", "g2").groupes;
+    groupes = fusionnerFlux(groupes, [membre("e"), membre("f")], "C", "g3").groupes;
+    // Groupe + flux, puis groupe + groupe, en repassant des flux déjà membres.
+    groupes = fusionnerFlux(groupes, [membre("a"), membre("b"), membre("x")], "A", "n1").groupes;
+    groupes = fusionnerFlux(groupes, [membre("a"), membre("x"), membre("c"), membre("d")], "AB", "n2").groupes;
+    const toutes = groupes.flatMap((g) => g.membres.map((m) => m.cle));
+    assert.equal(new Set(toutes).size, toutes.length);
+    assert.deepEqual(groupes.map((g) => [g.id, g.nom, cles(g)]), [
+      ["g3", "C", ["e", "f"]],
+      ["g2", "AB", ["a", "b", "c", "d", "x"]],
+    ]);
+  });
+});
