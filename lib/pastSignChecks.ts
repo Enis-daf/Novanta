@@ -52,6 +52,7 @@ export interface AnomalieSigne {
  * Anomalies de signe des transactions fournies (celles de la période affichée). Le contrôle porte
  * sur chaque part pondérée d'une transaction ventilée, dans l'étage de SA catégorie — pas sur la
  * seule catégorie principale. Les catégories non mappées n'ont pas d'étage, donc pas de règle.
+ * La liste est triée par impact décroissant (voir comparerAnomaliesParImpact).
  */
 export function anomaliesDeSigne(
   transactions: PastTransactionStockee[],
@@ -78,7 +79,21 @@ export function anomaliesDeSigne(
       });
     }
   }
-  return anomalies;
+  return anomalies.sort(comparerAnomaliesParImpact);
+}
+
+/**
+ * Ordre d'affichage : plus gros montant en valeur absolue d'abord, quel que soit le signe (le
+ * montant lui-même n'est pas modifié). À égalité : date la plus récente, puis identifiants, pour
+ * un ordre toujours identique.
+ */
+function comparerAnomaliesParImpact(a: AnomalieSigne, b: AnomalieSigne): number {
+  return (
+    Math.abs(b.montant) - Math.abs(a.montant) ||
+    b.transactionDate.localeCompare(a.transactionDate) ||
+    a.transactionId.localeCompare(b.transactionId) ||
+    a.sourceCategoryId.localeCompare(b.sourceCategoryId)
+  );
 }
 
 /** Nombre de TRANSACTIONS concernées (une transaction ventilée ne compte qu'une fois). */
