@@ -1,5 +1,5 @@
 import { AjustementGestion, ajustementsDeLaPeriode, regrouperAjustements, sommeAjustements } from "./pastAdjustments";
-import { EtagePnl, MappingCategorie } from "./pastCategoryMapping";
+import { ETAGES_PNL, EtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import { PartMappee, partsMappees } from "./pastDetail";
 import { calculerCashFlow } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
@@ -16,14 +16,8 @@ import { FlowIdentity, groupComparableTransactions, MatchMethod } from "./flowMa
  * diminue ou disparaît une contribution positive, un revenu qui augmente une contribution positive.
  */
 
-/** Les cinq contributions de la waterfall, dans l'ordre du P&L. */
-export const ETAGES_ECARTS: readonly { etage: EtagePnl; libelle: string }[] = [
-  { etage: "revenue", libelle: "CA" },
-  { etage: "gross_margin", libelle: "Coûts directs" },
-  { etage: "contribution_margin", libelle: "Coûts commerciaux & opérationnels" },
-  { etage: "ebitda", libelle: "Coûts de structure" },
-  { etage: "extra_pnl", libelle: "Extra P&L" },
-];
+/** Les cinq contributions de la waterfall, dans l'ordre du P&L, sous les libellés communs du module. */
+export const ETAGES_ECARTS: readonly { etage: EtagePnl; libelle: string }[] = ETAGES_PNL.map((e) => ({ etage: e.cle, libelle: e.libelle }));
 
 const ETAGES_EBITDA: readonly EtagePnl[] = ["revenue", "gross_margin", "contribution_margin", "ebitda"];
 

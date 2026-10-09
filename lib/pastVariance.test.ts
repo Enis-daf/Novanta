@@ -83,7 +83,7 @@ describe("waterfall — du Cash flow de A à celui de B", () => {
     assert.deepEqual(comparaison.etages.map((e) => [e.libelle, e.contribution]), [
       ["CA", -20_000], // un revenu qui baisse dégrade le Cash flow
       ["Coûts directs", 5_000], // une charge qui diminue l'améliore
-      ["Coûts commerciaux & opérationnels", -12_000], // une charge qui augmente le dégrade
+      ["Autres coûts variables", -12_000], // une charge qui augmente le dégrade
       ["Coûts de structure", -8_000],
       ["Extra P&L", -13_000],
     ]);
