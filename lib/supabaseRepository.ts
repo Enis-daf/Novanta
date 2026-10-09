@@ -424,6 +424,14 @@ export async function marquerFacturesFournisseursPayees(ids: string[]): Promise<
   if (error) throw error;
 }
 
+// Synchronisation Pennylane : retire les factures fournisseurs dont la version Pennylane a été
+// archivée (voir lib/pennylaneInvoiceAdapter.ts::calculerSynchronisation).
+export async function supprimerFacturesFournisseurs(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await client().from("supplier_invoices").delete().in("id", ids);
+  if (error) throw error;
+}
+
 export async function sauvegarderChargeFixe(companyId: string, charge: ChargeFixe): Promise<void> {
   await upsertOne("fixed_charges", chargeFixeToRow(companyId, charge));
 }
