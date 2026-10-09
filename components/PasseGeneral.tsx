@@ -76,8 +76,10 @@ export default function PasseGeneral({ pnl, teintes }: PasseGeneralProps) {
         </div>
         {/* Cash flow : présenté à part du P&L opérationnel, sans ratio. */}
         <div className="passe-pnl__bloc passe-pnl__bloc--cash">
-          <Ligne libelle="Extra P&L" montant={pnl.extraPnl} />
+          <Ligne libelle={libelleEtagePnl("extra_pnl")} montant={pnl.extraPnl} />
           <LignesAjustements lignes={pnl.ajustements.extra_pnl} />
+          <Ligne libelle={libelleEtagePnl("financing")} montant={pnl.financements} />
+          <LignesAjustements lignes={pnl.ajustements.financing} />
           <Ligne libelle="Cash flow" montant={pnl.cashFlow} niveau="titre" />
         </div>
       </section>

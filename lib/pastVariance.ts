@@ -71,10 +71,12 @@ export interface Comparaison {
   ecartRelatif: number | null;
   // Leur somme est exactement l'écart : la waterfall réconcilie toujours A et B.
   etages: ContributionEtage[];
-  // L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L n'explique que ce qui vient
-  // après. Les deux ne se mélangent pas : variationEbitda + variationExtraPnl = ecart.
+  // L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L et l'étage Virements
+  // internes & Financement expliquent ce qui vient après. Ils ne se mélangent pas :
+  // variationEbitda + variationExtraPnl + variationFinancements = ecart.
   variationEbitda: number;
   variationExtraPnl: number;
+  variationFinancements: number;
 }
 
 export function comparerPeriodes(a: DonneesPeriode, b: DonneesPeriode): Comparaison {
@@ -83,19 +85,22 @@ export function comparerPeriodes(a: DonneesPeriode, b: DonneesPeriode): Comparai
     const montantB = totalEtage(b, [etage]);
     return { etage, libelle, montantA, montantB, contribution: montantB - montantA };
   });
-  const cashFlow = (donnees: DonneesPeriode) => calculerCashFlow(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"]));
+  const cashFlow = (donnees: DonneesPeriode) =>
+    calculerCashFlow(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"]), totalEtage(donnees, ["financing"]));
   const cashFlowA = cashFlow(a);
   const cashFlowB = cashFlow(b);
   const ecart = cashFlowB - cashFlowA;
   const variationExtraPnl = etages.find((e) => e.etage === "extra_pnl")!.contribution;
+  const variationFinancements = etages.find((e) => e.etage === "financing")!.contribution;
   return {
     cashFlowA,
     cashFlowB,
     ecart,
     ecartRelatif: cashFlowA === 0 ? null : ecart / Math.abs(cashFlowA),
     etages,
-    variationEbitda: ecart - variationExtraPnl,
+    variationEbitda: ecart - variationExtraPnl - variationFinancements,
     variationExtraPnl,
+    variationFinancements,
   };
 }
 

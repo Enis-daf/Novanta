@@ -87,6 +87,7 @@ describe("waterfall — du Cash flow de A à celui de B", () => {
       ["Autres coûts variables", -12_000], // une charge qui augmente le dégrade
       ["Coûts de structure", -8_000],
       ["Extra P&L", -13_000],
+      ["Virements internes & Financement", 0],
     ]);
   });
 
@@ -561,5 +562,29 @@ describe("regroupement manuel de flux", () => {
   test("flux proposés à la fusion : un groupe manuel n'y figure qu'une fois, avec ses flux", () => {
     const propositions = fluxConnus(a, b, undefined, manuels);
     assert.deepEqual(propositions.map((f) => [f.libelle, f.membres.length]), [["Karmen", 2], ["Loyer Parking", 1]]);
+  });
+});
+
+describe("étage Virements internes & Financement dans l'analyse d'écarts", () => {
+  const avecFinancement = indexerMappings([mapping("Ventes", "revenue"), mapping("TVA", "extra_pnl"), mapping("Emprunts", "financing")]);
+  const periode = (transactions: PastTransactionStockee[], bornes: typeof AOUT) => donneesPeriode(transactions, AXE, avecFinancement, [], bornes);
+  const a = periode([tx("2026-08-05", 1_000, "Ventes", "Stripe"), tx("2026-08-11", -200, "TVA", "TVA")], AOUT);
+  const b = periode([tx("2026-09-05", 1_000, "Ventes", "Stripe"), tx("2026-09-11", -300, "TVA", "TVA"), tx("2026-09-20", 50_000, "Emprunts", "Versement pret")], SEPTEMBRE);
+  const comparaison = comparerPeriodes(a, b);
+
+  test("Extra P&L et le nouvel étage sont deux contributions distinctes de la waterfall", () => {
+    const contribution = (libelle: string) => comparaison.etages.find((e) => e.libelle === libelle)!.contribution;
+    assert.equal(contribution("Extra P&L"), -100);
+    assert.equal(contribution("Virements internes & Financement"), 50_000);
+  });
+
+  test("le Cash flow complet inclut l'étage et réconcilie exactement", () => {
+    assert.deepEqual([comparaison.cashFlowA, comparaison.cashFlowB], [800, 50_700]);
+    assert.equal(comparaison.etages.reduce((s, e) => s + e.contribution, 0), comparaison.ecart);
+    assert.deepEqual([comparaison.variationEbitda, comparaison.variationExtraPnl, comparaison.variationFinancements], [0, -100, 50_000]);
+  });
+
+  test("ses flux se détaillent comme ceux des autres étages", () => {
+    assert.deepEqual(groupesDeLibelles(a, b, "financing").map((g) => [g.libelle, g.montantA, g.montantB]), [["Versement Pret", 0, 50_000]]);
   });
 });

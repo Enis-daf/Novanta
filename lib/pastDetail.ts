@@ -128,6 +128,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
   },
   cash_flow: {
     libelle: "Cash flow",
+    // Lecture par défaut, « hors financement » : voir CASH_FLOW_FINANCEMENT_COMPRIS pour l'autre.
     etagesKpi: ["revenue", "gross_margin", "contribution_margin", "ebitda", "extra_pnl"],
     etagesDetail: ["extra_pnl"],
     libelleDetail: "Extra P&L",
@@ -136,6 +137,32 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     coutsAssocies: false,
   },
 };
+
+/**
+ * Écran Cash flow, lecture « financement compris » : la lecture bancaire complète. Elle ajoute
+ * l'étage Virements internes & Financement à l'indicateur ET au détail de l'écran (répartition
+ * par catégorie, transactions), pour que tous les blocs parlent toujours du même périmètre.
+ */
+const CASH_FLOW_FINANCEMENT_COMPRIS: ConfigMetrique = {
+  ...METRIQUES_DETAIL.cash_flow,
+  etagesKpi: [...METRIQUES_DETAIL.cash_flow.etagesKpi, "financing"],
+  etagesDetail: [...METRIQUES_DETAIL.cash_flow.etagesDetail, "financing"],
+  libelleDetail: "Extra P&L et financement",
+};
+
+export interface OptionsDetail {
+  // Écran Cash flow uniquement. false ou absent : « hors financement », l'étage Virements internes
+  // & Financement est laissé de côté, en entier et quel que soit le signe des montants.
+  financementCompris?: boolean;
+}
+
+/** Configuration effective d'un écran : celle de l'indicateur, selon la lecture choisie. */
+export function configDeLEcran(metrique: MetriqueDetail, options: OptionsDetail = {}): ConfigMetrique {
+  return metrique === "cash_flow" && options.financementCompris === true ? CASH_FLOW_FINANCEMENT_COMPRIS : METRIQUES_DETAIL[metrique];
+}
+
+export const PRECISION_HORS_FINANCEMENT = "Hors virements internes & financement";
+export const PRECISION_FINANCEMENT_COMPRIS = "Financement compris";
 
 export function estMetriqueDetail(valeur: string): valeur is MetriqueDetail {
   return valeur in METRIQUES_DETAIL;
@@ -172,6 +199,8 @@ export interface PointEvolution {
 export interface VueDetail {
   kpi: {
     libelle: string;
+    // Périmètre de l'indicateur à rappeler sous son titre (lecture du Cash flow), sinon null.
+    precision: string | null;
     // Renseigné quand une catégorie est sélectionnée : l'indicateur porte alors sur elle seule.
     categorie: string | null;
     montant: number; // toujours le montant financier signé réel
@@ -225,9 +254,10 @@ export function calculerDetail(
   metrique: MetriqueDetail,
   filtres: FiltresDetail,
   periode: Periode,
-  ajustements: AjustementGestion[] = []
+  ajustements: AjustementGestion[] = [],
+  options: OptionsDetail = {}
 ): VueDetail {
-  const config = METRIQUES_DETAIL[metrique];
+  const config = configDeLEcran(metrique, options);
   const categorie = filtres.categorie;
   const duMois = (p: PartMappee) => filtres.mois === null || p.mois === filtres.mois;
   const deLaCategorie = (p: PartMappee) => categorie === null || p.sourceCategoryId === categorie;
@@ -289,6 +319,8 @@ export function calculerDetail(
   return {
     kpi: {
       libelle: config.libelle,
+      precision:
+        metrique === "cash_flow" ? (options.financementCompris === true ? PRECISION_FINANCEMENT_COMPRIS : PRECISION_HORS_FINANCEMENT) : null,
       categorie: categorieSelectionnee,
       montant: montantKpi,
       ratio: avecRatio ? (ca === 0 ? null : montantKpi / ca) : undefined,

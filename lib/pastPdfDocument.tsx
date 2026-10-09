@@ -245,8 +245,10 @@ function lignesPnl(page: PageGeneralPdf): LignePnl[] {
     ...ajustements(pnl.ajustements.ebitda),
     { type: "ligne", libelle: "EBITDA", montant: pnl.ebitda, ratio: pnl.ratios.ebitda, niveau: "solde" },
     { type: "bloc", cash: true },
-    { type: "ligne", libelle: "Extra P&L", montant: pnl.extraPnl },
+    { type: "ligne", libelle: libelleEtagePnl("extra_pnl"), montant: pnl.extraPnl },
     ...ajustements(pnl.ajustements.extra_pnl),
+    { type: "ligne", libelle: libelleEtagePnl("financing"), montant: pnl.financements },
+    ...ajustements(pnl.ajustements.financing),
     { type: "ligne", libelle: "Cash flow", montant: pnl.cashFlow, niveau: "titre" },
   ];
 }
@@ -343,6 +345,9 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   ecrire(doc, formatMontant(vue.kpi.montant), gauche.x, gauche.y + 38, { taille: 26, gras: true });
   if (vue.kpi.ratio !== undefined) {
     ecrire(doc, `${formatPourcentage(vue.kpi.ratio)} du CA`, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
+  } else if (vue.kpi.precision && vue.kpi.categorie === null) {
+    // Cash flow : le périmètre exporté (hors financement, comme l'écran à son ouverture) est dit.
+    ecrire(doc, vue.kpi.precision, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
   }
 
   // Répartition par catégorie : camembert, ou histogramme par catégorie pour le Cash flow.

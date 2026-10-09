@@ -37,6 +37,7 @@ export interface Pnl {
   coutsStructure: number;
   ebitda: number;
   extraPnl: number;
+  financements: number;
   cashFlow: number;
   // Rapportés au CA ; null quand le CA est nul (ratio sans signification).
   ratios: { margeBrute: number | null; margeContributive: number | null; ebitda: number | null };
@@ -50,12 +51,13 @@ export interface Pnl {
 
 /**
  * Cash flow : indicateur métier à part entière, dérivé à la lecture — ce n'est ni un étage de
- * mapping ni un alias de l'Extra P&L. Formule V1 : EBITDA + Extra P&L, en montants signés
- * (positif = génération nette de trésorerie, négatif = consommation nette). Isolée ici pour
- * pouvoir évoluer sans toucher au mapping analytique.
+ * mapping ni un alias de l'Extra P&L. Formule : EBITDA + Extra P&L + Virements internes &
+ * Financement, en montants signés (positif = génération nette de trésorerie, négatif =
+ * consommation nette). C'est la lecture bancaire complète : aucun flux n'en est retiré. La
+ * lecture « hors financement » de l'écran Cash flow est calculée à part (lib/pastDetail.ts).
  */
-export function calculerCashFlow(ebitda: number, extraPnl: number): number {
-  return ebitda + extraPnl;
+export function calculerCashFlow(ebitda: number, extraPnl: number, financements = 0): number {
+  return ebitda + extraPnl + financements;
 }
 
 function ratio(valeur: number, ca: number): number | null {
@@ -74,6 +76,7 @@ export function calculerPnl(
     contribution_margin: 0,
     ebitda: 0,
     extra_pnl: 0,
+    financing: 0,
   };
   const parCategorie = new Map<string, PnlCategorie>();
   const nonMappees = new Map<string, number>();
@@ -115,7 +118,8 @@ export function calculerPnl(
     coutsStructure: totaux.ebitda,
     ebitda,
     extraPnl: totaux.extra_pnl,
-    cashFlow: calculerCashFlow(ebitda, ajustes("extra_pnl")),
+    financements: totaux.financing,
+    cashFlow: calculerCashFlow(ebitda, ajustes("extra_pnl"), ajustes("financing")),
     ratios: {
       margeBrute: ratio(margeBrute, caAjuste),
       margeContributive: ratio(margeContributive, caAjuste),
@@ -128,6 +132,7 @@ export function calculerPnl(
       contribution_margin: lignesAjustements.filter((l) => l.etage === "contribution_margin"),
       ebitda: lignesAjustements.filter((l) => l.etage === "ebitda"),
       extra_pnl: lignesAjustements.filter((l) => l.etage === "extra_pnl"),
+      financing: lignesAjustements.filter((l) => l.etage === "financing"),
     },
     nonMappees: {
       nombreCategories: nonMappees.size,
