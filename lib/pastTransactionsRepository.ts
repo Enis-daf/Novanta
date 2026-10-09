@@ -3,7 +3,7 @@ import { AjustementGestion, StockFinDeMois } from "./pastAdjustments";
 import { ConfigExercice, configExerciceValide, normaliserConfigExercice } from "./fiscalPeriods";
 import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import { GroupeManuel } from "./flowGroups";
-import { FLOW_ENGINE_VERSION, FlowAlias } from "./flowMatching";
+import { CleEnregistree, clesARecalculer, FLOW_ENGINE_VERSION, FlowAlias } from "./flowMatching";
 import { ValidationSigne } from "./pastSignChecks";
 import {
   AffectationAnalytique,
@@ -278,17 +278,70 @@ export async function annulerValidationSigne(
   if (error) throw error;
 }
 
+/**
+ * Suit une évolution du moteur de reconnaissance : les clés enregistrées sous une version
+ * antérieure sont recalculées à partir de leur libellé d'exemple (clesARecalculer), puis corrigées
+ * en base. Renvoie, pour chaque clé déplacée, sa nouvelle clé — ou null quand une autre ligne
+ * porte déjà cette nouvelle clé : l'ancienne ligne, devenue un doublon, est supprimée.
+ *
+ * La correction en base est faite au mieux : si elle échoue, la lecture réussit quand même avec
+ * les clés recalculées, et la correction sera retentée à la lecture suivante.
+ */
+async function suivreEvolutionDuMoteur(
+  supabase: SupabaseClient,
+  table: "past_flow_aliases" | "past_flow_group_members",
+  organizationId: string,
+  lignes: CleEnregistree[]
+): Promise<Map<string, string | null>> {
+  const { deplacees, confirmees } = clesARecalculer(lignes);
+  const cles = new Set(lignes.map((ligne) => ligne.cle));
+  const destinations = new Map<string, string | null>();
+  const ecritures: PromiseLike<{ error: unknown }>[] = [];
+  for (const { ancienne, nouvelle } of deplacees) {
+    const filtre = () => ({ organization_id: organizationId, canonical_flow_key: ancienne });
+    if (cles.has(nouvelle)) {
+      destinations.set(ancienne, null);
+      ecritures.push(supabase.from(table).delete().match(filtre()));
+    } else {
+      destinations.set(ancienne, nouvelle);
+      cles.add(nouvelle);
+      ecritures.push(supabase.from(table).update({ canonical_flow_key: nouvelle, engine_version: FLOW_ENGINE_VERSION }).match(filtre()));
+    }
+  }
+  for (const cle of confirmees) {
+    ecritures.push(supabase.from(table).update({ engine_version: FLOW_ENGINE_VERSION }).match({ organization_id: organizationId, canonical_flow_key: cle }));
+  }
+  if (ecritures.length > 0) {
+    const resultats = await Promise.all(ecritures);
+    const echecs = resultats.filter((r) => r.error).length;
+    console.warn(
+      `[passe/flux] step=engine-upgrade table=${table} organization=${organizationId} version=${FLOW_ENGINE_VERSION} deplacees=${deplacees.length} confirmees=${confirmees.length} echecs=${echecs}`
+    );
+  }
+  return destinations;
+}
+
+const cleEnregistree = (row: Row): CleEnregistree => ({
+  cle: row.canonical_flow_key as string,
+  exemple: (row.sample_label as string | null) ?? null,
+  version: (row.engine_version as string | null) ?? null,
+});
+
 /** Alias de flux de l'organisation (voir lib/flowMatching.ts). */
 export async function chargerAliasFlux(supabase: SupabaseClient, organizationId: string): Promise<FlowAlias[]> {
   const { data, error } = await supabase
     .from("past_flow_aliases")
-    .select("canonical_flow_key, display_name")
+    .select("canonical_flow_key, display_name, sample_label, engine_version")
     .eq("organization_id", organizationId);
   if (error) throw error;
-  return ((data ?? []) as Row[]).map((row) => ({
-    canonicalFlowKey: row.canonical_flow_key as string,
-    displayName: row.display_name as string,
-  }));
+  const rows = (data ?? []) as Row[];
+  const destinations = await suivreEvolutionDuMoteur(supabase, "past_flow_aliases", organizationId, rows.map(cleEnregistree));
+  return rows
+    .filter((row) => destinations.get(row.canonical_flow_key as string) !== null)
+    .map((row) => ({
+      canonicalFlowKey: destinations.get(row.canonical_flow_key as string) ?? (row.canonical_flow_key as string),
+      displayName: row.display_name as string,
+    }));
 }
 
 /**
@@ -331,17 +384,27 @@ export async function supprimerAliasFlux(supabase: SupabaseClient, organizationI
 export async function chargerGroupesFlux(supabase: SupabaseClient, organizationId: string): Promise<GroupeManuel[]> {
   const { data, error } = await supabase
     .from("past_flow_groups")
-    .select("id, display_name, past_flow_group_members(canonical_flow_key, detected_name, sample_label)")
+    .select("id, display_name, past_flow_group_members(canonical_flow_key, detected_name, sample_label, engine_version)")
     .eq("organization_id", organizationId);
   if (error) throw error;
-  return ((data ?? []) as Row[]).map((row) => ({
+  const rows = (data ?? []) as Row[];
+  const membresDe = (row: Row) => (row.past_flow_group_members as Row[] | null) ?? [];
+  const destinations = await suivreEvolutionDuMoteur(
+    supabase,
+    "past_flow_group_members",
+    organizationId,
+    rows.flatMap(membresDe).map(cleEnregistree)
+  );
+  return rows.map((row) => ({
     id: row.id as string,
     nom: row.display_name as string,
-    membres: ((row.past_flow_group_members as Row[] | null) ?? []).map((membre) => ({
-      cle: membre.canonical_flow_key as string,
-      nomDetecte: (membre.detected_name as string | null) ?? "",
-      exemple: (membre.sample_label as string | null) ?? "",
-    })),
+    membres: membresDe(row)
+      .filter((membre) => destinations.get(membre.canonical_flow_key as string) !== null)
+      .map((membre) => ({
+        cle: destinations.get(membre.canonical_flow_key as string) ?? (membre.canonical_flow_key as string),
+        nomDetecte: (membre.detected_name as string | null) ?? "",
+        exemple: (membre.sample_label as string | null) ?? "",
+      })),
   }));
 }
 

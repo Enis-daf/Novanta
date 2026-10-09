@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   aliasFlowKey,
+  clesARecalculer,
   FLOW_ENGINE_VERSION,
   LONGUEUR_MAX_ALIAS,
   normaliserNomAlias,
@@ -231,7 +232,7 @@ describe("rapprochement prudent entre contreparties voisines", () => {
 // retrouvés. Il faut alors incrémenter FLOW_ENGINE_VERSION et recalculer les alias enregistrés à
 // partir de leur libellé d'exemple (colonne sample_label), pas seulement corriger ce test.
 describe("contrat des identités (clés des alias de flux)", () => {
-  test("version du moteur", () => assert.equal(FLOW_ENGINE_VERSION, "1"));
+  test("version du moteur", () => assert.equal(FLOW_ENGINE_VERSION, "2"));
 
   const attendues: [string, string | null][] = [
     ["PRELEVEMENT CREANCE 021618 RECLAMEE", "tiers:creance"],
@@ -241,6 +242,10 @@ describe("contrat des identités (clés des alias de flux)", () => {
     ["VIREMENT EMIS VIR INST vers SARL EUROPCAM commande 000066266", "tiers:europcam"],
     ["ABC 1234", "texte:abc 1234"],
     ["", null],
+    // Version 2 : bénéficiaire désigné comme une personne, motif écrit après le bénéficiaire.
+    ["Virement Emis Vir Inst Vers M Ou Mme Durand Do Salaire", "tiers:m ou mme durand"],
+    ["Virement Emis Web M Ou Mme Durand Domi Salaire Salaire", "tiers:m ou mme durand"],
+    ["VIR SEPA CABINET MARTEL SALAIRE MARS", "tiers:cabinet martel"],
   ];
   for (const [libelle, cle] of attendues) {
     test(`« ${libelle} » -> ${cle}`, () => assert.equal(aliasFlowKey(libelle), cle));
@@ -264,5 +269,109 @@ describe("alias de flux — nom saisi et résolution", () => {
     assert.equal(resoudreAlias(["tiers:europcam germain", "tiers:europcam"], "tiers:europcam", alias), "Europcam (caméras)");
     // Le groupe ne contient que la voisine (l'autre est absente de cette comparaison) : son alias joue.
     assert.equal(resoudreAlias(["tiers:europcam germain"], "tiers:europcam germain", alias), "Boutique Saint-Germain");
+  });
+});
+
+// Noms fictifs, structure de libellés réels : « Virement Emis [canal] [bénéficiaire] [DO | DOMI] [motif] ».
+describe("virements émis — le bénéficiaire prime sur le canal et le motif", () => {
+  const INSTANTANE = "Virement Emis Vir Inst Vers M Ou Mme Durand Do Salaire";
+  const WEB = "Virement Emis Web M Ou Mme Durand Domi Salaire Salaire";
+  const cle = (libelle: string) => buildCanonicalFlowIdentity(libelle).canonicalFlowIdentity;
+
+  test("même bénéficiaire par deux canaux, DO / DOMI avant le motif : une seule identité", () => {
+    const a = buildCanonicalFlowIdentity(INSTANTANE);
+    const b = buildCanonicalFlowIdentity(WEB);
+    assert.equal(a.canonicalFlowIdentity, "tiers:m ou mme durand");
+    assert.equal(b.canonicalFlowIdentity, a.canonicalFlowIdentity);
+    assert.equal(a.title, "M Ou Mme Durand");
+    assert.equal(b.title, "M Ou Mme Durand");
+    assert.equal(a.matchMethod, "structured_counterparty");
+    const groupes = groupComparableTransactions([INSTANTANE, WEB]);
+    assert.equal(new Set([...groupes.values()].map((i) => i.canonicalFlowIdentity)).size, 1);
+  });
+
+  test("ni le canal, ni le mode de virement, ni le motif n'entrent dans l'identité", () => {
+    for (const libelle of [
+      "VIREMENT EMIS M OU MME DURAND",
+      "VIREMENT EMIS VIR INST AG VERS M OU MME DURAND FACTURE 2026-104",
+      "VIREMENT EMIS WEB M OU MME DURAND DOMICILIATION",
+      "VIREMENT EMIS WEB M OU MME DURAND DO LOYER OCTOBRE",
+      "VIR SEPA EMIS VERS M OU MME DURAND DOMI NOTE DE FRAIS",
+      "VIREMENT EMIS WEB M OU MME DURAND DOMI REMBOURSEMENT AVANCE",
+      "VIREMENT EMIS WEB M OU MME DURAND PRIME ANNUELLE",
+    ]) {
+      assert.equal(cle(libelle), "tiers:m ou mme durand", libelle);
+    }
+  });
+
+  test("l'identité porte le bénéficiaire complet : deux homonymes restent deux flux", () => {
+    assert.equal(cle("VIREMENT EMIS WEB M DURAND PAUL SALAIRE"), "tiers:m durand paul");
+    assert.equal(cle("VIREMENT EMIS WEB M DURAND LUC SALAIRE"), "tiers:m durand luc");
+    assert.equal(cle("VIR SEPA EMIS VERS M OU MME DURAND DOMINIQUE SALAIRE OCTOBRE"), "tiers:m ou mme durand dominique");
+  });
+
+  test("la civilité fait partie de l'identité ; un autre bénéficiaire est un autre flux", () => {
+    assert.deepEqual(
+      ["VIREMENT EMIS WEB M OU MME DURAND SALAIRE", "VIREMENT EMIS WEB M OU MME MOREL SALAIRE", "VIREMENT EMIS WEB MME DURAND SALAIRE", "VIREMENT EMIS WEB M DURAND SALAIRE"].map(cle),
+      ["tiers:m ou mme durand", "tiers:m ou mme morel", "tiers:mme durand", "tiers:m durand"]
+    );
+  });
+
+  test("DO / DOMI vaut aussi pour un bénéficiaire qui n'est pas une personne", () => {
+    assert.equal(cle("VIREMENT EMIS VIR INST VERS SARL ATELIER MOREL DO FACTURE 2026-14"), "tiers:atelier morel");
+  });
+
+  test("DO / DOMI n'est jamais une sous-chaîne : « Dominique » reste un mot du bénéficiaire", () => {
+    assert.equal(cle("VIREMENT EMIS WEB DOMINIQUE MARTIN SALAIRE"), "tiers:dominique martin");
+  });
+
+  test("DO / DOMI ne coupe pas s'il n'est pas suivi d'un motif", () => {
+    assert.equal(cle("VIREMENT EMIS WEB M OU MME DURAND DOMI"), "tiers:m ou mme durand domi");
+    assert.equal(buildCanonicalFlowIdentity("VIREMENT EMIS WEB M OU MME DURAND DO BRASIL").title, "M Ou Mme Durand Do Brasil");
+  });
+
+  test("DO / DOMI ne coupe pas sans bénéficiaire avant lui", () => {
+    assert.equal(buildCanonicalFlowIdentity("VIREMENT EMIS WEB DOMI SALAIRE").matchMethod, "exact_normalized");
+  });
+
+  test("DO / DOMI ne coupe pas hors d'un virement émis", () => {
+    assert.equal(cle("PRLV SEPA GARAGE DURAND DOMI SALAIRE"), "tiers:garage durand domi");
+    assert.notEqual(cle("VIREMENT RECU GARAGE DURAND DOMI LOYER"), "tiers:garage durand");
+  });
+
+  test("nom à particule", () => {
+    const identite = buildCanonicalFlowIdentity("VIREMENT EMIS WEB MME LE GALL ANNE LOYER");
+    assert.equal(identite.canonicalFlowIdentity, "tiers:mme gall anne");
+    assert.equal(identite.title, "Mme Le Gall Anne");
+  });
+
+  test("une lettre isolée qui n'ouvre pas un nom n'est pas une civilité", () => {
+    assert.equal(buildCanonicalFlowIdentity("PRLV SEPA M 6 BOUTIQUE 1234").matchMethod, "exact_normalized");
+  });
+
+  test("motif de salaire après un bénéficiaire, hors virement émis : coupé ; en tête de contrepartie : conservé", () => {
+    assert.equal(cle("VIR SEPA CABINET MARTEL SALAIRE MARS"), "tiers:cabinet martel");
+    assert.equal(cle("SALAIRE DUPONT"), "tiers:salaire dupont");
+  });
+});
+
+describe("clesARecalculer — alias et groupes enregistrés sous une version antérieure du moteur", () => {
+  const WEB = "Virement Emis Web M Ou Mme Durand Domi Salaire Salaire";
+
+  test("identité changée par la nouvelle version : la clé est à déplacer", () => {
+    const { deplacees, confirmees } = clesARecalculer([{ cle: "texte:virement emis web m ou mme durand domi salaire salaire", exemple: WEB, version: "1" }]);
+    assert.deepEqual(deplacees, [{ ancienne: "texte:virement emis web m ou mme durand domi salaire salaire", nouvelle: "tiers:m ou mme durand" }]);
+    assert.deepEqual(confirmees, []);
+  });
+
+  test("identité inchangée : seule la version est à mettre à jour", () => {
+    assert.deepEqual(clesARecalculer([{ cle: "tiers:creance", exemple: "PRLV CREANCE 030426", version: "1" }]), { deplacees: [], confirmees: ["tiers:creance"] });
+  });
+
+  test("déjà à la version courante, sans libellé d'exemple, ou exemple sans identité : rien", () => {
+    const rien = { deplacees: [], confirmees: [] };
+    assert.deepEqual(clesARecalculer([{ cle: "tiers:x", exemple: WEB, version: FLOW_ENGINE_VERSION }]), rien);
+    assert.deepEqual(clesARecalculer([{ cle: "tiers:x", exemple: null, version: "1" }]), rien);
+    assert.deepEqual(clesARecalculer([{ cle: "tiers:x", exemple: "", version: null }]), rien);
   });
 });

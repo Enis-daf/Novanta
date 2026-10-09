@@ -79,6 +79,23 @@ const MOTS_FAIBLES = new Set([
 
 const MOTS_DE_LIAISON = new Set(["de", "du", "des", "le", "la", "les", "et", "di", "of", "the", "fr", "com"]);
 
+// Bénéficiaire désigné comme une PERSONNE (« M ou Mme Durand ») : la civilité ouvre la contrepartie
+// et fait partie de son identité.
+const CIVILITES = new Set(["m", "mr", "mme", "mlle", "mrs", "monsieur", "madame", "mademoiselle"]);
+const LIAISONS_DE_CIVILITE = new Set(["ou", "et"]);
+// Motifs écrits APRÈS le bénéficiaire (« … Durand Salaire ») : ils décrivent l'opération, pas le
+// flux. En tête de contrepartie, ils restent des mots comme les autres.
+const MOTIFS_APRES_BENEFICIAIRE = new Set(["salaire", "salaires", "paie", "domiciliation"]);
+// Virement émis : le libellé suit « habillage bancaire -> bénéficiaire -> [DO | DOMI] -> motif ».
+// Une fois le bénéficiaire trouvé, ces mots ouvrent le motif du paiement.
+const MOTIFS_DE_VIREMENT_EMIS = new Set([
+  ...MOTIFS_APRES_BENEFICIAIRE,
+  "loyer", "loyers", "indemnite", "indemnites", "honoraires", "prime", "primes", "note", "frais",
+]);
+// « DO », « DOMI » : dans un virement émis, marque la fin de la zone bénéficiaire — seulement comme
+// mot entier (jamais le début de « Dominique »), après un bénéficiaire, et suivi d'un motif.
+const FINS_DE_BENEFICIAIRE = new Set(["do", "domi"]);
+
 const MAX_JETONS_FORTS = 3;
 const LONGUEUR_MIN_JETON_FORT = 3;
 // Une contrepartie réduite à un seul mot n'identifie un flux que si ce mot est assez long.
@@ -108,10 +125,37 @@ export function extractStableTokens(label: string): StableTokens {
   while (debut < jetons.length && (PREFIXES_BANCAIRES.has(jetons[debut]) || /^x\d{3,4}$/.test(jetons[debut]))) debut++;
   while (debut < jetons.length && FORMES_JURIDIQUES.has(jetons[debut])) debut++;
 
+  // Virement émis : « virement / vir » et « emis » dans l'habillage bancaire retiré.
+  const habillage = jetons.slice(0, debut);
+  const virementEmis = habillage.includes("emis") && habillage.some((jeton) => jeton === "virement" || jeton === "vir" || jeton === "virt");
+  const ouvreUnMotif = (jeton: string | undefined) =>
+    jeton !== undefined && (estMarqueur(jeton) || (virementEmis ? MOTIFS_DE_VIREMENT_EMIS : MOTIFS_APRES_BENEFICIAIRE).has(jeton));
+
+  // Personne : une civilité (« M », « Mme », « M ou Mme »…) suivie d'un nom ouvre la contrepartie.
+  // Elle entre dans l'identité (« M Durand » n'est pas « Mme Durand »), puis le bénéficiaire se lit
+  // comme n'importe quelle contrepartie, jusqu'au motif. Une lettre isolée qui n'introduit pas un
+  // nom (« M 6 ») n'est pas une civilité.
+  let civilite: string[] = [];
+  if (CIVILITES.has(jetons[debut])) {
+    let fin = debut + 1;
+    while (LIAISONS_DE_CIVILITE.has(jetons[fin]) && CIVILITES.has(jetons[fin + 1])) fin += 2;
+    let rangNom = fin;
+    while (rangNom < jetons.length && MOTS_DE_LIAISON.has(jetons[rangNom])) rangNom++; // « Le Gall », « De La Tour »
+    const nom = jetons[rangNom];
+    if (nom !== undefined && estFort(nom) && !estReference(nom) && !MOIS.has(nom) && !ouvreUnMotif(nom) && !FINS_DE_BENEFICIAIRE.has(nom)) {
+      civilite = jetons.slice(debut, fin);
+      debut = fin;
+    }
+  }
+
   const noyau: string[] = [];
   const forts: string[] = [];
-  for (const jeton of jetons.slice(debut)) {
+  const reste = jetons.slice(debut);
+  for (const [rang, jeton] of reste.entries()) {
     if (estReference(jeton) || estMarqueur(jeton) || MOIS.has(jeton)) break;
+    // Après le bénéficiaire : le motif, ou le marqueur DO / DOMI qui l'introduit.
+    if (forts.length > 0 && ouvreUnMotif(jeton)) break;
+    if (virementEmis && forts.length > 0 && FINS_DE_BENEFICIAIRE.has(jeton) && ouvreUnMotif(reste[rang + 1])) break;
     if (noyau.includes(jeton)) continue; // « Kubii Kubii », « TKH Security SA TKH Security SAS »
     if (estFort(jeton)) {
       if (forts.length === MAX_JETONS_FORTS) break;
@@ -124,7 +168,8 @@ export function extractStableTokens(label: string): StableTokens {
   const dernierFort = noyau.lastIndexOf(forts[forts.length - 1]);
   const suite = noyau[dernierFort + 1];
   const fin = suite && !MOTS_DE_LIAISON.has(suite) ? dernierFort + 2 : dernierFort + 1;
-  return { noyau: forts.length === 0 ? [] : noyau.slice(0, fin), forts };
+  if (forts.length === 0) return { noyau: [], forts: [] };
+  return { noyau: [...civilite, ...noyau.slice(0, fin)], forts: [...civilite, ...forts] };
 }
 
 function enTitre(texte: string): string {
@@ -283,7 +328,7 @@ export function groupComparableTransactions(labels: Iterable<string>): Map<strin
  * change une identité existante (voir le test « contrat des identités ») : les alias enregistrés
  * sous l'ancienne version doivent alors être recalculés à partir de leur libellé d'exemple.
  */
-export const FLOW_ENGINE_VERSION = "1";
+export const FLOW_ENGINE_VERSION = "2";
 
 export const LONGUEUR_MAX_ALIAS = 80;
 
@@ -312,4 +357,31 @@ export function resoudreAlias(clesPropres: string[], cleDuGroupe: string | null,
   if (cleDuGroupe !== null && alias.has(cleDuGroupe) && clesPropres.includes(cleDuGroupe)) return alias.get(cleDuGroupe)!;
   for (const cle of [...clesPropres].sort()) if (alias.has(cle)) return alias.get(cle)!;
   return null;
+}
+
+/** Clé enregistrée en base (alias, membre d'un groupe) avec de quoi la recalculer. */
+export interface CleEnregistree {
+  cle: string;
+  exemple: string | null; // libellé bancaire d'exemple
+  version: string | null; // version du moteur qui a produit la clé
+}
+
+/**
+ * Clés enregistrées sous une AUTRE version du moteur, repassées dans le moteur actuel à partir de
+ * leur libellé d'exemple :
+ *  - `deplacees` : l'identité du flux a changé, la clé doit suivre ;
+ *  - `confirmees` : même identité, seule la version est à mettre à jour.
+ * Une clé sans libellé d'exemple, ou dont l'exemple n'a plus d'identité, est laissée telle quelle.
+ */
+export function clesARecalculer(lignes: CleEnregistree[]): { deplacees: { ancienne: string; nouvelle: string }[]; confirmees: string[] } {
+  const deplacees: { ancienne: string; nouvelle: string }[] = [];
+  const confirmees: string[] = [];
+  for (const ligne of lignes) {
+    if (ligne.version === FLOW_ENGINE_VERSION || !ligne.exemple) continue;
+    const nouvelle = aliasFlowKey(ligne.exemple);
+    if (nouvelle === null) continue;
+    if (nouvelle === ligne.cle) confirmees.push(ligne.cle);
+    else deplacees.push({ ancienne: ligne.cle, nouvelle });
+  }
+  return { deplacees, confirmees };
 }
