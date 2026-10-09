@@ -36,7 +36,7 @@ function journaliser(categorie: string, companyId: string, { candidats, statutsI
     `[pennylane/invoices] ${categorie} OK company=${companyId} candidats=${candidats.length} payees=${soldees("payee")} archivees=${soldees("archivee")} doublons=${soldees("doublon")}`
   );
   // Statut de paiement que le code ne connaît pas : visible dans les logs plutôt que classé en
-  // silence. La facture concernée suit le booléen `paid` de Pennylane.
+  // silence. La facture concernée reste impayée.
   for (const [statut, nombre] of Object.entries(statutsInconnus)) {
     console.warn(`[pennylane/invoices] ${categorie} payment_status inconnu="${statut}" occurrences=${nombre} company=${companyId}`);
   }
