@@ -80,6 +80,32 @@ describe("anomalies de signe sur une période", () => {
     assert.equal(compterTransactionsAvecAnomalie(anomalies), 4);
   });
 
+  test("tri par montant en valeur absolue décroissante, signe réel conservé", () => {
+    const melange = [
+      tx("d", -2500, [["ca", 1]]),
+      tx("a", 10000, [["direct", 1]]),
+      tx("c", 6000, [["structure", 1]]),
+      tx("b", -9500, [["ca", 1]]),
+      tx("e", -8000, [["ca", 1]]),
+    ];
+    assert.deepEqual(
+      anomaliesDeSigne(melange, AXE, mappings).map((a) => a.montant),
+      [10000, -9500, -8000, 6000, -2500]
+    );
+  });
+
+  test("à valeur absolue égale : date la plus récente d'abord, puis identifiant", () => {
+    const egales = [
+      tx("z", -100, [["ca", 1]], "2026-03-05"),
+      tx("b", 100, [["direct", 1]], "2026-03-20"),
+      tx("a", -100, [["ca", 1]], "2026-03-20"),
+    ];
+    assert.deepEqual(
+      anomaliesDeSigne(egales, AXE, mappings).map((a) => a.transactionId),
+      ["a", "b", "z"]
+    );
+  });
+
   test("signaler ne modifie rien : transactions intactes, reporting sur les montants réels", () => {
     const copie = structuredClone(transactions);
     const avant = calculerPnl(transactions, AXE, mappings);
