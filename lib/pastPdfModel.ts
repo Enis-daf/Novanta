@@ -21,7 +21,7 @@ import { Periode } from "./pastTransactions";
  * des écrans de saisie et de configuration : ils n'ont pas de page.
  */
 
-export const MAX_TRANSACTIONS_PDF = 15;
+export const MAX_TRANSACTIONS_PDF = 20;
 
 export const DISCLAIMER_PASSE = "Tous les chiffres sont bien des transactions et non des chiffres comptables. Ils sont TTC.";
 
@@ -95,14 +95,14 @@ export function pagesExportPdf(source: SourceExportPdf): PagePdf[] {
   return pages;
 }
 
-/** "Novanta_Passe_Maju_2025-10-01_2026-09-30.pdf" — nom d'organisation réduit à des caractères sûrs. */
+/** "Novanta_Reporting_Maju_2025-10-01_2026-09-30.pdf" — nom d'organisation réduit à des caractères sûrs. */
 export function nomFichierPdf(organisation: string, periode: Periode): string {
   const nom = organisation
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^A-Za-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return `Novanta_Passe_${nom || "Organisation"}_${periode.debut}_${periode.fin}.pdf`;
+  return `Novanta_Reporting_${nom || "Organisation"}_${periode.debut}_${periode.fin}.pdf`;
 }
 
 /**

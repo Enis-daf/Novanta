@@ -321,7 +321,7 @@ async function pageGeneral(doc: jsPDF, page: PageGeneralPdf, teintes: ReadonlyMa
 
 // --- Pages de détail ---
 
-const HAUTEUR_LIGNE_TRANSACTION = 18;
+const HAUTEUR_LIGNE_TRANSACTION = 16;
 
 async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<string, string>) {
   const config = METRIQUES_DETAIL[page.metrique];
@@ -416,7 +416,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
     y += 5;
     trait(doc, x, y, x + largeur, NEUTRES.secondaire, 0.5);
     for (const part of page.transactions) {
-      const base = y + 11.5;
+      const base = y + 10.5;
       const ventilee = part.weight !== 1;
       ecrire(doc, formatDateCourte(part.transactionDate), colonnes.date, base, { taille: 7.5, couleur: NEUTRES.secondaire });
       ecrire(doc, part.label || "—", colonnes.libelle, base, { taille: 7.5, largeurMax: colonnes.montant - colonnes.libelle - 62 });
@@ -438,7 +438,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   // Ajustements de gestion : zone compacte sous les transactions, dans la place qui reste.
   const lignes = vue.ajustements.lignes;
   if (lignes.length > 0) {
-    y += 20;
+    y += 18;
     const largeurTitreAjustements = titreBloc(doc, "Ajustements de gestion", x, y);
     ecrire(doc, "hors banque, compris dans l'indicateur", x + largeurTitreAjustements + 8, y, { taille: 6.5, couleur: NEUTRES.secondaire });
     y += 6;

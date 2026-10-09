@@ -68,7 +68,7 @@ describe("pagesExportPdf — une page par onglet de résultats", () => {
 });
 
 describe("pagesExportPdf — transactions d'une page de détail", () => {
-  test("les 15 plus importantes en valeur absolue, prises sur l'ensemble, signe réel conservé", () => {
+  test("les 20 plus importantes en valeur absolue, prises sur l'ensemble, signe réel conservé", () => {
     const transactions = [
       ...Array.from({ length: 40 }, (_, i) => tx(`petite-${String(i).padStart(2, "0")}`, 10 + i, "ca")),
       tx("gros-encaissement", 10000, "ca"),
@@ -79,10 +79,10 @@ describe("pagesExportPdf — transactions d'une page de détail", () => {
     assert.equal(ca.transactions.length, MAX_TRANSACTIONS_PDF);
     assert.deepEqual(ca.transactions.slice(0, 3).map((p) => p.montant), [10000, -9500, 49]);
     // Aucune des transactions écartées ne pèse plus que la dernière retenue.
-    assert.equal(ca.transactions.at(-1)!.montant, 37);
+    assert.equal(ca.transactions.at(-1)!.montant, 32);
   });
 
-  test("moins de 15 transactions : toutes, sans complément", () => {
+  test("moins de 20 transactions : toutes, sans complément", () => {
     const [ca] = details(source([tx("a", 100, "ca"), tx("b", -300, "ca")]));
     assert.deepEqual(ca.transactions.map((p) => p.montant), [-300, 100]);
   });
@@ -126,13 +126,13 @@ describe("pagesExportPdf — filtres locaux", () => {
 });
 
 describe("nomFichierPdf", () => {
-  test("format Novanta_Passe_<Organisation>_<DateDebut>_<DateFin>.pdf", () => {
-    assert.equal(nomFichierPdf("Maju", PERIODE), "Novanta_Passe_Maju_2025-10-01_2026-09-30.pdf");
+  test("format Novanta_Reporting_<Organisation>_<DateDebut>_<DateFin>.pdf", () => {
+    assert.equal(nomFichierPdf("Maju", PERIODE), "Novanta_Reporting_Maju_2025-10-01_2026-09-30.pdf");
   });
 
   test("accents, espaces et caractères spéciaux retirés ; nom vide remplacé", () => {
-    assert.equal(nomFichierPdf("Société Éxemple & Fils / SAS", PERIODE), "Novanta_Passe_Societe-Exemple-Fils-SAS_2025-10-01_2026-09-30.pdf");
-    assert.equal(nomFichierPdf("  ", PERIODE), "Novanta_Passe_Organisation_2025-10-01_2026-09-30.pdf");
+    assert.equal(nomFichierPdf("Société Éxemple & Fils / SAS", PERIODE), "Novanta_Reporting_Societe-Exemple-Fils-SAS_2025-10-01_2026-09-30.pdf");
+    assert.equal(nomFichierPdf("  ", PERIODE), "Novanta_Reporting_Organisation_2025-10-01_2026-09-30.pdf");
   });
 });
 
