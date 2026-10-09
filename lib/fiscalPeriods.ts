@@ -156,20 +156,50 @@ export const PRESETS_PERIODE = [
   { cle: "q4", libelle: "Q4", groupe: "Trimestres" },
 ] as const;
 
-export const GROUPES_PRESETS = ["Exercice", "Semestres", "Trimestres"] as const;
+/**
+ * Mois civils, indépendants de l'exercice : proposés en plus des périodes fiscales là où l'analyse
+ * est mensuelle (comparaison de périodes), jamais à leur place.
+ */
+export const PRESETS_MENSUELS = [
+  { cle: "mois_m1", libelle: "Dernier mois terminé", groupe: "Mois" },
+  { cle: "mois_m2", libelle: "Mois précédent (M-2)", groupe: "Mois" },
+] as const;
 
-export type PresetPeriode = (typeof PRESETS_PERIODE)[number]["cle"];
+/** Catalogue de presets proposé par un sélecteur de période. */
+export type CataloguePresets = readonly { cle: PresetPeriode; libelle: string; groupe: string }[];
+
+export const PRESETS_AVEC_MOIS: CataloguePresets = [...PRESETS_MENSUELS, ...PRESETS_PERIODE];
+
+export type PresetPeriode = (typeof PRESETS_PERIODE)[number]["cle"] | (typeof PRESETS_MENSUELS)[number]["cle"];
 export type ChoixPeriode = PresetPeriode | "personnalise";
 
 export const PRESET_PAR_DEFAUT: PresetPeriode = "exercice";
 
 export function estPresetPeriode(valeur: unknown): valeur is PresetPeriode {
-  return PRESETS_PERIODE.some((p) => p.cle === valeur);
+  return PRESETS_AVEC_MOIS.some((p) => p.cle === valeur);
+}
+
+/** Mois civil entier situé `decalage` mois avant (négatif) celui de la date donnée. */
+function moisCivil(dateISO: string, decalage: number): Periode {
+  const date = parseDateISO(dateISO);
+  return {
+    debut: toISODate(new Date(date.getFullYear(), date.getMonth() + decalage, 1)),
+    fin: toISODate(new Date(date.getFullYear(), date.getMonth() + decalage + 1, 0)),
+  };
+}
+
+/** Dernier mois civil entièrement terminé à la date donnée (M-1). */
+export function getLastCompletedMonthRange(dateISO: string): Periode {
+  return moisCivil(dateISO, -1);
 }
 
 /** Bornes d'un preset à la date `aujourdhui`, d'après le début d'exercice de l'organisation. */
 export function periodeDuPreset(preset: PresetPeriode, aujourdhui: string, config: ConfigExercice): Periode {
   switch (preset) {
+    case "mois_m1":
+      return getLastCompletedMonthRange(aujourdhui);
+    case "mois_m2":
+      return moisCivil(aujourdhui, -2);
     case "exercice":
       return getFiscalYearRange(aujourdhui, config);
     case "exercice_n1":
@@ -197,8 +227,13 @@ export function periodeDuPreset(preset: PresetPeriode, aujourdhui: string, confi
  * Preset dont les bornes sont EXACTEMENT celles de la période, sinon null (période personnalisée).
  * Jamais de rapprochement vers le preset le plus proche.
  */
-export function presetCorrespondant(periode: Periode, aujourdhui: string, config: ConfigExercice): PresetPeriode | null {
-  for (const { cle } of PRESETS_PERIODE) {
+export function presetCorrespondant(
+  periode: Periode,
+  aujourdhui: string,
+  config: ConfigExercice,
+  catalogue: CataloguePresets = PRESETS_PERIODE
+): PresetPeriode | null {
+  for (const { cle } of catalogue) {
     const bornes = periodeDuPreset(cle, aujourdhui, config);
     if (bornes.debut === periode.debut && bornes.fin === periode.fin) return cle;
   }
@@ -218,8 +253,104 @@ export function periodeDeLaSelection(selection: SelectionPeriode, aujourdhui: st
   return selection.choix === "personnalise" ? selection.personnalisee : periodeDuPreset(selection.choix, aujourdhui, config);
 }
 
+export function selectionDuPreset(preset: PresetPeriode, aujourdhui: string, config: ConfigExercice): SelectionPeriode {
+  return { choix: preset, personnalisee: periodeDuPreset(preset, aujourdhui, config) };
+}
+
 export function selectionParDefaut(aujourdhui: string, config: ConfigExercice): SelectionPeriode {
-  return { choix: PRESET_PAR_DEFAUT, personnalisee: periodeDuPreset(PRESET_PAR_DEFAUT, aujourdhui, config) };
+  return selectionDuPreset(PRESET_PAR_DEFAUT, aujourdhui, config);
+}
+
+/**
+ * Sélection après la saisie libre d'une date : « Personnalisé », sauf si les dates tombent
+ * EXACTEMENT sur un preset du catalogue — jamais de rapprochement vers le plus proche.
+ */
+export function selectionApresSaisie(
+  dates: Periode,
+  aujourdhui: string,
+  config: ConfigExercice,
+  catalogue: CataloguePresets = PRESETS_PERIODE
+): SelectionPeriode {
+  return { choix: presetCorrespondant(dates, aujourdhui, config, catalogue) ?? "personnalise", personnalisee: dates };
+}
+
+/**
+ * Sélection après un choix dans la liste : un preset garde en réserve la dernière période libre ;
+ * « Personnalisé » part des dates actuellement affichées.
+ */
+export function selectionApresChoix(
+  choix: ChoixPeriode,
+  courante: SelectionPeriode,
+  aujourdhui: string,
+  config: ConfigExercice
+): SelectionPeriode {
+  return {
+    choix,
+    personnalisee: choix === "personnalise" ? periodeDeLaSelection(courante, aujourdhui, config) : courante.personnalisee,
+  };
+}
+
+// --- Durée d'une période, pour comparer deux périodes de longueurs différentes ---
+
+/** Durée fiscale naturelle de chaque preset, en mois. */
+const DUREE_MOIS_PRESET: Record<PresetPeriode, number> = {
+  mois_m1: 1,
+  mois_m2: 1,
+  exercice: 12,
+  exercice_n1: 12,
+  semestre_actuel: 6,
+  s1: 6,
+  s2: 6,
+  trimestre_actuel: 3,
+  q1: 3,
+  q2: 3,
+  q3: 3,
+  q4: 3,
+};
+
+/** Nombre de jours calendaires d'une période, bornes incluses. */
+export function nombreDeJours(periode: Periode): number {
+  const jour = 24 * 60 * 60 * 1000;
+  return Math.round((parseDateISO(periode.fin).getTime() - parseDateISO(periode.debut).getTime()) / jour) + 1;
+}
+
+export interface DureePeriode {
+  // Durée fiscale naturelle d'un preset ; null pour des dates libres, qui n'ont pas de nombre de
+  // mois exact — on ne leur en invente pas un.
+  mois: number | null;
+  jours: number;
+}
+
+export function dureeDeLaSelection(selection: SelectionPeriode, aujourdhui: string, config: ConfigExercice): DureePeriode {
+  return {
+    mois: selection.choix === "personnalise" ? null : DUREE_MOIS_PRESET[selection.choix],
+    jours: nombreDeJours(periodeDeLaSelection(selection, aujourdhui, config)),
+  };
+}
+
+/**
+ * Mise à l'échelle de deux périodes de durées différentes : la plus LONGUE est ramenée à la durée
+ * de la plus courte (coefficient = durée courte / durée longue). Unité : le mois quand les deux
+ * périodes sont des presets (un mois vaut un mois, qu'il ait 30 ou 31 jours), le jour dès que
+ * l'une des deux est faite de dates libres. Durées égales : aucun coefficient, tout reste réel.
+ */
+export interface Normalisation {
+  coefficientA: number;
+  coefficientB: number;
+  // null quand rien n'est normalisé.
+  detail: { cote: "A" | "B"; duree: string } | null;
+}
+
+export function normaliserDurees(a: DureePeriode, b: DureePeriode): Normalisation {
+  const enMois = a.mois !== null && b.mois !== null;
+  const dureeA = enMois ? (a.mois as number) : a.jours;
+  const dureeB = enMois ? (b.mois as number) : b.jours;
+  if (dureeA === dureeB || dureeA <= 0 || dureeB <= 0) return { coefficientA: 1, coefficientB: 1, detail: null };
+  const courte = Math.min(dureeA, dureeB);
+  const duree = enMois ? `${courte} mois` : `${courte} jour${courte > 1 ? "s" : ""}`;
+  return dureeA > dureeB
+    ? { coefficientA: dureeB / dureeA, coefficientB: 1, detail: { cote: "A", duree } }
+    : { coefficientA: 1, coefficientB: dureeA / dureeB, detail: { cote: "B", duree } };
 }
 
 // --- Persistance locale de la dernière période utilisée, PAR ORGANISATION ---

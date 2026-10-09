@@ -41,6 +41,13 @@ export const TEINTE_AUTRES = NEUTRES.autres;
 // histogramme est une grande surface de couleur ; le rose reste un accent.
 export const TEINTE_SERIE_PRINCIPALE = FAMILLE_BLEU_VERT[0];
 
+// Waterfall des écarts : une contribution améliore (bleu/vert) ou dégrade (rose) le Cash flow ; les
+// deux totaux de départ et d'arrivée sont neutres. Le signe est toujours écrit sur le barreau : la
+// couleur ne porte jamais l'information seule.
+export const TEINTE_AMELIORATION = FAMILLE_BLEU_VERT[1];
+export const TEINTE_DEGRADATION = FAMILLE_ROSE[4];
+export const TEINTE_TOTAL = NEUTRES.secondaire;
+
 // Atténuation des éléments non sélectionnés (la sélection, elle, garde sa couleur pleine).
 export const OPACITE_ATTENUEE = 0.25;
 

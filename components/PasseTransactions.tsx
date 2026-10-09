@@ -2,29 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import DateField from "./DateField";
+import PasseEcarts, { SelectionsEcarts } from "./PasseEcarts";
 import PasseGeneral from "./PasseGeneral";
 import PasseMappingTable from "./PasseMappingTable";
+import PasseSelecteurPeriode from "./PasseSelecteurPeriode";
 import PasseStocks from "./PasseStocks";
 import PastDetailDashboard from "./PastDetailDashboard";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, todayISO, toISODate } from "@/lib/dates";
 import {
-  ChoixPeriode,
   cleStockagePeriode,
   ConfigExercice,
   descriptionExercice,
   deserialiserSelection,
   EXERCICE_PAR_DEFAUT,
   configExerciceValide,
-  GROUPES_PRESETS,
   jourMaxDebutExercice,
   nomMoisExercice,
   periodeDeLaSelection,
-  periodeDuPreset,
-  presetCorrespondant,
-  PRESETS_PERIODE,
   SelectionPeriode,
+  selectionDuPreset,
   selectionParDefaut,
   serialiserSelection,
 } from "@/lib/fiscalPeriods";
@@ -99,6 +96,8 @@ interface PasseTransactionsProps {
 const LIGNES_PAR_PAGE = 50;
 
 // Onglets du module Passé. La période, choisie une fois, s'applique à tous.
+// Deux groupes dans la navigation : à gauche ce qu'on CONSULTE (du général au particulier, dans
+// l'ordre du P&L, puis l'analyse transversale), à droite ce qu'on RENSEIGNE ou configure.
 const ONGLETS = [
   { cle: "general", libelle: "Général" },
   { cle: "ca", libelle: "CA" },
@@ -106,8 +105,11 @@ const ONGLETS = [
   { cle: "marge_contributive", libelle: "Marge contributive" },
   { cle: "ebitda", libelle: "EBITDA" },
   { cle: "cash_flow", libelle: "Cash flow" },
-  { cle: "stocks", libelle: "Stocks" },
-  { cle: "mapping", libelle: "Correspondance P&L" },
+  // Dernier du groupe de consultation : ce n'est pas un étage de plus du P&L mais une lecture
+  // transversale. Mis en avant (rose de marque) même au repos, pour être repéré d'emblée.
+  { cle: "ecarts", libelle: "Analyse d'écarts", vedette: true },
+  { cle: "stocks", libelle: "Stocks", actions: true },
+  { cle: "mapping", libelle: "Correspondance P&L", actions: true },
   // Plus proposé dans la navigation : une liste brute de transactions, sans contexte, n'explique
   // aucun chiffre. Les transactions se consultent dans les écrans de détail, par étage, catégorie
   // et mois. La vue reste définie (rien d'autre n'est retiré) mais n'est plus atteignable.
@@ -356,10 +358,18 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   const mappingsIndexes = useMemo(() => indexerMappings(mappings), [mappings]);
   // Ajustements de gestion de la période, toutes natures confondues : ceux saisis tels quels et
   // les variations de stock, calculées à partir de la série entière des stocks.
-  const ajustements = useMemo(
-    () => ajustementsDeLaPeriode([...ajustementsSaisis, ...ajustementsDepuisStocks(stocks)], periode),
-    [ajustementsSaisis, stocks, periode]
+  const tousLesAjustements = useMemo(
+    () => [...ajustementsSaisis, ...ajustementsDepuisStocks(stocks)],
+    [ajustementsSaisis, stocks]
   );
+  const ajustements = useMemo(() => ajustementsDeLaPeriode(tousLesAjustements, periode), [tousLesAjustements, periode]);
+  // Périodes comparées dans l'onglet Écarts : état du module, donc conservé quand on change
+  // d'onglet puis qu'on y revient. null = jamais modifiées : M-2 contre M-1, en mois civils.
+  const [selectionsEcarts, setSelectionsEcarts] = useState<SelectionsEcarts | null>(null);
+  const selectionsEcartsCourantes: SelectionsEcarts = selectionsEcarts ?? {
+    a: selectionDuPreset("mois_m2", aujourdhui, configExercice),
+    b: selectionDuPreset("mois_m1", aujourdhui, configExercice),
+  };
   const pnl = useMemo(
     () => calculerPnl(stockees, axe.axeId, mappingsIndexes, ajustements),
     [stockees, axe.axeId, mappingsIndexes, ajustements]
@@ -479,18 +489,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     setSyncErreur(null);
   };
 
-  // Saisie libre d'une date : la sélection devient « Personnalisé », sauf si les dates tombent
-  // EXACTEMENT sur un preset — jamais de rapprochement vers le plus proche.
-  const changerPeriode = (patch: Partial<Periode>) => {
-    const dates = { ...periode, ...patch };
-    choisirPeriode({ choix: presetCorrespondant(dates, aujourdhui, configExercice) ?? "personnalise", personnalisee: dates });
-    apresChangementDePeriode();
-  };
-
-  // Choix dans la liste : un preset garde en réserve la dernière période libre ; « Personnalisé »
-  // part des dates affichées.
-  const choisirPreset = (choix: ChoixPeriode) => {
-    choisirPeriode({ choix, personnalisee: choix === "personnalise" ? periode : selectionCourante.personnalisee });
+  const changerSelectionPeriode = (suivante: SelectionPeriode) => {
+    choisirPeriode(suivante);
     apresChangementDePeriode();
   };
 
@@ -668,31 +668,18 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       <div className="passe__decor-bas" aria-hidden="true" />
       <div className="passe-controles">
         <div className="passe-controle passe-axe">
-          <label className="passe-controle__label" htmlFor="passe-periode-preset">
-            Période
-          </label>
-          <select
-            id="passe-periode-preset"
-            value={selectionCourante.choix}
-            onChange={(e) => choisirPreset(e.target.value as ChoixPeriode)}
-          >
-            {GROUPES_PRESETS.map((groupe) => (
-              <optgroup key={groupe} label={groupe}>
-                {PRESETS_PERIODE.filter((preset) => preset.groupe === groupe).map((preset) => {
-                  const dates = periodeDuPreset(preset.cle, aujourdhui, configExercice);
-                  return (
-                    <option key={preset.cle} value={preset.cle}>
-                      {preset.libelle} — {formatDateCourte(dates.debut)} → {formatDateCourte(dates.fin)}
-                    </option>
-                  );
-                })}
-              </optgroup>
-            ))}
-            <option value="personnalise">Personnalisé</option>
-          </select>
-          <DateField value={periode.debut} onChange={(v) => changerPeriode({ debut: v })} effacable={false} />
-          <span className="passe-controle__separateur">→</span>
-          <DateField value={periode.fin} onChange={(v) => changerPeriode({ fin: v })} effacable={false} />
+          {/* L'onglet Écarts compare deux périodes qui lui sont propres : la période du module n'y
+              joue pas, elle est masquée pour ne pas laisser croire le contraire. */}
+          {vue !== "ecarts" && (
+            <PasseSelecteurPeriode
+              id="passe-periode-preset"
+              libelle="Période"
+              selection={selectionCourante}
+              onChange={changerSelectionPeriode}
+              aujourdhui={aujourdhui}
+              configExercice={configExercice}
+            />
+          )}
 
           <div className="passe-filtre" ref={reglageExerciceRef}>
             <button
@@ -814,20 +801,26 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       {erreurStock && <p className="login-erreur">{erreurStock}</p>}
 
       <div className="passe-onglets" role="tablist">
-        {ONGLETS.filter((onglet) => !("horsNavigation" in onglet)).map((onglet) => (
-          <button
-            key={onglet.cle}
-            type="button"
-            role="tab"
-            aria-selected={vue === onglet.cle}
-            className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}`}
-            onClick={() => setVue(onglet.cle)}
-          >
-            {onglet.libelle}
-            {onglet.cle === "mapping" && nombreAMapper > 0 && (
-              <span className="passe-onglet__pastille">{nombreAMapper}</span>
-            )}
-          </button>
+        {[false, true].map((actions) => (
+          <div key={String(actions)} className="passe-onglets__groupe" role="presentation">
+            {ONGLETS.filter((onglet) => !("horsNavigation" in onglet) && "actions" in onglet === actions).map((onglet) => (
+              <button
+                key={onglet.cle}
+                type="button"
+                role="tab"
+                aria-selected={vue === onglet.cle}
+                className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}${
+                  "vedette" in onglet ? " passe-onglet--vedette" : ""
+                }`}
+                onClick={() => setVue(onglet.cle)}
+              >
+                {onglet.libelle}
+                {onglet.cle === "mapping" && nombreAMapper > 0 && (
+                  <span className="passe-onglet__pastille">{nombreAMapper}</span>
+                )}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
 
@@ -855,7 +848,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               </p>
               {selecteurAxe("passe-axe-a-configurer-select")}
             </div>
-          ) : (
+          ) : vue === "ecarts" ? null : (
             <div className="passe-indicateurs">
               <p className={`passe-non-categorise${nombreNonCategorisees > 0 ? " passe-non-categorise--alerte" : ""}`}>
                 {nombreNonCategorisees > 0 && <span aria-hidden="true">⚠ </span>}
@@ -889,7 +882,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
             </div>
           )}
 
-          {!axeAConfigurer && detailSignesOuvert && (nombreSignesInhabituels > 0 || nombreSignesValides > 0) && (
+          {!axeAConfigurer && vue !== "ecarts" && detailSignesOuvert && (nombreSignesInhabituels > 0 || nombreSignesValides > 0) && (
             <div className="passe-signes-detail">
               <div className="passe-tri" role="group" aria-label="Signes inhabituels à afficher">
                 <button
@@ -984,7 +977,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
             </div>
           )}
 
-          {!axeAConfigurer && vue !== "mapping" && vue !== "transactions" && vue !== "stocks" && pnl.nonMappees.nombreCategories > 0 && (
+          {!axeAConfigurer && vue !== "mapping" && vue !== "transactions" && vue !== "stocks" && vue !== "ecarts" && pnl.nonMappees.nombreCategories > 0 && (
             <p className="passe-message">
               Reporting incomplet :{" "}
               {pnl.nonMappees.nombreCategories > 1
@@ -1007,6 +1000,18 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               ajustements={ajustements}
               teintes={teintesCategories}
               onFiltresChange={retenirFiltresOnglet}
+            />
+          ) : vue === "ecarts" ? (
+            <PasseEcarts
+              organizationId={organizationId}
+              axeId={axe.axeId}
+              mappings={mappingsIndexes}
+              ajustements={tousLesAjustements}
+              aujourdhui={aujourdhui}
+              configExercice={configExercice}
+              selections={selectionsEcartsCourantes}
+              onChangeSelections={setSelectionsEcarts}
+              rechargement={rechargement}
             />
           ) : vue === "stocks" ? (
             <PasseStocks

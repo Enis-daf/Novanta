@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AjustementGestion, StockFinDeMois } from "./pastAdjustments";
 import { ConfigExercice, configExerciceValide, normaliserConfigExercice } from "./fiscalPeriods";
 import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./pastCategoryMapping";
+import { GroupeManuel } from "./flowGroups";
+import { CleEnregistree, clesARecalculer, FLOW_ENGINE_VERSION, FlowAlias } from "./flowMatching";
 import { ValidationSigne } from "./pastSignChecks";
 import {
   AffectationAnalytique,
@@ -273,6 +275,186 @@ export async function annulerValidationSigne(
     .eq("organization_id", organizationId)
     .eq("transaction_id", transactionId)
     .eq("source_category_id", sourceCategoryId);
+  if (error) throw error;
+}
+
+/**
+ * Suit une évolution du moteur de reconnaissance : les clés enregistrées sous une version
+ * antérieure sont recalculées à partir de leur libellé d'exemple (clesARecalculer), puis corrigées
+ * en base. Renvoie, pour chaque clé déplacée, sa nouvelle clé — ou null quand une autre ligne
+ * porte déjà cette nouvelle clé : l'ancienne ligne, devenue un doublon, est supprimée.
+ *
+ * La correction en base est faite au mieux : si elle échoue, la lecture réussit quand même avec
+ * les clés recalculées, et la correction sera retentée à la lecture suivante.
+ */
+async function suivreEvolutionDuMoteur(
+  supabase: SupabaseClient,
+  table: "past_flow_aliases" | "past_flow_group_members",
+  organizationId: string,
+  lignes: CleEnregistree[]
+): Promise<Map<string, string | null>> {
+  const { deplacees, confirmees } = clesARecalculer(lignes);
+  const cles = new Set(lignes.map((ligne) => ligne.cle));
+  const destinations = new Map<string, string | null>();
+  const ecritures: PromiseLike<{ error: unknown }>[] = [];
+  for (const { ancienne, nouvelle } of deplacees) {
+    const filtre = () => ({ organization_id: organizationId, canonical_flow_key: ancienne });
+    if (cles.has(nouvelle)) {
+      destinations.set(ancienne, null);
+      ecritures.push(supabase.from(table).delete().match(filtre()));
+    } else {
+      destinations.set(ancienne, nouvelle);
+      cles.add(nouvelle);
+      ecritures.push(supabase.from(table).update({ canonical_flow_key: nouvelle, engine_version: FLOW_ENGINE_VERSION }).match(filtre()));
+    }
+  }
+  for (const cle of confirmees) {
+    ecritures.push(supabase.from(table).update({ engine_version: FLOW_ENGINE_VERSION }).match({ organization_id: organizationId, canonical_flow_key: cle }));
+  }
+  if (ecritures.length > 0) {
+    const resultats = await Promise.all(ecritures);
+    const echecs = resultats.filter((r) => r.error).length;
+    console.warn(
+      `[passe/flux] step=engine-upgrade table=${table} organization=${organizationId} version=${FLOW_ENGINE_VERSION} deplacees=${deplacees.length} confirmees=${confirmees.length} echecs=${echecs}`
+    );
+  }
+  return destinations;
+}
+
+const cleEnregistree = (row: Row): CleEnregistree => ({
+  cle: row.canonical_flow_key as string,
+  exemple: (row.sample_label as string | null) ?? null,
+  version: (row.engine_version as string | null) ?? null,
+});
+
+/** Alias de flux de l'organisation (voir lib/flowMatching.ts). */
+export async function chargerAliasFlux(supabase: SupabaseClient, organizationId: string): Promise<FlowAlias[]> {
+  const { data, error } = await supabase
+    .from("past_flow_aliases")
+    .select("canonical_flow_key, display_name, sample_label, engine_version")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  const rows = (data ?? []) as Row[];
+  const destinations = await suivreEvolutionDuMoteur(supabase, "past_flow_aliases", organizationId, rows.map(cleEnregistree));
+  return rows
+    .filter((row) => destinations.get(row.canonical_flow_key as string) !== null)
+    .map((row) => ({
+      canonicalFlowKey: destinations.get(row.canonical_flow_key as string) ?? (row.canonical_flow_key as string),
+      displayName: row.display_name as string,
+    }));
+}
+
+/**
+ * Enregistre (ou remplace) le nom d'un flux pour chacune de ses identités propres. Chaque ligne
+ * garde le nom détecté, un libellé bancaire d'exemple et la version du moteur : de quoi recalculer
+ * la clé si le moteur évolue. Auteur et date : posés par trigger.
+ */
+export async function sauvegarderAliasFlux(
+  supabase: SupabaseClient,
+  organizationId: string,
+  displayName: string,
+  detectedName: string,
+  cles: { cle: string; exemple: string }[]
+): Promise<void> {
+  const { error } = await supabase.from("past_flow_aliases").upsert(
+    cles.map(({ cle, exemple }) => ({
+      organization_id: organizationId,
+      canonical_flow_key: cle,
+      display_name: displayName,
+      detected_name: detectedName,
+      sample_label: exemple,
+      engine_version: FLOW_ENGINE_VERSION,
+    })),
+    { onConflict: "organization_id,canonical_flow_key" }
+  );
+  if (error) throw error;
+}
+
+export async function supprimerAliasFlux(supabase: SupabaseClient, organizationId: string, cles: string[]): Promise<void> {
+  // Une suppression par clé, en égalité stricte : une clé contient des « : » et des espaces, qu'un
+  // filtre de liste interpréterait.
+  const resultats = await Promise.all(
+    cles.map((cle) => supabase.from("past_flow_aliases").delete().eq("organization_id", organizationId).eq("canonical_flow_key", cle))
+  );
+  const erreur = resultats.find((r) => r.error)?.error;
+  if (erreur) throw erreur;
+}
+
+/** Regroupements manuels de flux de l'organisation, avec leurs membres (voir lib/flowGroups.ts). */
+export async function chargerGroupesFlux(supabase: SupabaseClient, organizationId: string): Promise<GroupeManuel[]> {
+  const { data, error } = await supabase
+    .from("past_flow_groups")
+    .select("id, display_name, past_flow_group_members(canonical_flow_key, detected_name, sample_label, engine_version)")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  const rows = (data ?? []) as Row[];
+  const membresDe = (row: Row) => (row.past_flow_group_members as Row[] | null) ?? [];
+  const destinations = await suivreEvolutionDuMoteur(
+    supabase,
+    "past_flow_group_members",
+    organizationId,
+    rows.flatMap(membresDe).map(cleEnregistree)
+  );
+  return rows.map((row) => ({
+    id: row.id as string,
+    nom: row.display_name as string,
+    membres: membresDe(row)
+      .filter((membre) => destinations.get(membre.canonical_flow_key as string) !== null)
+      .map((membre) => ({
+        cle: destinations.get(membre.canonical_flow_key as string) ?? (membre.canonical_flow_key as string),
+        nomDetecte: (membre.detected_name as string | null) ?? "",
+        exemple: (membre.sample_label as string | null) ?? "",
+      })),
+  }));
+}
+
+/**
+ * Enregistre un groupe manuel et ses membres : crée ou renomme le groupe, puis y rattache chaque
+ * flux. Un flux déjà membre d'un autre groupe en change (une seule appartenance par organisation).
+ */
+export async function enregistrerGroupeFlux(supabase: SupabaseClient, organizationId: string, groupe: GroupeManuel): Promise<void> {
+  const { error } = await supabase
+    .from("past_flow_groups")
+    .upsert({ id: groupe.id, organization_id: organizationId, display_name: groupe.nom }, { onConflict: "id" });
+  if (error) throw error;
+  const { error: erreurMembres } = await supabase.from("past_flow_group_members").upsert(
+    groupe.membres.map((membre) => ({
+      organization_id: organizationId,
+      flow_group_id: groupe.id,
+      canonical_flow_key: membre.cle,
+      detected_name: membre.nomDetecte,
+      sample_label: membre.exemple,
+      engine_version: FLOW_ENGINE_VERSION,
+    })),
+    { onConflict: "organization_id,canonical_flow_key" }
+  );
+  if (erreurMembres) throw erreurMembres;
+}
+
+export async function renommerGroupeFlux(supabase: SupabaseClient, organizationId: string, groupeId: string, nom: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("past_flow_groups")
+    .update({ display_name: nom })
+    .eq("organization_id", organizationId)
+    .eq("id", groupeId)
+    .select("id");
+  if (error) throw error;
+  if ((data ?? []).length === 0) throw new Error("Aucun groupe modifié.");
+}
+
+/** Retire un flux de son groupe manuel. */
+export async function retirerFluxDuGroupe(supabase: SupabaseClient, organizationId: string, cle: string): Promise<void> {
+  const { error } = await supabase
+    .from("past_flow_group_members")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("canonical_flow_key", cle);
+  if (error) throw error;
+}
+
+/** Supprime un groupe manuel ; ses membres partent avec lui et redeviennent des flux individuels. */
+export async function supprimerGroupeFlux(supabase: SupabaseClient, organizationId: string, groupeId: string): Promise<void> {
+  const { error } = await supabase.from("past_flow_groups").delete().eq("organization_id", organizationId).eq("id", groupeId);
   if (error) throw error;
 }
 
