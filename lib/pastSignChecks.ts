@@ -52,6 +52,7 @@ export interface AnomalieSigne {
  * Anomalies de signe des transactions fournies (celles de la période affichée). Le contrôle porte
  * sur chaque part pondérée d'une transaction ventilée, dans l'étage de SA catégorie — pas sur la
  * seule catégorie principale. Les catégories non mappées n'ont pas d'étage, donc pas de règle.
+ * La liste est triée par impact décroissant (voir comparerAnomaliesParImpact).
  */
 export function anomaliesDeSigne(
   transactions: PastTransactionStockee[],
@@ -78,10 +79,68 @@ export function anomaliesDeSigne(
       });
     }
   }
-  return anomalies;
+  return anomalies.sort(comparerAnomaliesParImpact);
+}
+
+/**
+ * Ordre d'affichage : plus gros montant en valeur absolue d'abord, quel que soit le signe (le
+ * montant lui-même n'est pas modifié). À égalité : date la plus récente, puis identifiants, pour
+ * un ordre toujours identique.
+ */
+function comparerAnomaliesParImpact(a: AnomalieSigne, b: AnomalieSigne): number {
+  return (
+    Math.abs(b.montant) - Math.abs(a.montant) ||
+    b.transactionDate.localeCompare(a.transactionDate) ||
+    a.transactionId.localeCompare(b.transactionId) ||
+    a.sourceCategoryId.localeCompare(b.sourceCategoryId)
+  );
 }
 
 /** Nombre de TRANSACTIONS concernées (une transaction ventilée ne compte qu'une fois). */
 export function compterTransactionsAvecAnomalie(anomalies: AnomalieSigne[]): number {
   return new Set(anomalies.map((a) => a.transactionId)).size;
+}
+
+/**
+ * Validation d'une anomalie par l'utilisateur : « vérifiée, c'est normal ». Simple acquittement —
+ * la transaction, son montant et son mapping ne changent pas, et elle reste comptée partout.
+ */
+export interface ValidationSigne {
+  transactionId: string;
+  sourceCategoryId: string;
+  // Contexte dans lequel la validation a été donnée : elle ne vaut que pour lui.
+  etage: EtagePnl;
+  type: TypeAnomalieSigne;
+  validatedAt: string; // horodatage ISO
+}
+
+export interface AnomalieValidee extends AnomalieSigne {
+  validatedAt: string;
+}
+
+/**
+ * Sépare les anomalies détectées en « à vérifier » et « validées ». La détection elle-même ne
+ * change pas : la liste à vérifier est ce qui est détecté MOINS ce qui a été validé.
+ *
+ * Une validation ne couvre une anomalie que si elle porte sur la même transaction, la même
+ * catégorie, le même étage et la même règle de signe. Si la catégorie a changé d'étage depuis et
+ * que l'anomalie n'est plus la même, l'ancienne validation ne s'applique plus : l'anomalie revient
+ * à vérifier. L'ordre des anomalies (impact décroissant) est conservé dans les deux listes.
+ */
+export function repartirAnomalies(
+  anomalies: AnomalieSigne[],
+  validations: ValidationSigne[]
+): { aVerifier: AnomalieSigne[]; validees: AnomalieValidee[] } {
+  const parCle = new Map(validations.map((v) => [`${v.transactionId}:${v.sourceCategoryId}`, v]));
+  const aVerifier: AnomalieSigne[] = [];
+  const validees: AnomalieValidee[] = [];
+  for (const anomalie of anomalies) {
+    const validation = parCle.get(`${anomalie.transactionId}:${anomalie.sourceCategoryId}`);
+    if (validation && validation.etage === anomalie.etage && validation.type === anomalie.type) {
+      validees.push({ ...anomalie, validatedAt: validation.validatedAt });
+    } else {
+      aVerifier.push(anomalie);
+    }
+  }
+  return { aVerifier, validees };
 }

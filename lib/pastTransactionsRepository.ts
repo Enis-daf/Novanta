@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AjustementGestion, StockFinDeMois } from "./pastAdjustments";
 import { ConfigExercice, configExerciceValide, normaliserConfigExercice } from "./fiscalPeriods";
 import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./pastCategoryMapping";
+import { ValidationSigne } from "./pastSignChecks";
 import {
   AffectationAnalytique,
   AxeAnalytique,
@@ -218,6 +219,60 @@ export async function supprimerStock(supabase: SupabaseClient, organizationId: s
     .delete()
     .eq("organization_id", organizationId)
     .eq("month", `${mois}-01`);
+  if (error) throw error;
+}
+
+/** Validations de signe inhabituel de l'organisation (voir lib/pastSignChecks.ts::repartirAnomalies). */
+export async function chargerValidationsSigne(supabase: SupabaseClient, organizationId: string): Promise<ValidationSigne[]> {
+  const { data, error } = await supabase
+    .from("past_transaction_sign_validations")
+    .select("transaction_id, source_category_id, pnl_stage_at_validation, sign_rule_at_validation, validated_at")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  return ((data ?? []) as Row[]).map((row) => ({
+    transactionId: row.transaction_id as string,
+    sourceCategoryId: row.source_category_id as string,
+    etage: row.pnl_stage_at_validation as ValidationSigne["etage"],
+    type: row.sign_rule_at_validation as ValidationSigne["type"],
+    validatedAt: row.validated_at as string,
+  }));
+}
+
+/**
+ * Valide une anomalie de signe dans son contexte actuel (étage, règle). Remplace une éventuelle
+ * validation antérieure de la même part, donnée dans un autre contexte. Auteur et date : posés par
+ * trigger.
+ */
+export async function validerSigne(
+  supabase: SupabaseClient,
+  organizationId: string,
+  validation: Omit<ValidationSigne, "validatedAt">
+): Promise<void> {
+  const { error } = await supabase.from("past_transaction_sign_validations").upsert(
+    {
+      organization_id: organizationId,
+      transaction_id: validation.transactionId,
+      source_category_id: validation.sourceCategoryId,
+      pnl_stage_at_validation: validation.etage,
+      sign_rule_at_validation: validation.type,
+    },
+    { onConflict: "organization_id,transaction_id,source_category_id" }
+  );
+  if (error) throw error;
+}
+
+export async function annulerValidationSigne(
+  supabase: SupabaseClient,
+  organizationId: string,
+  transactionId: string,
+  sourceCategoryId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("past_transaction_sign_validations")
+    .delete()
+    .eq("organization_id", organizationId)
+    .eq("transaction_id", transactionId)
+    .eq("source_category_id", sourceCategoryId);
   if (error) throw error;
 }
 

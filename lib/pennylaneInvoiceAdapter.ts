@@ -26,6 +26,8 @@ export interface ResultatSyncPennylane {
   nombreClientsAjoutes: number;
   nombreFournisseursAjoutes: number;
   nombreMarquesPayees: number;
+  // Factures fournisseurs déjà importées dont la version Pennylane est désormais archivée : retirées.
+  nombreArchiveesRetirees: number;
   erreurClients: string | null;
   erreurFournisseurs: string | null;
 }
@@ -56,7 +58,13 @@ export function messageSyncPennylane(r: ResultatSyncPennylane): string {
   const payees = `${r.nombreMarquesPayees} ${pluriel(r.nombreMarquesPayees, "facture")} marquée${
     r.nombreMarquesPayees > 1 ? "s" : ""
   } payée${r.nombreMarquesPayees > 1 ? "s" : ""}`;
-  return `Pennylane synchronisé — Fournisseurs : ${fournisseurs}. Clients : ${clients}. ${payees} au total.`;
+  const retirees =
+    r.nombreArchiveesRetirees > 0
+      ? ` ${r.nombreArchiveesRetirees} ${pluriel(r.nombreArchiveesRetirees, "facture")} archivée${
+          r.nombreArchiveesRetirees > 1 ? "s" : ""
+        } dans Pennylane retirée${r.nombreArchiveesRetirees > 1 ? "s" : ""}.`
+      : "";
+  return `Pennylane synchronisé — Fournisseurs : ${fournisseurs}. Clients : ${clients}. ${payees} au total.${retirees}`;
 }
 
 /**
@@ -69,6 +77,13 @@ export function estAvoir(montant: string | number): boolean {
   return Number(montant) < 0;
 }
 
+/**
+ * Pourquoi une facture Pennylane n'est pas importée dans Novanta :
+ *  - "payee"    : Pennylane la considère réglée ;
+ *  - "archivee" : version archivée ou annulée — elle n'est plus la facture de référence.
+ */
+export type MotifSolde = "payee" | "archivee";
+
 /** Candidat générique (client ou fournisseur) prêt à être comparé à l'existant Novanta. */
 export interface CandidatFacturePennylane {
   pennylaneId: string;
@@ -76,7 +91,127 @@ export interface CandidatFacturePennylane {
   tiers: string; // nom du client ou du fournisseur
   montant: number; // toujours positif — le sens (entrée/sortie) est déterminé par le type, jamais ici
   dateEcheance: string; // YYYY-MM-DD, "" si Pennylane n'en fournit aucune
+  payee: boolean; // true = réglée selon Pennylane (voir decisionPaiementFournisseur / decisionPaiementClient)
+  motifSolde?: MotifSolde | null; // non null = jamais importée (voir MotifSolde)
+  // Facture fournisseur archivée dans Pennylane : jamais importée, et retirée de Novanta si elle y
+  // est déjà (voir calculerSynchronisation). Ce n'est pas une facture de trésorerie active.
+  aRetirer?: boolean;
+}
+
+// --- Statut de paiement : SEUL endroit où il se décide ---
+
+/**
+ * Statuts de paiement d'une facture FOURNISSEUR (champ payment_status de l'API). payment_status
+ * décrit le workflow de paiement, pas le règlement (voir estPayeeFournisseur) : seuls les deux
+ * statuts terminaux valent « payée », les autres ne servent qu'à repérer un statut inconnu.
+ */
+export const STATUTS_PAIEMENT_FOURNISSEUR = {
+  // Statuts terminaux : la facture est réglée même si `paid` est resté à false.
+  payes: ["fully_paid", "paid_offline"],
+  // Statuts de workflow : ils ne disent rien du règlement.
+  ouverts: [
+    "to_be_processed",
+    "to_be_paid",
+    "partially_paid",
+    "payment_error",
+    "payment_scheduled",
+    "payment_in_progress",
+    "payment_emitted",
+    "payment_found",
+  ],
+} as const;
+
+/** Statuts d'une facture CLIENT (champ status de l'API) qui la soldent. */
+export const STATUTS_FACTURE_CLIENT = {
+  payes: ["paid"],
+  retires: ["archived", "cancelled"],
+} as const;
+
+const inclut = (liste: readonly string[], valeur: string | null | undefined) => typeof valeur === "string" && liste.includes(valeur);
+
+export interface DecisionPaiement {
   payee: boolean;
+  motifSolde: MotifSolde | null;
+  // Statut de paiement que ce code ne connaît pas : jamais deviné. La facture suit alors le booléen
+  // `paid`, et le statut est remonté pour être journalisé.
+  statutInconnu: string | null;
+}
+
+// Part du montant qu'un règlement rapproché doit couvrir pour que la facture soit tenue pour réglée.
+// Choix de Novanta, pas une donnée Pennylane : les règlements observés à montant différent de la
+// facture (change, frais, prélèvement forfaitaire) couvrent au moins 85 % ; un acompte reste en dessous.
+export const SEUIL_COUVERTURE_REGLEMENT = 0.8;
+
+/**
+ * Facture fournisseur ACTIVE réglée ? Quatre signaux, chacun suffisant, tous constatés sur la
+ * réponse réelle de l'API :
+ *  1. `paid` à true — y compris quand payment_status est encore to_be_processed / to_be_paid ;
+ *  2. payment_status fully_paid ou paid_offline — `paid` y reste parfois à false ;
+ *  3. reste à payer exactement nul — une facture entièrement couverte par ses règlements mais en
+ *     attente de validation comptable garde `paid` à false et un statut ouvert ;
+ *  4. règlement rapproché couvrant au moins SEUIL_COUVERTURE_REGLEMENT du montant — la facture est
+ *     réglée par une transaction d'un montant légèrement différent, et le reliquat n'est pas un
+ *     décaissement à venir.
+ * Le reste à payer d'une facture fournisseur est NÉGATIF tant qu'il reste dû, et vaut
+ * -(montant - total rapproché) : `montant + reste` est donc le total rapproché. Un reste égal à
+ * -montant (rien de rapproché) ou un acompte ne valent jamais « payée ». Absent ou illisible, le
+ * reste à payer n'est pas pris en compte.
+ */
+export function estPayeeFournisseur(item: {
+  paid: boolean;
+  payment_status?: string | null;
+  remaining_amount_with_tax?: string | null;
+  amount?: string | null;
+}): boolean {
+  if (item.paid === true || inclut(STATUTS_PAIEMENT_FOURNISSEUR.payes, item.payment_status)) return true;
+  const brut = item.remaining_amount_with_tax;
+  if (typeof brut !== "string" || brut.trim() === "") return false;
+  const reste = Number(brut);
+  if (!Number.isFinite(reste)) return false;
+  if (reste === 0) return true;
+  const montant = Number(item.amount);
+  return Number.isFinite(montant) && montant > 0 && reste < 0 && montant + reste >= SEUIL_COUVERTURE_REGLEMENT * montant;
+}
+
+/** Version archivée d'une facture fournisseur (accounting_status "archived" ou archived_at renseigné). */
+export function estArchiveeFournisseur(item: { accounting_status?: string | null; archived_at?: string | null }): boolean {
+  return item.accounting_status === "archived" || Boolean(item.archived_at);
+}
+
+/**
+ * Facture fournisseur : une version archivée n'est pas une facture de trésorerie (motif
+ * "archivee", jamais marquée Payée à ce titre) ; sinon `payee` vient de estPayeeFournisseur.
+ */
+export function decisionPaiementFournisseur(item: {
+  paid: boolean;
+  payment_status?: string | null;
+  remaining_amount_with_tax?: string | null;
+  amount?: string | null;
+  accounting_status?: string | null;
+  archived_at?: string | null;
+}): DecisionPaiement {
+  const payee = estPayeeFournisseur(item);
+  const connu =
+    item.payment_status == null ||
+    inclut(STATUTS_PAIEMENT_FOURNISSEUR.payes, item.payment_status) ||
+    inclut(STATUTS_PAIEMENT_FOURNISSEUR.ouverts, item.payment_status);
+  return {
+    payee,
+    motifSolde: estArchiveeFournisseur(item) ? "archivee" : payee ? "payee" : null,
+    statutInconnu: connu ? null : (item.payment_status as string),
+  };
+}
+
+/**
+ * Facture client : pas de payment_status côté clients, le champ `status` et le booléen `paid` font
+ * foi. Une facture archivée ou annulée reste marquée Payée (comportement inchangé).
+ */
+export function decisionPaiementClient(item: { paid: boolean; status?: string | null; archived_at?: string | null }): DecisionPaiement {
+  if (inclut(STATUTS_FACTURE_CLIENT.retires, item.status) || item.archived_at) {
+    return { payee: true, motifSolde: "archivee", statutInconnu: null };
+  }
+  const payee = item.paid === true || inclut(STATUTS_FACTURE_CLIENT.payes, item.status);
+  return { payee, motifSolde: payee ? "payee" : null, statutInconnu: null };
 }
 
 // Format observé sur des libellés réels Pennylane :
@@ -122,14 +257,14 @@ interface FactureBrutePennylane {
 
 /**
  * Construit un candidat à partir d'une facture brute Pennylane (client ou fournisseur — même
- * forme minimale pour les deux, voir FactureBrutePennylane). `paid` (booléen renvoyé directement
- * par l'API) est la SEULE source du statut de paiement retenue : les deux types de facture ont des
- * vocabulaires de statut textuel différents et non garantis alignés, `paid` est le seul champ dont
- * la sémantique ("soldée ou non") est commune et sans ambiguïté aux deux.
+ * forme minimale pour les deux, voir FactureBrutePennylane). Le statut de paiement est décidé par
+ * l'appelant (decisionPaiementFournisseur / decisionPaiementClient) : il ne se lit pas de la même
+ * façon pour les deux types de facture, et jamais sur le seul booléen `paid`.
  */
 function candidatDepuisFactureBrute(
   brute: FactureBrutePennylane,
-  libelleGeneriqueTiers: string
+  libelleGeneriqueTiers: string,
+  decision: DecisionPaiement
 ): CandidatFacturePennylane | null {
   if (estAvoir(brute.amount)) return null;
   const montant = Math.abs(Number(brute.amount));
@@ -142,19 +277,54 @@ function candidatDepuisFactureBrute(
     tiers,
     montant,
     dateEcheance: brute.deadline ?? brute.date ?? "",
-    payee: brute.paid === true,
+    payee: decision.payee,
+    motifSolde: decision.motifSolde,
   };
 }
 
 /** Retourne null pour un brouillon ou un avoir : ni l'un ni l'autre n'est importé en V1. */
 export function candidatFactureClient(item: PennylaneCustomerInvoiceListItem): CandidatFacturePennylane | null {
   if (item.draft) return null;
-  return candidatDepuisFactureBrute(item, "Client Pennylane");
+  return candidatDepuisFactureBrute(item, "Client Pennylane", decisionPaiementClient(item));
 }
 
 /** Pas de notion de brouillon côté factures fournisseurs (jamais observée dans l'API). */
 export function candidatFactureFournisseur(item: PennylaneSupplierInvoiceListItem): CandidatFacturePennylane | null {
-  return candidatDepuisFactureBrute(item, "Fournisseur Pennylane");
+  const candidat = candidatDepuisFactureBrute(item, "Fournisseur Pennylane", decisionPaiementFournisseur(item));
+  return candidat && estArchiveeFournisseur(item) ? { ...candidat, aRetirer: true } : candidat;
+}
+
+export interface CandidatsPennylane {
+  candidats: CandidatFacturePennylane[];
+  // Statuts de paiement inconnus rencontrés, avec leur nombre d'occurrences : à journaliser.
+  statutsInconnus: Record<string, number>;
+}
+
+/**
+ * Toutes les factures fournisseurs d'une réponse Pennylane -> candidats Novanta. Chaque objet
+ * Pennylane est traité pour lui-même, par son identifiant : deux versions d'un même numéro ne sont
+ * jamais départagées ici.
+ */
+export function candidatsFournisseursPennylane(items: PennylaneSupplierInvoiceListItem[]): CandidatsPennylane {
+  const candidats: CandidatFacturePennylane[] = [];
+  const statutsInconnus: Record<string, number> = {};
+  for (const item of items) {
+    const { statutInconnu } = decisionPaiementFournisseur(item);
+    if (statutInconnu) statutsInconnus[statutInconnu] = (statutsInconnus[statutInconnu] ?? 0) + 1;
+    const candidat = candidatFactureFournisseur(item);
+    if (candidat) candidats.push(candidat);
+  }
+  return { candidats, statutsInconnus };
+}
+
+/** Toutes les factures clients d'une réponse Pennylane -> candidats Novanta. */
+export function candidatsClientsPennylane(items: PennylaneCustomerInvoiceListItem[]): CandidatsPennylane {
+  const candidats: CandidatFacturePennylane[] = [];
+  for (const item of items) {
+    const candidat = candidatFactureClient(item);
+    if (candidat) candidats.push(candidat);
+  }
+  return { candidats, statutsInconnus: {} };
 }
 
 /** Facture Novanta existante, réduite aux seuls champs nécessaires au calcul de synchronisation. */
@@ -167,10 +337,13 @@ export interface FactureExistantePourSync {
 export interface ResultatCalculSynchronisation {
   aInserer: CandidatFacturePennylane[];
   idsAMettreAJourPayee: string[]; // ids NOVANTA (pas pennylaneId) à patcher payee=true
+  idsASupprimer: string[]; // ids NOVANTA dont la version Pennylane est archivée
 }
 
 /**
  * Cœur de l'algorithme de synchronisation (voir diagnostic §12) :
+ *   - candidat archivé dans Pennylane (aRetirer) -> jamais importé ; déjà connu, il est SUPPRIMÉ de
+ *     Novanta, payé ou non : une version archivée n'est plus une facture de trésorerie ;
  *   - candidat absent de Novanta, non payée -> INSERT ;
  *   - candidat absent de Novanta, déjà payée -> jamais importée (règle produit A : on ne récupère
  *     que les factures ouvertes) ;
@@ -182,7 +355,7 @@ export interface ResultatCalculSynchronisation {
  * la règle absolue "jamais Payée true -> false" est donc garantie par construction, pas seulement
  * par convention d'appel.
  * Idempotente par construction : ré-appliquer avec les mêmes candidats sur un état Novanta déjà
- * synchronisé renvoie aInserer=[] et idsAMettreAJourPayee=[].
+ * synchronisé renvoie aInserer=[], idsAMettreAJourPayee=[] et idsASupprimer=[].
  */
 export function calculerSynchronisation(
   candidats: CandidatFacturePennylane[],
@@ -195,9 +368,15 @@ export function calculerSynchronisation(
 
   const aInserer: CandidatFacturePennylane[] = [];
   const idsAMettreAJourPayee: string[] = [];
+  const idsASupprimer: string[] = [];
 
   for (const candidat of candidats) {
     const existante = existanteParPennylaneId.get(candidat.pennylaneId);
+
+    if (candidat.aRetirer) {
+      if (existante) idsASupprimer.push(existante.id);
+      continue;
+    }
 
     if (!existante) {
       if (!candidat.payee) aInserer.push(candidat);
@@ -209,7 +388,7 @@ export function calculerSynchronisation(
     }
   }
 
-  return { aInserer, idsAMettreAJourPayee };
+  return { aInserer, idsAMettreAJourPayee, idsASupprimer };
 }
 
 /**

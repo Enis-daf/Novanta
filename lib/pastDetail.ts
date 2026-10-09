@@ -1,6 +1,6 @@
 import { estDateValide, parseDateISO } from "./dates";
 import { AjustementGestion, LigneAjustement, moisDe, regrouperAjustements, sommeAjustements } from "./pastAdjustments";
-import { EtagePnl, MappingCategorie, ventilerTransaction } from "./pastCategoryMapping";
+import { EtagePnl, libelleEtagePnl, MappingCategorie, ventilerTransaction } from "./pastCategoryMapping";
 import { PnlCategorie, SensStructure, Structure, structureParCategorie } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
 
@@ -106,7 +106,7 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
     libelle: "Marge contributive",
     etagesKpi: ["revenue", "gross_margin", "contribution_margin"],
     etagesDetail: ["contribution_margin"],
-    libelleDetail: "Coûts commerciaux",
+    libelleDetail: libelleEtagePnl("contribution_margin"),
     repartition: { type: "camembert", sens: "couts", maxCategories: 5 },
     ratioSurCa: true,
   },

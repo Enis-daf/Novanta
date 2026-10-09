@@ -20,6 +20,7 @@ export default function PassePage() {
   // local sans Supabase) renvoie vers Futur.
   const [autorise, setAutorise] = useState(false);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [organizationName, setOrganizationName] = useState("");
 
   useEffect(() => {
     if (!supabaseConfigured) {
@@ -78,6 +79,7 @@ export default function PassePage() {
         return;
       }
       setOrganizationId(company.id);
+      setOrganizationName(company.name);
       setAutorise(true);
     })().catch((error) => {
       if (annule) return;
@@ -123,7 +125,12 @@ export default function PassePage() {
       </header>
       {/* `key` : une organisation = une instance du module ; son état (période comprise) ne passe
           jamais à une autre organisation. */}
-      <PasseTransactions key={organizationId} organizationId={organizationId} accessToken={session.access_token} />
+      <PasseTransactions
+        key={organizationId}
+        organizationId={organizationId}
+        organizationName={organizationName}
+        accessToken={session.access_token}
+      />
       {/* Rappel permanent, commun à tous les onglets du module : posé ici, sous la surface du module,
           pour ne dépendre d'aucun écran en particulier. */}
       <p className="passe-disclaimer">

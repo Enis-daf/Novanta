@@ -1945,6 +1945,10 @@ input[type="checkbox"] {
 
 .passe-controles__actions {
   margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .passe-controles__actions .btn-add {
@@ -2574,6 +2578,16 @@ input[type="checkbox"] {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+.passe-signes-detail__retour {
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-signes-detail__action {
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* Histogramme mensuel et, à côté, le bloc des ajustements de gestion qu'il inclut. Sans

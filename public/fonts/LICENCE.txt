@@ -1,0 +1,7 @@
+Lexend-Regular.ttf et Lexend-SemiBold.ttf sont des instances statiques (graisses 400 et 600,
+jeu de caractères latin) de la police Lexend, embarquées dans l'export PDF du module Passé.
+
+Copyright 2019 The Lexend Project Authors (https://github.com/googlefonts/lexend)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is available with a FAQ at: https://scripts.sil.org/OFL
