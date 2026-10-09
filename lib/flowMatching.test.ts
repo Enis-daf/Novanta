@@ -1,6 +1,11 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  aliasFlowKey,
+  FLOW_ENGINE_VERSION,
+  LONGUEUR_MAX_ALIAS,
+  normaliserNomAlias,
+  resoudreAlias,
   buildCanonicalFlowIdentity,
   calculateSimilarity,
   extractStableTokens,
@@ -218,5 +223,46 @@ describe("rapprochement prudent entre contreparties voisines", () => {
         tokens: undefined,
       }
     );
+  });
+});
+
+// Les alias de l'organisation sont enregistrés sous ces identités. Ce test les fige : s'il échoue,
+// c'est qu'une évolution du moteur a changé une identité — les alias existants ne seraient plus
+// retrouvés. Il faut alors incrémenter FLOW_ENGINE_VERSION et recalculer les alias enregistrés à
+// partir de leur libellé d'exemple (colonne sample_label), pas seulement corriger ce test.
+describe("contrat des identités (clés des alias de flux)", () => {
+  test("version du moteur", () => assert.equal(FLOW_ENGINE_VERSION, "1"));
+
+  const attendues: [string, string | null][] = [
+    ["PRELEVEMENT CREANCE 021618 RECLAMEE", "tiers:creance"],
+    ["PRLV CREANCE 030426", "tiers:creance"],
+    ["CREANCE RECLAMEE 987654", "tiers:creance reclamee"],
+    ["PRLV SEPA FACEBOOK ID EMETTEUR/FR12ZZZ123456 MDT/ABC123 LIB/FACEBOOK ADS 0425", "sepa:FR12ZZZ123456:ABC123"],
+    ["VIREMENT EMIS VIR INST vers SARL EUROPCAM commande 000066266", "tiers:europcam"],
+    ["ABC 1234", "texte:abc 1234"],
+    ["", null],
+  ];
+  for (const [libelle, cle] of attendues) {
+    test(`« ${libelle} » -> ${cle}`, () => assert.equal(aliasFlowKey(libelle), cle));
+  }
+});
+
+describe("alias de flux — nom saisi et résolution", () => {
+  test("nom nettoyé ; vide ou trop long refusé", () => {
+    assert.equal(normaliserNomAlias("  Remboursement   Dailly "), "Remboursement Dailly");
+    assert.equal(normaliserNomAlias("   "), null);
+    assert.equal(normaliserNomAlias("x".repeat(LONGUEUR_MAX_ALIAS)), "x".repeat(LONGUEUR_MAX_ALIAS));
+    assert.equal(normaliserNomAlias("x".repeat(LONGUEUR_MAX_ALIAS + 1)), null);
+  });
+
+  test("sans alias -> null ; l'identité du groupe est prioritaire sur ses voisines", () => {
+    const alias = new Map([
+      ["tiers:europcam", "Europcam (caméras)"],
+      ["tiers:europcam germain", "Boutique Saint-Germain"],
+    ]);
+    assert.equal(resoudreAlias(["tiers:creance"], "tiers:creance", alias), null);
+    assert.equal(resoudreAlias(["tiers:europcam germain", "tiers:europcam"], "tiers:europcam", alias), "Europcam (caméras)");
+    // Le groupe ne contient que la voisine (l'autre est absente de cette comparaison) : son alias joue.
+    assert.equal(resoudreAlias(["tiers:europcam germain"], "tiers:europcam germain", alias), "Boutique Saint-Germain");
   });
 });

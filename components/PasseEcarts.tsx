@@ -13,18 +13,19 @@ import {
   PRESETS_AVEC_MOIS,
   SelectionPeriode,
 } from "@/lib/fiscalPeriods";
-import { MatchMethod } from "@/lib/flowMatching";
+import { FlowAlias, LONGUEUR_MAX_ALIAS, MatchMethod, normaliserNomAlias } from "@/lib/flowMatching";
 import { formatMontant, formatPourcentage } from "@/lib/format";
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import { EtagePnl, MappingCategorie } from "@/lib/pastCategoryMapping";
 import { TRI_TRANSACTIONS_PAR_DEFAUT, trierTransactions, TriTransactions } from "@/lib/pastDetail";
 import { PastTransactionStockee, Periode, periodeValide } from "@/lib/pastTransactions";
-import { chargerPastTransactions } from "@/lib/pastTransactionsRepository";
+import { chargerAliasFlux, chargerPastTransactions, sauvegarderAliasFlux, supprimerAliasFlux } from "@/lib/pastTransactionsRepository";
 import {
   categoriesDeLEtage,
   comparerPeriodes,
   donneesPeriode,
   ETAGES_ECARTS,
+  GroupeLibelle,
   groupesDeLibelles,
   PartComparee,
   transactionsDuGroupe,
@@ -119,6 +120,28 @@ export default function PasseEcarts({
   const [tri, setTri] = useState<TriTransactions>(TRI_TRANSACTIONS_PAR_DEFAUT);
   const [nombreAffiche, setNombreAffiche] = useState(PAS_AFFICHAGE);
 
+  // Noms donnés par l'organisation aux flux reconnus (en base). Ils ne changent que l'affichage.
+  const [aliasFlux, setAliasFlux] = useState<FlowAlias[]>([]);
+  const [renommage, setRenommage] = useState<{ cle: string; saisie: string } | null>(null);
+  const [erreurAlias, setErreurAlias] = useState<string | null>(null);
+  const aliasParCle = useMemo(() => new Map(aliasFlux.map((a) => [a.canonicalFlowKey, a.displayName])), [aliasFlux]);
+
+  useEffect(() => {
+    let annule = false;
+    // Indisponibles : l'analyse s'affiche quand même, sous les noms détectés.
+    chargerAliasFlux(supabase!, organizationId)
+      .then((alias) => {
+        if (!annule) setAliasFlux(alias);
+      })
+      .catch((error) => {
+        const code = (error as { code?: string } | null)?.code ?? "inconnu";
+        console.error(`[passe/alias] step=load organization=${organizationId} code=${code}`);
+      });
+    return () => {
+      annule = true;
+    };
+  }, [organizationId]);
+
   useEffect(() => {
     if (!periodesOk) {
       setTransactions(null);
@@ -156,8 +179,8 @@ export default function PasseEcarts({
   const comparaison = useMemo(() => donnees && comparerPeriodes(donnees.a, donnees.b), [donnees]);
   const categories = useMemo(() => (donnees && etage ? categoriesDeLEtage(donnees.a, donnees.b, etage) : []), [donnees, etage]);
   const groupes = useMemo(
-    () => (donnees && etage ? groupesDeLibelles(donnees.a, donnees.b, etage, categorie) : []),
-    [donnees, etage, categorie]
+    () => (donnees && etage ? groupesDeLibelles(donnees.a, donnees.b, etage, categorie, aliasParCle) : []),
+    [donnees, etage, categorie, aliasParCle]
   );
   const transactionsGroupe = useMemo(
     () =>
@@ -182,6 +205,39 @@ export default function PasseEcarts({
     setTri(TRI_TRANSACTIONS_PAR_DEFAUT);
     setNombreAffiche(PAS_AFFICHAGE);
   };
+  // Renommage d'un flux : le nom s'applique tout de suite, puis l'enregistrement ; en cas d'échec,
+  // retour aux noms précédents. L'alias porte sur toutes les identités propres du groupe.
+  const modifierAlias = (suivant: FlowAlias[], enregistrer: () => Promise<void>, etape: string) => {
+    const precedent = aliasFlux;
+    setAliasFlux(suivant);
+    setRenommage(null);
+    setErreurAlias(null);
+    enregistrer().catch((error) => {
+      const code = (error as { code?: string } | null)?.code ?? "inconnu";
+      console.error(`[passe/alias] step=${etape} organization=${organizationId} code=${code}`);
+      setAliasFlux(precedent);
+      setErreurAlias("Le nom n'a pas pu être enregistré. Réessayez.");
+    });
+  };
+  const enregistrerNom = (g: GroupeLibelle) => {
+    const nom = renommage ? normaliserNomAlias(renommage.saisie) : null;
+    if (nom === null || g.clesAlias.length === 0) return;
+    const cles = new Set(g.clesAlias.map((c) => c.cle));
+    modifierAlias(
+      [...aliasFlux.filter((a) => !cles.has(a.canonicalFlowKey)), ...g.clesAlias.map((c) => ({ canonicalFlowKey: c.cle, displayName: nom }))],
+      () => sauvegarderAliasFlux(supabase!, organizationId, nom, g.libelleDetecte, g.clesAlias),
+      "save"
+    );
+  };
+  const reinitialiserNom = (g: GroupeLibelle) => {
+    const cles = g.clesAlias.map((c) => c.cle);
+    modifierAlias(
+      aliasFlux.filter((a) => !cles.includes(a.canonicalFlowKey)),
+      () => supprimerAliasFlux(supabase!, organizationId, cles),
+      "reset"
+    );
+  };
+
   const changerPeriodes = (suivantes: SelectionsEcarts) => {
     onChangeSelections(suivantes);
     setGroupe(null);
@@ -365,6 +421,7 @@ export default function PasseEcarts({
               {groupeOuvert.libelle}
               <span className="passe-detail__compte"> {transactionsGroupe.length}</span>
             </h3>
+            {groupeOuvert.alias && <p className="passe-detail__source">Flux détecté : {groupeOuvert.libelleDetecte}</p>}
             {normalisation && (
               <p className="passe-reserve">
                 Les montants de comparaison sont normalisés sur {normalisation.duree}. Les transactions ci-dessous sont
@@ -439,6 +496,7 @@ export default function PasseEcarts({
               contrepartie une fois retirés l&apos;habillage bancaire et les références) sont additionnées sur chaque
               période. Cliquez sur une ligne pour voir les transactions d&apos;origine.
             </p>
+            {erreurAlias && <p className="login-erreur">{erreurAlias}</p>}
             {groupesAffiches.length === 0 ? (
               <p className="passe-structure__vide">
                 {groupes.length === 0 ? "Aucune transaction dans ce périmètre sur les deux périodes." : "Aucun changement : tout est stable."}
@@ -458,15 +516,66 @@ export default function PasseEcarts({
                     {groupesAffiches.slice(0, nombreAffiche).map((g) => (
                       <tr key={g.cle}>
                         <td className="passe-table__libelle">
-                          {/* Infobulle : pourquoi ces transactions sont réunies (méthode et confiance). */}
-                          <button
-                            type="button"
-                            className="passe-lien-ligne"
-                            title={`Regroupement : ${METHODES[g.matchMethod]} (confiance ${Math.round(g.confidenceScore * 100)} %)`}
-                            onClick={() => ouvrirGroupe(g.cle)}
-                          >
-                            {g.libelle || "—"}
-                          </button>
+                          {renommage?.cle === g.cle ? (
+                            <form
+                              className="passe-renommage"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                enregistrerNom(g);
+                              }}
+                            >
+                              <input
+                                type="text"
+                                aria-label={`Nouveau nom du flux ${g.libelleDetecte}`}
+                                value={renommage.saisie}
+                                maxLength={LONGUEUR_MAX_ALIAS}
+                                autoFocus
+                                onChange={(e) => setRenommage({ cle: g.cle, saisie: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Escape") setRenommage(null);
+                                }}
+                              />
+                              <button type="submit" className="btn-secondaire btn-module--actif" disabled={normaliserNomAlias(renommage.saisie) === null}>
+                                Enregistrer
+                              </button>
+                              <button type="button" className="btn-secondaire" onClick={() => setRenommage(null)}>
+                                Annuler
+                              </button>
+                              {g.alias && (
+                                <button type="button" className="passe-lien-ligne" onClick={() => reinitialiserNom(g)}>
+                                  Réinitialiser le nom
+                                </button>
+                              )}
+                              <span className="passe-renommage__aide">
+                                Ce nom sera réutilisé automatiquement pour les futurs flux reconnus comme « {g.libelleDetecte} ».
+                              </span>
+                            </form>
+                          ) : (
+                            <>
+                              {/* Infobulle : pourquoi ces transactions sont réunies (méthode et confiance). */}
+                              <button
+                                type="button"
+                                className="passe-lien-ligne"
+                                title={`Regroupement : ${METHODES[g.matchMethod]} (confiance ${Math.round(g.confidenceScore * 100)} %)`}
+                                onClick={() => ouvrirGroupe(g.cle)}
+                              >
+                                {g.libelle || "—"}
+                              </button>
+                              {/* Un flux sans identité ne peut pas être reconnu plus tard : pas de renommage. */}
+                              {g.clesAlias.length > 0 && (
+                                <button
+                                  type="button"
+                                  className="passe-renommer"
+                                  aria-label={`Renommer le flux ${g.libelle}`}
+                                  title="Renommer ce flux"
+                                  onClick={() => setRenommage({ cle: g.cle, saisie: g.alias ?? g.libelleDetecte })}
+                                >
+                                  <span aria-hidden="true">✎</span>
+                                </button>
+                              )}
+                            </>
+                          )}
+                          {g.alias && renommage?.cle !== g.cle && <span className="passe-detail__source">Flux détecté : {g.libelleDetecte}</span>}
                           {g.nombreA + g.nombreB > 1 && (
                             <span className="passe-statut">{g.nombreA + g.nombreB} transactions</span>
                           )}

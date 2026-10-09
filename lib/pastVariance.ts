@@ -3,7 +3,7 @@ import { ETAGES_PNL, EtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import { PartMappee, partsMappees } from "./pastDetail";
 import { calculerCashFlow } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
-import { FlowIdentity, groupComparableTransactions, MatchMethod } from "./flowMatching";
+import { aliasFlowKey, FlowIdentity, groupComparableTransactions, MatchMethod, resoudreAlias } from "./flowMatching";
 
 /**
  * Comparaison de deux périodes du module "Passé" : pourquoi le Cash flow s'améliore ou se dégrade.
@@ -157,8 +157,15 @@ const TOLERANCE_STABLE = 1;
  */
 export interface GroupeLibelle {
   cle: string;
-  // Titre lisible tiré de la partie stable du flux (« Facebook Ads »), pas un libellé bancaire.
+  // Nom affiché : l'alias de l'organisation s'il existe, sinon le titre détecté.
   libelle: string;
+  // Titre lisible tiré de la partie stable du flux (« Facebook Ads »), pas un libellé bancaire.
+  libelleDetecte: string;
+  alias: string | null;
+  // Identités propres des libellés du groupe (lib/flowMatching.ts::aliasFlowKey), chacune avec un
+  // libellé bancaire d'exemple : ce sont les clés sous lesquelles un alias s'enregistre. Vide pour
+  // un flux sans identité, qui ne peut donc pas être renommé.
+  clesAlias: { cle: string; exemple: string }[];
   nombreLibelles: number;
   sourceCategoryId: string;
   categorie: string;
@@ -209,7 +216,15 @@ function partsComparees(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, c
  * -> tri par |écart agrégé| décroissant. Les lignes de l'écran sont construites à partir de ce
  * résultat, jamais directement à partir des transactions.
  */
-export function groupesDeLibelles(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl, categorie: string | null = null): GroupeLibelle[] {
+export function groupesDeLibelles(
+  a: DonneesPeriode,
+  b: DonneesPeriode,
+  etage: EtagePnl,
+  categorie: string | null = null,
+  // Alias de l'organisation (identité propre -> nom). Ils ne changent QUE le nom affiché : ni les
+  // groupes, ni leurs montants, ni leur ordre.
+  alias: ReadonlyMap<string, string> = new Map()
+): GroupeLibelle[] {
   // Les identités se calculent sur tout l'étage, AVANT le filtre catégorie : la clé d'un flux ne
   // dépend ainsi pas du filtre affiché (elle reste valable d'un clic à l'autre).
   const identites = identitesDesFlux(partsComparees(a, b, etage, null));
@@ -231,10 +246,20 @@ export function groupesDeLibelles(a: DonneesPeriode, b: DonneesPeriode, etage: E
     const pire = parts
       .map((p) => identites.get(p.sourceCategoryId)!.get(p.label)!)
       .reduce((plusFaible, x) => (x.confidenceScore < plusFaible.confidenceScore ? x : plusFaible), identite);
+    const exemples = new Map<string, string>();
+    for (const libelle of [...new Set(parts.map((p) => p.label))].sort()) {
+      const propre = aliasFlowKey(libelle);
+      if (propre !== null && !exemples.has(propre)) exemples.set(propre, libelle);
+    }
+    const nomAlias = resoudreAlias([...exemples.keys()], identite.canonicalFlowIdentity, alias);
     return {
       cle,
+      // Le départage à contribution égale se fait sur le titre détecté : renommer ne déplace rien.
       nom: titre,
-      libelle: titre,
+      libelle: nomAlias ?? titre,
+      libelleDetecte: titre,
+      alias: nomAlias,
+      clesAlias: [...exemples].map(([cleAlias, exemple]) => ({ cle: cleAlias, exemple })),
       nombreLibelles: new Set(parts.map((p) => p.label)).size,
       sourceCategoryId: representative.sourceCategoryId,
       categorie: representative.sourceCategoryName,

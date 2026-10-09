@@ -419,3 +419,72 @@ describe("flux comparable — un prélèvement récurrent est un seul bloc", () 
     assert.equal(groupesDeLibelles(croise, d([], SEPTEMBRE), "contribution_margin").length, 2);
   });
 });
+
+describe("alias de flux — le nom donné par l'organisation", () => {
+  const OCTOBRE = { debut: "2026-10-01", fin: "2026-10-31" };
+  const a = donnees([tx("2026-08-04", -1_000, "Structure", "PRELEVEMENT CREANCE 021618 RECLAMEE")], AOUT);
+  const b = donnees([tx("2026-09-04", -1_400, "Structure", "PRLV CREANCE 030426")], SEPTEMBRE);
+  const alias = new Map([["tiers:creance", "Remboursement Dailly"]]);
+
+  test("sans alias : nom détecté, et la clé sous laquelle un alias s'enregistrera", () => {
+    const [g] = groupesDeLibelles(a, b, "ebitda");
+    assert.equal(g.libelle, "Creance");
+    assert.equal(g.alias, null);
+    assert.deepEqual(g.clesAlias, [{ cle: "tiers:creance", exemple: "PRELEVEMENT CREANCE 021618 RECLAMEE" }]);
+  });
+
+  test("avec alias : il est affiché, le nom détecté reste disponible", () => {
+    const [g] = groupesDeLibelles(a, b, "ebitda", null, alias);
+    assert.equal(g.libelle, "Remboursement Dailly");
+    assert.equal(g.alias, "Remboursement Dailly");
+    assert.equal(g.libelleDetecte, "Creance");
+  });
+
+  test("nouvelle période, libellé différent, même flux : l'alias est repris sans nouvelle action", () => {
+    const octobre = donnees([tx("2026-10-06", -1_250, "Structure", "PRELEVEMENT CREANCE 070912 RECLAMEE")], OCTOBRE);
+    const [g] = groupesDeLibelles(b, octobre, "ebitda", null, alias);
+    assert.equal(g.libelle, "Remboursement Dailly");
+    assert.equal(g.nombreA + g.nombreB, 2);
+  });
+
+  test("même flux dans une autre catégorie : même nom, sans fusionner les deux catégories", () => {
+    const recategorise = donnees([tx("2026-09-04", -1_400, "Bureaux", "PRLV CREANCE 030426")], SEPTEMBRE);
+    const groupes = groupesDeLibelles(a, recategorise, "ebitda", null, alias);
+    assert.deepEqual(groupes.map((g) => [g.categorie, g.libelle]).sort(), [["Bureaux", "Remboursement Dailly"], ["Structure", "Remboursement Dailly"]]);
+  });
+
+  test("modifier l'alias change le nom ; le retirer rend le nom détecté", () => {
+    assert.equal(groupesDeLibelles(a, b, "ebitda", null, new Map([["tiers:creance", "Remboursement cession Dailly"]]))[0].libelle, "Remboursement cession Dailly");
+    assert.equal(groupesDeLibelles(a, b, "ebitda", null, new Map())[0].libelle, "Creance");
+  });
+
+  test("un alias ne change ni les groupes, ni les montants, ni leur ordre", () => {
+    const periodeA = donnees([...aout, tx("2026-08-04", -1_000, "Structure", "PRELEVEMENT CREANCE 021618 RECLAMEE")], AOUT);
+    const periodeB = donnees([...septembre, tx("2026-09-04", -1_400, "Structure", "PRLV CREANCE 030426")], SEPTEMBRE);
+    const sansNom = ({ libelle: _libelle, alias: _alias, ...reste }: ReturnType<typeof groupesDeLibelles>[number]) => reste;
+    for (const etage of ["revenue", "gross_margin", "contribution_margin", "ebitda", "extra_pnl"] as const) {
+      assert.deepEqual(groupesDeLibelles(periodeA, periodeB, etage, null, alias).map(sansNom), groupesDeLibelles(periodeA, periodeB, etage).map(sansNom));
+    }
+    assert.deepEqual(comparerPeriodes(periodeA, periodeB), comparerPeriodes(periodeA, periodeB));
+  });
+
+  test("le détail du groupe montre toujours les libellés bancaires d'origine", () => {
+    const [g] = groupesDeLibelles(a, b, "ebitda", null, alias);
+    assert.deepEqual(transactionsDuGroupe(a, b, "ebitda", g.cle).map((p) => p.label).sort(), [
+      "PRELEVEMENT CREANCE 021618 RECLAMEE",
+      "PRLV CREANCE 030426",
+    ]);
+  });
+
+  test("contreparties voisines réunies : le renommage couvre chaque identité propre du groupe", () => {
+    const voisinesA = donnees([tx("2026-08-04", -300, "Structure", "PAIEMENT PAR CARTE X3026 EUROPCAM ST GERMAIN 27/05")], AOUT);
+    const voisinesB = donnees([tx("2026-09-04", -500, "Structure", "VIREMENT EMIS VIR INST vers SARL EUROPCAM commande 000066266")], SEPTEMBRE);
+    const [g, ...autres] = groupesDeLibelles(voisinesA, voisinesB, "ebitda");
+    assert.equal(autres.length, 0);
+    assert.equal(g.clesAlias.length, 2);
+    // Dans une comparaison où la contrepartie de référence est absente, l'autre garde le nom.
+    const cleVoisine = g.clesAlias.map((c) => c.cle).find((cle) => cle !== "tiers:europcam")!;
+    const seule = groupesDeLibelles(voisinesA, donnees([], SEPTEMBRE), "ebitda", null, new Map([[cleVoisine, "Europcam"]]));
+    assert.equal(seule[0].libelle, "Europcam");
+  });
+});

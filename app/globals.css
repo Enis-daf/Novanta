@@ -2746,6 +2746,40 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 
+/* Renommage d'un flux (Analyse d'écarts) : un crayon discret à côté du nom, puis un champ en ligne. */
+.passe-renommer {
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--couleur-texte-secondaire);
+  cursor: pointer;
+}
+
+.passe-renommer:hover,
+.passe-renommer:focus-visible {
+  color: var(--couleur-texte);
+}
+
+.passe-renommage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.passe-renommage input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.passe-renommage__aide {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
 .passe-lien-ligne:hover {
   text-decoration-color: var(--couleur-texte);
 }

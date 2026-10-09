@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AjustementGestion, StockFinDeMois } from "./pastAdjustments";
 import { ConfigExercice, configExerciceValide, normaliserConfigExercice } from "./fiscalPeriods";
 import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./pastCategoryMapping";
+import { FLOW_ENGINE_VERSION, FlowAlias } from "./flowMatching";
 import { ValidationSigne } from "./pastSignChecks";
 import {
   AffectationAnalytique,
@@ -274,6 +275,55 @@ export async function annulerValidationSigne(
     .eq("transaction_id", transactionId)
     .eq("source_category_id", sourceCategoryId);
   if (error) throw error;
+}
+
+/** Alias de flux de l'organisation (voir lib/flowMatching.ts). */
+export async function chargerAliasFlux(supabase: SupabaseClient, organizationId: string): Promise<FlowAlias[]> {
+  const { data, error } = await supabase
+    .from("past_flow_aliases")
+    .select("canonical_flow_key, display_name")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  return ((data ?? []) as Row[]).map((row) => ({
+    canonicalFlowKey: row.canonical_flow_key as string,
+    displayName: row.display_name as string,
+  }));
+}
+
+/**
+ * Enregistre (ou remplace) le nom d'un flux pour chacune de ses identités propres. Chaque ligne
+ * garde le nom détecté, un libellé bancaire d'exemple et la version du moteur : de quoi recalculer
+ * la clé si le moteur évolue. Auteur et date : posés par trigger.
+ */
+export async function sauvegarderAliasFlux(
+  supabase: SupabaseClient,
+  organizationId: string,
+  displayName: string,
+  detectedName: string,
+  cles: { cle: string; exemple: string }[]
+): Promise<void> {
+  const { error } = await supabase.from("past_flow_aliases").upsert(
+    cles.map(({ cle, exemple }) => ({
+      organization_id: organizationId,
+      canonical_flow_key: cle,
+      display_name: displayName,
+      detected_name: detectedName,
+      sample_label: exemple,
+      engine_version: FLOW_ENGINE_VERSION,
+    })),
+    { onConflict: "organization_id,canonical_flow_key" }
+  );
+  if (error) throw error;
+}
+
+export async function supprimerAliasFlux(supabase: SupabaseClient, organizationId: string, cles: string[]): Promise<void> {
+  // Une suppression par clé, en égalité stricte : une clé contient des « : » et des espaces, qu'un
+  // filtre de liste interpréterait.
+  const resultats = await Promise.all(
+    cles.map((cle) => supabase.from("past_flow_aliases").delete().eq("organization_id", organizationId).eq("canonical_flow_key", cle))
+  );
+  const erreur = resultats.find((r) => r.error)?.error;
+  if (erreur) throw erreur;
 }
 
 /** Ajustements de gestion saisis tels quels (hors variation de stock, calculée à partir des stocks). */

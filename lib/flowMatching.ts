@@ -269,3 +269,47 @@ export function groupComparableTransactions(labels: Iterable<string>): Map<strin
   }
   return identites;
 }
+
+// --- Alias : le nom donné par l'utilisateur à un flux reconnu ---
+//
+// Un alias s'applique APRÈS la reconnaissance : il ne change ni l'identité d'un flux, ni les
+// regroupements, ni aucune transaction. Il est attaché à l'identité PROPRE d'un libellé (étapes 1
+// à 3, buildCanonicalFlowIdentity), pas à l'identité après rapprochement de contreparties voisines
+// (étape 4) : celle-ci dépend des autres libellés présents dans la comparaison, et ne serait pas la
+// même d'une analyse à l'autre.
+
+/**
+ * Version des règles qui produisent les identités. À incrémenter dès qu'une évolution du moteur
+ * change une identité existante (voir le test « contrat des identités ») : les alias enregistrés
+ * sous l'ancienne version doivent alors être recalculés à partir de leur libellé d'exemple.
+ */
+export const FLOW_ENGINE_VERSION = "1";
+
+export const LONGUEUR_MAX_ALIAS = 80;
+
+export interface FlowAlias {
+  canonicalFlowKey: string;
+  displayName: string;
+}
+
+/** Identité propre d'un libellé, clé de son alias ; null = flux sans identité, donc sans alias. */
+export function aliasFlowKey(label: string): string | null {
+  return buildCanonicalFlowIdentity(label).canonicalFlowIdentity;
+}
+
+/** Nom saisi par l'utilisateur, nettoyé ; null s'il est vide ou trop long. */
+export function normaliserNomAlias(saisie: string): string | null {
+  const nom = saisie.replace(/\s+/g, " ").trim();
+  return nom === "" || nom.length > LONGUEUR_MAX_ALIAS ? null : nom;
+}
+
+/**
+ * Nom à afficher pour un groupe de flux, ou null s'il n'a pas d'alias. Un groupe peut réunir
+ * plusieurs identités propres (contreparties voisines) : celle qui donne son identité au groupe
+ * est prioritaire, puis les autres dans un ordre fixe.
+ */
+export function resoudreAlias(clesPropres: string[], cleDuGroupe: string | null, alias: ReadonlyMap<string, string>): string | null {
+  if (cleDuGroupe !== null && alias.has(cleDuGroupe) && clesPropres.includes(cleDuGroupe)) return alias.get(cleDuGroupe)!;
+  for (const cle of [...clesPropres].sort()) if (alias.has(cle)) return alias.get(cle)!;
+  return null;
+}
