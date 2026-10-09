@@ -139,6 +139,9 @@ export interface PennylaneSupplierInvoiceListItem {
   payment_status?: string | null;
   accounting_status?: string | null;
   archived_at?: string | null;
+  // Montant restant à régler. Sur une facture fournisseur il est NÉGATIF tant qu'il reste dû
+  // (-montant = rien de réglé), et vaut "0.0" une fois la facture entièrement couverte.
+  remaining_amount_with_tax?: string | null;
   supplier?: { id: number | string } | null;
 }
 

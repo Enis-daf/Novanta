@@ -356,9 +356,9 @@ describe("messageSyncPennylane — distingue explicitement analysée (trouvée) 
   });
 });
 
-// Statut payé d'une facture fournisseur ACTIVE : le booléen `paid` de Pennylane arbitre, quel que
-// soit payment_status (qui décrit le workflow) et sans jamais lire le reste à payer. Les cas
-// reprennent la forme de factures réelles, sous des noms fictifs.
+// Statut payé d'une facture fournisseur ACTIVE : `paid`, un statut terminal ou un reste à payer
+// exactement nul (voir estPayeeFournisseur). Les cas reprennent la forme de factures réelles, sous
+// des noms fictifs.
 describe("statut de paiement fournisseur — decisionPaiementFournisseur", () => {
   test("to_be_processed, reste à payer 0, paid=true -> payée", () => {
     const item = supplierItemFactice({ amount: "9043.21", payment_status: "to_be_processed", accounting_status: "complete", paid: true });
@@ -388,6 +388,39 @@ describe("statut de paiement fournisseur — decisionPaiementFournisseur", () =>
         assert.equal(candidatFactureFournisseur(item)!.payee, true, `${payment_status}/${accounting_status}`);
       }
     }
+  });
+
+  // Formes réelles relevées dans la réponse de l'API (montants et statuts), sous des noms fictifs.
+  test("reste à payer nul, paid=false, statut ouvert, en attente de validation comptable -> payée", () => {
+    const item = supplierItemFactice({ amount: "75.76", payment_status: "to_be_paid", accounting_status: "validation_needed", paid: false, remaining_amount_with_tax: "0.0" });
+    assert.deepEqual(decisionPaiementFournisseur(item), { payee: true, motifSolde: "payee", statutInconnu: null });
+  });
+
+  test("reste à payer négatif = encore dû : rien de réglé (-montant) ou réglée en partie -> impayée", () => {
+    const rienRegle = supplierItemFactice({ amount: "1882.09", payment_status: "to_be_processed", accounting_status: "validation_needed", paid: false, remaining_amount_with_tax: "-1882.09" });
+    const enPartie = supplierItemFactice({ amount: "529.88", payment_status: "to_be_paid", accounting_status: "validation_needed", paid: false, remaining_amount_with_tax: "-29.88" });
+    assert.equal(estPayeeFournisseur(rienRegle), false);
+    assert.equal(estPayeeFournisseur(enPartie), false);
+  });
+
+  test("reste à payer absent, null ou illisible -> ignoré, `paid` et le statut décident", () => {
+    for (const remaining_amount_with_tax of [undefined, null, "", "abc"]) {
+      const base = { payment_status: "to_be_paid", accounting_status: "complete", remaining_amount_with_tax };
+      assert.equal(estPayeeFournisseur(supplierItemFactice({ ...base, paid: false })), false, String(remaining_amount_with_tax));
+      assert.equal(estPayeeFournisseur(supplierItemFactice({ ...base, paid: true })), true, String(remaining_amount_with_tax));
+    }
+  });
+
+  test("facture importée impayée, puis son reste à payer tombe à 0 -> marquée payée à la synchronisation suivante", () => {
+    const existantes: FactureExistantePourSync[] = [{ id: "novanta-90", pennylaneId: "90", payee: false }];
+    const soldee = supplierItemFactice({ id: 90, payment_status: "to_be_paid", accounting_status: "validation_needed", paid: false, remaining_amount_with_tax: "0.0" });
+    const resultat = calculerSynchronisation(candidatsFournisseursPennylane([soldee]).candidats, existantes);
+    assert.deepEqual(resultat, { aInserer: [], idsAMettreAJourPayee: ["novanta-90"], idsASupprimer: [] });
+  });
+
+  test("archivée à reste à payer nul -> toujours retirée, jamais conservée comme payée", () => {
+    const item = supplierItemFactice({ accounting_status: "archived", paid: false, remaining_amount_with_tax: "0.0" });
+    assert.equal(candidatFactureFournisseur(item)!.aRetirer, true);
   });
 
   test("statuts de workflow (partiel, émis, planifié, en erreur...) -> suivent `paid`", () => {

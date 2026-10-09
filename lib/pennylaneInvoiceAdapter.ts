@@ -102,14 +102,13 @@ export interface CandidatFacturePennylane {
 
 /**
  * Statuts de paiement d'une facture FOURNISSEUR (champ payment_status de l'API). payment_status
- * décrit le workflow de paiement, pas le règlement : c'est le booléen `paid` qui arbitre (voir
- * estPayeeFournisseur). Les statuts ne servent qu'à rattraper un `paid` resté à false et à repérer
- * un statut inconnu.
+ * décrit le workflow de paiement, pas le règlement (voir estPayeeFournisseur) : seuls les deux
+ * statuts terminaux valent « payée », les autres ne servent qu'à repérer un statut inconnu.
  */
 export const STATUTS_PAIEMENT_FOURNISSEUR = {
   // Statuts terminaux : la facture est réglée même si `paid` est resté à false.
   payes: ["fully_paid", "paid_offline"],
-  // Statuts de workflow : ils ne disent rien du règlement, `paid` seul décide.
+  // Statuts de workflow : ils ne disent rien du règlement.
   ouverts: [
     "to_be_processed",
     "to_be_paid",
@@ -139,15 +138,23 @@ export interface DecisionPaiement {
 }
 
 /**
- * Facture fournisseur ACTIVE réglée ? Le booléen `paid` de Pennylane arbitre : une facture
- * to_be_processed ou to_be_paid dont `paid` est true est payée, la même avec `paid` false ne l'est
- * pas. Le reste à payer n'est jamais lu.
- * Seule variante : fully_paid et paid_offline valent aussi « payée » quand `paid` est resté à
- * false — constaté sur des données réelles (factures réglées hors Pennylane ou en attente de
- * validation comptable), et ne lire que `paid` les importait toutes comme impayées.
+ * Facture fournisseur ACTIVE réglée ? Trois signaux, chacun suffisant, tous constatés sur la
+ * réponse réelle de l'API :
+ *  1. `paid` à true — y compris quand payment_status est encore to_be_processed / to_be_paid ;
+ *  2. payment_status fully_paid ou paid_offline — `paid` y reste parfois à false ;
+ *  3. reste à payer exactement nul — une facture entièrement couverte par ses règlements mais en
+ *     attente de validation comptable garde `paid` à false et un statut ouvert.
+ * Un reste à payer NÉGATIF ne vaut jamais « payée » : sur une facture fournisseur il désigne ce qui
+ * reste dû (voir PennylaneSupplierInvoiceListItem). Absent ou illisible, il n'est pas pris en compte.
  */
-export function estPayeeFournisseur(item: { paid: boolean; payment_status?: string | null }): boolean {
-  return item.paid === true || inclut(STATUTS_PAIEMENT_FOURNISSEUR.payes, item.payment_status);
+export function estPayeeFournisseur(item: {
+  paid: boolean;
+  payment_status?: string | null;
+  remaining_amount_with_tax?: string | null;
+}): boolean {
+  const reste = item.remaining_amount_with_tax;
+  const resteNul = typeof reste === "string" && reste.trim() !== "" && Number(reste) === 0;
+  return item.paid === true || inclut(STATUTS_PAIEMENT_FOURNISSEUR.payes, item.payment_status) || resteNul;
 }
 
 /** Version archivée d'une facture fournisseur (accounting_status "archived" ou archived_at renseigné). */
@@ -162,6 +169,7 @@ export function estArchiveeFournisseur(item: { accounting_status?: string | null
 export function decisionPaiementFournisseur(item: {
   paid: boolean;
   payment_status?: string | null;
+  remaining_amount_with_tax?: string | null;
   accounting_status?: string | null;
   archived_at?: string | null;
 }): DecisionPaiement {
