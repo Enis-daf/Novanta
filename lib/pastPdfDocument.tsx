@@ -8,6 +8,7 @@ import { formatDateCourte } from "./dates";
 import { NEUTRES, teintesDesParts } from "./dataviz";
 import { formatKiloEuros, formatMontant, formatMontantComptable, formatPourcentage } from "./format";
 import { LigneAjustement } from "./pastAdjustments";
+import { libelleEtagePnl } from "./pastCategoryMapping";
 import { METRIQUES_DETAIL } from "./pastDetail";
 import { DISCLAIMER_PASSE, PageDetailPdf, PageGeneralPdf, PagePdf, textePdf } from "./pastPdfModel";
 import { ETAGES_COUTS, ETAGES_REVENUS, Structure, structureParCategorie } from "./pastPnl";
@@ -236,7 +237,7 @@ function lignesPnl(page: PageGeneralPdf): LignePnl[] {
     ...ajustements(pnl.ajustements.gross_margin),
     { type: "ligne", libelle: "Marge brute", montant: pnl.margeBrute, ratio: pnl.ratios.margeBrute, niveau: "solde" },
     { type: "bloc" },
-    { type: "ligne", libelle: "Coûts commerciaux", montant: pnl.coutsCommerciaux },
+    { type: "ligne", libelle: libelleEtagePnl("contribution_margin"), montant: pnl.coutsCommerciaux },
     ...ajustements(pnl.ajustements.contribution_margin),
     { type: "ligne", libelle: "Marge contributive", montant: pnl.margeContributive, ratio: pnl.ratios.margeContributive, niveau: "solde" },
     { type: "bloc" },

@@ -146,7 +146,7 @@ describe("structure des revenus et des coûts (camemberts)", () => {
     assert.equal(structure.parts[0].part, 1_250_000 / 1_500_000);
   });
 
-  test("coûts : coûts directs, commerciaux et de structure — jamais le CA ni l'Extra P&L", () => {
+  test("coûts : coûts directs, autres coûts variables et de structure — jamais le CA ni l'Extra P&L", () => {
     const structure = structureParCategorie(pnl.categories, ETAGES_COUTS, "couts");
     assert.deepEqual(structure.parts.map((p) => [p.nom, p.montant]), [
       ["Achats matières", -530_000],

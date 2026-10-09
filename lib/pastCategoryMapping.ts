@@ -20,7 +20,7 @@ import {
 export const ETAGES_PNL = [
   { cle: "revenue", libelle: "CA" },
   { cle: "gross_margin", libelle: "Coûts directs" },
-  { cle: "contribution_margin", libelle: "Coûts commerciaux" },
+  { cle: "contribution_margin", libelle: "Autres coûts variables" },
   { cle: "ebitda", libelle: "Coûts de structure" },
   { cle: "extra_pnl", libelle: "Extra P&L" },
 ] as const;

@@ -5,6 +5,7 @@ import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import { formatMontantComptable, formatPourcentage } from "@/lib/format";
 import { LigneAjustement } from "@/lib/pastAdjustments";
+import { libelleEtagePnl } from "@/lib/pastCategoryMapping";
 import { ETAGES_COUTS, ETAGES_REVENUS, Pnl, structureParCategorie } from "@/lib/pastPnl";
 
 interface PasseGeneralProps {
@@ -64,7 +65,7 @@ export default function PasseGeneral({ pnl, teintes }: PasseGeneralProps) {
           <Ligne libelle="Marge brute" montant={pnl.margeBrute} ratio={pnl.ratios.margeBrute} niveau="solde" />
         </div>
         <div className="passe-pnl__bloc">
-          <Ligne libelle="Coûts commerciaux" montant={pnl.coutsCommerciaux} />
+          <Ligne libelle={libelleEtagePnl("contribution_margin")} montant={pnl.coutsCommerciaux} />
           <LignesAjustements lignes={pnl.ajustements.contribution_margin} />
           <Ligne libelle="Marge contributive" montant={pnl.margeContributive} ratio={pnl.ratios.margeContributive} niveau="solde" />
         </div>
