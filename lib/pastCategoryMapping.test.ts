@@ -40,7 +40,7 @@ describe("étages P&L", () => {
       [
         ["revenue", "CA"],
         ["gross_margin", "Coûts directs"],
-        ["contribution_margin", "Coûts commerciaux"],
+        ["contribution_margin", "Autres coûts variables"],
         ["ebitda", "Coûts de structure"],
         ["extra_pnl", "Extra P&L"],
       ]
