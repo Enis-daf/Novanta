@@ -398,3 +398,12 @@ export function descriptionExercice(config: ConfigExercice): string {
   };
   return `Votre exercice va du ${libelle(exercice.debut)} au ${libelle(exercice.fin)}.`;
 }
+
+/**
+ * Échange les deux périodes d'une comparaison, en entier : preset choisi et dates personnalisées
+ * compris. Rien d'autre n'est conservé d'un côté à l'autre — durées, normalisation et écarts se
+ * recalculent à partir des nouvelles A et B.
+ */
+export function inverserPeriodes<T>(selections: { a: T; b: T }): { a: T; b: T } {
+  return { a: selections.b, b: selections.a };
+}

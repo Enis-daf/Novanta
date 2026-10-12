@@ -3,11 +3,22 @@ import assert from "node:assert/strict";
 import { AjustementGestion } from "./pastAdjustments";
 import { indexerMappings, MappingCategorie } from "./pastCategoryMapping";
 import { trierTransactions } from "./pastDetail";
-import { dureeDeLaSelection, normaliserDurees, selectionDuPreset } from "./fiscalPeriods";
+import { dureeDeLaSelection, EXERCICE_PAR_DEFAUT, inverserPeriodes, normaliserDurees, periodeDeLaSelection, SelectionPeriode, selectionDuPreset } from "./fiscalPeriods";
 import { calculerPnl } from "./pastPnl";
 import { PastTransactionStockee } from "./pastTransactions";
 import { fusionnerFlux, indexerGroupesManuels } from "./flowGroups";
-import { categoriesDeLEtage, comparerPeriodes, donneesPeriode, fluxConnus, groupesDeLibelles, transactionsDuGroupe } from "./pastVariance";
+import {
+  categoriesDeLEtage,
+  comparerPeriodes,
+  donneesPeriode,
+  etagesCompares,
+  fluxConnus,
+  groupesDeLibelles,
+  libelleVariation,
+  phraseVariation,
+  transactionsDuGroupe,
+  variationDuPoste,
+} from "./pastVariance";
 
 const AXE = "229";
 const AOUT = { debut: "2026-08-01", fin: "2026-08-31" };
@@ -87,7 +98,6 @@ describe("waterfall — du Cash flow de A à celui de B", () => {
       ["Autres coûts variables", -12_000], // une charge qui augmente le dégrade
       ["Coûts de structure", -8_000],
       ["Extra P&L", -13_000],
-      ["Virements internes & Financement", 0],
     ]);
   });
 
@@ -565,26 +575,279 @@ describe("regroupement manuel de flux", () => {
   });
 });
 
-describe("étage Virements internes & Financement dans l'analyse d'écarts", () => {
-  const avecFinancement = indexerMappings([mapping("Ventes", "revenue"), mapping("TVA", "extra_pnl"), mapping("Emprunts", "financing")]);
-  const periode = (transactions: PastTransactionStockee[], bornes: typeof AOUT) => donneesPeriode(transactions, AXE, avecFinancement, [], bornes);
-  const a = periode([tx("2026-08-05", 1_000, "Ventes", "Stripe"), tx("2026-08-11", -200, "TVA", "TVA")], AOUT);
-  const b = periode([tx("2026-09-05", 1_000, "Ventes", "Stripe"), tx("2026-09-11", -300, "TVA", "TVA"), tx("2026-09-20", 50_000, "Emprunts", "Versement pret")], SEPTEMBRE);
-  const comparaison = comparerPeriodes(a, b);
+describe("analyse d'écarts — hors financement ou financement compris", () => {
+  const avecFinancement = indexerMappings([
+    mapping("Ventes", "revenue"),
+    mapping("Structure", "ebitda"),
+    mapping("TVA", "extra_pnl"),
+    mapping("Emprunts", "financing"),
+    mapping("Comptes", "financing"),
+  ]);
+  const periode = (transactions: PastTransactionStockee[], bornes: typeof AOUT, coefficient = 1) =>
+    donneesPeriode(transactions, AXE, avecFinancement, [], bornes, coefficient);
+  const transactionsA = [
+    tx("2026-08-05", 1_000, "Ventes", "Stripe"),
+    tx("2026-08-10", -300, "Structure", "Loyer"),
+    tx("2026-08-11", -200, "TVA", "TVA"),
+    tx("2026-08-15", -400, "Emprunts", "Echeance pret"),
+  ];
+  const transactionsB = [
+    tx("2026-09-05", 1_200, "Ventes", "Stripe"),
+    tx("2026-09-10", -300, "Structure", "Loyer"),
+    tx("2026-09-11", -300, "TVA", "TVA"),
+    tx("2026-09-15", -400, "Emprunts", "Echeance pret"),
+    tx("2026-09-20", 50_000, "Emprunts", "Versement pret"),
+    tx("2026-09-22", -2_000, "Comptes", "Virement vers livret"),
+  ];
+  const copieA = structuredClone(transactionsA);
+  const copieB = structuredClone(transactionsB);
+  const a = periode(transactionsA, AOUT);
+  const b = periode(transactionsB, SEPTEMBRE);
+  const hors = comparerPeriodes(a, b);
+  const compris = comparerPeriodes(a, b, { financementCompris: true });
+  const pnlA = calculerPnl(transactionsA, AXE, avecFinancement);
+  const pnlB = calculerPnl(transactionsB, AXE, avecFinancement);
+  const reconcilie = (c: typeof hors) => c.cashFlowA + c.etages.reduce((s, e) => s + e.contribution, 0);
 
-  test("Extra P&L et le nouvel étage sont deux contributions distinctes de la waterfall", () => {
-    const contribution = (libelle: string) => comparaison.etages.find((e) => e.libelle === libelle)!.contribution;
-    assert.equal(contribution("Extra P&L"), -100);
-    assert.equal(contribution("Virements internes & Financement"), 50_000);
+  test("hors financement est la lecture par défaut : elle compare le Cash flow opérationnel", () => {
+    assert.deepEqual(comparerPeriodes(a, b, { financementCompris: false }), hors);
+    assert.deepEqual([hors.metrique, hors.financementCompris], ["Cash flow opérationnel", false]);
+    assert.deepEqual([hors.cashFlowA, hors.cashFlowB], [pnlA.cashFlowOperationnel, pnlB.cashFlowOperationnel]);
+    assert.deepEqual([hors.cashFlowA, hors.cashFlowB, hors.ecart], [500, 600, 100]);
+    assert.equal(hors.ecartRelatif, 100 / 500);
   });
 
-  test("le Cash flow complet inclut l'étage et réconcilie exactement", () => {
-    assert.deepEqual([comparaison.cashFlowA, comparaison.cashFlowB], [800, 50_700]);
-    assert.equal(comparaison.etages.reduce((s, e) => s + e.contribution, 0), comparaison.ecart);
-    assert.deepEqual([comparaison.variationEbitda, comparaison.variationExtraPnl, comparaison.variationFinancements], [0, -100, 50_000]);
+  test("financement compris : elle compare la Variation de trésorerie", () => {
+    assert.deepEqual([compris.metrique, compris.financementCompris], ["Variation de trésorerie", true]);
+    assert.deepEqual([compris.cashFlowA, compris.cashFlowB], [pnlA.variationTresorerie, pnlB.variationTresorerie]);
+    assert.deepEqual([compris.cashFlowA, compris.cashFlowB, compris.ecart], [100, 48_200, 48_100]);
+    assert.equal(compris.ecartRelatif, 48_100 / 100);
   });
 
-  test("ses flux se détaillent comme ceux des autres étages", () => {
-    assert.deepEqual(groupesDeLibelles(a, b, "financing").map((g) => [g.libelle, g.montantA, g.montantB]), [["Versement Pret", 0, 50_000]]);
+  test("écart relatif sur |A| ; pas de pourcentage quand A est nul, dans les deux lectures", () => {
+    const negatif = periode([tx("2026-08-05", -1_000, "Structure", "Loyer")], AOUT);
+    const retour = periode([tx("2026-09-05", 500, "Ventes", "Stripe")], SEPTEMBRE);
+    assert.equal(comparerPeriodes(negatif, retour).ecartRelatif, 1_500 / 1_000);
+    const vide = periode([], AOUT);
+    assert.equal(comparerPeriodes(vide, b).ecartRelatif, null);
+    assert.equal(comparerPeriodes(vide, b, { financementCompris: true }).ecartRelatif, null);
+  });
+
+  test("waterfall hors financement : cinq contributions, sans l'étage de financement, réconciliation exacte", () => {
+    assert.deepEqual(hors.etages.map((e) => [e.libelle, e.contribution]), [
+      ["CA", 200],
+      ["Coûts directs", 0],
+      ["Autres coûts variables", 0],
+      ["Coûts de structure", 0],
+      ["Extra P&L", -100],
+    ]);
+    assert.equal(reconcilie(hors), hors.cashFlowB);
+    assert.deepEqual([hors.variationEbitda, hors.variationExtraPnl, hors.variationFinancements], [200, -100, 0]);
+  });
+
+  test("waterfall financement compris : la sixième contribution apparaît, réconciliation exacte", () => {
+    assert.deepEqual(compris.etages.map((e) => [e.libelle, e.contribution]), [
+      ["CA", 200],
+      ["Coûts directs", 0],
+      ["Autres coûts variables", 0],
+      ["Coûts de structure", 0],
+      ["Extra P&L", -100],
+      ["Virements internes & Financement", 48_000],
+    ]);
+    assert.equal(reconcilie(compris), compris.cashFlowB);
+    assert.deepEqual([compris.variationEbitda, compris.variationExtraPnl, compris.variationFinancements], [200, -100, 48_000]);
+  });
+
+  test("les étages opérationnels contribuent pareil dans les deux lectures", () => {
+    assert.deepEqual(compris.etages.slice(0, 5), hors.etages);
+  });
+
+  test("hors financement, l'étage est absent de tout le détail ; financement compris, il se parcourt comme les autres", () => {
+    assert.ok(!etagesCompares().some((e) => e.etage === "financing"));
+    assert.ok(etagesCompares({ financementCompris: true }).some((e) => e.etage === "financing"));
+    const nomsHors = fluxConnus(a, b).map((f) => f.libelle);
+    const nomsCompris = fluxConnus(a, b, undefined, undefined, { financementCompris: true }).map((f) => f.libelle);
+    assert.deepEqual(nomsHors, ["Loyer", "Stripe", "Tva"]);
+    assert.deepEqual(nomsCompris.filter((nom) => !nomsHors.includes(nom)), ["Echeance Pret", "Livret", "Versement Pret"]);
+    // Étage -> catégories -> flux -> transactions.
+    assert.deepEqual(categoriesDeLEtage(a, b, "financing").map((c) => [c.nom, c.contribution]), [["Emprunts", 50_000], ["Comptes", -2_000]]);
+    const flux = groupesDeLibelles(a, b, "financing", "Emprunts");
+    assert.deepEqual(flux.map((g) => [g.libelle, g.montantA, g.montantB, g.statut]), [["Versement Pret", 0, 50_000, "change"], ["Echeance Pret", -400, -400, "stable"]]);
+    assert.deepEqual(transactionsDuGroupe(a, b, "financing", flux[0].cle).map((p) => [p.cote, p.montant]), [["B", 50_000]]);
+  });
+
+  test("durées différentes : l'étage de financement est normalisé avec le même coefficient que les autres", () => {
+    const longue = periode(transactionsB, SEPTEMBRE, 0.5);
+    const horsNormalise = comparerPeriodes(a, longue);
+    const comprisNormalise = comparerPeriodes(a, longue, { financementCompris: true });
+    assert.equal(horsNormalise.cashFlowB, 600 * 0.5);
+    assert.equal(comprisNormalise.cashFlowB, 48_200 * 0.5);
+    assert.equal(comprisNormalise.etages.find((e) => e.etage === "financing")!.montantB, 47_600 * 0.5);
+    for (const c of [horsNormalise, comprisNormalise]) assert.equal(reconcilie(c), c.cashFlowB);
+    // Les transactions, elles, restent à leur montant bancaire réel.
+    const flux = groupesDeLibelles(a, longue, "financing", "Emprunts").find((g) => g.libelle === "Versement Pret")!;
+    assert.equal(flux.montantB, 25_000);
+    assert.deepEqual(transactionsDuGroupe(a, longue, "financing", flux.cle).map((p) => p.montant), [50_000]);
+  });
+
+  test("aucune donnée source n'est modifiée, et le regroupement des flux ne dépend pas de la lecture", () => {
+    assert.deepEqual(transactionsA, copieA);
+    assert.deepEqual(transactionsB, copieB);
+    for (const etage of ["revenue", "ebitda", "extra_pnl"] as const) {
+      assert.deepEqual(groupesDeLibelles(a, b, etage), groupesDeLibelles(a, b, etage));
+    }
+    const sansFinancement = (liste: ReturnType<typeof fluxConnus>) => liste.filter((f) => ["Loyer", "Stripe", "Tva"].includes(f.libelle));
+    assert.deepEqual(sansFinancement(fluxConnus(a, b, undefined, undefined, { financementCompris: true })), fluxConnus(a, b));
+  });
+
+  test("sans rien dans l'étage de financement, les deux lectures donnent les mêmes chiffres", () => {
+    const simple = comparerPeriodes(A, B);
+    const complet = comparerPeriodes(A, B, { financementCompris: true });
+    assert.deepEqual([complet.cashFlowA, complet.cashFlowB, complet.ecart], [simple.cashFlowA, simple.cashFlowB, simple.ecart]);
+    assert.equal(complet.etages.find((e) => e.etage === "financing")!.contribution, 0);
+  });
+});
+
+describe("variation d'un poste — à ne pas confondre avec son impact", () => {
+  const k = (montant: number) => `${montant / 1_000} k€`;
+
+  test("CA en hausse : ↑, impact positif ; CA en baisse : ↓, impact négatif", () => {
+    assert.deepEqual(variationDuPoste("revenue", 100_000, 147_000), { sens: "hausse", ampleur: 47_000 });
+    assert.deepEqual(variationDuPoste("revenue", 150_000, 120_000), { sens: "baisse", ampleur: 30_000 });
+  });
+
+  test("coût en baisse : ↓ alors que l'impact est positif ; coût en hausse : ↑ alors que l'impact est négatif", () => {
+    for (const etage of ["gross_margin", "contribution_margin", "ebitda"] as const) {
+      assert.deepEqual(variationDuPoste(etage, -400_000, -163_000), { sens: "baisse", ampleur: 237_000 }, etage);
+      assert.deepEqual(variationDuPoste(etage, -100_000, -120_000), { sens: "hausse", ampleur: 20_000 }, etage);
+    }
+  });
+
+  test("Extra P&L et Virements internes & Financement : la flèche suit le montant signé, sans interprétation", () => {
+    for (const etage of ["extra_pnl", "financing"] as const) {
+      assert.equal(variationDuPoste(etage, -20_000, -5_000).sens, "hausse", etage);
+      assert.equal(variationDuPoste(etage, -5_000, -20_000).sens, "baisse", etage);
+      assert.equal(variationDuPoste(etage, -10_000, 30_000).sens, "hausse", etage);
+      assert.equal(variationDuPoste(etage, 50_000, 10_000).sens, "baisse", etage);
+    }
+  });
+
+  test("stable à 1 € près, comme partout dans l'analyse", () => {
+    assert.equal(variationDuPoste("ebitda", -1_000, -1_001).sens, "stable");
+    assert.equal(variationDuPoste("ebitda", -1_000, -1_001.5).sens, "hausse");
+    assert.equal(variationDuPoste("revenue", 0, 0).sens, "stable");
+  });
+
+  test("libellé : flèche et montant toujours positif, jamais « ↓ -237 k€ »", () => {
+    assert.equal(libelleVariation(variationDuPoste("gross_margin", -400_000, -163_000), k), "↓ 237 k€");
+    assert.equal(libelleVariation(variationDuPoste("gross_margin", -100_000, -120_000), k), "↑ 20 k€");
+    assert.equal(libelleVariation(variationDuPoste("revenue", 100_000, 147_000), k), "↑ 47 k€");
+    assert.equal(libelleVariation(variationDuPoste("revenue", 150_000, 120_000), k), "↓ 30 k€");
+    assert.equal(libelleVariation(variationDuPoste("revenue", 100_000, 100_000), k), "0 k€");
+    for (const [a, b] of [[-400_000, -163_000], [-163_000, -400_000], [5_000, -5_000]]) {
+      assert.ok(!libelleVariation(variationDuPoste("extra_pnl", a, b), k).includes("-"));
+    }
+  });
+
+  test("infobulle : la variation du poste en toutes lettres", () => {
+    assert.equal(phraseVariation(variationDuPoste("gross_margin", -400_000, -163_000), k), "En baisse de 237 k€");
+    assert.equal(phraseVariation(variationDuPoste("ebitda", -100_000, -120_000), k), "En hausse de 20 k€");
+    assert.equal(phraseVariation(variationDuPoste("revenue", 100_000, 147_000), k), "En hausse de 47 k€");
+    assert.equal(phraseVariation(variationDuPoste("revenue", 1, 1), k), "Stable");
+  });
+
+  test("waterfall : chaque marche porte sa variation ; contributions et réconciliation inchangées", () => {
+    const comparaison = comparerPeriodes(A, B);
+    assert.deepEqual(comparaison.etages.map((e) => [e.libelle, e.contribution, e.variation.sens, e.variation.ampleur]), [
+      ["CA", -20_000, "baisse", 20_000], // le CA baisse : impact négatif
+      ["Coûts directs", 5_000, "baisse", 5_000], // les coûts baissent : impact POSITIF
+      ["Autres coûts variables", -12_000, "hausse", 12_000], // les coûts montent : impact négatif
+      ["Coûts de structure", -8_000, "hausse", 8_000],
+      ["Extra P&L", -13_000, "baisse", 13_000],
+    ]);
+    for (const e of comparaison.etages) assert.equal(e.variation.ampleur, Math.abs(e.contribution));
+    assert.equal(comparaison.cashFlowA + comparaison.etages.reduce((s, e) => s + e.contribution, 0), comparaison.cashFlowB);
+  });
+
+  test("catégories : même convention, tri par |impact| inchangé ; un ajustement de gestion se lit au montant signé", () => {
+    const lignes = categoriesDeLEtage(A, B, "ebitda");
+    assert.deepEqual(lignes.map((l) => Math.abs(l.contribution)), [...lignes.map((l) => Math.abs(l.contribution))].sort((x, y) => y - x));
+    for (const l of lignes) {
+      const attendu = Math.abs(l.contribution) <= 1 ? "stable" : l.contribution < 0 ? "hausse" : "baisse";
+      assert.equal(l.variation.sens, attendu, l.nom);
+    }
+    assert.equal(variationDuPoste("gross_margin", 5_000, 8_000, true).sens, "hausse");
+    assert.equal(variationDuPoste("gross_margin", 5_000, 8_000).sens, "baisse");
+  });
+
+  test("périodes normalisées : la variation porte sur les montants comparables de la waterfall", () => {
+    const longue = donneesPeriode(septembre, AXE, mappings, [], SEPTEMBRE, 0.5);
+    const comparaison = comparerPeriodes(A, longue);
+    for (const e of comparaison.etages) {
+      assert.equal(e.variation.ampleur, Math.abs(e.montantB - e.montantA));
+      assert.deepEqual(e.variation, variationDuPoste(e.etage, e.montantA, e.montantB));
+    }
+  });
+});
+
+describe("inverser les périodes A et B", () => {
+  const AUJOURDHUI = "2026-10-12";
+  const preset = (cle: Parameters<typeof selectionDuPreset>[0]) => selectionDuPreset(cle, AUJOURDHUI, EXERCICE_PAR_DEFAUT);
+  const personnalisee: SelectionPeriode = { choix: "personnalise", personnalisee: { debut: "2026-01-01", fin: "2026-01-31" } };
+  const bornes = (selection: SelectionPeriode) => periodeDeLaSelection(selection, AUJOURDHUI, EXERCICE_PAR_DEFAUT);
+  const duree = (selection: SelectionPeriode) => dureeDeLaSelection(selection, AUJOURDHUI, EXERCICE_PAR_DEFAUT);
+
+  test("deux mois simples : A devient B et B devient A, en entier", () => {
+    const selections = { a: preset("mois_m2"), b: preset("mois_m1") };
+    const inversees = inverserPeriodes(selections);
+    assert.deepEqual(inversees, { a: selections.b, b: selections.a });
+    assert.deepEqual([bornes(inversees.a), bornes(inversees.b)], [bornes(selections.b), bornes(selections.a)]);
+    assert.deepEqual(inverserPeriodes(inversees), selections);
+  });
+
+  test("deux presets différents, ou une période personnalisée et un preset : le choix et les dates suivent", () => {
+    const deuxPresets = inverserPeriodes({ a: preset("mois_m1"), b: preset("exercice_n1") });
+    assert.deepEqual([deuxPresets.a.choix, deuxPresets.b.choix], ["exercice_n1", "mois_m1"]);
+    const mixte = inverserPeriodes({ a: personnalisee, b: preset("mois_m1") });
+    assert.deepEqual([mixte.a.choix, mixte.b.choix], ["mois_m1", "personnalise"]);
+    assert.deepEqual(mixte.b.personnalisee, { debut: "2026-01-01", fin: "2026-01-31" });
+    assert.deepEqual(bornes(mixte.b), { debut: "2026-01-01", fin: "2026-01-31" });
+  });
+
+  test("durées différentes : la normalisation est recalculée, elle suit la période la plus longue", () => {
+    const selections = { a: preset("exercice_n1"), b: preset("mois_m1") };
+    const avant = normaliserDurees(duree(selections.a), duree(selections.b));
+    const inversees = inverserPeriodes(selections);
+    const apres = normaliserDurees(duree(inversees.a), duree(inversees.b));
+    assert.equal(avant.detail!.cote, "A");
+    assert.equal(apres.detail!.cote, "B");
+    assert.deepEqual([apres.coefficientA, apres.coefficientB], [avant.coefficientB, avant.coefficientA]);
+    assert.equal(apres.detail!.duree, avant.detail!.duree);
+  });
+
+  test("l'écart reste B − A : il change de signe, et la waterfall repart de la nouvelle A", () => {
+    for (const options of [{}, { financementCompris: true }]) {
+      const avant = comparerPeriodes(A, B, options);
+      const apres = comparerPeriodes(B, A, options);
+      assert.deepEqual([apres.cashFlowA, apres.cashFlowB, apres.ecart], [avant.cashFlowB, avant.cashFlowA, -avant.ecart]);
+      assert.deepEqual(apres.etages.map((e) => e.contribution + 0), avant.etages.map((e) => 0 - e.contribution));
+      assert.equal(apres.cashFlowA + apres.etages.reduce((s, e) => s + e.contribution, 0), apres.cashFlowB);
+      // La lecture choisie n'est pas touchée par l'inversion.
+      assert.deepEqual([apres.metrique, apres.financementCompris], [avant.metrique, avant.financementCompris]);
+    }
+  });
+
+  test("le sens des variations s'inverse avec les périodes", () => {
+    const avant = comparerPeriodes(A, B).etages.find((e) => e.etage === "gross_margin")!;
+    const apres = comparerPeriodes(B, A).etages.find((e) => e.etage === "gross_margin")!;
+    assert.deepEqual([avant.variation.sens, apres.variation.sens], ["baisse", "hausse"]);
+    assert.equal(apres.variation.ampleur, avant.variation.ampleur);
+  });
+
+  test("l'inversion ne modifie pas les sélections d'origine", () => {
+    const selections = { a: personnalisee, b: preset("mois_m1") };
+    const copie = structuredClone(selections);
+    inverserPeriodes(selections);
+    assert.deepEqual(selections, copie);
   });
 });
