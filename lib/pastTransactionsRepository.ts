@@ -5,6 +5,7 @@ import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./past
 import { GroupeManuel } from "./flowGroups";
 import { CleEnregistree, clesARecalculer, FLOW_ENGINE_VERSION, FlowAlias } from "./flowMatching";
 import { ValidationSigne } from "./pastSignChecks";
+import { Cible, estTypeCible, TypeCible } from "./pastTargets";
 import {
   AffectationAnalytique,
   AxeAnalytique,
@@ -455,6 +456,55 @@ export async function retirerFluxDuGroupe(supabase: SupabaseClient, organization
 /** Supprime un groupe manuel ; ses membres partent avec lui et redeviennent des flux individuels. */
 export async function supprimerGroupeFlux(supabase: SupabaseClient, organizationId: string, groupeId: string): Promise<void> {
   const { error } = await supabase.from("past_flow_groups").delete().eq("organization_id", organizationId).eq("id", groupeId);
+  if (error) throw error;
+}
+
+/** Cibles de performance de l'organisation, toutes dates d'effet confondues (voir lib/pastTargets.ts). */
+export async function chargerCibles(supabase: SupabaseClient, organizationId: string): Promise<Cible[]> {
+  const { data, error } = await supabase
+    .from("past_performance_targets")
+    .select("id, target_type, dimension_key, valid_from, target_value")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  return ((data ?? []) as Row[])
+    .filter((row) => estTypeCible(row.target_type))
+    .map((row) => ({
+      id: row.id as string,
+      type: row.target_type as TypeCible,
+      dimension: (row.dimension_key as string | null) ?? "",
+      validFrom: row.valid_from as string,
+      valeur: Number(row.target_value),
+    }));
+}
+
+/**
+ * Enregistre une cible à une date d'effet : pour une catégorie de CA (cibles de marge), ou globale
+ * (`dimension` vide, coûts de structure). Une cible déjà posée à cette même date pour la même
+ * dimension est remplacée ; les autres dates restent telles quelles — c'est ce qui garde
+ * l'historique lisible. Renvoie la ligne enregistrée. Auteur et date : posés par trigger.
+ */
+export async function enregistrerCible(
+  supabase: SupabaseClient,
+  organizationId: string,
+  type: TypeCible,
+  dimension: string,
+  validFrom: string,
+  valeur: number
+): Promise<Cible> {
+  const { data, error } = await supabase
+    .from("past_performance_targets")
+    .upsert(
+      { organization_id: organizationId, target_type: type, dimension_key: dimension, valid_from: validFrom, target_value: valeur },
+      { onConflict: "organization_id,target_type,dimension_key,valid_from" }
+    )
+    .select("id")
+    .single();
+  if (error) throw error;
+  return { id: (data as Row).id as string, type, dimension, validFrom, valeur };
+}
+
+export async function supprimerCible(supabase: SupabaseClient, organizationId: string, id: string): Promise<void> {
+  const { error } = await supabase.from("past_performance_targets").delete().eq("organization_id", organizationId).eq("id", id);
   if (error) throw error;
 }
 

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import PasseEcarts, { SelectionsEcarts } from "./PasseEcarts";
+import PasseCibles from "./PasseCibles";
 import PasseGeneral from "./PasseGeneral";
 import PasseMappingTable from "./PasseMappingTable";
 import PasseSelecteurPeriode from "./PasseSelecteurPeriode";
@@ -71,6 +72,9 @@ import {
 import {
   annulerValidationSigne,
   chargerAxeConfigure,
+  chargerCibles,
+  enregistrerCible,
+  supprimerCible,
   chargerAjustementsGestion,
   chargerAxesAnalytiques,
   chargerExercice,
@@ -85,6 +89,7 @@ import {
   supprimerStock,
   validerSigne,
 } from "@/lib/pastTransactionsRepository";
+import { Cible, ecartsVsCibles, TypeCible } from "@/lib/pastTargets";
 
 interface PasseTransactionsProps {
   organizationId: string;
@@ -180,6 +185,9 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   // Anomalies de signe que l'utilisateur a vérifiées et acceptées (en base, par organisation).
   const [validationsSigne, setValidationsSigne] = useState<ValidationSigne[]>([]);
   const [vueSignes, setVueSignes] = useState<"a_verifier" | "validees">("a_verifier");
+  // Cibles de performance de l'organisation (en base), toutes dates d'effet confondues.
+  const [cibles, setCibles] = useState<Cible[]>([]);
+  const [erreurCible, setErreurCible] = useState<string | null>(null);
   const [messageSigne, setMessageSigne] = useState<string | null>(null);
   const [erreurSigne, setErreurSigne] = useState<string | null>(null);
   // Ajustements de gestion : ceux saisis tels quels, et les stocks de fin de mois dont dérive la
@@ -290,6 +298,15 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         setErreurChargement("Impossible de charger les transactions pour le moment.");
         setChargement(false);
       });
+    // Chargées à part : sans elles, le reporting s'affiche quand même, simplement sans cible.
+    chargerCibles(supabase!, organizationId)
+      .then((connues) => {
+        if (!annule) setCibles(connues);
+      })
+      .catch((error) => {
+        const code = (error as { code?: string } | null)?.code ?? "inconnu";
+        console.error(`[passe/cibles] step=load organization=${organizationId} code=${code}`);
+      });
     // Chargées à part : si elles sont indisponibles, le reporting s'affiche quand même et toutes
     // les anomalies restent simplement « à vérifier ».
     chargerValidationsSigne(supabase!, organizationId)
@@ -392,6 +409,11 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     () => partsMappees(stockees, axe.axeId, mappingsIndexes),
     [stockees, axe.axeId, mappingsIndexes]
   );
+  // Réalisé de la période face aux cibles en vigueur : lu dans Général et les écrans de détail.
+  const ecartsCibles = useMemo(
+    () => ecartsVsCibles(cibles, partsDetail, ajustements, periode),
+    [cibles, partsDetail, ajustements, periode]
+  );
 
   const changerEtage = (sourceCategoryId: string, etage: EtagePnl) => {
     const precedent = mappings.find((m) => m.sourceCategoryId === sourceCategoryId)?.pnlStage ?? null;
@@ -473,6 +495,43 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       "Validation annulée",
       "unvalidate"
     );
+
+  // Cibles : la valeur s'applique tout de suite, puis l'enregistrement ; en cas d'échec, retour à
+  // l'état précédent. Une cible posée à une date d'effet déjà utilisée la remplace.
+  const modifierCibles = (suivant: Cible[], enregistrer: () => Promise<void>, etape: string) => {
+    const precedent = cibles;
+    setCibles(suivant);
+    setErreurCible(null);
+    enregistrer().catch((error) => {
+      const code = (error as { code?: string } | null)?.code ?? "inconnu";
+      console.error(`[passe/cibles] step=${etape} organization=${organizationId} code=${code}`);
+      setCibles(precedent);
+      setErreurCible("La cible n'a pas pu être enregistrée. Réessayez.");
+    });
+  };
+  // `dimension` : la catégorie de CA d'une cible de marge ; vide pour les coûts de structure.
+  const poserCible = (type: TypeCible, dimension: string, validFrom: string, valeur: number) => {
+    const provisoire: Cible = { id: `provisoire:${type}:${dimension}:${validFrom}`, type, dimension, validFrom, valeur };
+    const sansDoublon = cibles.filter((c) => !(c.type === type && c.dimension === dimension && c.validFrom === validFrom));
+    modifierCibles(
+      [...sansDoublon, provisoire],
+      async () => {
+        const enregistree = await enregistrerCible(supabase!, organizationId, type, dimension, validFrom, valeur);
+        setCibles((actuelles) => actuelles.map((c) => (c.id === provisoire.id ? enregistree : c)));
+      },
+      "save"
+    );
+  };
+  const retirerCible = (cible: Cible) =>
+    modifierCibles(
+      cibles.filter((c) => c.id !== cible.id),
+      () => supprimerCible(supabase!, organizationId, cible.id),
+      "delete"
+    );
+  const voirCibles = () => {
+    setVue("mapping");
+    setFiltreMapping("toutes");
+  };
 
   const voirCategoriesAMapper = () => {
     setVue("mapping");
@@ -988,7 +1047,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
           )}
 
           {axeAConfigurer ? null : vue === "general" ? (
-            <PasseGeneral pnl={pnl} teintes={teintesCategories} />
+            <PasseGeneral pnl={pnl} teintes={teintesCategories} cibles={ecartsCibles} onOuvrir={setVue} onDefinirCible={voirCibles} />
           ) : estMetriqueDetail(vue) ? (
             // `key` : changer d'onglet remonte l'écran, donc réinitialise ses filtres locaux
             // (catégorie, mois) ; la période, elle, vit ici et reste inchangée.
@@ -1000,6 +1059,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               ajustements={ajustements}
               teintes={teintesCategories}
               onFiltresChange={retenirFiltresOnglet}
+              cibles={cibles}
             />
           ) : vue === "ecarts" ? (
             <PasseEcarts
@@ -1021,12 +1081,23 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               onSupprimer={retirerStock}
             />
           ) : vue === "mapping" ? (
+            <>
+            <PasseCibles
+              key={periode.debut}
+              cibles={cibles}
+              categoriesCa={lignesCorrespondance.filter((l) => l.pnlStage === "revenue").map((l) => ({ id: l.sourceCategoryId, nom: l.sourceCategoryName }))}
+              dateParDefaut={periode.debut}
+              onEnregistrer={poserCible}
+              onSupprimer={retirerCible}
+            />
+            {erreurCible && <p className="login-erreur">{erreurCible}</p>}
             <PasseMappingTable
               lignes={lignesCorrespondance}
               filtre={filtreMapping}
               onChangeFiltre={setFiltreMapping}
               onChangeEtage={changerEtage}
             />
+            </>
           ) : transactions.length === 0 ? (
             <div className="passe-etat">
               <p>Aucune transaction sur cette période.</p>

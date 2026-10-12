@@ -1,10 +1,12 @@
 "use client";
 
 import { Fragment } from "react";
+import PasseEcartCible from "./PasseEcartCible";
 import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import { formatMontantComptable, formatPourcentage } from "@/lib/format";
 import { LigneAjustement } from "@/lib/pastAdjustments";
+import { EcartsVsCibles } from "@/lib/pastTargets";
 import { libelleEtagePnl } from "@/lib/pastCategoryMapping";
 import {
   ETAGES_COUTS,
@@ -17,6 +19,11 @@ import {
 
 interface PasseGeneralProps {
   pnl: Pnl;
+  // Écarts aux cibles de performance de la période (null par indicateur = aucune cible applicable).
+  cibles: EcartsVsCibles;
+  // Ouvre l'écran de diagnostic d'un indicateur, ou la configuration des cibles.
+  onOuvrir: (ecran: "marge_brute" | "marge_contributive" | "ebitda") => void;
+  onDefinirCible: () => void;
   // Teinte attitrée de chaque catégorie, commune à tous les écrans du module (lib/dataviz.ts).
   teintes: ReadonlyMap<string, string>;
 }
@@ -57,7 +64,7 @@ function LignesAjustements({ lignes }: { lignes: LigneAjustement[] }) {
 
 // Onglet "Général" : P&L synthétique, Cash flow et structure des revenus / des coûts, sur la
 // période du module. Tout est dérivé à la lecture ; rien n'est interrogé chez Pennylane ici.
-export default function PasseGeneral({ pnl, teintes }: PasseGeneralProps) {
+export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinirCible }: PasseGeneralProps) {
   return (
     <div className="passe-general">
       {/* Colonne gauche : la performance. Un bloc par étage, répartis sur toute la hauteur. */}
@@ -70,14 +77,32 @@ export default function PasseGeneral({ pnl, teintes }: PasseGeneralProps) {
           <Ligne libelle="Coûts directs" montant={pnl.coutsDirects} />
           <LignesAjustements lignes={pnl.ajustements.gross_margin} />
           <Ligne libelle="Marge brute" montant={pnl.margeBrute} ratio={pnl.ratios.margeBrute} niveau="solde" />
+          <PasseEcartCible
+            ecart={{ type: "marge", valeur: cibles.margeBrute }}
+            onOuvrir={() => onOuvrir("marge_brute")}
+            onDefinir={onDefinirCible}
+            libelleLien="Ouvrir l'écran Marge brute"
+          />
         </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle={libelleEtagePnl("contribution_margin")} montant={pnl.coutsCommerciaux} />
           <LignesAjustements lignes={pnl.ajustements.contribution_margin} />
           <Ligne libelle="Marge contributive" montant={pnl.margeContributive} ratio={pnl.ratios.margeContributive} niveau="solde" />
+          <PasseEcartCible
+            ecart={{ type: "marge", valeur: cibles.margeContributive }}
+            onOuvrir={() => onOuvrir("marge_contributive")}
+            onDefinir={onDefinirCible}
+            libelleLien="Ouvrir l'écran Marge contributive"
+          />
         </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle="Coûts de structure" montant={pnl.coutsStructure} />
+          <PasseEcartCible
+            ecart={{ type: "couts", valeur: cibles.coutsStructure }}
+            onOuvrir={() => onOuvrir("ebitda")}
+            onDefinir={onDefinirCible}
+            libelleLien="Ouvrir l'écran EBITDA"
+          />
           <LignesAjustements lignes={pnl.ajustements.ebitda} />
           <Ligne libelle="EBITDA" montant={pnl.ebitda} ratio={pnl.ratios.ebitda} niveau="solde" />
         </div>

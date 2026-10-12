@@ -2296,6 +2296,146 @@ input[type="checkbox"] {
   color: var(--couleur-texte-secondaire);
 }
 
+/* Cible de performance d'un indicateur : information secondaire, sous sa ligne et alignée sur les
+   chiffres. Un lien dans l'onglet Général (vers l'écran de diagnostic), une simple lecture ailleurs. */
+.passe-cible {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  column-gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--couleur-texte-secondaire);
+  text-align: right;
+}
+
+.passe-cible--lien {
+  width: 100%;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--couleur-bordure);
+  text-underline-offset: 3px;
+}
+
+.passe-cible--lien:hover,
+.passe-cible--lien:focus-visible {
+  text-decoration-color: var(--couleur-texte);
+}
+
+.passe-cible__reserve {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+
+/* Écrans de détail : la cible se lit sous l'indicateur, alignée à gauche comme lui. */
+.passe-kpi__cible .passe-cible {
+  justify-content: flex-start;
+  font-size: 14px;
+  text-align: left;
+}
+
+/* Configuration des cibles (onglet Correspondance P&L) : une valeur et une date d'effet par cible. */
+.passe-cibles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-md);
+}
+
+.passe-cibles__ligne {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.passe-cibles__saisie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+
+.passe-cibles__saisie > label {
+  flex: 0 0 210px;
+}
+
+.passe-cibles__saisie input[type="text"] {
+  width: 96px;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+  background: var(--couleur-fond);
+}
+
+.passe-cibles__unite {
+  flex: 0 0 56px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-cibles__historique {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-cibles__vide {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Table des marges cibles par catégorie de CA : une saisie compacte par cellule, son historique dessous. */
+.passe-cibles__table td {
+  vertical-align: top;
+}
+
+.passe-cibles__champ {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-cibles__champ input {
+  width: 72px;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+  background: var(--couleur-fond);
+}
+
+.passe-cibles__table .passe-cibles__historique {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.passe-cibles__historique li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
 /* Soldes intermédiaires : un filet léger au-dessus, la hiérarchie vient de la typographie. */
 .passe-pnl__ligne--solde,
 .passe-pnl__ligne--total,
