@@ -33,7 +33,7 @@ function InfoBulle({ active, payload }: { active?: boolean; payload?: { payload:
   return (
     <div className="passe-structure__infobulle">
       <strong>{barreau.nom}</strong>
-      <span>{barreau.etage ? `${signe(barreau.valeur, formatMontant)} sur le Cash flow` : formatMontant(barreau.valeur)}</span>
+      <span>{barreau.etage ? `Impact : ${signe(barreau.valeur, formatMontant)}` : formatMontant(barreau.valeur)}</span>
     </div>
   );
 }
@@ -44,13 +44,13 @@ function InfoBulle({ active, payload }: { active?: boolean; payload?: { payload:
 export default function PasseWaterfallChart({ comparaison, libelleA, libelleB, selection, onSelect }: PasseWaterfallChartProps) {
   let cumul = comparaison.cashFlowA;
   const barreaux: Barreau[] = [
-    { cle: "a", nom: `Cash flow ${libelleA}`, plage: [0, comparaison.cashFlowA], valeur: comparaison.cashFlowA, etage: null },
+    { cle: "a", nom: `${comparaison.metrique} ${libelleA}`, plage: [0, comparaison.cashFlowA], valeur: comparaison.cashFlowA, etage: null },
     ...comparaison.etages.map((e) => {
       const depart = cumul;
       cumul += e.contribution;
       return { cle: e.etage, nom: e.libelle, plage: [depart, cumul] as [number, number], valeur: e.contribution, etage: e.etage };
     }),
-    { cle: "b", nom: `Cash flow ${libelleB}`, plage: [0, comparaison.cashFlowB], valeur: comparaison.cashFlowB, etage: null },
+    { cle: "b", nom: `${comparaison.metrique} ${libelleB}`, plage: [0, comparaison.cashFlowB], valeur: comparaison.cashFlowB, etage: null },
   ];
   const graduations = graduationsAxe(barreaux.flatMap((b) => b.plage));
   const decimales = decimalesAxeK(Math.max(...graduations.map(Math.abs)));

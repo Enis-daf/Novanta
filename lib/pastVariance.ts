@@ -1,7 +1,7 @@
 import { AjustementGestion, ajustementsDeLaPeriode, regrouperAjustements, sommeAjustements } from "./pastAdjustments";
 import { ETAGES_PNL, EtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import { PartMappee, partsMappees } from "./pastDetail";
-import { calculerCashFlowOperationnel, calculerVariationTresorerie } from "./pastPnl";
+import { calculerCashFlowOperationnel, calculerVariationTresorerie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
 import { aliasFlowKey, buildCanonicalFlowIdentity, FlowIdentity, groupComparableTransactions, MatchMethod, resoudreAlias } from "./flowMatching";
 
@@ -20,6 +20,23 @@ import { aliasFlowKey, buildCanonicalFlowIdentity, FlowIdentity, groupComparable
 export const ETAGES_ECARTS: readonly { etage: EtagePnl; libelle: string }[] = ETAGES_PNL.map((e) => ({ etage: e.cle, libelle: e.libelle }));
 
 const ETAGES_EBITDA: readonly EtagePnl[] = ["revenue", "gross_margin", "contribution_margin", "ebitda"];
+
+/**
+ * Ce que l'analyse compare, comme sur l'écran Cash flow et dans le P&L général (formules de
+ * lib/pastPnl.ts, jamais réécrites ici) :
+ *  - hors financement (par défaut) : le Cash flow opérationnel. L'étage Virements internes &
+ *    Financement est écarté de TOUTE l'analyse — indicateurs, waterfall, détail ;
+ *  - financement compris : la Variation de trésorerie, cet étage étant alors une contribution
+ *    comme les autres.
+ */
+export interface OptionsComparaison {
+  financementCompris?: boolean;
+}
+
+/** Étages qui contribuent à l'écart, dans l'ordre du P&L, selon la lecture choisie. */
+export function etagesCompares(options: OptionsComparaison = {}): readonly { etage: EtagePnl; libelle: string }[] {
+  return options.financementCompris === true ? ETAGES_ECARTS : ETAGES_ECARTS.filter((e) => e.etage !== "financing");
+}
 
 /** Tout ce qui entre dans le Cash flow d'une période : parts mappées et ajustements de gestion. */
 export interface DonneesPeriode {
@@ -64,6 +81,10 @@ export interface ContributionEtage {
 }
 
 export interface Comparaison {
+  // Nom du résultat comparé : « Cash flow opérationnel » ou « Variation de trésorerie ».
+  metrique: string;
+  financementCompris: boolean;
+  // Valeur de ce résultat sur chaque période (normalisée le cas échéant).
   cashFlowA: number;
   cashFlowB: number;
   ecart: number;
@@ -71,32 +92,34 @@ export interface Comparaison {
   ecartRelatif: number | null;
   // Leur somme est exactement l'écart : la waterfall réconcilie toujours A et B.
   etages: ContributionEtage[];
-  // L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L et l'étage Virements
-  // internes & Financement expliquent ce qui vient après. Ils ne se mélangent pas :
-  // variationEbitda + variationExtraPnl + variationFinancements = ecart.
+  // L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L et, en lecture « financement
+  // compris », l'étage Virements internes & Financement expliquent ce qui vient après. Ils ne se
+  // mélangent pas : variationEbitda + variationExtraPnl + variationFinancements = ecart
+  // (variationFinancements vaut 0 hors financement).
   variationEbitda: number;
   variationExtraPnl: number;
   variationFinancements: number;
 }
 
-export function comparerPeriodes(a: DonneesPeriode, b: DonneesPeriode): Comparaison {
-  const etages = ETAGES_ECARTS.map(({ etage, libelle }) => {
+export function comparerPeriodes(a: DonneesPeriode, b: DonneesPeriode, options: OptionsComparaison = {}): Comparaison {
+  const financementCompris = options.financementCompris === true;
+  const etages = etagesCompares(options).map(({ etage, libelle }) => {
     const montantA = totalEtage(a, [etage]);
     const montantB = totalEtage(b, [etage]);
     return { etage, libelle, montantA, montantB, contribution: montantB - montantA };
   });
-  // Le « Cash flow » comparé est la variation de trésorerie : le mouvement bancaire complet.
-  const cashFlow = (donnees: DonneesPeriode) =>
-    calculerVariationTresorerie(
-      calculerCashFlowOperationnel(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"])),
-      totalEtage(donnees, ["financing"])
-    );
+  const cashFlow = (donnees: DonneesPeriode) => {
+    const operationnel = calculerCashFlowOperationnel(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"]));
+    return financementCompris ? calculerVariationTresorerie(operationnel, totalEtage(donnees, ["financing"])) : operationnel;
+  };
   const cashFlowA = cashFlow(a);
   const cashFlowB = cashFlow(b);
   const ecart = cashFlowB - cashFlowA;
   const variationExtraPnl = etages.find((e) => e.etage === "extra_pnl")!.contribution;
-  const variationFinancements = etages.find((e) => e.etage === "financing")!.contribution;
+  const variationFinancements = etages.find((e) => e.etage === "financing")?.contribution ?? 0;
   return {
+    metrique: financementCompris ? LIBELLE_VARIATION_TRESORERIE : LIBELLE_CASH_FLOW_OPERATIONNEL,
+    financementCompris,
     cashFlowA,
     cashFlowB,
     ecart,
@@ -342,10 +365,11 @@ export function fluxConnus(
   a: DonneesPeriode,
   b: DonneesPeriode,
   alias: ReadonlyMap<string, string> = new Map(),
-  manuels: GroupesManuels = AUCUN_GROUPE_MANUEL
+  manuels: GroupesManuels = AUCUN_GROUPE_MANUEL,
+  options: OptionsComparaison = {}
 ): FluxConnu[] {
   const connus = new Map<string, FluxConnu>();
-  for (const { etage } of ETAGES_ECARTS) {
+  for (const { etage } of etagesCompares(options)) {
     for (const groupe of groupesDeLibelles(a, b, etage, null, alias, manuels)) {
       if (groupe.clesAlias.length === 0) continue;
       const cle = groupe.groupeManuel ? `${PREFIXE_MANUEL}${groupe.groupeManuel.id}` : groupe.clesAlias.map((c) => c.cle).sort().join("|");

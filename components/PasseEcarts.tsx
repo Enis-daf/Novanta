@@ -17,6 +17,7 @@ import { dissocierFlux, fusionnerFlux, GroupeManuel, indexerGroupesManuels, nomD
 import { buildCanonicalFlowIdentity, FlowAlias, LONGUEUR_MAX_ALIAS, MatchMethod, normaliserNomAlias } from "@/lib/flowMatching";
 import { formatMontant, formatPourcentage } from "@/lib/format";
 import { AjustementGestion } from "@/lib/pastAdjustments";
+import { LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "@/lib/pastPnl";
 import { EtagePnl, MappingCategorie } from "@/lib/pastCategoryMapping";
 import { TRI_TRANSACTIONS_PAR_DEFAUT, trierTransactions, TriTransactions } from "@/lib/pastDetail";
 import { PastTransactionStockee, Periode, periodeValide } from "@/lib/pastTransactions";
@@ -61,9 +62,19 @@ interface PasseEcartsProps {
   // navigation entre onglets.
   selections: SelectionsEcarts;
   onChangeSelections: (selections: SelectionsEcarts) => void;
+  // Lecture de l'analyse : Cash flow opérationnel (hors financement, par défaut) ou Variation de
+  // trésorerie (financement compris). Appartient au module, comme les périodes : le choix tient
+  // tant qu'on y reste, et revient à « hors financement » au rechargement de la page.
+  financementCompris: boolean;
+  onChangeFinancementCompris: (financementCompris: boolean) => void;
   // Incrémenté après une synchronisation : les deux périodes sont relues.
   rechargement: number;
 }
+
+const LECTURES = [
+  { financementCompris: false, libelle: "Hors financement" },
+  { financementCompris: true, libelle: "Financement compris" },
+];
 
 const PAS_AFFICHAGE = 100;
 // Au-delà, la recherche du panneau de fusion doit être précisée.
@@ -105,6 +116,8 @@ export default function PasseEcarts({
   configExercice,
   selections,
   onChangeSelections,
+  financementCompris,
+  onChangeFinancementCompris,
   rechargement,
 }: PasseEcartsProps) {
   const bornesA = periodeDeLaSelection(selections.a, aujourdhui, configExercice);
@@ -220,14 +233,17 @@ export default function PasseEcarts({
       },
     [transactions, axeId, mappings, ajustements, periodeA, periodeB, coefficientA, coefficientB]
   );
-  const comparaison = useMemo(() => donnees && comparerPeriodes(donnees.a, donnees.b), [donnees]);
+  const comparaison = useMemo(() => donnees && comparerPeriodes(donnees.a, donnees.b, { financementCompris }), [donnees, financementCompris]);
   const categories = useMemo(() => (donnees && etage ? categoriesDeLEtage(donnees.a, donnees.b, etage) : []), [donnees, etage]);
   const groupes = useMemo(
     () => (donnees && etage ? groupesDeLibelles(donnees.a, donnees.b, etage, categorie, aliasParCle, manuels) : []),
     [donnees, etage, categorie, aliasParCle, manuels]
   );
   // Flux proposés à la fusion : ceux des deux périodes comparées, tous étages confondus.
-  const connus = useMemo(() => (donnees ? fluxConnus(donnees.a, donnees.b, aliasParCle, manuels) : []), [donnees, aliasParCle, manuels]);
+  const connus = useMemo(
+    () => (donnees ? fluxConnus(donnees.a, donnees.b, aliasParCle, manuels, { financementCompris }) : []),
+    [donnees, aliasParCle, manuels, financementCompris]
+  );
   const transactionsGroupe = useMemo(
     () =>
       donnees && etage && groupe
@@ -376,6 +392,18 @@ export default function PasseEcarts({
         ]
       : [];
 
+  // Changer de lecture change la composition de l'analyse : l'exploration repart du graphique.
+  const changerLecture = (suivante: boolean) => {
+    if (suivante === financementCompris) return;
+    onChangeFinancementCompris(suivante);
+    setEtage(null);
+    setCategorie(null);
+    setGroupe(null);
+    setFusion(null);
+    setRenommage(null);
+    setVoirTout(false);
+  };
+
   const libelleEtage = etage ? ETAGES_ECARTS.find((e) => e.etage === etage)!.libelle : null;
   const nomCategorie = categorie ? (categories.find((c) => c.cle === categorie)?.nom ?? null) : null;
   const groupeOuvert = groupe ? (groupes.find((g) => g.cle === groupe) ?? null) : null;
@@ -394,10 +422,11 @@ export default function PasseEcarts({
   ).filter(([, periode]) => periode.fin >= aujourdhui);
 
   const enTete = (cote: "A" | "B") => (normalisation?.cote === cote ? `${cote} (normalisé)` : cote);
+  const metrique = financementCompris ? LIBELLE_VARIATION_TRESORERIE : LIBELLE_CASH_FLOW_OPERATIONNEL;
   const libelleCashFlow = (cote: "A" | "B", periode: Periode) =>
     normalisation?.cote === cote
-      ? `Cash flow ${cote} · ramené à ${normalisation.duree} (moyenne sur ${libellePeriode(periode)})`
-      : `Cash flow ${cote} · ${libellePeriode(periode)}`;
+      ? `${metrique} ${cote} · ramené à ${normalisation.duree} (moyenne sur ${libellePeriode(periode)})`
+      : `${metrique} ${cote} · ${libellePeriode(periode)}`;
 
   return (
     <div className="passe-detail">
@@ -424,6 +453,19 @@ export default function PasseEcarts({
               configExercice={configExercice}
               catalogue={PRESETS_AVEC_MOIS}
             />
+          </div>
+          <div className="passe-tri" role="group" aria-label="Lecture de l'analyse">
+            {LECTURES.map((option) => (
+              <button
+                key={option.libelle}
+                type="button"
+                className={`btn-secondaire${financementCompris === option.financementCompris ? " btn-module--actif" : ""}`}
+                aria-pressed={financementCompris === option.financementCompris}
+                onClick={() => changerLecture(option.financementCompris)}
+              >
+                {option.libelle}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -478,7 +520,9 @@ export default function PasseEcarts({
             </section>
 
             <section className="passe-structure">
-              <h3 className="eyebrow eyebrow--encre">Ce qui fait varier le Cash flow</h3>
+              <h3 className="eyebrow eyebrow--encre">
+                {financementCompris ? "Ce qui fait varier la trésorerie" : "Ce qui fait varier le Cash flow opérationnel"}
+              </h3>
               <PasseWaterfallChart
                 comparaison={comparaison}
                 libelleA={enTete("A")}
@@ -489,8 +533,9 @@ export default function PasseEcarts({
               {/* L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L n'intervient qu'après. */}
               <p className="passe-message">
                 Dont variation d&apos;EBITDA : {signe(comparaison.variationEbitda)} · variation d&apos;Extra P&amp;L :{" "}
-                {signe(comparaison.variationExtraPnl)} · variation des virements internes &amp; financement : {signe(comparaison.variationFinancements)}. Cliquez
-                sur une contribution pour voir ses catégories.
+                {signe(comparaison.variationExtraPnl)}
+                {financementCompris && <> · variation des virements internes &amp; financement : {signe(comparaison.variationFinancements)}</>}. Cliquez sur une
+                contribution pour voir ses catégories.
               </p>
             </section>
 
@@ -507,7 +552,7 @@ export default function PasseEcarts({
                           <th>Catégorie</th>
                           <th className="col-montant">{enTete("A")}</th>
                           <th className="col-montant">{enTete("B")}</th>
-                          <th className="col-montant">Impact Cash flow</th>
+                          <th className="col-montant">Impact</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -772,7 +817,7 @@ export default function PasseEcarts({
                       <th>Flux</th>
                       <th className="col-montant">{enTete("A")}</th>
                       <th className="col-montant">{enTete("B")}</th>
-                      <th className="col-montant">Impact Cash flow</th>
+                      <th className="col-montant">Impact</th>
                     </tr>
                   </thead>
                   <tbody>
