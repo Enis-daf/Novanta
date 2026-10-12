@@ -2646,6 +2646,29 @@ input[type="checkbox"] {
   border-bottom: 1px solid var(--couleur-bordure);
 }
 
+/* Information secondaire : la liste garde sa hauteur naturelle quand elle est courte, et défile
+   sur elle-même au-delà d'environ quatre lignes — les transactions restent le contenu principal de
+   la colonne. L'intitulé, lui, est hors de la zone qui défile. */
+.passe-detail__ajustements-liste {
+  max-height: 136px;
+  overflow-y: auto;
+}
+
+.passe-detail__ajustements-liste .passe-table td {
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+
+/* Cash flow : ajustements de gestion en note sous le graphique, qui garde toute la largeur. */
+.passe-note-ajustements {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
 /* Réserve sur un ajustement (périodisation incertaine...) : un signalement, pas une erreur —
    texte secondaire en italique, sans fond ni couleur d'alerte. */
 .passe-reserve {
