@@ -2340,23 +2340,40 @@ input[type="checkbox"] {
   text-align: left;
 }
 
-/* Configuration des cibles (onglet Correspondance P&L) : une valeur et une date d'effet par cible. */
+/* Onglet Objectifs : les objectifs de marge par catégorie de CA, puis les coûts de structure. */
 .passe-cibles {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--couleur-bordure);
-  border-radius: var(--radius-md);
+  gap: var(--space-5);
 }
 
-.passe-cibles__ligne {
+.passe-cibles__section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 
-.passe-cibles__saisie {
+.passe-cibles__table td {
+  vertical-align: top;
+}
+
+/* Une cible : sa valeur, sa date d'effet, et ses deux pictos (modifier, supprimer). */
+.passe-cibles__valeur {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 13px;
+}
+
+.passe-cibles__date,
+.passe-cibles__vide {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Saisie sur place : correction d'une cible (valeur et date préremplies) ou nouvelle cible. */
+.passe-cibles__edition {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2364,12 +2381,8 @@ input[type="checkbox"] {
   font-size: 13px;
 }
 
-.passe-cibles__saisie > label {
-  flex: 0 0 210px;
-}
-
-.passe-cibles__saisie input[type="text"] {
-  width: 96px;
+.passe-cibles__edition input[type="text"] {
+  width: 88px;
   border: 1px solid var(--couleur-bordure);
   border-radius: var(--radius-sm);
   padding: 6px 10px;
@@ -2379,85 +2392,45 @@ input[type="checkbox"] {
   background: var(--couleur-fond);
 }
 
-.passe-cibles__unite {
-  flex: 0 0 56px;
-  color: var(--couleur-texte-secondaire);
+/* Ligne dépliée sous une catégorie : nouvelle cible, ou versions antérieures. */
+.passe-cibles__sous-ligne td {
+  background: var(--couleur-fond-alt-vert);
 }
 
-.passe-cibles__historique {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-  color: var(--couleur-texte-secondaire);
-}
-
-/* Correction d'une cible existante, sur place : valeur et date d'effet préremplies. */
-.passe-cibles__edition {
+.passe-cibles__versions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-1) var(--space-4);
+  padding: 2px 0;
 }
 
-.passe-cibles__edition input[type="text"] {
-  width: 84px;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: var(--radius-sm);
-  padding: 4px 8px;
-  font: inherit;
+.passe-cibles__lien {
+  display: block;
+  margin-top: var(--space-1);
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  cursor: pointer;
+}
+
+.passe-cibles__ligne {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.passe-cibles__saisie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
   font-size: 13px;
-  text-align: right;
-  background: var(--couleur-fond);
 }
 
 .passe-renommer:disabled {
   opacity: 0.4;
   cursor: default;
-}
-
-.passe-cibles__vide {
-  font-size: 12px;
-  color: var(--couleur-texte-secondaire);
-}
-
-/* Table des marges cibles par catégorie de CA : une saisie compacte par cellule, son historique dessous. */
-.passe-cibles__table td {
-  vertical-align: top;
-}
-
-.passe-cibles__champ {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin-top: var(--space-1);
-  font-size: 13px;
-  color: var(--couleur-texte-secondaire);
-}
-
-.passe-cibles__champ input {
-  width: 92px;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: var(--radius-sm);
-  padding: 6px 10px;
-  font: inherit;
-  font-size: 13px;
-  text-align: right;
-  background: var(--couleur-fond);
-}
-
-.passe-cibles__table .passe-cibles__historique {
-  flex-direction: column;
-  gap: 2px;
-}
-
-.passe-cibles__historique li {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
 }
 
 /* Soldes intermédiaires : un filet léger au-dessus, la hiérarchie vient de la typographie. */

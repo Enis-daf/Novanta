@@ -64,38 +64,89 @@ export function historiqueDesCibles(cibles: Cible[], type: TypeCible, dimension:
 }
 
 /**
- * Deux actions distinctes sur une cible, à ne pas confondre :
- *  - CORRIGER une cible existante (sa valeur, sa date d'effet) : la même ligne est modifiée ;
- *  - AJOUTER une cible à partir d'une nouvelle date d'effet : une ligne de plus dans l'historique.
- * Dans les deux cas, deux cibles du même type et de la même dimension ne peuvent pas partager une
- * date d'effet : le conflit est signalé, jamais résolu en écrasant l'autre ligne.
+ * Enregistrer une cible : l'utilisateur n'a pas à savoir s'il crée ou s'il modifie. Ces fonctions
+ * décident, et disent quelles écritures faire (`operations`), que l'appelant applique telles
+ * quelles. Règle : une cible est identifiée par son type, sa dimension (la catégorie de CA) et sa
+ * date d'effet — il n'y en a jamais deux pour la même clé.
+ *
+ *  - même clé, même date d'effet  -> la cible existante est MISE À JOUR ;
+ *  - nouvelle date d'effet        -> une nouvelle version s'AJOUTE à l'historique ;
+ *  - cible corrigée dont la date est déplacée sur une date déjà prise -> conflit signalé : rien
+ *    n'est écrasé sans une confirmation explicite (remplacerCible).
  */
-export const MESSAGE_CONFLIT_CIBLE = "Une cible existe déjà à cette date d'effet.";
+export type OperationCible =
+  | { type: "insert"; cible: Cible }
+  | { type: "update"; id: string; valeur: number; validFrom: string }
+  | { type: "delete"; id: string };
+
+export const MESSAGE_CONFLIT_CIBLE = "Une cible existe déjà à cette date.";
 
 /** Autre cible du même type et de la même dimension déjà posée à cette date d'effet, sinon null. */
 export function cibleEnConflit(cibles: Cible[], type: TypeCible, dimension: string, validFrom: string, saufId: string | null = null): Cible | null {
   return cibles.find((c) => c.type === type && c.dimension === dimension && c.validFrom === validFrom && c.id !== saufId) ?? null;
 }
 
-export type ResultatEditionCible = { cibles: Cible[]; conflit: null } | { cibles: null; conflit: Cible };
-
-/**
- * Correction d'une cible existante : seule la ligne désignée par son identifiant change. Son type
- * et sa dimension (la catégorie de CA) ne se modifient pas. Aucune ligne n'est créée.
- */
-export function corrigerCible(cibles: Cible[], id: string, correction: { valeur: number; validFrom: string }): ResultatEditionCible {
-  const cible = cibles.find((c) => c.id === id);
-  if (!cible) return { cibles, conflit: null };
-  const conflit = cibleEnConflit(cibles, cible.type, cible.dimension, correction.validFrom, id);
-  if (conflit) return { cibles: null, conflit };
-  return { cibles: cibles.map((c) => (c.id === id ? { ...c, ...correction } : c)), conflit: null };
+export interface ResultatCible {
+  cibles: Cible[];
+  operations: OperationCible[];
 }
 
-/** Nouvelle version datée d'une cible : une ligne de plus, les autres intactes. */
-export function ajouterCible(cibles: Cible[], nouvelle: Cible): ResultatEditionCible {
-  const conflit = cibleEnConflit(cibles, nouvelle.type, nouvelle.dimension, nouvelle.validFrom);
-  if (conflit) return { cibles: null, conflit };
-  return { cibles: [...cibles, nouvelle], conflit: null };
+/**
+ * Pose une cible à une date d'effet (mode création). S'il en existe déjà une pour la même clé à
+ * cette date, c'est elle qui est mise à jour — pas d'erreur, pas de doublon ; sinon une nouvelle
+ * version est ajoutée, sous `nouvelId` en attendant l'identifiant de la base.
+ */
+export function poserCible(cibles: Cible[], cle: { type: TypeCible; dimension: string; validFrom: string }, valeur: number, nouvelId: string): ResultatCible {
+  const existante = cibleEnConflit(cibles, cle.type, cle.dimension, cle.validFrom);
+  if (existante) {
+    return {
+      cibles: cibles.map((c) => (c.id === existante.id ? { ...c, valeur } : c)),
+      operations: existante.valeur === valeur ? [] : [{ type: "update", id: existante.id, valeur, validFrom: existante.validFrom }],
+    };
+  }
+  const cible: Cible = { id: nouvelId, ...cle, valeur };
+  return { cibles: [...cibles, cible], operations: [{ type: "insert", cible }] };
+}
+
+/**
+ * Correction d'une cible existante, désignée par son identifiant (mode édition) : seule cette
+ * ligne change, son type et sa dimension ne se modifient pas, aucune ligne n'est créée.
+ * `conflit` : la date d'effet demandée est déjà celle d'une AUTRE cible de la même clé — rien
+ * n'est fait, à l'appelant de demander confirmation puis d'appeler remplacerCible.
+ */
+export function corrigerCible(
+  cibles: Cible[],
+  id: string,
+  correction: { valeur: number; validFrom: string }
+): (ResultatCible & { conflit: null }) | { cibles: null; operations: null; conflit: Cible } {
+  const cible = cibles.find((c) => c.id === id);
+  if (!cible) return { cibles, operations: [], conflit: null };
+  const conflit = cibleEnConflit(cibles, cible.type, cible.dimension, correction.validFrom, id);
+  if (conflit) return { cibles: null, operations: null, conflit };
+  if (cible.valeur === correction.valeur && cible.validFrom === correction.validFrom) return { cibles, operations: [], conflit: null };
+  return {
+    cibles: cibles.map((c) => (c.id === id ? { ...c, ...correction } : c)),
+    operations: [{ type: "update", id, ...correction }],
+    conflit: null,
+  };
+}
+
+/**
+ * Remplacement confirmé : la cible corrigée prend la place de celle qui occupe déjà la date
+ * demandée. La cible en place reçoit la nouvelle valeur, et la ligne corrigée disparaît — une seule
+ * cible à cette date, jamais deux. Sans conflit, c'est une simple correction.
+ */
+export function remplacerCible(cibles: Cible[], id: string, correction: { valeur: number; validFrom: string }): ResultatCible {
+  const resultat = corrigerCible(cibles, id, correction);
+  if (resultat.conflit === null) return { cibles: resultat.cibles, operations: resultat.operations };
+  const enPlace = resultat.conflit;
+  return {
+    cibles: cibles.filter((c) => c.id !== id).map((c) => (c.id === enPlace.id ? { ...c, valeur: correction.valeur } : c)),
+    operations: [
+      { type: "update", id: enPlace.id, valeur: correction.valeur, validFrom: enPlace.validFrom },
+      { type: "delete", id },
+    ],
+  };
 }
 
 /** Cible en vigueur à une date : la dernière dont la date d'effet est atteinte. null avant la première. */
