@@ -8,6 +8,7 @@ import { formatDateCourte } from "@/lib/dates";
 import {
   ConfigExercice,
   dureeDeLaSelection,
+  inverserPeriodes,
   normaliserDurees,
   periodeDeLaSelection,
   PRESETS_AVEC_MOIS,
@@ -444,6 +445,21 @@ export default function PasseEcarts({
               catalogue={PRESETS_AVEC_MOIS}
             />
           </div>
+          {/* Inverse A et B en entier (preset et dates) ; tout se recalcule comme après un
+              changement de période. Les deux sélecteurs sont l'un sous l'autre : flèches verticales. */}
+          <span className="passe-flux-actions passe-ecarts__inverser">
+            <button
+              type="button"
+              className="passe-renommer"
+              aria-label="Inverser les périodes"
+              data-infobulle="Inverser les périodes"
+              onClick={() => changerPeriodes(inverserPeriodes(selections))}
+            >
+              <svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 13V3M5 3 2.5 5.5M5 3l2.5 2.5M11 3v10M11 13l-2.5-2.5M11 13l2.5-2.5" />
+              </svg>
+            </button>
+          </span>
           <div className="passe-controle passe-axe">
             <PasseSelecteurPeriode
               id="passe-ecarts-b"

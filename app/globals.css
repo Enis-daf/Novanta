@@ -2697,6 +2697,12 @@ input[type="checkbox"] {
   gap: var(--space-2);
 }
 
+/* Bouton d'inversion A / B, entre les deux sélecteurs. */
+.passe-ecarts__inverser {
+  align-self: flex-start;
+  margin-left: 0;
+}
+
 .passe-ecarts__normalisation {
   margin: 0;
   align-self: flex-start;

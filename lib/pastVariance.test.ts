@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { AjustementGestion } from "./pastAdjustments";
 import { indexerMappings, MappingCategorie } from "./pastCategoryMapping";
 import { trierTransactions } from "./pastDetail";
-import { dureeDeLaSelection, normaliserDurees, selectionDuPreset } from "./fiscalPeriods";
+import { dureeDeLaSelection, EXERCICE_PAR_DEFAUT, inverserPeriodes, normaliserDurees, periodeDeLaSelection, SelectionPeriode, selectionDuPreset } from "./fiscalPeriods";
 import { calculerPnl } from "./pastPnl";
 import { PastTransactionStockee } from "./pastTransactions";
 import { fusionnerFlux, indexerGroupesManuels } from "./flowGroups";
@@ -787,5 +787,67 @@ describe("variation d'un poste — à ne pas confondre avec son impact", () => {
       assert.equal(e.variation.ampleur, Math.abs(e.montantB - e.montantA));
       assert.deepEqual(e.variation, variationDuPoste(e.etage, e.montantA, e.montantB));
     }
+  });
+});
+
+describe("inverser les périodes A et B", () => {
+  const AUJOURDHUI = "2026-10-12";
+  const preset = (cle: Parameters<typeof selectionDuPreset>[0]) => selectionDuPreset(cle, AUJOURDHUI, EXERCICE_PAR_DEFAUT);
+  const personnalisee: SelectionPeriode = { choix: "personnalise", personnalisee: { debut: "2026-01-01", fin: "2026-01-31" } };
+  const bornes = (selection: SelectionPeriode) => periodeDeLaSelection(selection, AUJOURDHUI, EXERCICE_PAR_DEFAUT);
+  const duree = (selection: SelectionPeriode) => dureeDeLaSelection(selection, AUJOURDHUI, EXERCICE_PAR_DEFAUT);
+
+  test("deux mois simples : A devient B et B devient A, en entier", () => {
+    const selections = { a: preset("mois_m2"), b: preset("mois_m1") };
+    const inversees = inverserPeriodes(selections);
+    assert.deepEqual(inversees, { a: selections.b, b: selections.a });
+    assert.deepEqual([bornes(inversees.a), bornes(inversees.b)], [bornes(selections.b), bornes(selections.a)]);
+    assert.deepEqual(inverserPeriodes(inversees), selections);
+  });
+
+  test("deux presets différents, ou une période personnalisée et un preset : le choix et les dates suivent", () => {
+    const deuxPresets = inverserPeriodes({ a: preset("mois_m1"), b: preset("exercice_n1") });
+    assert.deepEqual([deuxPresets.a.choix, deuxPresets.b.choix], ["exercice_n1", "mois_m1"]);
+    const mixte = inverserPeriodes({ a: personnalisee, b: preset("mois_m1") });
+    assert.deepEqual([mixte.a.choix, mixte.b.choix], ["mois_m1", "personnalise"]);
+    assert.deepEqual(mixte.b.personnalisee, { debut: "2026-01-01", fin: "2026-01-31" });
+    assert.deepEqual(bornes(mixte.b), { debut: "2026-01-01", fin: "2026-01-31" });
+  });
+
+  test("durées différentes : la normalisation est recalculée, elle suit la période la plus longue", () => {
+    const selections = { a: preset("exercice_n1"), b: preset("mois_m1") };
+    const avant = normaliserDurees(duree(selections.a), duree(selections.b));
+    const inversees = inverserPeriodes(selections);
+    const apres = normaliserDurees(duree(inversees.a), duree(inversees.b));
+    assert.equal(avant.detail!.cote, "A");
+    assert.equal(apres.detail!.cote, "B");
+    assert.deepEqual([apres.coefficientA, apres.coefficientB], [avant.coefficientB, avant.coefficientA]);
+    assert.equal(apres.detail!.duree, avant.detail!.duree);
+  });
+
+  test("l'écart reste B − A : il change de signe, et la waterfall repart de la nouvelle A", () => {
+    for (const options of [{}, { financementCompris: true }]) {
+      const avant = comparerPeriodes(A, B, options);
+      const apres = comparerPeriodes(B, A, options);
+      assert.deepEqual([apres.cashFlowA, apres.cashFlowB, apres.ecart], [avant.cashFlowB, avant.cashFlowA, -avant.ecart]);
+      assert.deepEqual(apres.etages.map((e) => e.contribution + 0), avant.etages.map((e) => 0 - e.contribution));
+      assert.equal(apres.cashFlowA + apres.etages.reduce((s, e) => s + e.contribution, 0), apres.cashFlowB);
+      // La lecture choisie n'est pas touchée par l'inversion.
+      assert.deepEqual([apres.metrique, apres.financementCompris], [avant.metrique, avant.financementCompris]);
+    }
+  });
+
+  test("le sens des variations s'inverse avec les périodes", () => {
+    const avant = comparerPeriodes(A, B).etages.find((e) => e.etage === "gross_margin")!;
+    const apres = comparerPeriodes(B, A).etages.find((e) => e.etage === "gross_margin")!;
+    assert.deepEqual([avant.variation.sens, apres.variation.sens], ["baisse", "hausse"]);
+    assert.equal(apres.variation.ampleur, avant.variation.ampleur);
+  });
+
+  test("l'inversion ne modifie pas les sélections d'origine", () => {
+    const selections = { a: personnalisee, b: preset("mois_m1") };
+    const copie = structuredClone(selections);
+    inverserPeriodes(selections);
+    assert.deepEqual(selections, copie);
   });
 });
