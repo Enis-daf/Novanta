@@ -1,7 +1,7 @@
 import { AjustementGestion, ajustementsDeLaPeriode, regrouperAjustements, sommeAjustements } from "./pastAdjustments";
 import { ETAGES_PNL, EtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import { PartMappee, partsMappees } from "./pastDetail";
-import { calculerCashFlow } from "./pastPnl";
+import { calculerCashFlowOperationnel, calculerVariationTresorerie } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
 import { aliasFlowKey, buildCanonicalFlowIdentity, FlowIdentity, groupComparableTransactions, MatchMethod, resoudreAlias } from "./flowMatching";
 
@@ -85,8 +85,12 @@ export function comparerPeriodes(a: DonneesPeriode, b: DonneesPeriode): Comparai
     const montantB = totalEtage(b, [etage]);
     return { etage, libelle, montantA, montantB, contribution: montantB - montantA };
   });
+  // Le « Cash flow » comparé est la variation de trésorerie : le mouvement bancaire complet.
   const cashFlow = (donnees: DonneesPeriode) =>
-    calculerCashFlow(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"]), totalEtage(donnees, ["financing"]));
+    calculerVariationTresorerie(
+      calculerCashFlowOperationnel(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"])),
+      totalEtage(donnees, ["financing"])
+    );
   const cashFlowA = cashFlow(a);
   const cashFlowB = cashFlow(b);
   const ecart = cashFlowB - cashFlowA;

@@ -1,7 +1,7 @@
 import { estDateValide, parseDateISO } from "./dates";
 import { AjustementGestion, LigneAjustement, moisDe, regrouperAjustements, sommeAjustements } from "./pastAdjustments";
 import { EtagePnl, libelleEtagePnl, MappingCategorie, ventilerTransaction } from "./pastCategoryMapping";
-import { PnlCategorie, SensStructure, Structure, structureParCategorie } from "./pastPnl";
+import { PnlCategorie, SensStructure, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
 
 /**
@@ -318,7 +318,10 @@ export function calculerDetail(
 
   return {
     kpi: {
-      libelle: config.libelle,
+      // Écran Cash flow : l'indicateur porte le nom du résultat de trésorerie qu'il affiche, le
+      // même que dans le P&L de l'onglet Général.
+      libelle:
+        metrique === "cash_flow" ? (options.financementCompris === true ? LIBELLE_VARIATION_TRESORERIE : LIBELLE_CASH_FLOW_OPERATIONNEL) : config.libelle,
       precision:
         metrique === "cash_flow" ? (options.financementCompris === true ? PRECISION_FINANCEMENT_COMPRIS : PRECISION_HORS_FINANCEMENT) : null,
       categorie: categorieSelectionnee,

@@ -66,7 +66,7 @@ describe("variation de stock — calculée à partir des stocks de fin de mois",
     assert.equal(avril.notes, null);
     const pnl = calculerPnl([], "229", new Map(), [mars, avril]);
     assert.equal(pnl.margeBrute, -5);
-    assert.equal(pnl.cashFlow, -5);
+    assert.equal(pnl.variationTresorerie, -5);
     assert.deepEqual(pnl.ajustements.gross_margin.map((l) => [l.montant, l.notes.length]), [[-5, 1]]);
   });
 
@@ -136,7 +136,7 @@ describe("ajustements de gestion dans le P&L", () => {
   test("…et, par ricochet, dans la marge contributive, l'EBITDA et le Cash flow", () => {
     assert.equal(avec.margeContributive, sans.margeContributive - 31_600);
     assert.equal(avec.ebitda, sans.ebitda - 31_600);
-    assert.equal(avec.cashFlow, sans.cashFlow - 31_600);
+    assert.equal(avec.variationTresorerie, sans.variationTresorerie - 31_600);
     assert.equal(avec.ratios.margeBrute, 688_400 / 1_250_000);
   });
 
@@ -147,7 +147,7 @@ describe("ajustements de gestion dans le P&L", () => {
       ajustement("x1", "2026-03-31", -2_500, "extra_pnl", "Correction", "correction"),
     ]);
     assert.equal(pnl.ebitda, sans.ebitda - 31_600 + 8_000);
-    assert.equal(pnl.cashFlow, sans.cashFlow - 31_600 + 8_000 - 2_500);
+    assert.equal(pnl.variationTresorerie, sans.variationTresorerie - 31_600 + 8_000 - 2_500);
     assert.deepEqual(pnl.ajustements.ebitda.map((l) => l.label), ["Provision"]);
     assert.deepEqual(pnl.ajustements.extra_pnl.map((l) => l.label), ["Correction"]);
   });

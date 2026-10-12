@@ -6,7 +6,14 @@ import PasseStructureChart from "./PasseStructureChart";
 import { formatMontantComptable, formatPourcentage } from "@/lib/format";
 import { LigneAjustement } from "@/lib/pastAdjustments";
 import { libelleEtagePnl } from "@/lib/pastCategoryMapping";
-import { ETAGES_COUTS, ETAGES_REVENUS, Pnl, structureParCategorie } from "@/lib/pastPnl";
+import {
+  ETAGES_COUTS,
+  ETAGES_REVENUS,
+  LIBELLE_CASH_FLOW_OPERATIONNEL,
+  LIBELLE_VARIATION_TRESORERIE,
+  Pnl,
+  structureParCategorie,
+} from "@/lib/pastPnl";
 
 interface PasseGeneralProps {
   pnl: Pnl;
@@ -23,7 +30,7 @@ function Ligne({
   libelle: string;
   montant: number;
   ratio?: number | null;
-  niveau?: "titre" | "solde";
+  niveau?: "titre" | "solde" | "total";
 }) {
   return (
     <div className={`passe-pnl__ligne${niveau ? ` passe-pnl__ligne--${niveau}` : ""}`}>
@@ -74,13 +81,18 @@ export default function PasseGeneral({ pnl, teintes }: PasseGeneralProps) {
           <LignesAjustements lignes={pnl.ajustements.ebitda} />
           <Ligne libelle="EBITDA" montant={pnl.ebitda} ratio={pnl.ratios.ebitda} niveau="solde" />
         </div>
-        {/* Cash flow : présenté à part du P&L opérationnel, sans ratio. */}
+        {/* Trésorerie, à part du P&L opérationnel et sans ratio : ce que l'activité génère après
+            l'Extra P&L (sous-total, au rang des marges), puis l'effet des virements internes et du
+            financement, jusqu'au total final. */}
         <div className="passe-pnl__bloc passe-pnl__bloc--cash">
           <Ligne libelle={libelleEtagePnl("extra_pnl")} montant={pnl.extraPnl} />
           <LignesAjustements lignes={pnl.ajustements.extra_pnl} />
+          <Ligne libelle={LIBELLE_CASH_FLOW_OPERATIONNEL} montant={pnl.cashFlowOperationnel} niveau="solde" />
+        </div>
+        <div className="passe-pnl__bloc">
           <Ligne libelle={libelleEtagePnl("financing")} montant={pnl.financements} />
           <LignesAjustements lignes={pnl.ajustements.financing} />
-          <Ligne libelle="Cash flow" montant={pnl.cashFlow} niveau="titre" />
+          <Ligne libelle={LIBELLE_VARIATION_TRESORERIE} montant={pnl.variationTresorerie} niveau="total" />
         </div>
       </section>
 

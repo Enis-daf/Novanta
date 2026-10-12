@@ -107,7 +107,7 @@ describe("écran de détail sans filtre local — cohérent avec le P&L de l'ong
     assert.equal(detail("marge_brute").kpi.montant, pnl.margeBrute);
     assert.equal(detail("marge_contributive").kpi.montant, pnl.margeContributive);
     assert.equal(detail("ebitda").kpi.montant, pnl.ebitda);
-    assert.equal(detail("cash_flow").kpi.montant, pnl.cashFlow);
+    assert.equal(detail("cash_flow").kpi.montant, pnl.cashFlowOperationnel);
   });
 
   test("ratio sur le CA pour les marges et l'EBITDA, pas pour le CA ni le Cash flow", () => {
@@ -433,22 +433,23 @@ describe("Cash flow — « hors financement » et « financement compris »", ()
   const compris = calculerDetail(partsFlux, "cash_flow", SANS_FILTRE, PERIODE, [], { financementCompris: true });
   const pnl = calculerPnl(flux, AXE, mappingsFinancement);
 
-  test("hors financement est la lecture par défaut ; le titre reste « Cash flow », la lecture est précisée", () => {
+  test("hors financement est la lecture par défaut ; l'indicateur porte le nom du résultat du P&L général", () => {
     assert.deepEqual(calculerDetail(partsFlux, "cash_flow", SANS_FILTRE, PERIODE, [], { financementCompris: false }), hors);
-    assert.deepEqual([hors.kpi.libelle, hors.kpi.precision], ["Cash flow", PRECISION_HORS_FINANCEMENT]);
-    assert.deepEqual([compris.kpi.libelle, compris.kpi.precision], ["Cash flow", PRECISION_FINANCEMENT_COMPRIS]);
+    assert.deepEqual([hors.kpi.libelle, hors.kpi.precision], ["Cash flow opérationnel", PRECISION_HORS_FINANCEMENT]);
+    assert.deepEqual([compris.kpi.libelle, compris.kpi.precision], ["Variation de trésorerie", PRECISION_FINANCEMENT_COMPRIS]);
     assert.equal(detail("ebitda").kpi.precision, null);
   });
 
   test("hors financement = EBITDA + Extra P&L : tout l'étage est exclu, montants positifs comme négatifs", () => {
-    assert.equal(hors.kpi.montant, pnl.ebitda + pnl.extraPnl);
+    assert.equal(hors.kpi.montant, pnl.cashFlowOperationnel);
+    assert.equal(pnl.cashFlowOperationnel, pnl.ebitda + pnl.extraPnl);
     assert.equal(hors.kpi.montant, 30_000 - 3_000 - 2_000 + 700);
     assert.deepEqual(hors.evolution.map((e) => e.montant), [10_000, 7_000, 8_700]);
   });
 
   test("financement compris = EBITDA + Extra P&L + l'étage : la lecture bancaire complète", () => {
-    assert.equal(compris.kpi.montant, pnl.cashFlow);
-    assert.equal(pnl.cashFlow, pnl.ebitda + pnl.extraPnl + pnl.financements);
+    assert.equal(compris.kpi.montant, pnl.variationTresorerie);
+    assert.equal(pnl.variationTresorerie, pnl.cashFlowOperationnel + pnl.financements);
     assert.equal(compris.kpi.montant, flux.reduce((s, t) => s + t.amount, 0));
     assert.deepEqual(compris.evolution.map((e) => e.montant), [610_000, -101_000, 700]);
   });
@@ -497,6 +498,6 @@ describe("Cash flow — « hors financement » et « financement compris »", ()
     const sans = detail("cash_flow");
     assert.deepEqual([avec.kpi.montant, avec.evolution, avec.barresCategories, avec.transactions], [sans.kpi.montant, sans.evolution, sans.barresCategories, sans.transactions]);
     assert.equal(calculerPnl(transactions, AXE, mappings).financements, 0);
-    assert.equal(calculerPnl(transactions, AXE, mappings).cashFlow, sans.kpi.montant);
+    assert.equal(calculerPnl(transactions, AXE, mappings).variationTresorerie, sans.kpi.montant);
   });
 });

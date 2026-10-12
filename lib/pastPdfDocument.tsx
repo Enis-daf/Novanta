@@ -11,7 +11,7 @@ import { LigneAjustement } from "./pastAdjustments";
 import { libelleEtagePnl } from "./pastCategoryMapping";
 import { METRIQUES_DETAIL } from "./pastDetail";
 import { DISCLAIMER_PASSE, PageDetailPdf, PageGeneralPdf, PagePdf, textePdf } from "./pastPdfModel";
-import { ETAGES_COUTS, ETAGES_REVENUS, Structure, structureParCategorie } from "./pastPnl";
+import { ETAGES_COUTS, ETAGES_REVENUS, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { Periode } from "./pastTransactions";
 
 /**
@@ -247,9 +247,13 @@ function lignesPnl(page: PageGeneralPdf): LignePnl[] {
     { type: "bloc", cash: true },
     { type: "ligne", libelle: libelleEtagePnl("extra_pnl"), montant: pnl.extraPnl },
     ...ajustements(pnl.ajustements.extra_pnl),
+    { type: "ligne", libelle: LIBELLE_CASH_FLOW_OPERATIONNEL, montant: pnl.cashFlowOperationnel, niveau: "solde" },
+    { type: "bloc" },
     { type: "ligne", libelle: libelleEtagePnl("financing"), montant: pnl.financements },
     ...ajustements(pnl.ajustements.financing),
-    { type: "ligne", libelle: "Cash flow", montant: pnl.cashFlow, niveau: "titre" },
+    // Total final de la section : filet plein juste au-dessus.
+    { type: "bloc", cash: true },
+    { type: "ligne", libelle: LIBELLE_VARIATION_TRESORERIE, montant: pnl.variationTresorerie, niveau: "titre" },
   ];
 }
 
@@ -332,7 +336,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   const gauche: Zone = { x: PAGE.marge, y: HAUT_CONTENU, l: 372, h: BAS_CONTENU - HAUT_CONTENU };
 
   // Indicateur.
-  const largeurTitre = ecrire(doc, vue.kpi.categorie ?? config.libelle, gauche.x, gauche.y + 9, {
+  const largeurTitre = ecrire(doc, vue.kpi.categorie ?? vue.kpi.libelle, gauche.x, gauche.y + 9, {
     taille: 10.5,
     gras: true,
     capitales: true,
@@ -379,7 +383,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   }
 
   // Évolution mensuelle.
-  const titreEvolution = vue.kpi.categorie ? `${vue.kpi.categorie} par mois (en valeur absolue)` : `${config.libelle} par mois`;
+  const titreEvolution = vue.kpi.categorie ? `${vue.kpi.categorie} par mois (en valeur absolue)` : `${vue.kpi.libelle} par mois`;
   const evolution: Zone = { x: gauche.x, y: repartition.y + repartition.h + 18, l: gauche.l, h: 0 };
   evolution.h = BAS_CONTENU - evolution.y;
   titreBloc(doc, titreEvolution, evolution.x, evolution.y + 7, evolution.l);

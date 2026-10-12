@@ -76,8 +76,8 @@ describe("waterfall — du Cash flow de A à celui de B", () => {
   });
 
   test("le Cash flow est celui du P&L du module, pas un calcul à part", () => {
-    assert.equal(comparaison.cashFlowA, calculerPnl(aout, AXE, mappings).cashFlow);
-    assert.equal(comparaison.cashFlowB, calculerPnl(septembre, AXE, mappings).cashFlow);
+    assert.equal(comparaison.cashFlowA, calculerPnl(aout, AXE, mappings).variationTresorerie);
+    assert.equal(comparaison.cashFlowB, calculerPnl(septembre, AXE, mappings).variationTresorerie);
   });
 
   test("chaque étage contribue en impact sur le Cash flow", () => {
