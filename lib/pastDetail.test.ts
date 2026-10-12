@@ -503,7 +503,7 @@ describe("Cash flow — « hors financement » et « financement compris »", ()
   });
 });
 
-describe("note des ajustements de gestion sous le graphique Cash flow", () => {
+describe("note des ajustements de gestion sous le graphique", () => {
   const ligne = (label: string, montant: number, type = "manual") => ({ cle: label, label, type, etage: "gross_margin" as const, montant, notes: [] });
   const stock = ligne("Variation de stock", 12_000, "inventory_variation");
 
@@ -532,5 +532,39 @@ describe("note des ajustements de gestion sous le graphique Cash flow", () => {
     assert.equal(avec.kpi.montant, sans.kpi.montant + 1_500);
     assert.deepEqual(avec.ajustements.note, ["Ajustements de gestion : +1,5 k€", "dont Variation de stock : +2 k€"]);
     assert.equal(avec.ajustements.lignes.length, 2);
+  });
+});
+
+describe("note des ajustements — Marge brute, période, mois et catégorie", () => {
+  const stocks = [
+    { id: "s-aout", date: "2026-08-31", label: "Variation de stock", montant: 67_000, etage: "gross_margin" as const, type: "inventory_variation", notes: null },
+    { id: "s-sept", date: "2026-09-30", label: "Variation de stock", montant: -20_000, etage: "gross_margin" as const, type: "inventory_variation", notes: null },
+  ];
+  const vue = (filtres = SANS_FILTRE, ajustements = stocks) => calculerDetail(parts, "marge_brute", filtres, PERIODE, ajustements);
+
+  test("période entière : la variation de stock de la période", () => {
+    assert.deepEqual(vue().ajustements.note, ["Variation de stock : +47 k€"]);
+  });
+
+  test("mois sélectionné : la variation de ce mois, le mois rappelé", () => {
+    assert.deepEqual(vue({ categorie: null, mois: "2026-08" }).ajustements.note, ["Variation de stock — août 2026 : +67 k€"]);
+    assert.deepEqual(vue({ categorie: null, mois: "2026-09" }).ajustements.note, ["Variation de stock — septembre 2026 : -20 k€"]);
+    assert.deepEqual(vue({ categorie: null, mois: "2026-07" }).ajustements.note, []);
+  });
+
+  test("catégorie sélectionnée : pas de note, un ajustement n'appartient à aucune catégorie", () => {
+    assert.deepEqual(vue({ categorie: "matieres", mois: null }).ajustements.note, []);
+    assert.deepEqual(vue({ categorie: "matieres", mois: "2026-08" }).ajustements.note, []);
+  });
+
+  test("plusieurs ajustements sur un mois : total et variation de stock", () => {
+    const autres = [...stocks, { id: "p", date: "2026-08-15", label: "Provision", montant: 5_000, etage: "gross_margin" as const, type: "manual", notes: null }];
+    assert.deepEqual(vue({ categorie: null, mois: "2026-08" }, autres).ajustements.note, ["Ajustements de gestion — août 2026 : +72 k€", "dont Variation de stock : +67 k€"]);
+  });
+
+  test("aucun ajustement : aucune note ; et la Marge brute ne change pas de valeur", () => {
+    assert.deepEqual(vue(SANS_FILTRE, []).ajustements.note, []);
+    assert.equal(vue().kpi.montant, vue(SANS_FILTRE, []).kpi.montant + 47_000);
+    assert.deepEqual(vue().evolution.map((e) => e.montant), [10_000, 12_000 + 67_000, 20_000 - 6_000 - 20_000]);
   });
 });

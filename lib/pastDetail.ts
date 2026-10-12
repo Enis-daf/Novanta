@@ -238,15 +238,17 @@ const montantNote = (montant: number) => {
 /**
  * Ajustements de gestion compris dans un indicateur, résumés en note de bas de graphique : rien
  * s'il n'y en a pas ; l'ajustement nommé s'il est seul (« Variation de stock : +12 k€ ») ; sinon le
- * total, et la variation de stock quand elle en fait partie. Simple présentation : aucun montant
- * n'est recalculé autrement que par addition des lignes fournies.
+ * total, et la variation de stock quand elle en fait partie. `mois` (YYYY-MM) : le mois
+ * sélectionné, rappelé dans la note (« Variation de stock — mai 2026 : +67 k€ »). Simple
+ * présentation : aucun montant n'est recalculé autrement que par addition des lignes fournies.
  */
-export function noteAjustements(lignes: LigneAjustement[]): string[] {
+export function noteAjustements(lignes: LigneAjustement[], mois: string | null = null): string[] {
   if (lignes.length === 0) return [];
-  if (lignes.length === 1) return [`${lignes[0].label} : ${montantNote(lignes[0].montant)}`];
+  const contexte = mois === null ? "" : ` — ${libelleMois(mois).toLocaleLowerCase("fr")}`;
+  if (lignes.length === 1) return [`${lignes[0].label}${contexte} : ${montantNote(lignes[0].montant)}`];
   const total = lignes.reduce((somme, ligne) => somme + ligne.montant, 0);
   const stock = lignes.find((ligne) => ligne.type === TYPE_VARIATION_STOCK);
-  return [`Ajustements de gestion : ${montantNote(total)}`, ...(stock ? [`dont ${stock.label} : ${montantNote(stock.montant)}`] : [])];
+  return [`Ajustements de gestion${contexte} : ${montantNote(total)}`, ...(stock ? [`dont ${stock.label} : ${montantNote(stock.montant)}`] : [])];
 }
 
 function somme(parts: PartMappee[]): number {
@@ -362,7 +364,7 @@ export function calculerDetail(
     ajustements: {
       lignes: lignesAjustements.slice(0, MAX_AJUSTEMENTS_AFFICHES),
       nombreMasques: Math.max(0, lignesAjustements.length - MAX_AJUSTEMENTS_AFFICHES),
-      note: noteAjustements(lignesAjustements),
+      note: noteAjustements(lignesAjustements, filtres.mois),
     },
     ajustementsDetail:
       categorie === null
