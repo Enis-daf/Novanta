@@ -2748,45 +2748,6 @@ input[type="checkbox"] {
   white-space: nowrap;
 }
 
-/* Histogramme mensuel et, à côté, le bloc des ajustements de gestion qu'il inclut. Sans
-   ajustement, l'histogramme garde toute la largeur (le bloc n'est pas rendu). */
-.passe-detail__evolution {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-5);
-}
-
-.passe-detail__evolution > .passe-structure {
-  flex: 3 1 320px;
-}
-
-.passe-ajustements {
-  flex: 1 1 180px;
-  min-width: 0;
-}
-
-.passe-ajustements ul {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin: var(--space-2) 0 0;
-  padding: 0;
-  list-style: none;
-  font-size: 13px;
-  color: var(--couleur-texte);
-}
-
-.passe-ajustements li {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.passe-ajustements__montant {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
 /* Ajustements de gestion dans la colonne des transactions : au-dessus et à part, avec leur propre
    intitulé — ce ne sont pas des opérations bancaires. */
 .passe-detail__ajustements {
@@ -2795,6 +2756,29 @@ input[type="checkbox"] {
   gap: var(--space-1);
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--couleur-bordure);
+}
+
+/* Information secondaire : la liste garde sa hauteur naturelle quand elle est courte, et défile
+   sur elle-même au-delà d'environ quatre lignes — les transactions restent le contenu principal de
+   la colonne. L'intitulé, lui, est hors de la zone qui défile. */
+.passe-detail__ajustements-liste {
+  max-height: 136px;
+  overflow-y: auto;
+}
+
+.passe-detail__ajustements-liste .passe-table td {
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+
+/* Cash flow : ajustements de gestion en note sous le graphique, qui garde toute la largeur. */
+.passe-note-ajustements {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
 }
 
 /* Réserve sur un ajustement (périodisation incertaine...) : un signalement, pas une erreur —
@@ -2846,6 +2830,12 @@ input[type="checkbox"] {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* Bouton d'inversion A / B, entre les deux sélecteurs. */
+.passe-ecarts__inverser {
+  align-self: flex-start;
+  margin-left: 0;
 }
 
 .passe-ecarts__normalisation {

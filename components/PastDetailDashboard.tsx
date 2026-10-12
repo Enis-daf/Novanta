@@ -257,36 +257,31 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
             ))}
           </div>
         )}
-        <div className="passe-detail__evolution">
-          <PasseEvolutionChart
-            titre={titreEvolution}
-            evolution={voirLesCouts ? evolutionCouts : vue.evolution}
-            enValeurAbsolue={voirLesCouts || vue.evolutionAbsolue}
-            selection={filtres.mois}
-            onSelect={basculerMois}
-          />
-          {vue.ajustements.lignes.length > 0 && (
-            <section className="passe-ajustements">
-              <h3 className="eyebrow eyebrow--encre">Ajustements de gestion</h3>
-              <ul>
-                {vue.ajustements.lignes.map((ligne) => (
-                  <li key={ligne.cle}>
-                    <div>
-                      {ligne.label}
-                      <PasseNotesAjustement notes={ligne.notes} />
-                    </div>
-                    <span className="passe-ajustements__montant">{formatKiloEuros(ligne.montant)}</span>
-                  </li>
-                ))}
-              </ul>
-              {vue.ajustements.nombreMasques > 0 && (
-                <p className="passe-structure__note">
-                  + {vue.ajustements.nombreMasques} autre{vue.ajustements.nombreMasques > 1 ? "s" : ""}
-                </p>
-              )}
-            </section>
-          )}
-        </div>
+        {/* Le graphique occupe toute la largeur de son panneau, sur tous les écrans. */}
+        <PasseEvolutionChart
+          titre={titreEvolution}
+          evolution={voirLesCouts ? evolutionCouts : vue.evolution}
+          enValeurAbsolue={voirLesCouts || vue.evolutionAbsolue}
+          selection={filtres.mois}
+          onSelect={basculerMois}
+        />
+        {/* Ajustements de gestion compris dans l'indicateur (variation de stock...) : une note
+            discrète sous le graphique, sur la période ou le mois sélectionné. Absente quand une
+            catégorie est sélectionnée (un ajustement n'appartient à aucune catégorie) et en lecture
+            « Coûts associés », dont les barreaux ne les contiennent pas. Détail au survol. */}
+        {!voirLesCouts && vue.ajustements.note.length > 0 && (
+          <p
+            className="passe-note-ajustements"
+            title={[
+              ...vue.ajustements.lignes.map((ligne) => [`${ligne.label} : ${formatKiloEuros(ligne.montant)}`, ...ligne.notes].join(" — ")),
+              ...(vue.ajustements.nombreMasques > 0 ? [`+ ${vue.ajustements.nombreMasques} autre${vue.ajustements.nombreMasques > 1 ? "s" : ""}`] : []),
+            ].join("\n")}
+          >
+            {vue.ajustements.note.map((ligne) => (
+              <span key={ligne}>{ligne}</span>
+            ))}
+          </p>
+        )}
 
       </div>
 
@@ -298,7 +293,12 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
         {/* Ajustements de gestion de l'étage : à part, pour ne jamais passer pour des transactions bancaires. */}
         {vue.ajustementsDetail.length > 0 && (
           <div className="passe-detail__ajustements">
-            <p className="passe-message">Ajustements de gestion (hors banque)</p>
+            {/* L'intitulé reste fixe ; seule la liste défile quand elle est longue. */}
+            <p className="passe-message">
+              Ajustements de gestion (hors banque)
+              <span className="passe-detail__compte"> {vue.ajustementsDetail.length}</span>
+            </p>
+            <div className="passe-detail__ajustements-liste">
             <table className="passe-table">
               <tbody>
                 {vue.ajustementsDetail.map((ajustement) => (
@@ -316,6 +316,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
         {vue.transactions.length === 0 ? (

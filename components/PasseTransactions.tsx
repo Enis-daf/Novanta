@@ -396,6 +396,9 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   // Périodes comparées dans l'onglet Écarts : état du module, donc conservé quand on change
   // d'onglet puis qu'on y revient. null = jamais modifiées : M-2 contre M-1, en mois civils.
   const [selectionsEcarts, setSelectionsEcarts] = useState<SelectionsEcarts | null>(null);
+  // Lecture de l'Analyse d'écarts (hors financement par défaut). Simple état du module : jamais
+  // enregistré, il revient à sa valeur par défaut au rechargement de la page.
+  const [ecartsFinancementCompris, setEcartsFinancementCompris] = useState(false);
   const selectionsEcartsCourantes: SelectionsEcarts = selectionsEcarts ?? {
     a: selectionDuPreset("mois_m2", aujourdhui, configExercice),
     b: selectionDuPreset("mois_m1", aujourdhui, configExercice),
@@ -1105,6 +1108,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               aujourdhui={aujourdhui}
               configExercice={configExercice}
               selections={selectionsEcartsCourantes}
+              financementCompris={ecartsFinancementCompris}
+              onChangeFinancementCompris={setEcartsFinancementCompris}
               onChangeSelections={setSelectionsEcarts}
               rechargement={rechargement}
             />

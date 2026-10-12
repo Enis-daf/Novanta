@@ -1,7 +1,7 @@
 import { AjustementGestion, ajustementsDeLaPeriode, regrouperAjustements, sommeAjustements } from "./pastAdjustments";
 import { ETAGES_PNL, EtagePnl, MappingCategorie } from "./pastCategoryMapping";
 import { PartMappee, partsMappees } from "./pastDetail";
-import { calculerCashFlowOperationnel, calculerVariationTresorerie } from "./pastPnl";
+import { calculerCashFlowOperationnel, calculerVariationTresorerie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
 import { aliasFlowKey, buildCanonicalFlowIdentity, FlowIdentity, groupComparableTransactions, MatchMethod, resoudreAlias } from "./flowMatching";
 
@@ -20,6 +20,23 @@ import { aliasFlowKey, buildCanonicalFlowIdentity, FlowIdentity, groupComparable
 export const ETAGES_ECARTS: readonly { etage: EtagePnl; libelle: string }[] = ETAGES_PNL.map((e) => ({ etage: e.cle, libelle: e.libelle }));
 
 const ETAGES_EBITDA: readonly EtagePnl[] = ["revenue", "gross_margin", "contribution_margin", "ebitda"];
+
+/**
+ * Ce que l'analyse compare, comme sur l'écran Cash flow et dans le P&L général (formules de
+ * lib/pastPnl.ts, jamais réécrites ici) :
+ *  - hors financement (par défaut) : le Cash flow opérationnel. L'étage Virements internes &
+ *    Financement est écarté de TOUTE l'analyse — indicateurs, waterfall, détail ;
+ *  - financement compris : la Variation de trésorerie, cet étage étant alors une contribution
+ *    comme les autres.
+ */
+export interface OptionsComparaison {
+  financementCompris?: boolean;
+}
+
+/** Étages qui contribuent à l'écart, dans l'ordre du P&L, selon la lecture choisie. */
+export function etagesCompares(options: OptionsComparaison = {}): readonly { etage: EtagePnl; libelle: string }[] {
+  return options.financementCompris === true ? ETAGES_ECARTS : ETAGES_ECARTS.filter((e) => e.etage !== "financing");
+}
 
 /** Tout ce qui entre dans le Cash flow d'une période : parts mappées et ajustements de gestion. */
 export interface DonneesPeriode {
@@ -55,15 +72,76 @@ function totalEtage(donnees: DonneesPeriode, etages: readonly EtagePnl[]): numbe
   return (parts + sommeAjustements(donnees.ajustements, etages)) * donnees.coefficient;
 }
 
+/**
+ * Variation d'un POSTE entre A et B, à ne pas confondre avec son impact sur le résultat comparé.
+ * Des coûts qui baissent de 237 k€ ont un impact de +237 k€ : afficher « +237 k€ — Coûts directs »
+ * se lirait à l'envers. La variation dit ce que le poste a fait (↑ ou ↓, ampleur toujours
+ * positive) ; l'impact (la contribution, signée) reste ce que montrent la barre et sa couleur.
+ */
+export interface VariationPoste {
+  sens: "hausse" | "baisse" | "stable";
+  ampleur: number; // toujours positive
+}
+
+// Comment se lit « le poste augmente » :
+//  - revenus : le montant (positif) augmente ;
+//  - coûts : la dépense augmente, donc le montant (négatif) diminue ;
+//  - mixte (Extra P&L, Virements internes & Financement, ajustements de gestion) : encaissements
+//    et décaissements s'y mêlent — on s'en tient au montant signé agrégé, sans interprétation.
+const NATURE_ETAGE: Record<EtagePnl, "revenus" | "couts" | "mixte"> = {
+  revenue: "revenus",
+  gross_margin: "couts",
+  contribution_margin: "couts",
+  ebitda: "couts",
+  extra_pnl: "mixte",
+  financing: "mixte",
+};
+
+// En dessous de cet écart, deux montants sont tenus pour identiques : c'est l'arrondi, pas
+// un contributeur significatif.
+const TOLERANCE_STABLE = 1;
+
+/** Variation d'un poste d'un étage. `mixte` force la lecture au montant signé (ajustement de gestion). */
+export function variationDuPoste(etage: EtagePnl, montantA: number, montantB: number, mixte = false): VariationPoste {
+  const ecart = montantB - montantA;
+  const ampleur = Math.abs(ecart);
+  if (ampleur <= TOLERANCE_STABLE) return { sens: "stable", ampleur };
+  const coutEnHausse = !mixte && NATURE_ETAGE[etage] === "couts";
+  return { sens: (coutEnHausse ? ecart < 0 : ecart > 0) ? "hausse" : "baisse", ampleur };
+}
+
+const FLECHES = { hausse: "↑", baisse: "↓" } as const;
+
+/**
+ * Libellé d'une marche : la variation du POSTE (« ↓ 237 k€ » : les coûts ont baissé), flèche et
+ * montant toujours positif. Le sens de la marche et sa couleur, eux, disent l'impact sur le
+ * résultat comparé — un « +237 k€ » posé sur « Coûts directs » se lirait à l'envers.
+ */
+export function libelleVariation(variation: VariationPoste, formater: (montant: number) => string): string {
+  return variation.sens === "stable" ? formater(0) : `${FLECHES[variation.sens]} ${formater(variation.ampleur)}`;
+}
+
+/** « En baisse de 237 k€ », « En hausse de 20 k€ », « Stable ». */
+export function phraseVariation(variation: VariationPoste, formater: (montant: number) => string): string {
+  return variation.sens === "stable" ? "Stable" : `En ${variation.sens} de ${formater(variation.ampleur)}`;
+}
+
 export interface ContributionEtage {
   etage: EtagePnl;
   libelle: string;
   montantA: number;
   montantB: number;
+  // Impact signé sur le résultat comparé : la marche de la waterfall.
   contribution: number;
+  // Ce que le poste a fait entre A et B : le libellé de la marche.
+  variation: VariationPoste;
 }
 
 export interface Comparaison {
+  // Nom du résultat comparé : « Cash flow opérationnel » ou « Variation de trésorerie ».
+  metrique: string;
+  financementCompris: boolean;
+  // Valeur de ce résultat sur chaque période (normalisée le cas échéant).
   cashFlowA: number;
   cashFlowB: number;
   ecart: number;
@@ -71,32 +149,34 @@ export interface Comparaison {
   ecartRelatif: number | null;
   // Leur somme est exactement l'écart : la waterfall réconcilie toujours A et B.
   etages: ContributionEtage[];
-  // L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L et l'étage Virements
-  // internes & Financement expliquent ce qui vient après. Ils ne se mélangent pas :
-  // variationEbitda + variationExtraPnl + variationFinancements = ecart.
+  // L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L et, en lecture « financement
+  // compris », l'étage Virements internes & Financement expliquent ce qui vient après. Ils ne se
+  // mélangent pas : variationEbitda + variationExtraPnl + variationFinancements = ecart
+  // (variationFinancements vaut 0 hors financement).
   variationEbitda: number;
   variationExtraPnl: number;
   variationFinancements: number;
 }
 
-export function comparerPeriodes(a: DonneesPeriode, b: DonneesPeriode): Comparaison {
-  const etages = ETAGES_ECARTS.map(({ etage, libelle }) => {
+export function comparerPeriodes(a: DonneesPeriode, b: DonneesPeriode, options: OptionsComparaison = {}): Comparaison {
+  const financementCompris = options.financementCompris === true;
+  const etages = etagesCompares(options).map(({ etage, libelle }) => {
     const montantA = totalEtage(a, [etage]);
     const montantB = totalEtage(b, [etage]);
-    return { etage, libelle, montantA, montantB, contribution: montantB - montantA };
+    return { etage, libelle, montantA, montantB, contribution: montantB - montantA, variation: variationDuPoste(etage, montantA, montantB) };
   });
-  // Le « Cash flow » comparé est la variation de trésorerie : le mouvement bancaire complet.
-  const cashFlow = (donnees: DonneesPeriode) =>
-    calculerVariationTresorerie(
-      calculerCashFlowOperationnel(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"])),
-      totalEtage(donnees, ["financing"])
-    );
+  const cashFlow = (donnees: DonneesPeriode) => {
+    const operationnel = calculerCashFlowOperationnel(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"]));
+    return financementCompris ? calculerVariationTresorerie(operationnel, totalEtage(donnees, ["financing"])) : operationnel;
+  };
   const cashFlowA = cashFlow(a);
   const cashFlowB = cashFlow(b);
   const ecart = cashFlowB - cashFlowA;
   const variationExtraPnl = etages.find((e) => e.etage === "extra_pnl")!.contribution;
-  const variationFinancements = etages.find((e) => e.etage === "financing")!.contribution;
+  const variationFinancements = etages.find((e) => e.etage === "financing")?.contribution ?? 0;
   return {
+    metrique: financementCompris ? LIBELLE_VARIATION_TRESORERIE : LIBELLE_CASH_FLOW_OPERATIONNEL,
+    financementCompris,
     cashFlowA,
     cashFlowB,
     ecart,
@@ -121,6 +201,7 @@ export interface LigneCategorieEcart {
   montantA: number;
   montantB: number;
   contribution: number;
+  variation: VariationPoste;
 }
 
 /**
@@ -131,7 +212,7 @@ export interface LigneCategorieEcart {
 export function categoriesDeLEtage(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl): LigneCategorieEcart[] {
   const lignes = new Map<string, LigneCategorieEcart>();
   const ligne = (cle: string, nom: string, horsBanque: boolean) => {
-    if (!lignes.has(cle)) lignes.set(cle, { cle, nom, horsBanque, montantA: 0, montantB: 0, contribution: 0 });
+    if (!lignes.has(cle)) lignes.set(cle, { cle, nom, horsBanque, montantA: 0, montantB: 0, contribution: 0, variation: { sens: "stable", ampleur: 0 } });
     return lignes.get(cle)!;
   };
   for (const [donnees, cote] of [[a, "montantA"], [b, "montantB"]] as const) {
@@ -144,7 +225,14 @@ export function categoriesDeLEtage(a: DonneesPeriode, b: DonneesPeriode, etage: 
       ligne(`ajustement:${ajustement.cle}`, ajustement.label, true)[cote] += ajustement.montant * donnees.coefficient;
     }
   }
-  return parContributionDecroissante([...lignes.values()].map((l) => ({ ...l, contribution: l.montantB - l.montantA })));
+  return parContributionDecroissante(
+    [...lignes.values()].map((l) => ({
+      ...l,
+      contribution: l.montantB - l.montantA,
+      // Un ajustement de gestion n'est ni un revenu ni un coût à proprement parler : montant signé.
+      variation: variationDuPoste(etage, l.montantA, l.montantB, l.horsBanque),
+    }))
+  );
 }
 
 // Les périodes A et B se choisissent dans n'importe quel ordre : un flux présent d'un seul côté
@@ -154,10 +242,6 @@ export type StatutEcart =
   // Même montant à l'euro près des deux côtés : masqué par défaut.
   | "stable";
 
-// Seuil volontairement absolu et minuscule : un seuil relatif masquerait des écarts matériels sur
-// les gros montants (1 % d'un million = 10 000 €). Mieux vaut montrer une ligne de trop que cacher
-// un contributeur significatif.
-const TOLERANCE_STABLE = 1;
 
 /**
  * Flux comparable : toutes les transactions d'un même flux (même mandat de prélèvement, ou même
@@ -342,10 +426,11 @@ export function fluxConnus(
   a: DonneesPeriode,
   b: DonneesPeriode,
   alias: ReadonlyMap<string, string> = new Map(),
-  manuels: GroupesManuels = AUCUN_GROUPE_MANUEL
+  manuels: GroupesManuels = AUCUN_GROUPE_MANUEL,
+  options: OptionsComparaison = {}
 ): FluxConnu[] {
   const connus = new Map<string, FluxConnu>();
-  for (const { etage } of ETAGES_ECARTS) {
+  for (const { etage } of etagesCompares(options)) {
     for (const groupe of groupesDeLibelles(a, b, etage, null, alias, manuels)) {
       if (groupe.clesAlias.length === 0) continue;
       const cle = groupe.groupeManuel ? `${PREFIXE_MANUEL}${groupe.groupeManuel.id}` : groupe.clesAlias.map((c) => c.cle).sort().join("|");
