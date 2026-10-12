@@ -23,6 +23,11 @@ export const ETAGES_PNL = [
   { cle: "contribution_margin", libelle: "Autres coûts variables" },
   { cle: "ebitda", libelle: "Coûts de structure" },
   { cle: "extra_pnl", libelle: "Extra P&L" },
+  // Virements entre comptes de l'entreprise et flux de financement : ils entrent dans le Cash flow
+  // complet, mais l'écran Cash flow peut les laisser de côté (lecture « hors financement »). C'est
+  // l'utilisateur qui y rattache ses catégories ; rien n'est jamais reconnu d'après un nom de
+  // catégorie ou un libellé bancaire, et l'étage n'a ni sous-type ni règle de signe.
+  { cle: "financing", libelle: "Virements internes & Financement" },
 ] as const;
 
 export type EtagePnl = (typeof ETAGES_PNL)[number]["cle"];

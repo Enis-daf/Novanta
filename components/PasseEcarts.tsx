@@ -489,7 +489,8 @@ export default function PasseEcarts({
               {/* L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L n'intervient qu'après. */}
               <p className="passe-message">
                 Dont variation d&apos;EBITDA : {signe(comparaison.variationEbitda)} · variation d&apos;Extra P&amp;L :{" "}
-                {signe(comparaison.variationExtraPnl)}. Cliquez sur une contribution pour voir ses catégories.
+                {signe(comparaison.variationExtraPnl)} · variation des virements internes &amp; financement : {signe(comparaison.variationFinancements)}. Cliquez
+                sur une contribution pour voir ses catégories.
               </p>
             </section>
 

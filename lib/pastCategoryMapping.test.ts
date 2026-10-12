@@ -34,7 +34,7 @@ function tx(id: string, categorieId: string | null, categorie: string | null, am
 }
 
 describe("étages P&L", () => {
-  test("exactement 5 étages fixes, aux clés stables", () => {
+  test("6 étages fixes, aux clés stables ; les cinq premiers et leurs clés sont inchangés", () => {
     assert.deepEqual(
       ETAGES_PNL.map((e) => [e.cle, e.libelle]),
       [
@@ -43,8 +43,11 @@ describe("étages P&L", () => {
         ["contribution_margin", "Autres coûts variables"],
         ["ebitda", "Coûts de structure"],
         ["extra_pnl", "Extra P&L"],
+        ["financing", "Virements internes & Financement"],
       ]
     );
+    assert.equal(estEtagePnl("extra_pnl"), true);
+    assert.equal(estEtagePnl("financing"), true);
     assert.equal(estEtagePnl("ebitda"), true);
     assert.equal(estEtagePnl("autre"), false);
     assert.equal(estEtagePnl(null), false);

@@ -2,7 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { indexerMappings, MappingCategorie } from "./pastCategoryMapping";
 import { PastTransactionStockee } from "./pastTransactions";
-import { calculerCashFlow, calculerPnl, CLE_AUTRES, ETAGES_COUTS, ETAGES_REVENUS, structureParCategorie } from "./pastPnl";
+import { calculerCashFlowOperationnel, calculerPnl, calculerVariationTresorerie, CLE_AUTRES, ETAGES_COUTS, ETAGES_REVENUS, structureParCategorie } from "./pastPnl";
 
 const AXE = "229";
 
@@ -66,21 +66,21 @@ describe("P&L synthétique — additions successives de montants signés", () =>
     assert.equal(sansCa.ebitda, -100);
   });
 
-  test("Cash flow = EBITDA + Extra P&L, dérivé et distinct de l'Extra P&L", () => {
-    assert.equal(calculerCashFlow(190_000, -85_000), 105_000);
-    assert.equal(pnl.cashFlow, 105_000);
-    assert.notEqual(pnl.cashFlow, pnl.extraPnl);
+  test("Cash flow opérationnel = EBITDA + Extra P&L, dérivé et distinct de l'Extra P&L", () => {
+    assert.equal(calculerCashFlowOperationnel(190_000, -85_000), 105_000);
+    assert.equal(pnl.cashFlowOperationnel, 105_000);
+    assert.notEqual(pnl.cashFlowOperationnel, pnl.extraPnl);
   });
 
-  test("Cash flow négatif = consommation nette de trésorerie", () => {
-    assert.equal(calculerCashFlow(-40_000, -85_000), -125_000);
-    assert.equal(calculerCashFlow(-40_000, 60_000), 20_000);
+  test("Cash flow opérationnel négatif = consommation nette de trésorerie", () => {
+    assert.equal(calculerCashFlowOperationnel(-40_000, -85_000), -125_000);
+    assert.equal(calculerCashFlowOperationnel(-40_000, 60_000), 20_000);
   });
 
   test("aucune période sans transaction ne casse le calcul", () => {
     const vide = calculerPnl([], AXE, mappings);
     assert.equal(vide.ca, 0);
-    assert.equal(vide.cashFlow, 0);
+    assert.equal(vide.variationTresorerie, 0);
     assert.deepEqual(vide.categories, []);
   });
 });
@@ -183,5 +183,55 @@ describe("structure des revenus et des coûts (camemberts)", () => {
     );
     assert.deepEqual(structure.parts.map((p) => p.nom), ["Loyer"]);
     assert.equal(structure.nombreNonRepresentees, 1);
+  });
+});
+
+describe("fin du P&L — Cash flow opérationnel puis Variation de trésorerie", () => {
+  const avecFinancement = indexerMappings([
+    mapping("ca", "Stripe", "revenue"),
+    mapping("loyer", "Loyer", "ebitda"),
+    mapping("tva", "TVA", "extra_pnl"),
+    mapping("fin", "Catégorie quelconque", "financing"),
+  ]);
+  const activite = [tx(300_000, [["ca", "Stripe", 1]]), tx(-200_000, [["loyer", "Loyer", 1]]), tx(-20_000, [["tva", "TVA", 1]])];
+  const pnlAvec = (financement: number[]) => calculerPnl([...activite, ...financement.map((m) => tx(m, [["fin", "Catégorie quelconque", 1]]))], AXE, avecFinancement);
+
+  test("Cash flow opérationnel = EBITDA + Extra P&L : une addition de montants signés, jamais une soustraction", () => {
+    const pnl = pnlAvec([150_000]);
+    assert.deepEqual([pnl.ebitda, pnl.extraPnl, pnl.cashFlowOperationnel], [100_000, -20_000, 80_000]);
+    assert.equal(pnl.cashFlowOperationnel, pnl.ebitda + pnl.extraPnl);
+    assert.equal(calculerCashFlowOperationnel(100_000, -20_000), 80_000);
+  });
+
+  test("Variation de trésorerie = Cash flow opérationnel + Virements internes & Financement", () => {
+    const pnl = pnlAvec([150_000]);
+    assert.deepEqual([pnl.financements, pnl.variationTresorerie], [150_000, 230_000]);
+    assert.equal(pnl.variationTresorerie, pnl.cashFlowOperationnel + pnl.financements);
+    assert.equal(calculerVariationTresorerie(80_000, 150_000), 230_000);
+  });
+
+  test("un financement positif augmente la variation de trésorerie, un flux négatif la diminue ; le Cash flow opérationnel ne bouge pas", () => {
+    assert.deepEqual([pnlAvec([150_000]).variationTresorerie, pnlAvec([-50_000]).variationTresorerie], [230_000, 30_000]);
+    assert.deepEqual([pnlAvec([150_000]).cashFlowOperationnel, pnlAvec([-50_000]).cashFlowOperationnel, pnlAvec([]).cashFlowOperationnel], [80_000, 80_000, 80_000]);
+    assert.equal(pnlAvec([100_000, -100_000]).variationTresorerie, 80_000);
+  });
+
+  test("sans rien dans l'étage de financement, les deux résultats sont égaux", () => {
+    assert.equal(pnl0().variationTresorerie, pnl0().cashFlowOperationnel);
+    function pnl0() {
+      return pnlAvec([]);
+    }
+  });
+
+  test("les autres étages du P&L ne sont pas touchés par le financement", () => {
+    const { financements: _f, variationTresorerie: _v, categories: _c, ...sans } = pnlAvec([]);
+    const { financements: _f2, variationTresorerie: _v2, categories: _c2, ...avec } = pnlAvec([150_000, -50_000]);
+    assert.deepEqual(avec, sans);
+  });
+
+  test("ajustements de gestion : comptés dans le résultat de leur étage", () => {
+    const ajustement = { id: "a", date: "2026-03-31", label: "Ajustement", montant: 1_000, etage: "extra_pnl" as const, type: "manual", notes: null };
+    const pnl = calculerPnl(activite, AXE, avecFinancement, [ajustement]);
+    assert.deepEqual([pnl.extraPnl, pnl.cashFlowOperationnel, pnl.variationTresorerie], [-20_000, 81_000, 81_000]);
   });
 });

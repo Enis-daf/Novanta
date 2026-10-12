@@ -27,7 +27,7 @@ export interface PnlCategorie {
 export interface Pnl {
   // Les cinq lignes d'étage ci-dessous (ca, coutsDirects, coutsCommerciaux, coutsStructure,
   // extraPnl) sont les sommes des TRANSACTIONS de l'étage. Les ajustements de gestion sont portés
-  // à part (ajustements) pour rester des lignes distinctes ; les soldes et le Cash flow, eux, les
+  // à part (ajustements) pour rester des lignes distinctes ; les soldes et les résultats de trésorerie, eux, les
   // incluent.
   ca: number;
   coutsDirects: number;
@@ -37,7 +37,10 @@ export interface Pnl {
   coutsStructure: number;
   ebitda: number;
   extraPnl: number;
-  cashFlow: number;
+  financements: number;
+  // Voir calculerCashFlowOperationnel / calculerVariationTresorerie (ajustements de gestion compris).
+  cashFlowOperationnel: number;
+  variationTresorerie: number;
   // Rapportés au CA ; null quand le CA est nul (ratio sans signification).
   ratios: { margeBrute: number | null; margeContributive: number | null; ebitda: number | null };
   categories: PnlCategorie[];
@@ -49,13 +52,25 @@ export interface Pnl {
 }
 
 /**
- * Cash flow : indicateur métier à part entière, dérivé à la lecture — ce n'est ni un étage de
- * mapping ni un alias de l'Extra P&L. Formule V1 : EBITDA + Extra P&L, en montants signés
- * (positif = génération nette de trésorerie, négatif = consommation nette). Isolée ici pour
- * pouvoir évoluer sans toucher au mapping analytique.
+ * Les deux résultats de trésorerie du module, en montants signés (positif = trésorerie générée,
+ * négatif = consommée). Ce ne sont ni des étages de mapping ni des alias de l'Extra P&L ; leurs
+ * formules ne sont écrites qu'ici, et les étages s'ADDITIONNENT toujours avec leur signe réel.
+ *
+ *  - Cash flow opérationnel = EBITDA + Extra P&L : ce que l'activité génère ou consomme. C'est la
+ *    lecture « hors financement » de l'écran Cash flow.
+ *  - Variation de trésorerie = Cash flow opérationnel + Virements internes & Financement : le
+ *    mouvement bancaire complet, aucun flux n'en est retiré. C'est la lecture « financement
+ *    compris » de l'écran Cash flow.
  */
-export function calculerCashFlow(ebitda: number, extraPnl: number): number {
+export const LIBELLE_CASH_FLOW_OPERATIONNEL = "Cash flow opérationnel";
+export const LIBELLE_VARIATION_TRESORERIE = "Variation de trésorerie";
+
+export function calculerCashFlowOperationnel(ebitda: number, extraPnl: number): number {
   return ebitda + extraPnl;
+}
+
+export function calculerVariationTresorerie(cashFlowOperationnel: number, financements: number): number {
+  return cashFlowOperationnel + financements;
 }
 
 function ratio(valeur: number, ca: number): number | null {
@@ -74,6 +89,7 @@ export function calculerPnl(
     contribution_margin: 0,
     ebitda: 0,
     extra_pnl: 0,
+    financing: 0,
   };
   const parCategorie = new Map<string, PnlCategorie>();
   const nonMappees = new Map<string, number>();
@@ -105,6 +121,7 @@ export function calculerPnl(
   const margeBrute = caAjuste + ajustes("gross_margin");
   const margeContributive = margeBrute + ajustes("contribution_margin");
   const ebitda = margeContributive + ajustes("ebitda");
+  const cashFlowOperationnel = calculerCashFlowOperationnel(ebitda, ajustes("extra_pnl"));
 
   return {
     ca: totaux.revenue,
@@ -115,7 +132,9 @@ export function calculerPnl(
     coutsStructure: totaux.ebitda,
     ebitda,
     extraPnl: totaux.extra_pnl,
-    cashFlow: calculerCashFlow(ebitda, ajustes("extra_pnl")),
+    financements: totaux.financing,
+    cashFlowOperationnel,
+    variationTresorerie: calculerVariationTresorerie(cashFlowOperationnel, ajustes("financing")),
     ratios: {
       margeBrute: ratio(margeBrute, caAjuste),
       margeContributive: ratio(margeContributive, caAjuste),
@@ -128,6 +147,7 @@ export function calculerPnl(
       contribution_margin: lignesAjustements.filter((l) => l.etage === "contribution_margin"),
       ebitda: lignesAjustements.filter((l) => l.etage === "ebitda"),
       extra_pnl: lignesAjustements.filter((l) => l.etage === "extra_pnl"),
+      financing: lignesAjustements.filter((l) => l.etage === "financing"),
     },
     nonMappees: {
       nombreCategories: nonMappees.size,

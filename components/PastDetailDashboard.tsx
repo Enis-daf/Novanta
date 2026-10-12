@@ -10,6 +10,7 @@ import { formatMontant, formatKiloEuros, formatPourcentage } from "@/lib/format"
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import {
   calculerDetail,
+  configDeLEcran,
   evolutionDesCoutsAssocies,
   FiltresDetail,
   libelleMois,
@@ -51,6 +52,11 @@ const SERIES: { cle: "marge" | "couts"; libelle: string }[] = [
   { cle: "couts", libelle: "Coûts associés" },
 ];
 
+const LECTURES_CASH_FLOW = [
+  { financementCompris: false, libelle: "Hors financement" },
+  { financementCompris: true, libelle: "Financement compris" },
+];
+
 // Écran de détail générique, commun à CA, Marge brute, Marge contributive, EBITDA et Cash flow :
 // KPI -> répartition par catégorie -> évolution mensuelle -> transactions. Seule la forme de la
 // répartition varie : un camembert, ou un histogramme par catégorie pour le Cash flow, dont
@@ -59,7 +65,11 @@ const SERIES: { cle: "marge" | "couts"; libelle: string }[] = [
 // à la période globale. Le parent remonte ce composant à chaque changement d'onglet (prop `key`),
 // ce qui réinitialise les filtres locaux sans toucher à la période.
 export default function PastDetailDashboard({ metrique, parts, periode, ajustements, teintes, onFiltresChange }: PastDetailDashboardProps) {
-  const config = METRIQUES_DETAIL[metrique];
+  // Écran Cash flow : « hors financement » (par défaut, la lecture la plus exploitable) ou
+  // « financement compris » (la lecture bancaire complète). Tous les blocs de l'écran suivent le
+  // même périmètre. Propre à l'écran : retour à « hors financement » en changeant d'onglet.
+  const [financementCompris, setFinancementCompris] = useState(false);
+  const config = configDeLEcran(metrique, { financementCompris });
   const [filtres, setFiltres] = useState<FiltresDetail>(SANS_FILTRE);
   const [nombreAffiche, setNombreAffiche] = useState(PAS_AFFICHAGE);
   // État local de l'écran, jamais enregistré : conservé quand un filtre change, remis à
@@ -87,8 +97,8 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
   const basculerMois = (mois: string) => changerFiltres({ ...filtres, mois: filtres.mois === mois ? null : mois });
 
   const vue = useMemo(
-    () => calculerDetail(parts, metrique, filtres, periode, ajustements),
-    [parts, metrique, filtres, periode, ajustements]
+    () => calculerDetail(parts, metrique, filtres, periode, ajustements, { financementCompris }),
+    [parts, metrique, filtres, periode, ajustements, financementCompris]
   );
 
   const filtreActif = filtres.categorie !== null || filtres.mois !== null;
@@ -104,18 +114,20 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
     ? `${vue.kpi.categorie} par mois (en valeur absolue)`
     : voirLesCouts
       ? `${config.libelleDetail} par mois`
-      : `${config.libelle} par mois`;
+      : `${vue.kpi.libelle} par mois`;
 
   return (
     <div className="passe-detail">
       <div className="passe-detail__gauche">
         <section className="passe-kpi">
           <p className="eyebrow eyebrow--grand">
-            {vue.kpi.categorie ?? config.libelle}
+            {vue.kpi.categorie ?? vue.kpi.libelle}
             {vue.kpi.categorie && <span className="passe-kpi__contexte"> · {config.libelleDetail}</span>}
           </p>
           <p className="passe-kpi__montant">{formatMontant(vue.kpi.montant)}</p>
           {vue.kpi.ratio !== undefined && <p className="passe-kpi__ratio">{formatPourcentage(vue.kpi.ratio)} du CA</p>}
+          {/* Cash flow : la lecture choisie est toujours rappelée sous l'indicateur. */}
+          {vue.kpi.precision && vue.kpi.categorie === null && <p className="passe-kpi__ratio">{vue.kpi.precision}</p>}
 
           {/* L'état de filtrage est toujours visible, jamais implicite. */}
           {filtreActif && (
@@ -171,6 +183,25 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
 
         {/* Histogramme et, à côté, les ajustements de gestion compris dans ses barreaux. Le bloc suit
             les filtres (période, mois) mais n'en crée pas. */}
+        {metrique === "cash_flow" && (
+          <div className="passe-tri" role="group" aria-label="Lecture du Cash flow">
+            {LECTURES_CASH_FLOW.map((option) => (
+              <button
+                key={option.libelle}
+                type="button"
+                className={`btn-secondaire${financementCompris === option.financementCompris ? " btn-module--actif" : ""}`}
+                aria-pressed={financementCompris === option.financementCompris}
+                onClick={() => {
+                  // Les catégories proposées changent avec la lecture : les filtres locaux repartent de zéro.
+                  setFinancementCompris(option.financementCompris);
+                  changerFiltres(SANS_FILTRE);
+                }}
+              >
+                {option.libelle}
+              </button>
+            ))}
+          </div>
+        )}
         {evolutionCouts !== null && (
           <div className="passe-tri" role="group" aria-label="Série de l'histogramme mensuel">
             {SERIES.map((option) => (

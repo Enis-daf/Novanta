@@ -11,7 +11,7 @@ import { LigneAjustement } from "./pastAdjustments";
 import { libelleEtagePnl } from "./pastCategoryMapping";
 import { METRIQUES_DETAIL } from "./pastDetail";
 import { DISCLAIMER_PASSE, PageDetailPdf, PageGeneralPdf, PagePdf, textePdf } from "./pastPdfModel";
-import { ETAGES_COUTS, ETAGES_REVENUS, Structure, structureParCategorie } from "./pastPnl";
+import { ETAGES_COUTS, ETAGES_REVENUS, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { Periode } from "./pastTransactions";
 
 /**
@@ -245,9 +245,15 @@ function lignesPnl(page: PageGeneralPdf): LignePnl[] {
     ...ajustements(pnl.ajustements.ebitda),
     { type: "ligne", libelle: "EBITDA", montant: pnl.ebitda, ratio: pnl.ratios.ebitda, niveau: "solde" },
     { type: "bloc", cash: true },
-    { type: "ligne", libelle: "Extra P&L", montant: pnl.extraPnl },
+    { type: "ligne", libelle: libelleEtagePnl("extra_pnl"), montant: pnl.extraPnl },
     ...ajustements(pnl.ajustements.extra_pnl),
-    { type: "ligne", libelle: "Cash flow", montant: pnl.cashFlow, niveau: "titre" },
+    { type: "ligne", libelle: LIBELLE_CASH_FLOW_OPERATIONNEL, montant: pnl.cashFlowOperationnel, niveau: "solde" },
+    { type: "bloc" },
+    { type: "ligne", libelle: libelleEtagePnl("financing"), montant: pnl.financements },
+    ...ajustements(pnl.ajustements.financing),
+    // Total final de la section : filet plein juste au-dessus.
+    { type: "bloc", cash: true },
+    { type: "ligne", libelle: LIBELLE_VARIATION_TRESORERIE, montant: pnl.variationTresorerie, niveau: "titre" },
   ];
 }
 
@@ -330,7 +336,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   const gauche: Zone = { x: PAGE.marge, y: HAUT_CONTENU, l: 372, h: BAS_CONTENU - HAUT_CONTENU };
 
   // Indicateur.
-  const largeurTitre = ecrire(doc, vue.kpi.categorie ?? config.libelle, gauche.x, gauche.y + 9, {
+  const largeurTitre = ecrire(doc, vue.kpi.categorie ?? vue.kpi.libelle, gauche.x, gauche.y + 9, {
     taille: 10.5,
     gras: true,
     capitales: true,
@@ -343,6 +349,9 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   ecrire(doc, formatMontant(vue.kpi.montant), gauche.x, gauche.y + 38, { taille: 26, gras: true });
   if (vue.kpi.ratio !== undefined) {
     ecrire(doc, `${formatPourcentage(vue.kpi.ratio)} du CA`, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
+  } else if (vue.kpi.precision && vue.kpi.categorie === null) {
+    // Cash flow : le périmètre exporté (hors financement, comme l'écran à son ouverture) est dit.
+    ecrire(doc, vue.kpi.precision, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
   }
 
   // Répartition par catégorie : camembert, ou histogramme par catégorie pour le Cash flow.
@@ -374,7 +383,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   }
 
   // Évolution mensuelle.
-  const titreEvolution = vue.kpi.categorie ? `${vue.kpi.categorie} par mois (en valeur absolue)` : `${config.libelle} par mois`;
+  const titreEvolution = vue.kpi.categorie ? `${vue.kpi.categorie} par mois (en valeur absolue)` : `${vue.kpi.libelle} par mois`;
   const evolution: Zone = { x: gauche.x, y: repartition.y + repartition.h + 18, l: gauche.l, h: 0 };
   evolution.h = BAS_CONTENU - evolution.y;
   titreBloc(doc, titreEvolution, evolution.x, evolution.y + 7, evolution.l);

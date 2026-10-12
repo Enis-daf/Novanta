@@ -2298,6 +2298,7 @@ input[type="checkbox"] {
 
 /* Soldes intermédiaires : un filet léger au-dessus, la hiérarchie vient de la typographie. */
 .passe-pnl__ligne--solde,
+.passe-pnl__ligne--total,
 .passe-pnl__ligne--titre {
   font-size: 18px;
   font-weight: 700;
@@ -2307,6 +2308,12 @@ input[type="checkbox"] {
 .passe-pnl__ligne--solde {
   padding-top: var(--space-3);
   border-top: 1px solid var(--couleur-bordure);
+}
+
+/* Total final de la section (Variation de trésorerie) : filet plein, comme un total comptable. */
+.passe-pnl__ligne--total {
+  padding-top: var(--space-3);
+  border-top: 2px solid var(--couleur-texte);
 }
 
 /* Cash flow : à part du P&L opérationnel, détaché par l'espace et un filet plus marqué. */
