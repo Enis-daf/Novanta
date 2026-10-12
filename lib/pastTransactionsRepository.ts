@@ -478,10 +478,11 @@ export async function chargerCibles(supabase: SupabaseClient, organizationId: st
 }
 
 /**
- * Enregistre une cible à une date d'effet : pour une catégorie de CA (cibles de marge), ou globale
- * (`dimension` vide, coûts de structure). Une cible déjà posée à cette même date pour la même
- * dimension est remplacée ; les autres dates restent telles quelles — c'est ce qui garde
- * l'historique lisible. Renvoie la ligne enregistrée. Auteur et date : posés par trigger.
+ * AJOUTE une cible à une date d'effet : pour une catégorie de CA (cibles de marge), ou globale
+ * (`dimension` vide, coûts de structure). Toujours une nouvelle ligne de l'historique — jamais un
+ * remplacement : si une cible existe déjà à cette date pour la même dimension, la base refuse
+ * (contrainte d'unicité, code 23505) et rien n'est écrasé. Pour corriger une cible existante, voir
+ * modifierCible. Renvoie la ligne enregistrée. Auteur et date : posés par trigger.
  */
 export async function enregistrerCible(
   supabase: SupabaseClient,
@@ -493,14 +494,33 @@ export async function enregistrerCible(
 ): Promise<Cible> {
   const { data, error } = await supabase
     .from("past_performance_targets")
-    .upsert(
-      { organization_id: organizationId, target_type: type, dimension_key: dimension, valid_from: validFrom, target_value: valeur },
-      { onConflict: "organization_id,target_type,dimension_key,valid_from" }
-    )
+    .insert({ organization_id: organizationId, target_type: type, dimension_key: dimension, valid_from: validFrom, target_value: valeur })
     .select("id")
     .single();
   if (error) throw error;
   return { id: (data as Row).id as string, type, dimension, validFrom, valeur };
+}
+
+/**
+ * CORRIGE une cible existante, désignée par son identifiant : sa valeur et, le cas échéant, sa
+ * date d'effet. Seule cette ligne est touchée ; son type et sa catégorie ne changent pas. Lève une
+ * erreur si aucune ligne n'a été modifiée (cible disparue, accès refusé) ou si la nouvelle date
+ * d'effet est déjà prise par une autre cible (code 23505).
+ */
+export async function modifierCible(
+  supabase: SupabaseClient,
+  organizationId: string,
+  id: string,
+  correction: { valeur: number; validFrom: string }
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("past_performance_targets")
+    .update({ target_value: correction.valeur, valid_from: correction.validFrom })
+    .eq("organization_id", organizationId)
+    .eq("id", id)
+    .select("id");
+  if (error) throw error;
+  if ((data ?? []).length === 0) throw new Error("Aucune cible modifiée.");
 }
 
 export async function supprimerCible(supabase: SupabaseClient, organizationId: string, id: string): Promise<void> {

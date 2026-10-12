@@ -74,6 +74,7 @@ import {
   chargerAxeConfigure,
   chargerCibles,
   enregistrerCible,
+  modifierCible,
   supprimerCible,
   chargerAjustementsGestion,
   chargerAxesAnalytiques,
@@ -89,7 +90,7 @@ import {
   supprimerStock,
   validerSigne,
 } from "@/lib/pastTransactionsRepository";
-import { Cible, ecartsVsCibles, TypeCible } from "@/lib/pastTargets";
+import { ajouterCible, Cible, corrigerCible, ecartsVsCibles, MESSAGE_CONFLIT_CIBLE, TypeCible } from "@/lib/pastTargets";
 
 interface PasseTransactionsProps {
   organizationId: string;
@@ -496,9 +497,11 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       "unvalidate"
     );
 
-  // Cibles : la valeur s'applique tout de suite, puis l'enregistrement ; en cas d'échec, retour à
-  // l'état précédent. Une cible posée à une date d'effet déjà utilisée la remplace.
-  const modifierCibles = (suivant: Cible[], enregistrer: () => Promise<void>, etape: string) => {
+  // Cibles : la modification se voit tout de suite, puis l'enregistrement ; en cas d'échec, retour à
+  // l'état précédent et message explicite. Deux actions distinctes : AJOUTER une cible à une
+  // nouvelle date d'effet (une ligne de plus), ou CORRIGER une cible existante (la même ligne).
+  // Une date d'effet déjà prise est refusée avant tout envoi — rien n'est jamais écrasé.
+  const modifierCibles = (suivant: Cible[], enregistrer: () => Promise<void>, etape: string, messageEchec: string) => {
     const precedent = cibles;
     setCibles(suivant);
     setErreurCible(null);
@@ -506,27 +509,45 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       const code = (error as { code?: string } | null)?.code ?? "inconnu";
       console.error(`[passe/cibles] step=${etape} organization=${organizationId} code=${code}`);
       setCibles(precedent);
-      setErreurCible("La cible n'a pas pu être enregistrée. Réessayez.");
+      // 23505 : unicité — une autre cible porte déjà cette date d'effet en base.
+      setErreurCible(code === "23505" ? MESSAGE_CONFLIT_CIBLE : messageEchec);
     });
   };
   // `dimension` : la catégorie de CA d'une cible de marge ; vide pour les coûts de structure.
   const poserCible = (type: TypeCible, dimension: string, validFrom: string, valeur: number) => {
     const provisoire: Cible = { id: `provisoire:${type}:${dimension}:${validFrom}`, type, dimension, validFrom, valeur };
-    const sansDoublon = cibles.filter((c) => !(c.type === type && c.dimension === dimension && c.validFrom === validFrom));
+    const resultat = ajouterCible(cibles, provisoire);
+    if (resultat.conflit) {
+      setErreurCible(`${MESSAGE_CONFLIT_CIBLE} Modifiez-la plutôt que d'en ajouter une.`);
+      return;
+    }
     modifierCibles(
-      [...sansDoublon, provisoire],
+      resultat.cibles,
       async () => {
         const enregistree = await enregistrerCible(supabase!, organizationId, type, dimension, validFrom, valeur);
         setCibles((actuelles) => actuelles.map((c) => (c.id === provisoire.id ? enregistree : c)));
       },
-      "save"
+      "insert",
+      "La cible n'a pas pu être enregistrée. Réessayez."
     );
+  };
+  // Correction d'une cible existante : renvoie false si elle est refusée (date d'effet déjà prise),
+  // pour que la saisie reste ouverte.
+  const corrigerCibleExistante = (cible: Cible, correction: { valeur: number; validFrom: string }): boolean => {
+    const resultat = corrigerCible(cibles, cible.id, correction);
+    if (resultat.conflit) {
+      setErreurCible(MESSAGE_CONFLIT_CIBLE);
+      return false;
+    }
+    modifierCibles(resultat.cibles, () => modifierCible(supabase!, organizationId, cible.id, correction), "update", "Impossible de modifier la cible. Réessayez.");
+    return true;
   };
   const retirerCible = (cible: Cible) =>
     modifierCibles(
       cibles.filter((c) => c.id !== cible.id),
       () => supprimerCible(supabase!, organizationId, cible.id),
-      "delete"
+      "delete",
+      "Impossible de supprimer la cible. Réessayez."
     );
   const voirCibles = () => {
     setVue("mapping");
@@ -1087,10 +1108,11 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               cibles={cibles}
               categoriesCa={lignesCorrespondance.filter((l) => l.pnlStage === "revenue").map((l) => ({ id: l.sourceCategoryId, nom: l.sourceCategoryName }))}
               dateParDefaut={periode.debut}
-              onEnregistrer={poserCible}
+              erreur={erreurCible}
+              onAjouter={poserCible}
+              onCorriger={corrigerCibleExistante}
               onSupprimer={retirerCible}
             />
-            {erreurCible && <p className="login-erreur">{erreurCible}</p>}
             <PasseMappingTable
               lignes={lignesCorrespondance}
               filtre={filtreMapping}

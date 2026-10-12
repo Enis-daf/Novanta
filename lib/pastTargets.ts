@@ -63,6 +63,41 @@ export function historiqueDesCibles(cibles: Cible[], type: TypeCible, dimension:
     .sort((a, b) => (a.validFrom < b.validFrom ? -1 : a.validFrom > b.validFrom ? 1 : 0));
 }
 
+/**
+ * Deux actions distinctes sur une cible, à ne pas confondre :
+ *  - CORRIGER une cible existante (sa valeur, sa date d'effet) : la même ligne est modifiée ;
+ *  - AJOUTER une cible à partir d'une nouvelle date d'effet : une ligne de plus dans l'historique.
+ * Dans les deux cas, deux cibles du même type et de la même dimension ne peuvent pas partager une
+ * date d'effet : le conflit est signalé, jamais résolu en écrasant l'autre ligne.
+ */
+export const MESSAGE_CONFLIT_CIBLE = "Une cible existe déjà à cette date d'effet.";
+
+/** Autre cible du même type et de la même dimension déjà posée à cette date d'effet, sinon null. */
+export function cibleEnConflit(cibles: Cible[], type: TypeCible, dimension: string, validFrom: string, saufId: string | null = null): Cible | null {
+  return cibles.find((c) => c.type === type && c.dimension === dimension && c.validFrom === validFrom && c.id !== saufId) ?? null;
+}
+
+export type ResultatEditionCible = { cibles: Cible[]; conflit: null } | { cibles: null; conflit: Cible };
+
+/**
+ * Correction d'une cible existante : seule la ligne désignée par son identifiant change. Son type
+ * et sa dimension (la catégorie de CA) ne se modifient pas. Aucune ligne n'est créée.
+ */
+export function corrigerCible(cibles: Cible[], id: string, correction: { valeur: number; validFrom: string }): ResultatEditionCible {
+  const cible = cibles.find((c) => c.id === id);
+  if (!cible) return { cibles, conflit: null };
+  const conflit = cibleEnConflit(cibles, cible.type, cible.dimension, correction.validFrom, id);
+  if (conflit) return { cibles: null, conflit };
+  return { cibles: cibles.map((c) => (c.id === id ? { ...c, ...correction } : c)), conflit: null };
+}
+
+/** Nouvelle version datée d'une cible : une ligne de plus, les autres intactes. */
+export function ajouterCible(cibles: Cible[], nouvelle: Cible): ResultatEditionCible {
+  const conflit = cibleEnConflit(cibles, nouvelle.type, nouvelle.dimension, nouvelle.validFrom);
+  if (conflit) return { cibles: null, conflit };
+  return { cibles: [...cibles, nouvelle], conflit: null };
+}
+
 /** Cible en vigueur à une date : la dernière dont la date d'effet est atteinte. null avant la première. */
 export function cibleEnVigueur(cibles: Cible[], type: TypeCible, date: string, dimension: string = DIMENSION_GLOBALE): number | null {
   let valeur: number | null = null;

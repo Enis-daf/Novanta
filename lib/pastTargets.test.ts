@@ -5,7 +5,11 @@ import { indexerMappings, MappingCategorie } from "./pastCategoryMapping";
 import { calculerDetail, partsMappees } from "./pastDetail";
 import { calculerPnl } from "./pastPnl";
 import {
+  ajouterCible,
   Cible,
+  cibleEnConflit,
+  corrigerCible,
+  MESSAGE_CONFLIT_CIBLE,
   cibleDeCoutsDeStructure,
   cibleDeMarge,
   cibleEnVigueur,
@@ -310,5 +314,85 @@ describe("libellés", () => {
     assert.equal(libellePoints(0.011), "+1,1 pt");
     assert.equal(libellePoints(-0.02), "-2,0 pts");
     assert.equal(libellePoints(0), "0,0 pt");
+  });
+});
+
+describe("modifier une cible — corriger la ligne existante, ou ajouter une nouvelle version", () => {
+  const brute = (dimension: string, validFrom: string, valeur: number, id: string): Cible => ({ id, type: "gross_margin_pct", dimension, validFrom, valeur });
+  const depart: Cible[] = [
+    brute("abo", "2026-01-01", 70, "mb-abo-1"),
+    brute("abo", "2026-07-01", 75, "mb-abo-2"),
+    brute("projets", "2026-01-01", 55, "mb-projets"),
+    { id: "mc-abo", type: "contribution_margin_pct", dimension: "abo", validFrom: "2026-01-01", valeur: 60 },
+    { id: "structure", type: "structure_cost_monthly", dimension: "", validFrom: "2026-01-01", valeur: 85_000 },
+  ];
+  const parId = (cibles: Cible[], id: string) => cibles.find((c) => c.id === id)!;
+
+  test("corriger la valeur d'une Marge brute : même ligne, même date d'effet, aucune ligne créée", () => {
+    const { cibles, conflit } = corrigerCible(depart, "mb-abo-1", { valeur: 72, validFrom: "2026-01-01" });
+    assert.equal(conflit, null);
+    assert.equal(cibles!.length, depart.length);
+    assert.deepEqual(parId(cibles!, "mb-abo-1"), brute("abo", "2026-01-01", 72, "mb-abo-1"));
+    assert.equal(cibleEnVigueur(cibles!, "gross_margin_pct", "2026-03-15", "abo"), 72);
+  });
+
+  test("corriger une Marge contributive ou les Coûts de structure : la ligne visée, et elle seule", () => {
+    const contributive = corrigerCible(depart, "mc-abo", { valeur: 62, validFrom: "2026-01-01" }).cibles!;
+    assert.equal(parId(contributive, "mc-abo").valeur, 62);
+    const structure = corrigerCible(depart, "structure", { valeur: 90_000, validFrom: "2026-01-01" }).cibles!;
+    assert.deepEqual([parId(structure, "structure").valeur, parId(structure, "structure").dimension], [90_000, ""]);
+    for (const resultat of [contributive, structure]) {
+      assert.equal(resultat.length, depart.length);
+      assert.deepEqual(resultat.filter((c) => c.type === "gross_margin_pct"), depart.filter((c) => c.type === "gross_margin_pct"));
+    }
+  });
+
+  test("corriger la catégorie A ne touche ni la catégorie B, ni l'autre marge, ni le type ou la catégorie de la ligne", () => {
+    const { cibles } = corrigerCible(depart, "mb-abo-1", { valeur: 72, validFrom: "2026-01-01" });
+    assert.deepEqual(cibles!.filter((c) => c.id !== "mb-abo-1"), depart.filter((c) => c.id !== "mb-abo-1"));
+    assert.deepEqual([parId(cibles!, "mb-abo-1").type, parId(cibles!, "mb-abo-1").dimension], ["gross_margin_pct", "abo"]);
+  });
+
+  test("corriger la date d'effet : la ligne se déplace dans l'historique, sans doublon", () => {
+    const { cibles } = corrigerCible(depart, "mb-abo-2", { valeur: 75, validFrom: "2026-06-01" });
+    assert.equal(cibles!.length, depart.length);
+    assert.equal(cibleEnVigueur(cibles!, "gross_margin_pct", "2026-06-15", "abo"), 75);
+    assert.equal(cibleEnVigueur(cibles!, "gross_margin_pct", "2026-05-31", "abo"), 70);
+  });
+
+  test("date d'effet déjà prise par une autre cible de la même catégorie : refus, rien n'est écrasé", () => {
+    const resultat = corrigerCible(depart, "mb-abo-2", { valeur: 80, validFrom: "2026-01-01" });
+    assert.equal(resultat.cibles, null);
+    assert.equal(resultat.conflit!.id, "mb-abo-1");
+    assert.equal(MESSAGE_CONFLIT_CIBLE, "Une cible existe déjà à cette date d'effet.");
+  });
+
+  test("même date d'effet dans une autre catégorie ou pour l'autre marge : pas un conflit", () => {
+    assert.equal(cibleEnConflit(depart, "gross_margin_pct", "abo", "2026-01-01", "mb-abo-1"), null);
+    assert.equal(cibleEnConflit(depart, "gross_margin_pct", "services", "2026-01-01"), null);
+    assert.equal(cibleEnConflit(depart, "contribution_margin_pct", "projets", "2026-01-01"), null);
+    assert.equal(cibleEnConflit(depart, "gross_margin_pct", "projets", "2026-01-01")!.id, "mb-projets");
+  });
+
+  test("ajouter une cible à une nouvelle date d'effet : une ligne de plus, l'historique antérieur intact", () => {
+    const nouvelle = brute("abo", "2026-10-01", 80, "mb-abo-3");
+    const { cibles, conflit } = ajouterCible(depart, nouvelle);
+    assert.equal(conflit, null);
+    assert.equal(cibles!.length, depart.length + 1);
+    assert.deepEqual(cibles!.slice(0, depart.length), depart);
+    assert.deepEqual(
+      ["2026-03-15", "2026-08-15", "2026-10-15"].map((date) => cibleEnVigueur(cibles!, "gross_margin_pct", date, "abo")),
+      [70, 75, 80]
+    );
+  });
+
+  test("ajouter à une date d'effet déjà prise : refus, la cible existante n'est pas remplacée", () => {
+    const resultat = ajouterCible(depart, brute("abo", "2026-07-01", 99, "doublon"));
+    assert.equal(resultat.cibles, null);
+    assert.equal(resultat.conflit!.valeur, 75);
+  });
+
+  test("cible introuvable : aucun changement", () => {
+    assert.deepEqual(corrigerCible(depart, "inconnue", { valeur: 1, validFrom: "2026-01-01" }), { cibles: depart, conflit: null });
   });
 });

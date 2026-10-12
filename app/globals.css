@@ -2395,6 +2395,30 @@ input[type="checkbox"] {
   color: var(--couleur-texte-secondaire);
 }
 
+/* Correction d'une cible existante, sur place : valeur et date d'effet préremplies. */
+.passe-cibles__edition {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.passe-cibles__edition input[type="text"] {
+  width: 84px;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+  background: var(--couleur-fond);
+}
+
+.passe-renommer:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .passe-cibles__vide {
   font-size: 12px;
   color: var(--couleur-texte-secondaire);
@@ -2409,13 +2433,13 @@ input[type="checkbox"] {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  margin-bottom: var(--space-1);
+  margin-top: var(--space-1);
   font-size: 13px;
   color: var(--couleur-texte-secondaire);
 }
 
 .passe-cibles__champ input {
-  width: 72px;
+  width: 92px;
   border: 1px solid var(--couleur-bordure);
   border-radius: var(--radius-sm);
   padding: 6px 10px;
