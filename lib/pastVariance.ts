@@ -72,12 +72,69 @@ function totalEtage(donnees: DonneesPeriode, etages: readonly EtagePnl[]): numbe
   return (parts + sommeAjustements(donnees.ajustements, etages)) * donnees.coefficient;
 }
 
+/**
+ * Variation d'un POSTE entre A et B, à ne pas confondre avec son impact sur le résultat comparé.
+ * Des coûts qui baissent de 237 k€ ont un impact de +237 k€ : afficher « +237 k€ — Coûts directs »
+ * se lirait à l'envers. La variation dit ce que le poste a fait (↑ ou ↓, ampleur toujours
+ * positive) ; l'impact (la contribution, signée) reste ce que montrent la barre et sa couleur.
+ */
+export interface VariationPoste {
+  sens: "hausse" | "baisse" | "stable";
+  ampleur: number; // toujours positive
+}
+
+// Comment se lit « le poste augmente » :
+//  - revenus : le montant (positif) augmente ;
+//  - coûts : la dépense augmente, donc le montant (négatif) diminue ;
+//  - mixte (Extra P&L, Virements internes & Financement, ajustements de gestion) : encaissements
+//    et décaissements s'y mêlent — on s'en tient au montant signé agrégé, sans interprétation.
+const NATURE_ETAGE: Record<EtagePnl, "revenus" | "couts" | "mixte"> = {
+  revenue: "revenus",
+  gross_margin: "couts",
+  contribution_margin: "couts",
+  ebitda: "couts",
+  extra_pnl: "mixte",
+  financing: "mixte",
+};
+
+// En dessous de cet écart, deux montants sont tenus pour identiques : c'est l'arrondi, pas
+// un contributeur significatif.
+const TOLERANCE_STABLE = 1;
+
+/** Variation d'un poste d'un étage. `mixte` force la lecture au montant signé (ajustement de gestion). */
+export function variationDuPoste(etage: EtagePnl, montantA: number, montantB: number, mixte = false): VariationPoste {
+  const ecart = montantB - montantA;
+  const ampleur = Math.abs(ecart);
+  if (ampleur <= TOLERANCE_STABLE) return { sens: "stable", ampleur };
+  const coutEnHausse = !mixte && NATURE_ETAGE[etage] === "couts";
+  return { sens: (coutEnHausse ? ecart < 0 : ecart > 0) ? "hausse" : "baisse", ampleur };
+}
+
+const FLECHES = { hausse: "↑", baisse: "↓" } as const;
+
+/**
+ * Libellé d'une marche : la variation du POSTE (« ↓ 237 k€ » : les coûts ont baissé), flèche et
+ * montant toujours positif. Le sens de la marche et sa couleur, eux, disent l'impact sur le
+ * résultat comparé — un « +237 k€ » posé sur « Coûts directs » se lirait à l'envers.
+ */
+export function libelleVariation(variation: VariationPoste, formater: (montant: number) => string): string {
+  return variation.sens === "stable" ? formater(0) : `${FLECHES[variation.sens]} ${formater(variation.ampleur)}`;
+}
+
+/** « En baisse de 237 k€ », « En hausse de 20 k€ », « Stable ». */
+export function phraseVariation(variation: VariationPoste, formater: (montant: number) => string): string {
+  return variation.sens === "stable" ? "Stable" : `En ${variation.sens} de ${formater(variation.ampleur)}`;
+}
+
 export interface ContributionEtage {
   etage: EtagePnl;
   libelle: string;
   montantA: number;
   montantB: number;
+  // Impact signé sur le résultat comparé : la marche de la waterfall.
   contribution: number;
+  // Ce que le poste a fait entre A et B : le libellé de la marche.
+  variation: VariationPoste;
 }
 
 export interface Comparaison {
@@ -106,7 +163,7 @@ export function comparerPeriodes(a: DonneesPeriode, b: DonneesPeriode, options: 
   const etages = etagesCompares(options).map(({ etage, libelle }) => {
     const montantA = totalEtage(a, [etage]);
     const montantB = totalEtage(b, [etage]);
-    return { etage, libelle, montantA, montantB, contribution: montantB - montantA };
+    return { etage, libelle, montantA, montantB, contribution: montantB - montantA, variation: variationDuPoste(etage, montantA, montantB) };
   });
   const cashFlow = (donnees: DonneesPeriode) => {
     const operationnel = calculerCashFlowOperationnel(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"]));
@@ -144,6 +201,7 @@ export interface LigneCategorieEcart {
   montantA: number;
   montantB: number;
   contribution: number;
+  variation: VariationPoste;
 }
 
 /**
@@ -154,7 +212,7 @@ export interface LigneCategorieEcart {
 export function categoriesDeLEtage(a: DonneesPeriode, b: DonneesPeriode, etage: EtagePnl): LigneCategorieEcart[] {
   const lignes = new Map<string, LigneCategorieEcart>();
   const ligne = (cle: string, nom: string, horsBanque: boolean) => {
-    if (!lignes.has(cle)) lignes.set(cle, { cle, nom, horsBanque, montantA: 0, montantB: 0, contribution: 0 });
+    if (!lignes.has(cle)) lignes.set(cle, { cle, nom, horsBanque, montantA: 0, montantB: 0, contribution: 0, variation: { sens: "stable", ampleur: 0 } });
     return lignes.get(cle)!;
   };
   for (const [donnees, cote] of [[a, "montantA"], [b, "montantB"]] as const) {
@@ -167,7 +225,14 @@ export function categoriesDeLEtage(a: DonneesPeriode, b: DonneesPeriode, etage: 
       ligne(`ajustement:${ajustement.cle}`, ajustement.label, true)[cote] += ajustement.montant * donnees.coefficient;
     }
   }
-  return parContributionDecroissante([...lignes.values()].map((l) => ({ ...l, contribution: l.montantB - l.montantA })));
+  return parContributionDecroissante(
+    [...lignes.values()].map((l) => ({
+      ...l,
+      contribution: l.montantB - l.montantA,
+      // Un ajustement de gestion n'est ni un revenu ni un coût à proprement parler : montant signé.
+      variation: variationDuPoste(etage, l.montantA, l.montantB, l.horsBanque),
+    }))
+  );
 }
 
 // Les périodes A et B se choisissent dans n'importe quel ordre : un flux présent d'un seul côté
@@ -177,10 +242,6 @@ export type StatutEcart =
   // Même montant à l'euro près des deux côtés : masqué par défaut.
   | "stable";
 
-// Seuil volontairement absolu et minuscule : un seuil relatif masquerait des écarts matériels sur
-// les gros montants (1 % d'un million = 10 000 €). Mieux vaut montrer une ligne de trop que cacher
-// un contributeur significatif.
-const TOLERANCE_STABLE = 1;
 
 /**
  * Flux comparable : toutes les transactions d'un même flux (même mandat de prélèvement, ou même

@@ -40,6 +40,7 @@ import {
   fluxConnus,
   GroupeLibelle,
   groupesDeLibelles,
+  libelleVariation,
   PartComparee,
   transactionsDuGroupe,
 } from "@/lib/pastVariance";
@@ -552,6 +553,7 @@ export default function PasseEcarts({
                           <th>Catégorie</th>
                           <th className="col-montant">{enTete("A")}</th>
                           <th className="col-montant">{enTete("B")}</th>
+                          <th className="col-montant">Variation</th>
                           <th className="col-montant">Impact</th>
                         </tr>
                       </thead>
@@ -571,6 +573,10 @@ export default function PasseEcarts({
                             </td>
                             <td className="col-montant passe-table__montant">{formatMontant(ligne.montantA)}</td>
                             <td className="col-montant passe-table__montant">{formatMontant(ligne.montantB)}</td>
+                            {/* Ce que le poste a fait (↑ / ↓, montant positif), à part de son impact signé. */}
+                            <td className="col-montant passe-table__montant">
+                              {ligne.variation.sens === "stable" ? "—" : libelleVariation(ligne.variation, formatMontant)}
+                            </td>
                             <td className="col-montant passe-table__montant">
                               <Contribution montant={ligne.contribution} />
                             </td>

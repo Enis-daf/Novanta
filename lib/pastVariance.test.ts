@@ -7,7 +7,18 @@ import { dureeDeLaSelection, normaliserDurees, selectionDuPreset } from "./fisca
 import { calculerPnl } from "./pastPnl";
 import { PastTransactionStockee } from "./pastTransactions";
 import { fusionnerFlux, indexerGroupesManuels } from "./flowGroups";
-import { categoriesDeLEtage, comparerPeriodes, donneesPeriode, etagesCompares, fluxConnus, groupesDeLibelles, transactionsDuGroupe } from "./pastVariance";
+import {
+  categoriesDeLEtage,
+  comparerPeriodes,
+  donneesPeriode,
+  etagesCompares,
+  fluxConnus,
+  groupesDeLibelles,
+  libelleVariation,
+  phraseVariation,
+  transactionsDuGroupe,
+  variationDuPoste,
+} from "./pastVariance";
 
 const AXE = "229";
 const AOUT = { debut: "2026-08-01", fin: "2026-08-31" };
@@ -694,5 +705,87 @@ describe("analyse d'écarts — hors financement ou financement compris", () => 
     const complet = comparerPeriodes(A, B, { financementCompris: true });
     assert.deepEqual([complet.cashFlowA, complet.cashFlowB, complet.ecart], [simple.cashFlowA, simple.cashFlowB, simple.ecart]);
     assert.equal(complet.etages.find((e) => e.etage === "financing")!.contribution, 0);
+  });
+});
+
+describe("variation d'un poste — à ne pas confondre avec son impact", () => {
+  const k = (montant: number) => `${montant / 1_000} k€`;
+
+  test("CA en hausse : ↑, impact positif ; CA en baisse : ↓, impact négatif", () => {
+    assert.deepEqual(variationDuPoste("revenue", 100_000, 147_000), { sens: "hausse", ampleur: 47_000 });
+    assert.deepEqual(variationDuPoste("revenue", 150_000, 120_000), { sens: "baisse", ampleur: 30_000 });
+  });
+
+  test("coût en baisse : ↓ alors que l'impact est positif ; coût en hausse : ↑ alors que l'impact est négatif", () => {
+    for (const etage of ["gross_margin", "contribution_margin", "ebitda"] as const) {
+      assert.deepEqual(variationDuPoste(etage, -400_000, -163_000), { sens: "baisse", ampleur: 237_000 }, etage);
+      assert.deepEqual(variationDuPoste(etage, -100_000, -120_000), { sens: "hausse", ampleur: 20_000 }, etage);
+    }
+  });
+
+  test("Extra P&L et Virements internes & Financement : la flèche suit le montant signé, sans interprétation", () => {
+    for (const etage of ["extra_pnl", "financing"] as const) {
+      assert.equal(variationDuPoste(etage, -20_000, -5_000).sens, "hausse", etage);
+      assert.equal(variationDuPoste(etage, -5_000, -20_000).sens, "baisse", etage);
+      assert.equal(variationDuPoste(etage, -10_000, 30_000).sens, "hausse", etage);
+      assert.equal(variationDuPoste(etage, 50_000, 10_000).sens, "baisse", etage);
+    }
+  });
+
+  test("stable à 1 € près, comme partout dans l'analyse", () => {
+    assert.equal(variationDuPoste("ebitda", -1_000, -1_001).sens, "stable");
+    assert.equal(variationDuPoste("ebitda", -1_000, -1_001.5).sens, "hausse");
+    assert.equal(variationDuPoste("revenue", 0, 0).sens, "stable");
+  });
+
+  test("libellé : flèche et montant toujours positif, jamais « ↓ -237 k€ »", () => {
+    assert.equal(libelleVariation(variationDuPoste("gross_margin", -400_000, -163_000), k), "↓ 237 k€");
+    assert.equal(libelleVariation(variationDuPoste("gross_margin", -100_000, -120_000), k), "↑ 20 k€");
+    assert.equal(libelleVariation(variationDuPoste("revenue", 100_000, 147_000), k), "↑ 47 k€");
+    assert.equal(libelleVariation(variationDuPoste("revenue", 150_000, 120_000), k), "↓ 30 k€");
+    assert.equal(libelleVariation(variationDuPoste("revenue", 100_000, 100_000), k), "0 k€");
+    for (const [a, b] of [[-400_000, -163_000], [-163_000, -400_000], [5_000, -5_000]]) {
+      assert.ok(!libelleVariation(variationDuPoste("extra_pnl", a, b), k).includes("-"));
+    }
+  });
+
+  test("infobulle : la variation du poste en toutes lettres", () => {
+    assert.equal(phraseVariation(variationDuPoste("gross_margin", -400_000, -163_000), k), "En baisse de 237 k€");
+    assert.equal(phraseVariation(variationDuPoste("ebitda", -100_000, -120_000), k), "En hausse de 20 k€");
+    assert.equal(phraseVariation(variationDuPoste("revenue", 100_000, 147_000), k), "En hausse de 47 k€");
+    assert.equal(phraseVariation(variationDuPoste("revenue", 1, 1), k), "Stable");
+  });
+
+  test("waterfall : chaque marche porte sa variation ; contributions et réconciliation inchangées", () => {
+    const comparaison = comparerPeriodes(A, B);
+    assert.deepEqual(comparaison.etages.map((e) => [e.libelle, e.contribution, e.variation.sens, e.variation.ampleur]), [
+      ["CA", -20_000, "baisse", 20_000], // le CA baisse : impact négatif
+      ["Coûts directs", 5_000, "baisse", 5_000], // les coûts baissent : impact POSITIF
+      ["Autres coûts variables", -12_000, "hausse", 12_000], // les coûts montent : impact négatif
+      ["Coûts de structure", -8_000, "hausse", 8_000],
+      ["Extra P&L", -13_000, "baisse", 13_000],
+    ]);
+    for (const e of comparaison.etages) assert.equal(e.variation.ampleur, Math.abs(e.contribution));
+    assert.equal(comparaison.cashFlowA + comparaison.etages.reduce((s, e) => s + e.contribution, 0), comparaison.cashFlowB);
+  });
+
+  test("catégories : même convention, tri par |impact| inchangé ; un ajustement de gestion se lit au montant signé", () => {
+    const lignes = categoriesDeLEtage(A, B, "ebitda");
+    assert.deepEqual(lignes.map((l) => Math.abs(l.contribution)), [...lignes.map((l) => Math.abs(l.contribution))].sort((x, y) => y - x));
+    for (const l of lignes) {
+      const attendu = Math.abs(l.contribution) <= 1 ? "stable" : l.contribution < 0 ? "hausse" : "baisse";
+      assert.equal(l.variation.sens, attendu, l.nom);
+    }
+    assert.equal(variationDuPoste("gross_margin", 5_000, 8_000, true).sens, "hausse");
+    assert.equal(variationDuPoste("gross_margin", 5_000, 8_000).sens, "baisse");
+  });
+
+  test("périodes normalisées : la variation porte sur les montants comparables de la waterfall", () => {
+    const longue = donneesPeriode(septembre, AXE, mappings, [], SEPTEMBRE, 0.5);
+    const comparaison = comparerPeriodes(A, longue);
+    for (const e of comparaison.etages) {
+      assert.equal(e.variation.ampleur, Math.abs(e.montantB - e.montantA));
+      assert.deepEqual(e.variation, variationDuPoste(e.etage, e.montantA, e.montantB));
+    }
   });
 });
