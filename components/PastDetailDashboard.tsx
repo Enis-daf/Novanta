@@ -22,7 +22,7 @@ import {
   trierTransactions,
   TriTransactions,
 } from "@/lib/pastDetail";
-import { Cible, ecartsVsCibles } from "@/lib/pastTargets";
+import { Cible, ecartsVsCibles, enK } from "@/lib/pastTargets";
 import { Periode } from "@/lib/pastTransactions";
 
 interface PastDetailDashboardProps {
@@ -139,7 +139,8 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
             {vue.kpi.categorie ?? vue.kpi.libelle}
             {vue.kpi.categorie && <span className="passe-kpi__contexte"> · {config.libelleDetail}</span>}
           </p>
-          <p className="passe-kpi__montant">{formatMontant(vue.kpi.montant)}</p>
+          {/* EBITDA : l'indicateur se lit en k€, comme sa cible et son écart — une seule unité. */}
+          <p className="passe-kpi__montant">{metrique === "ebitda" ? enK(vue.kpi.montant) : formatMontant(vue.kpi.montant)}</p>
           {vue.kpi.ratio !== undefined && <p className="passe-kpi__ratio">{formatPourcentage(vue.kpi.ratio)} du CA</p>}
           {/* Cash flow : la lecture choisie est toujours rappelée sous l'indicateur. */}
           {vue.kpi.precision && vue.kpi.categorie === null && <p className="passe-kpi__ratio">{vue.kpi.precision}</p>}
@@ -148,16 +149,23 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
               masque : la cible est celle de tout le mix de CA, pas d'une catégorie. */}
           {ecartCible && (
             <div className="passe-kpi__cible">
-              {metrique === "ebitda" && <p className="passe-kpi__ratio">Coûts de structure : {formatMontant(-ecartCible.montantCoutsStructure)}</p>}
               <PasseEcartCible
                 ecart={
                   metrique === "marge_brute"
                     ? { type: "marge", valeur: ecartCible.margeBrute }
                     : metrique === "marge_contributive"
                       ? { type: "marge", valeur: ecartCible.margeContributive }
-                      : { type: "couts", valeur: ecartCible.coutsStructure }
+                      : { type: "ebitda", valeur: ecartCible.ebitda, incomplet: ecartCible.ebitdaIncomplet }
                 }
               />
+              {/* EBITDA : la brique « coûts de structure » de sa cible, à part et nommée comme telle
+                  — un élément de diagnostic, pas la cible de l'EBITDA. */}
+              {metrique === "ebitda" && ecartCible.coutsStructure && (
+                <div className="passe-kpi__sous-cible">
+                  <span>Coûts de structure : {enK(-ecartCible.montantCoutsStructure)}</span>
+                  <PasseEcartCible ecart={{ type: "couts", valeur: ecartCible.coutsStructure }} />
+                </div>
+              )}
             </div>
           )}
 

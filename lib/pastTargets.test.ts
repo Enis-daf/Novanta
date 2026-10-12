@@ -14,8 +14,12 @@ import {
   cibleDeMarge,
   cibleEnVigueur,
   COUVERTURE_MIN_VERDICT,
+  ecartDEbitda,
   ecartDeCouts,
   ecartDeMarge,
+  enK,
+  LIBELLE_EBITDA_INCOMPLET,
+  libellesEcartEbitda,
   ecartsVsCibles,
   historiqueDesCibles,
   libellePoints,
@@ -176,7 +180,7 @@ describe("écart d'une marge à sa cible pondérée", () => {
     proche(ecart.ecartPoints, -0.038333);
     proche(ecart.ecartEuros!, -11_499.9, 0.01);
     assert.equal(ecart.statut, "defavorable");
-    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 64,8 %", ecart: "-3,8 pts · -11 k€ vs cible", reserve: null });
+    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 64,8 %", ecart: "-3,8 pts · -11,5 k€ vs cible", reserve: null });
   });
 
   test("au-dessus de la cible : favorable ; à 0,2 point près : dans la cible", () => {
@@ -267,7 +271,7 @@ describe("écarts vs cibles — Général et écrans de détail, même calcul", 
     const fevrier = ecartsVsCibles(cibles, parts(), sansAjustement, periode, "2026-02");
     proche(fevrier.margeBrute!.cible, 194.5 / 300);
     proche(fevrier.margeBrute!.realise, 0.61);
-    assert.equal(libellesEcartMarge(fevrier.margeBrute!).ecart, "-3,8 pts · -11 k€ vs cible");
+    assert.equal(libellesEcartMarge(fevrier.margeBrute!).ecart, "-3,8 pts · -11,5 k€ vs cible");
     proche(fevrier.margeBrute!.realise, calculerDetail(parts(), "marge_brute", { categorie: null, mois: "2026-02" }, periode).kpi.ratio!);
     proche(fevrier.coutsStructure!.cible, 85_000);
     assert.deepEqual([fevrier.coutsStructure!.realise, fevrier.coutsStructure!.statut], [94_000, "defavorable"]);
@@ -433,5 +437,130 @@ describe("enregistrer une cible — l'utilisateur ne choisit pas entre créer et
 
   test("cible introuvable : aucun changement", () => {
     assert.deepEqual(corrigerCible(depart, "inconnue", { valeur: 1, validFrom: "2026-01-01" }), { cibles: depart, operations: [], conflit: null });
+  });
+});
+
+describe("EBITDA cible — dérivé de la Marge contributive cible et des Coûts de structure cibles", () => {
+  const complete = (valeur: number) => ({ valeur, couverture: 1 });
+
+  test("CA 1 000 k€, MC cible 40 %, structure cible 250 k€ -> EBITDA cible 150 k€", () => {
+    const ecart = ecartDEbitda(130_000, 1_000_000, complete(0.4), complete(250_000));
+    assert.equal(ecart.cible, 150_000);
+  });
+
+  test("EBITDA réel 130 k€ : -20 k€ vs cible, défavorable ; 170 k€ : +20 k€, favorable", () => {
+    const dessous = ecartDEbitda(130_000, 1_000_000, complete(0.4), complete(250_000));
+    assert.deepEqual([dessous.ecart, dessous.statut], [-20_000, "defavorable"]);
+    assert.deepEqual(libellesEcartEbitda(dessous), { cible: "Cible 150 k€", ecart: "-20 k€ vs cible", reserve: null });
+    const dessus = ecartDEbitda(170_000, 1_000_000, complete(0.4), complete(250_000));
+    assert.deepEqual([dessus.ecart, dessus.statut], [20_000, "favorable"]);
+    assert.equal(libellesEcartEbitda(dessus).ecart, "+20 k€ vs cible");
+  });
+
+  test("EBITDA cible négatif, et micro-écart dans la cible", () => {
+    const perte = ecartDEbitda(-60_000, 500_000, complete(0.4), complete(250_000));
+    assert.deepEqual([perte.cible, perte.ecart, perte.statut], [-50_000, -10_000, "defavorable"]);
+    assert.equal(ecartDEbitda(150_900, 1_000_000, complete(0.4), complete(250_000)).statut, "neutre");
+  });
+
+  test("couverture partielle de la Marge contributive : propagée, écart seulement indicatif", () => {
+    const ecart = ecartDEbitda(130_000, 1_000_000, { valeur: 0.4, couverture: 0.82 }, complete(250_000));
+    assert.equal(ecart.statut, "incomplet");
+    assert.deepEqual(libellesEcartEbitda(ecart), { cible: "Cible 150 k€", ecart: "-20 k€ (indicatif)", reserve: "Cible EBITDA calculée sur 82 % du CA" });
+  });
+
+  test("cible de coûts de structure ne couvrant qu'une partie de la période : dite aussi", () => {
+    const ecart = ecartDEbitda(130_000, 1_000_000, complete(0.4), { valeur: 125_000, couverture: 0.5 });
+    assert.equal(ecart.statut, "incomplet");
+    assert.equal(libellesEcartEbitda(ecart).reserve, "Cible de coûts de structure définie sur 50 % de la période");
+  });
+
+  test("écart nul à l'arrondi : « 0 k€ », sans signe", () => {
+    assert.equal(libellesEcartEbitda(ecartDEbitda(150_000.00001, 1_000_000, complete(0.4), complete(250_000))).ecart, "0 k€ vs cible");
+    assert.equal(libellesEcartEbitda(ecartDEbitda(149_999.99999, 1_000_000, complete(0.4), complete(250_000))).ecart, "0 k€ vs cible");
+    assert.equal(libellesEcartCouts(ecartDeCouts(-250_000.00001, complete(250_000))).ecart, "0 k€ vs cible");
+  });
+
+  test("format k€ : une décimale au plus, jamais d'euros détaillés", () => {
+    assert.deepEqual([130_000, 125_500, -20_000, 9_400, 0].map(enK), ["130 k€", "125,5 k€", "-20 k€", "9,4 k€", "0 k€"]);
+  });
+});
+
+describe("EBITDA cible dans les écarts d'une période — même calcul pour Général et l'écran EBITDA", () => {
+  const AXE = "229";
+  const mapping = (id: string, pnlStage: MappingCategorie["pnlStage"]): MappingCategorie => ({ sourceCategoryId: id, sourceCategoryName: id, sourceGroupId: AXE, pnlStage });
+  const mappings = indexerMappings([mapping("a", "revenue"), mapping("b", "revenue"), mapping("achats", "gross_margin"), mapping("pub", "contribution_margin"), mapping("salaires", "ebitda")]);
+  let n = 0;
+  const tx = (date: string, amount: number, categorie: string): PastTransactionStockee => ({
+    id: `e${++n}`,
+    sourceType: "pennylane",
+    transactionDate: date,
+    label: `${categorie} ${n}`,
+    amount,
+    currency: "EUR",
+    affectations: [{ groupId: AXE, categoryId: categorie, categoryName: categorie, weight: 1 }],
+  });
+  // Deux mois : CA 1 000 k€, MC réelle 380 k€, structure 250 k€ -> EBITDA 130 k€.
+  const transactions = [
+    tx("2026-02-10", 400_000, "a"), tx("2026-02-12", 100_000, "b"), tx("2026-02-16", -250_000, "achats"), tx("2026-02-18", -60_000, "pub"), tx("2026-02-28", -120_000, "salaires"),
+    tx("2026-03-10", 500_000, "a"), tx("2026-03-16", -250_000, "achats"), tx("2026-03-18", -60_000, "pub"), tx("2026-03-28", -130_000, "salaires"),
+  ];
+  const periode = { debut: "2026-02-01", fin: "2026-03-31" };
+  const parts = partsMappees(transactions, AXE, mappings);
+  const mcA = cible("contribution_margin_pct", "2026-01-01", 40, "a");
+  const mcB = cible("contribution_margin_pct", "2026-01-01", 40, "b");
+  const structure = cible("structure_cost_monthly", "2026-01-01", 125_000);
+  const ecarts = (cibles: Cible[], mois: string | null = null) => ecartsVsCibles(cibles, parts, [], periode, mois);
+
+  test("les deux briques définies : EBITDA cible = CA × MC cible − structure cible, sur toute la période", () => {
+    const { ebitda, ebitdaIncomplet, coutsStructure } = ecarts([mcA, mcB, structure]);
+    assert.equal(ebitdaIncomplet, false);
+    assert.equal(ebitda!.realise, calculerPnl(transactions, AXE, mappings).ebitda);
+    proche(ebitda!.cible, 1_000_000 * 0.4 - 250_000);
+    proche(ebitda!.ecart, -20_000);
+    assert.equal(libellesEcartEbitda(ebitda!).cible, "Cible 150 k€");
+    // La brique « coûts de structure » reste lisible à part, pour le diagnostic.
+    proche(coutsStructure!.cible, 250_000);
+    proche(coutsStructure!.ecart, 0);
+  });
+
+  test("un mois sélectionné : un mois de structure cible, le CA et l'EBITDA de ce mois", () => {
+    const fevrier = ecarts([mcA, mcB, structure], "2026-02").ebitda!;
+    proche(fevrier.cible, 500_000 * 0.4 - 125_000);
+    proche(fevrier.realise, 500_000 - 250_000 - 60_000 - 120_000);
+    proche(fevrier.ecart, -5_000);
+  });
+
+  test("cibles qui changent en cours de période : chaque brique suit ses dates d'effet", () => {
+    const mcMars = cible("contribution_margin_pct", "2026-03-01", 50, "a");
+    const structureMars = cible("structure_cost_monthly", "2026-03-01", 150_000);
+    const { ebitda } = ecarts([mcA, mcB, mcMars, structure, structureMars]);
+    // Février : 500 k€ à 40 %, 125 k€ de structure. Mars : 500 k€ à 50 %, 150 k€ de structure.
+    proche(ebitda!.cible, 500_000 * 0.4 + 500_000 * 0.5 - (125_000 + 150_000));
+  });
+
+  test("une brique manquante : pas de faux EBITDA cible, l'objectif est dit incomplet", () => {
+    const sansStructure = ecarts([mcA, mcB]);
+    assert.deepEqual([sansStructure.ebitda, sansStructure.ebitdaIncomplet], [null, true]);
+    const sansMarge = ecarts([structure]);
+    assert.deepEqual([sansMarge.ebitda, sansMarge.ebitdaIncomplet], [null, true]);
+    assert.equal(LIBELLE_EBITDA_INCOMPLET, "Objectif EBITDA incomplet");
+  });
+
+  test("aucune des deux briques : ni cible ni état incomplet", () => {
+    const aucune = ecarts([cible("gross_margin_pct", "2026-01-01", 70, "a")]);
+    assert.deepEqual([aucune.ebitda, aucune.ebitdaIncomplet], [null, false]);
+  });
+
+  test("Marge contributive cible définie sur une partie du CA : couverture propagée à l'EBITDA", () => {
+    const { ebitda } = ecarts([mcA, structure]);
+    assert.equal(ebitda!.couvertureCa, 0.9);
+    assert.equal(ebitda!.statut, "incomplet");
+    assert.equal(libellesEcartEbitda(ebitda!).reserve, "Cible EBITDA calculée sur 90 % du CA");
+  });
+
+  test("la cible de Marge brute n'entre pas dans l'EBITDA cible", () => {
+    const avec = ecarts([mcA, mcB, structure, cible("gross_margin_pct", "2026-01-01", 99, "a")]);
+    proche(avec.ebitda!.cible, 150_000);
   });
 });

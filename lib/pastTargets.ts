@@ -305,10 +305,52 @@ export function ecartDeCouts(montantEtage: number, cible: CiblePeriode): EcartCo
   };
 }
 
+export interface EcartEbitda {
+  realise: number; // EBITDA de la période, signé
+  cible: number; // EBITDA attendu, signé
+  ecart: number; // réalisé − cible : positif = au-dessus de la cible (favorable)
+  statut: StatutCible;
+  // Part du CA couverte par la cible de Marge contributive, et part de la période couverte par la
+  // cible de coûts de structure : en dessous de 1, la cible d'EBITDA est partielle et le dit.
+  couvertureCa: number;
+  couverturePeriode: number;
+}
+
+/**
+ * EBITDA cible : il ne se saisit pas, il se DÉDUIT des objectifs configurés —
+ *
+ *   EBITDA cible = CA réel × Marge contributive cible (pondérée) − Coûts de structure cibles
+ *
+ * « Avec le CA réalisé, la marge contributive attendue et la structure prévue, quel EBITDA
+ * aurait-on dû obtenir ? ». Les deux briques suivent leurs dates d'effet (cibleDeMarge,
+ * cibleDeCoutsDeStructure) ; cette fonction ne fait que les assembler. Au-dessus de la cible :
+ * favorable. Si l'une des deux couvertures est incomplète, la cible reste montrée mais sans
+ * verdict : elle est partielle.
+ */
+export function ecartDEbitda(ebitdaRealise: number, ca: number, cibleMargeContributive: CiblePeriode, cibleCoutsStructure: CiblePeriode): EcartEbitda {
+  const cible = ca * cibleMargeContributive.valeur - cibleCoutsStructure.valeur;
+  const ecart = ebitdaRealise - cible;
+  const complete = cibleMargeContributive.couverture >= COUVERTURE_COMPLETE && cibleCoutsStructure.couverture >= COUVERTURE_COMPLETE;
+  const tolerance = Math.max(TOLERANCE_COUTS_RELATIVE * Math.abs(cible), TOLERANCE_COUTS_ABSOLUE);
+  return {
+    realise: ebitdaRealise,
+    cible,
+    ecart,
+    statut: !complete ? "incomplet" : Math.abs(ecart) <= tolerance ? "neutre" : ecart > 0 ? "favorable" : "defavorable",
+    couvertureCa: cibleMargeContributive.couverture,
+    couverturePeriode: cibleCoutsStructure.couverture,
+  };
+}
+
 /** Ce que les écrans affichent : null = aucune cible applicable (ou pas de CA), jamais un 0 inventé. */
 export interface EcartsVsCibles {
   margeBrute: EcartMarge | null;
   margeContributive: EcartMarge | null;
+  // Cible d'EBITDA dérivée (voir ecartDEbitda). null tant que l'une de ses deux briques manque ;
+  // `ebitdaIncomplet` distingue alors « une seule des deux est définie » de « aucune ».
+  ebitda: EcartEbitda | null;
+  ebitdaIncomplet: boolean;
+  // Brique sous-jacente de l'EBITDA cible, utile au diagnostic — pas la cible de l'EBITDA.
   coutsStructure: EcartCouts | null;
   // Total signé de l'étage « Coûts de structure » sur le périmètre (ajustements compris).
   montantCoutsStructure: number;
@@ -343,18 +385,23 @@ export function ecartsVsCibles(
   ];
   const ca = revenus.reduce((somme, revenu) => somme + revenu.montant, 0);
 
-  const marge = (type: TypeCible, metrique: MetriqueDetail): EcartMarge | null => {
-    const cible = cibleDeMarge(cibles, type, revenus);
+  const cibleDe = (type: TypeCible) => cibleDeMarge(cibles, type, revenus);
+  const marge = (cible: CiblePeriode | null, metrique: MetriqueDetail): EcartMarge | null => {
     const ratio = kpi(metrique).ratio;
     return cible === null || ratio === null || ratio === undefined ? null : ecartDeMarge(ratio, ca, cible);
   };
+  const cibleContributive = cibleDe("contribution_margin_pct");
 
   // Coûts de structure : ce qui sépare la Marge contributive de l'EBITDA.
-  const montantCoutsStructure = kpi("ebitda").montant - kpi("marge_contributive").montant;
+  const ebitda = kpi("ebitda").montant;
+  const montantCoutsStructure = ebitda - kpi("marge_contributive").montant;
   const cibleCouts = cibleDeCoutsDeStructure(cibles, mois === null ? periode : periodeDuMois(mois, periode));
+  const deuxBriques = cibleContributive !== null && cibleCouts !== null;
   return {
-    margeBrute: marge("gross_margin_pct", "marge_brute"),
-    margeContributive: marge("contribution_margin_pct", "marge_contributive"),
+    margeBrute: marge(cibleDe("gross_margin_pct"), "marge_brute"),
+    margeContributive: marge(cibleContributive, "marge_contributive"),
+    ebitda: deuxBriques ? ecartDEbitda(ebitda, ca, cibleContributive, cibleCouts) : null,
+    ebitdaIncomplet: !deuxBriques && (cibleContributive !== null || cibleCouts !== null),
     coutsStructure: cibleCouts === null ? null : ecartDeCouts(montantCoutsStructure, cibleCouts),
     montantCoutsStructure,
   };
@@ -372,8 +419,10 @@ function periodeDuMois(mois: string, periode: Periode): Periode {
 // --- Libellés : factuels, jamais un verdict (« Cible 44,0 % · -3,8 pts · -27 k€ vs cible ») ---
 
 const espaces = (texte: string) => texte.replace(/[\u202f\u00a0]/g, " ");
-const signe = (valeur: number, texte: string) => (valeur > 0 ? `+${texte}` : texte);
-const enK = (montant: number) => espaces(formatKiloEuros(montant, Math.abs(montant) < 10_000 ? 1 : 0));
+// « + » devant un écart positif — sauf s'il s'arrondit à zéro : « 0 k€ », jamais « +0 k€ ».
+const signe = (valeur: number, texte: string) => (valeur > 0 && !/^0(,0+)?(\s|$)/.test(texte) ? `+${texte}` : texte.replace(/^-(0(,0+)?(\s|$))/, "$1"));
+/** Montant en k€, une décimale au plus : « 130 k€ », « 125,5 k€ ». Le format de tous les objectifs. */
+export const enK = (montant: number) => espaces(formatKiloEuros(montant, 1));
 const formatPoints = new Intl.NumberFormat("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
 /** Écart de marge en points : « -3,8 pts », « +2,0 pts ». */
@@ -414,5 +463,20 @@ export function libellesEcartCouts(ecart: EcartCouts): LibellesCible {
     cible: `Cible ${enK(ecart.cible)}`,
     ecart: `${signe(ecart.ecart, enK(ecart.ecart))} vs cible`,
     reserve: ecart.couverture < COUVERTURE_COMPLETE ? `Cible définie sur ${Math.round(ecart.couverture * 100)} % de la période` : null,
+  };
+}
+
+export const LIBELLE_EBITDA_INCOMPLET = "Objectif EBITDA incomplet";
+
+export function libellesEcartEbitda(ecart: EcartEbitda): LibellesCible {
+  const reserves = [
+    ...(ecart.couvertureCa < COUVERTURE_COMPLETE ? [`Cible EBITDA calculée sur ${Math.round(ecart.couvertureCa * 100)} % du CA`] : []),
+    ...(ecart.couverturePeriode < COUVERTURE_COMPLETE ? [`Cible de coûts de structure définie sur ${Math.round(ecart.couverturePeriode * 100)} % de la période`] : []),
+  ];
+  const montant = signe(ecart.ecart, enK(ecart.ecart));
+  return {
+    cible: `Cible ${enK(ecart.cible)}`,
+    ecart: ecart.statut === "incomplet" ? `${montant} (indicatif)` : `${montant} vs cible`,
+    reserve: reserves.length > 0 ? reserves.join(" · ") : null,
   };
 }

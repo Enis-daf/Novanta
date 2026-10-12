@@ -2340,6 +2340,20 @@ input[type="checkbox"] {
   text-align: left;
 }
 
+/* Écran EBITDA : la brique « coûts de structure » de la cible, en plus discret sous celle-ci. */
+.passe-kpi__sous-cible {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-2);
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-kpi__sous-cible .passe-cible {
+  font-size: 12px;
+}
+
 /* Onglet Objectifs : les objectifs de marge par catégorie de CA, puis les coûts de structure. */
 .passe-cibles {
   display: flex;

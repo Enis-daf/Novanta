@@ -97,14 +97,16 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
         </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle="Coûts de structure" montant={pnl.coutsStructure} />
+          <LignesAjustements lignes={pnl.ajustements.ebitda} />
+          <Ligne libelle="EBITDA" montant={pnl.ebitda} ratio={pnl.ratios.ebitda} niveau="solde" />
+          {/* Même lecture que les deux marges : l'EBITDA face à SA cible, dérivée des objectifs de
+              Marge contributive et de Coûts de structure — pas une cible de coûts posée là. */}
           <PasseEcartCible
-            ecart={{ type: "couts", valeur: cibles.coutsStructure }}
+            ecart={{ type: "ebitda", valeur: cibles.ebitda, incomplet: cibles.ebitdaIncomplet }}
             onOuvrir={() => onOuvrir("ebitda")}
             onDefinir={onDefinirCible}
             libelleLien="Ouvrir l'écran EBITDA"
           />
-          <LignesAjustements lignes={pnl.ajustements.ebitda} />
-          <Ligne libelle="EBITDA" montant={pnl.ebitda} ratio={pnl.ratios.ebitda} niveau="solde" />
         </div>
         {/* Trésorerie, à part du P&L opérationnel et sans ratio : ce que l'activité génère après
             l'Extra P&L (sous-total, au rang des marges), puis l'effet des virements internes et du
