@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import PasseCategoriesChart from "./PasseCategoriesChart";
+import PasseEcartCible from "./PasseEcartCible";
 import PasseEvolutionChart from "./PasseEvolutionChart";
 import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
@@ -21,6 +22,7 @@ import {
   trierTransactions,
   TriTransactions,
 } from "@/lib/pastDetail";
+import { Cible, ecartsVsCibles, enK } from "@/lib/pastTargets";
 import { Periode } from "@/lib/pastTransactions";
 
 interface PastDetailDashboardProps {
@@ -37,6 +39,9 @@ interface PastDetailDashboardProps {
   // Informe le parent des filtres locaux en cours (pour l'export PDF, qui reprend ceux de l'écran
   // affiché). Lecture seule : les filtres restent décidés ici.
   onFiltresChange?: (filtres: FiltresDetail) => void;
+  // Cibles de performance de l'organisation. L'écran compare son indicateur à la cible avec la
+  // même fonction que l'onglet Général (lib/pastTargets.ts), sur son mois filtré le cas échéant.
+  cibles?: Cible[];
 }
 
 const PAS_AFFICHAGE = 100;
@@ -52,6 +57,9 @@ const SERIES: { cle: "marge" | "couts"; libelle: string }[] = [
   { cle: "couts", libelle: "Coûts associés" },
 ];
 
+// Écrans qui se lisent face à une cible : les deux marges, et les coûts de structure sur l'EBITDA.
+const ECRANS_AVEC_CIBLE: readonly MetriqueDetail[] = ["marge_brute", "marge_contributive", "ebitda"];
+
 const LECTURES_CASH_FLOW = [
   { financementCompris: false, libelle: "Hors financement" },
   { financementCompris: true, libelle: "Financement compris" },
@@ -64,7 +72,7 @@ const LECTURES_CASH_FLOW = [
 // (catégorie, mois) vivent ICI, en un seul état que les quatre blocs consomment ; ils s'ajoutent
 // à la période globale. Le parent remonte ce composant à chaque changement d'onglet (prop `key`),
 // ce qui réinitialise les filtres locaux sans toucher à la période.
-export default function PastDetailDashboard({ metrique, parts, periode, ajustements, teintes, onFiltresChange }: PastDetailDashboardProps) {
+export default function PastDetailDashboard({ metrique, parts, periode, ajustements, teintes, onFiltresChange, cibles }: PastDetailDashboardProps) {
   // Écran Cash flow : « hors financement » (par défaut, la lecture la plus exploitable) ou
   // « financement compris » (la lecture bancaire complète). Tous les blocs de l'écran suivent le
   // même périmètre. Propre à l'écran : retour à « hors financement » en changeant d'onglet.
@@ -102,6 +110,13 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
   );
 
   const filtreActif = filtres.categorie !== null || filtres.mois !== null;
+  const ecartCible = useMemo(
+    () =>
+      cibles && ECRANS_AVEC_CIBLE.includes(metrique) && filtres.categorie === null
+        ? ecartsVsCibles(cibles, parts, ajustements, periode, filtres.mois)
+        : null,
+    [cibles, metrique, parts, ajustements, periode, filtres.categorie, filtres.mois]
+  );
   // Tri sur TOUTES les transactions qui correspondent aux filtres, puis découpage en lots.
   const transactionsTriees = useMemo(() => trierTransactions(vue.transactions, tri), [vue.transactions, tri]);
   const transactionsAffichees = transactionsTriees.slice(0, nombreAffiche);
@@ -124,10 +139,35 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
             {vue.kpi.categorie ?? vue.kpi.libelle}
             {vue.kpi.categorie && <span className="passe-kpi__contexte"> · {config.libelleDetail}</span>}
           </p>
-          <p className="passe-kpi__montant">{formatMontant(vue.kpi.montant)}</p>
+          {/* EBITDA : l'indicateur se lit en k€, comme sa cible et son écart — une seule unité. */}
+          <p className="passe-kpi__montant">{metrique === "ebitda" ? enK(vue.kpi.montant) : formatMontant(vue.kpi.montant)}</p>
           {vue.kpi.ratio !== undefined && <p className="passe-kpi__ratio">{formatPourcentage(vue.kpi.ratio)} du CA</p>}
           {/* Cash flow : la lecture choisie est toujours rappelée sous l'indicateur. */}
           {vue.kpi.precision && vue.kpi.categorie === null && <p className="passe-kpi__ratio">{vue.kpi.precision}</p>}
+
+          {/* Cible de l'indicateur, recalculée sur le mois sélectionné. Une catégorie sélectionnée la
+              masque : la cible est celle de tout le mix de CA, pas d'une catégorie. */}
+          {ecartCible && (
+            <div className="passe-kpi__cible">
+              <PasseEcartCible
+                ecart={
+                  metrique === "marge_brute"
+                    ? { type: "marge", valeur: ecartCible.margeBrute }
+                    : metrique === "marge_contributive"
+                      ? { type: "marge", valeur: ecartCible.margeContributive }
+                      : { type: "ebitda", valeur: ecartCible.ebitda, incomplet: ecartCible.ebitdaIncomplet }
+                }
+              />
+              {/* EBITDA : la brique « coûts de structure » de sa cible, à part et nommée comme telle
+                  — un élément de diagnostic, pas la cible de l'EBITDA. */}
+              {metrique === "ebitda" && ecartCible.coutsStructure && (
+                <div className="passe-kpi__sous-cible">
+                  <span>Coûts de structure : {enK(-ecartCible.montantCoutsStructure)}</span>
+                  <PasseEcartCible ecart={{ type: "couts", valeur: ecartCible.coutsStructure }} />
+                </div>
+              )}
+            </div>
+          )}
 
           {/* L'état de filtrage est toujours visible, jamais implicite. */}
           {filtreActif && (

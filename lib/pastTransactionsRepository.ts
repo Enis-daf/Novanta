@@ -5,6 +5,7 @@ import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./past
 import { GroupeManuel } from "./flowGroups";
 import { CleEnregistree, clesARecalculer, FLOW_ENGINE_VERSION, FlowAlias } from "./flowMatching";
 import { ValidationSigne } from "./pastSignChecks";
+import { Cible, estTypeCible, TypeCible } from "./pastTargets";
 import {
   AffectationAnalytique,
   AxeAnalytique,
@@ -455,6 +456,75 @@ export async function retirerFluxDuGroupe(supabase: SupabaseClient, organization
 /** Supprime un groupe manuel ; ses membres partent avec lui et redeviennent des flux individuels. */
 export async function supprimerGroupeFlux(supabase: SupabaseClient, organizationId: string, groupeId: string): Promise<void> {
   const { error } = await supabase.from("past_flow_groups").delete().eq("organization_id", organizationId).eq("id", groupeId);
+  if (error) throw error;
+}
+
+/** Cibles de performance de l'organisation, toutes dates d'effet confondues (voir lib/pastTargets.ts). */
+export async function chargerCibles(supabase: SupabaseClient, organizationId: string): Promise<Cible[]> {
+  const { data, error } = await supabase
+    .from("past_performance_targets")
+    .select("id, target_type, dimension_key, valid_from, target_value")
+    .eq("organization_id", organizationId);
+  if (error) throw error;
+  return ((data ?? []) as Row[])
+    .filter((row) => estTypeCible(row.target_type))
+    .map((row) => ({
+      id: row.id as string,
+      type: row.target_type as TypeCible,
+      dimension: (row.dimension_key as string | null) ?? "",
+      validFrom: row.valid_from as string,
+      valeur: Number(row.target_value),
+    }));
+}
+
+/**
+ * AJOUTE une cible à une date d'effet : pour une catégorie de CA (cibles de marge), ou globale
+ * (`dimension` vide, coûts de structure). Toujours une nouvelle ligne de l'historique — jamais un
+ * remplacement : si une cible existe déjà à cette date pour la même dimension, la base refuse
+ * (contrainte d'unicité, code 23505) et rien n'est écrasé. Pour corriger une cible existante, voir
+ * modifierCible. Renvoie la ligne enregistrée. Auteur et date : posés par trigger.
+ */
+export async function enregistrerCible(
+  supabase: SupabaseClient,
+  organizationId: string,
+  type: TypeCible,
+  dimension: string,
+  validFrom: string,
+  valeur: number
+): Promise<Cible> {
+  const { data, error } = await supabase
+    .from("past_performance_targets")
+    .insert({ organization_id: organizationId, target_type: type, dimension_key: dimension, valid_from: validFrom, target_value: valeur })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return { id: (data as Row).id as string, type, dimension, validFrom, valeur };
+}
+
+/**
+ * CORRIGE une cible existante, désignée par son identifiant : sa valeur et, le cas échéant, sa
+ * date d'effet. Seule cette ligne est touchée ; son type et sa catégorie ne changent pas. Lève une
+ * erreur si aucune ligne n'a été modifiée (cible disparue, accès refusé) ou si la nouvelle date
+ * d'effet est déjà prise par une autre cible (code 23505).
+ */
+export async function modifierCible(
+  supabase: SupabaseClient,
+  organizationId: string,
+  id: string,
+  correction: { valeur: number; validFrom: string }
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("past_performance_targets")
+    .update({ target_value: correction.valeur, valid_from: correction.validFrom })
+    .eq("organization_id", organizationId)
+    .eq("id", id)
+    .select("id");
+  if (error) throw error;
+  if ((data ?? []).length === 0) throw new Error("Aucune cible modifiée.");
+}
+
+export async function supprimerCible(supabase: SupabaseClient, organizationId: string, id: string): Promise<void> {
+  const { error } = await supabase.from("past_performance_targets").delete().eq("organization_id", organizationId).eq("id", id);
   if (error) throw error;
 }
 
