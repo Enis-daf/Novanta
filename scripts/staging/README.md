@@ -35,8 +35,12 @@ l'objet JSON lui-même ou la ligne `{ "export": ... }` telle que la restitue l'�
 - Importer : `npm run staging:seed -- --export .staging/qannt-export.json --remplacer`
 
 `--remplacer` remplace les données de la société QANNT TEST en place, dans une seule transaction :
-la société, son utilisateur et sa connexion Pennylane sont conservés. Les tables du module Passé
-(`past_*`) ne sont ni exportées ni importées.
+la société, son utilisateur et sa connexion Pennylane sont conservés.
+
+Les données métier sont importées telles quelles (noms de clients et de fournisseurs, libellés,
+numéros de factures, montants, dates, statuts) : seuls les identifiants techniques sont régénérés
+(voir `exportReel.ts`). Aucune anonymisation — le fichier d'export et la base staging contiennent
+donc des données réelles. Les tables du module Passé (`past_*`) ne sont ni exportées ni importées.
 
 `schema.sql` n'est joué que sur une base jamais initialisée. Il ne se rejoue jamais sur une base existante.
 
