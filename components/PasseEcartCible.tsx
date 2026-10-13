@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   EcartCouts,
   EcartEbitda,
@@ -19,17 +20,34 @@ const CLASSES: Record<StatutCible, string> = {
   favorable: " passe-ecart--positif",
   defavorable: " passe-ecart--negatif",
   neutre: "",
-  // Cible qui couvre trop peu du CA : l'écart est indicatif, il ne prend aucune couleur.
+  // Cible qui couvre trop peu du CA : pas de verdict, donc aucune couleur.
   incomplet: "",
 };
 
-function Contenu({ libelles, statut }: { libelles: LibellesCible; statut: StatutCible }) {
+/**
+ * Ce que la cible couvre (« Cible calculée sur 99 % du CA »), en infobulle à côté d'elle plutôt
+ * qu'en ligne permanente. Visible au survol et au focus clavier (CSS), et au toucher : le clic
+ * l'ouvre et la referme, sans dépendre du focus — un bouton touché n'en reçoit pas partout.
+ */
+function InfoCible({ texte }: { texte: string }) {
+  const [ouverte, setOuverte] = useState(false);
   return (
-    <>
-      <span className="passe-cible__valeur">{libelles.cible}</span>
-      <span className={`passe-ecart${CLASSES[statut]}`}>{libelles.ecart}</span>
-      {libelles.reserve && <span className="passe-cible__reserve">{libelles.reserve}</span>}
-    </>
+    <button
+      type="button"
+      className={`passe-cible__info${ouverte ? " passe-cible__info--ouverte" : ""}`}
+      aria-label={texte}
+      aria-expanded={ouverte}
+      onClick={() => setOuverte((o) => !o)}
+      onBlur={() => setOuverte(false)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") setOuverte(false);
+      }}
+    >
+      <span aria-hidden="true">ⓘ</span>
+      <span className="passe-cible__bulle" aria-hidden="true">
+        {texte}
+      </span>
+    </button>
   );
 }
 
@@ -47,7 +65,7 @@ interface PasseEcartCibleProps {
   libelleLien?: string;
 }
 
-/** Cible et écart d'un indicateur : « Cible 44,0 % · -3,8 pts · -27 k€ vs cible ». */
+/** Cible et écart d'un indicateur : « Cible 44,0 % ⓘ · -27 k€ vs cible ». */
 export default function PasseEcartCible({ ecart, onOuvrir, onDefinir, libelleLien }: PasseEcartCibleProps) {
   if (ecart.valeur === null) {
     const incomplet = ecart.type === "ebitda" && ecart.incomplet;
@@ -62,12 +80,34 @@ export default function PasseEcartCible({ ecart, onOuvrir, onDefinir, libelleLie
   }
   const libelles =
     ecart.type === "marge" ? libellesEcartMarge(ecart.valeur) : ecart.type === "couts" ? libellesEcartCouts(ecart.valeur) : libellesEcartEbitda(ecart.valeur);
-  const contenu = <Contenu libelles={libelles} statut={ecart.valeur.statut} />;
-  return onOuvrir ? (
-    <button type="button" className="passe-cible passe-cible--lien" onClick={onOuvrir} aria-label={`${libelles.cible}, ${libelles.ecart}. ${libelleLien ?? "Voir le détail"}`}>
-      {contenu}
-    </button>
-  ) : (
-    <p className="passe-cible">{contenu}</p>
+  const cible = <span className="passe-cible__valeur">{libelles.cible}</span>;
+  const info = libelles.reserve && <InfoCible texte={libelles.reserve} />;
+  const valeurEcart = (
+    <>
+      <span aria-hidden="true">· </span>
+      <span className={`passe-ecart${CLASSES[ecart.valeur.statut]}`}>{libelles.ecart}</span>
+    </>
+  );
+  if (!onOuvrir) {
+    return (
+      <p className="passe-cible">
+        {cible}
+        {info}
+        {valeurEcart}
+      </p>
+    );
+  }
+  // Lien vers l'écran de diagnostic. L'infobulle est un bouton à part, entre la cible et l'écart :
+  // la cible reste cliquable à la souris, et le clavier ne rencontre qu'un seul lien, sur l'écart.
+  return (
+    <div className="passe-cible passe-cible--lien">
+      <button type="button" className="passe-cible__lien" tabIndex={-1} aria-hidden="true" onClick={onOuvrir}>
+        {cible}
+      </button>
+      {info}
+      <button type="button" className="passe-cible__lien" onClick={onOuvrir} aria-label={`${libelles.cible}, ${libelles.ecart}. ${libelleLien ?? "Voir le détail"}`}>
+        {valeurEcart}
+      </button>
+    </div>
   );
 }
