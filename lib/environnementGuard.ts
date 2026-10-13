@@ -63,6 +63,33 @@ export function refDepuisCleSupabase(cle: string | undefined | null): string | n
   }
 }
 
+export interface ConnexionPostgres {
+  utilisateur: string;
+  motDePasse: string;
+  hote: string;
+  port: number;
+  base: string;
+}
+
+/**
+ * Décompose une chaîne "postgresql://utilisateur:motdepasse@hôte:port/base". Volontairement plus
+ * tolérante que new URL() : un mot de passe copié tel quel peut contenir des caractères réservés
+ * (@ / ? # [ ]) non encodés. Le mot de passe est tout ce qui se trouve entre le premier ":" et le
+ * DERNIER "@". null si la chaîne n'a pas cette forme.
+ */
+export function analyserUrlPostgres(url: string | undefined | null): ConnexionPostgres | null {
+  const correspondance = (url ?? "").trim().match(/^postgres(?:ql)?:\/\/([^:/@]+):(.*)@([^@/:?#]+)(?::(\d+))?\/([^?#]*)/);
+  if (!correspondance) return null;
+  const [, utilisateur, motDePasseBrut, hote, port, base] = correspondance;
+  let motDePasse = motDePasseBrut;
+  try {
+    motDePasse = decodeURIComponent(motDePasseBrut);
+  } catch {
+    // Mot de passe non encodé contenant un "%" : pris tel quel.
+  }
+  return { utilisateur: decodeURIComponent(utilisateur), motDePasse, hote: hote.toLowerCase(), port: port ? Number(port) : 5432, base: base || "postgres" };
+}
+
 /**
  * Ref du projet visé par une chaîne de connexion Postgres Supabase, sous ses deux formes :
  *  - connexion directe : hôte "db.<ref>.supabase.co" ;
@@ -70,19 +97,12 @@ export function refDepuisCleSupabase(cle: string | undefined | null): string | n
  * Ne renvoie jamais la chaîne ni le mot de passe.
  */
 export function refDepuisUrlPostgres(url: string | undefined | null): string | null {
-  if (!url) return null;
-  let analysee: URL;
-  try {
-    analysee = new URL(url);
-  } catch {
-    return null;
-  }
-  const hote = analysee.hostname.toLowerCase();
-  const direct = hote.match(/^db\.([a-z0-9]+)\.supabase\.(co|in|net)$/);
+  const connexion = analyserUrlPostgres(url);
+  if (!connexion) return null;
+  const direct = connexion.hote.match(/^db\.([a-z0-9]+)\.supabase\.(co|in|net)$/);
   if (direct) return direct[1];
-  if (hote.endsWith(".pooler.supabase.com")) {
-    const utilisateur = decodeURIComponent(analysee.username).toLowerCase();
-    const pooler = utilisateur.match(/^postgres\.([a-z0-9]+)$/);
+  if (connexion.hote.endsWith(".pooler.supabase.com")) {
+    const pooler = connexion.utilisateur.toLowerCase().match(/^postgres\.([a-z0-9]+)$/);
     if (pooler) return pooler[1];
   }
   return null;

@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  analyserUrlPostgres,
   ConfigEnvironnement,
   refDepuisCleSupabase,
   refDepuisUrlPostgres,
@@ -53,6 +54,25 @@ describe("extraction des refs", () => {
     );
     assert.equal(refDepuisUrlPostgres("postgresql://postgres:secret@localhost:5432/postgres"), null);
     assert.equal(refDepuisUrlPostgres("pas une url"), null);
+  });
+
+  test("chaîne Postgres : mot de passe à caractères réservés non encodés", () => {
+    const url = `postgresql://postgres:[a@b/c?d#e]@db.${REF_STAGING}.supabase.co:5432/postgres`;
+    assert.equal(refDepuisUrlPostgres(url), REF_STAGING);
+    assert.deepEqual(analyserUrlPostgres(url), {
+      utilisateur: "postgres",
+      motDePasse: "[a@b/c?d#e]",
+      hote: `db.${REF_STAGING}.supabase.co`,
+      port: 5432,
+      base: "postgres",
+    });
+    assert.equal(analyserUrlPostgres(`postgresql://postgres:p%40ss@db.${REF_STAGING}.supabase.co/postgres`)?.motDePasse, "p@ss");
+    assert.equal(analyserUrlPostgres(`https://${REF_STAGING}.supabase.co`), null);
+  });
+
+  test("chaîne Postgres : un hôte interdit placé dans le mot de passe ne trompe pas l'analyse", () => {
+    const url = `postgresql://postgres:x@db.${REF_PROD}.supabase.co:5432/y@db.${REF_STAGING}.supabase.co:5432/postgres`;
+    assert.equal(analyserUrlPostgres(url)?.hote, `db.${REF_STAGING}.supabase.co`);
   });
 });
 

@@ -10,6 +10,8 @@
  */
 import { Client } from "pg";
 import {
+  analyserUrlPostgres,
+  ConnexionPostgres,
   MODE_STAGING,
   refDepuisUrlPostgres,
   verifierEnvironnement,
@@ -52,19 +54,43 @@ export function contexteStaging(): ContexteStaging {
   return { ref: refBase as string, databaseUrl };
 }
 
+async function ouvrir(connexion: ConnexionPostgres, motDePasse: string): Promise<Client> {
+  const client = new Client({
+    host: connexion.hote,
+    port: connexion.port,
+    user: connexion.utilisateur,
+    password: motDePasse,
+    database: connexion.base,
+    ssl: { rejectUnauthorized: false },
+  });
+  await client.connect();
+  return client;
+}
+
 /** Connexion Postgres au staging, uniquement après les contrôles de contexteStaging(). */
 export async function connecterStaging(): Promise<{ client: Client; ref: string }> {
   const { ref, databaseUrl } = contexteStaging();
-  const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
+  // contexteStaging() a déjà extrait la ref de cette même analyse : elle ne peut pas être nulle ici.
+  const connexion = analyserUrlPostgres(databaseUrl) as ConnexionPostgres;
   try {
-    await client.connect();
+    return { client: await ouvrir(connexion, connexion.motDePasse), ref };
   } catch (erreur) {
-    // Le message d'erreur du pilote peut citer l'hôte, jamais le mot de passe ; on ne le relaie
-    // pas pour autant tel quel : seul son code sert au diagnostic.
     const code = (erreur as { code?: string }).code ?? "inconnu";
+    // Mot de passe refusé alors qu'il est resté entre les crochets du modèle Supabase
+    // ("[YOUR-PASSWORD]") : nouvel essai sans les crochets, signalé explicitement.
+    const entreCrochets = connexion.motDePasse.match(/^\[(.+)\]$/);
+    if (code === "28P01" && entreCrochets) {
+      try {
+        const client = await ouvrir(connexion, entreCrochets[1]);
+        console.warn("[staging] Mot de passe accepté une fois les crochets retirés : les supprimer dans STAGING_DATABASE_URL.");
+        return { client, ref };
+      } catch {
+        // Refusé aussi sans crochets : on rapporte l'échec d'origine.
+      }
+    }
+    // Le message du pilote n'est jamais relayé tel quel : seul son code sert au diagnostic.
     throw new RefusGardeFou(`Connexion Postgres au staging impossible (code ${code}).`);
   }
-  return { client, ref };
 }
 
 /** Exécute un script staging et traduit un refus du garde-fou en sortie propre, sans pile d'appels. */
