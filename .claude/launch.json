@@ -34,6 +34,15 @@
         "3002"
       ],
       "port": 3002
+    },
+    {
+      "name": "cockpit-staging",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:staging"
+      ],
+      "port": 3001
     }
   ]
 }

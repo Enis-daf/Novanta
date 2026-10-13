@@ -14,7 +14,9 @@
  *  3. mois suivant : nouvelle facture Crocatus (fournisseur désormais connu), une facture d'un autre
  *     fournisseur au même montant, et la facture Assurix archivée puis remplacée par une nouvelle version.
  */
+import { randomUUID } from "node:crypto";
 import type { PennylaneCustomerInvoiceListItem, PennylaneSupplierInvoiceListItem } from "../../lib/pennylaneClient";
+import type { Jeu } from "./exportReel";
 
 function iso(annee: number, moisIndex: number, jour: number): string {
   const date = new Date(annee, moisIndex, jour);
@@ -46,6 +48,35 @@ export const chargesFixesSynthetiques: ChargeFixeSynthetique[] = [
 ];
 
 export const SOLDE_INITIAL_SYNTHETIQUE = 50000;
+
+/**
+ * Données de la société staging en mode SYNTHÉTIQUE (npm run staging:seed -- --synthetique) :
+ * entièrement fabriquées, sans aucun lien avec un export réel.
+ */
+export function jeuSynthetique(aujourdhui: Date, nouvelUuid: () => string = randomUUID): Jeu {
+  const ids = new Map(chargesFixesSynthetiques.map((c) => [c.cle, nouvelUuid()]));
+  return {
+    cash_settings: { solde_initial: SOLDE_INITIAL_SYNTHETIQUE, date_releve: dateRelative(aujourdhui, 0, aujourdhui.getDate()), horizon_jours: 90 },
+    fixed_charges: chargesFixesSynthetiques.map((c) => ({
+      id: ids.get(c.cle),
+      libelle: c.libelle,
+      montant: c.montant,
+      date_prevue: dateRelative(aujourdhui, 0, c.jour),
+      recurrence: "mensuel",
+      date_fin: null,
+      mode_montant: c.calcule ? "calcule" : "fixe",
+      taux_calcul: c.calcule ? c.calcule.taux : null,
+      source_calcul_id: c.calcule ? ids.get(c.calcule.sourceCle) : null,
+      source_calcul_type: c.calcule ? "charge_fixe" : null,
+      a_couper: false,
+    })),
+    recurring_income: [],
+    supplier_invoices: [],
+    customer_invoices: [],
+    other_expenses: [],
+    financings: [],
+  };
+}
 
 interface FactureMock {
   id: number;
