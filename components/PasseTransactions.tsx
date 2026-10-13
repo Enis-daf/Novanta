@@ -1008,6 +1008,21 @@ export default function PasseTransactions({ organizationId, organizationName, ac
                   {pluriel(nombreAMapper, "catégorie à mapper", "catégories à mapper")} →
                 </button>
               )}
+              {/* Autre famille que les indicateurs de transactions : ce que l'utilisateur renseigne
+                  lui-même. Même alerte que « non catégorisée », mais cliquable : elle mène à la saisie. */}
+              {donneesACompleter.map((donnee) => (
+                <button
+                  key={donnee.type}
+                  type="button"
+                  className="passe-non-categorise passe-non-categorise--alerte passe-donnee-gestion"
+                  title={donnee.detail}
+                  onClick={() => setVue(donnee.onglet)}
+                >
+                  <span aria-hidden="true">⚠ </span>
+                  Données de gestion : {donnee.libelle.charAt(0).toLowerCase()}
+                  {donnee.libelle.slice(1)} →
+                </button>
+              ))}
               {(nombreSignesInhabituels > 0 || nombreSignesValides > 0) && (
                 <button
                   type="button"
@@ -1021,20 +1036,6 @@ export default function PasseTransactions({ organizationId, organizationName, ac
                   <span aria-hidden="true">{detailSignesOuvert ? "▴" : "▾"}</span>
                 </button>
               )}
-              {/* Autre famille que les indicateurs de transactions : ce que l'utilisateur renseigne lui-même. */}
-              {donneesACompleter.map((donnee) => (
-                <button
-                  key={donnee.type}
-                  type="button"
-                  className="btn-secondaire passe-donnee-gestion"
-                  title={donnee.detail}
-                  onClick={() => setVue(donnee.onglet)}
-                >
-                  <span className="passe-donnee-gestion__famille">Données de gestion :</span>{" "}
-                  {donnee.libelle.charAt(0).toLowerCase()}
-                  {donnee.libelle.slice(1)} →
-                </button>
-              ))}
             </div>
           )}
 

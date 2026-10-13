@@ -2218,12 +2218,14 @@ input[type="checkbox"] {
 
 /* Données de gestion à compléter : même zone que les indicateurs de transactions, autre famille. */
 .passe-donnee-gestion {
-  font-weight: 600;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
 }
 
-.passe-donnee-gestion__famille {
-  font-weight: 400;
-  color: var(--couleur-texte-secondaire);
+.passe-donnee-gestion:hover,
+.passe-donnee-gestion:focus-visible {
+  text-decoration: underline;
 }
 
 .passe-filtres-actifs .btn-secondaire {
