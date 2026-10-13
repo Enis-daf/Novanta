@@ -136,6 +136,30 @@ export async function sauvegarderExercice(
   if (error) throw error;
 }
 
+/**
+ * L'organisation a-t-elle déclaré ne pas avoir de stock ? Lu avec `select("*")` : sur une base où
+ * la colonne n'existe pas encore, la lecture ne plante pas, elle renvoie false.
+ */
+export async function chargerSansStock(supabase: SupabaseClient, organizationId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("past_settings")
+    .select("*")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as Row | null)?.no_inventory === true;
+}
+
+export async function sauvegarderSansStock(supabase: SupabaseClient, organizationId: string, sansStock: boolean): Promise<void> {
+  const { error } = await supabase
+    .from("past_settings")
+    .upsert(
+      { organization_id: organizationId, no_inventory: sansStock, updated_at: new Date().toISOString() },
+      { onConflict: "organization_id" }
+    );
+  if (error) throw error;
+}
+
 export async function sauvegarderAxeConfigure(
   supabase: SupabaseClient,
   organizationId: string,

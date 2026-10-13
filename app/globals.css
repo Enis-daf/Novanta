@@ -2207,6 +2207,27 @@ input[type="checkbox"] {
   align-self: auto;
 }
 
+.passe-sans-stock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* Données de gestion à compléter : même zone que les indicateurs de transactions, autre famille. */
+.passe-donnee-gestion {
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.passe-donnee-gestion:hover,
+.passe-donnee-gestion:focus-visible {
+  text-decoration: underline;
+}
+
 .passe-filtres-actifs .btn-secondaire {
   white-space: nowrap;
 }

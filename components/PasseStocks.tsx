@@ -11,6 +11,9 @@ interface PasseStocksProps {
   // Tous les stocks de l'organisation, y compris hors période : la variation d'un mois dépend du
   // stock renseigné précédent, qui peut être antérieur à la période.
   stocks: StockFinDeMois[];
+  // L'organisation a déclaré ne pas avoir de stock : plus de signal « stocks non renseignés ».
+  sansStock: boolean;
+  onDeclarerSansStock: (sansStock: boolean) => void;
   onEnregistrer: (mois: string, valeur: number) => void;
   onSupprimer: (mois: string) => void;
 }
@@ -21,7 +24,7 @@ function formatVariation(montant: number): string {
 
 // Saisie des stocks de fin de mois. L'utilisateur ne saisit QUE le stock ; la variation est
 // toujours calculée (jamais saisie), à partir de la série entière.
-export default function PasseStocks({ mois, stocks, onEnregistrer, onSupprimer }: PasseStocksProps) {
+export default function PasseStocks({ mois, stocks, sansStock, onDeclarerSansStock, onEnregistrer, onSupprimer }: PasseStocksProps) {
   // Saisies en cours, par mois, tant qu'elles ne sont pas validées (sortie du champ ou Entrée).
   const [brouillons, setBrouillons] = useState<Record<string, string>>({});
   const parMois = new Map(stocks.map((s) => [s.mois, s.valeur]));
@@ -48,6 +51,14 @@ export default function PasseStocks({ mois, stocks, onEnregistrer, onSupprimer }
         Saisissez le stock de fin de chaque mois. La variation est calculée automatiquement et entre dans la marge
         brute ; le premier mois renseigné sert de point de départ et n&apos;a pas de variation.
       </p>
+      {/* Proposé tant qu'aucun stock n'est saisi : ensuite, la déclaration ne compte plus. */}
+      {stocks.length === 0 && (
+        <label className="passe-sans-stock">
+          <input type="checkbox" checked={sansStock} onChange={(e) => onDeclarerSansStock(e.target.checked)} />
+          Cette société n&apos;a pas de stock
+          <span className="passe-message">— les stocks ne seront plus signalés comme non renseignés.</span>
+        </label>
+      )}
       <div className="table-wrapper">
         <table className="passe-table passe-stocks">
           <thead>
