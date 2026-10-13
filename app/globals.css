@@ -439,6 +439,19 @@ input[type="checkbox"] {
   background: var(--couleur-fond-alt-vert);
 }
 
+.bandeau-staging {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: var(--couleur-texte);
+  color: var(--couleur-fond);
+  text-align: center;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
 .bandeau-mode-local {
   grid-column: 1 / -1;
   background: var(--couleur-fond-alt-rose);

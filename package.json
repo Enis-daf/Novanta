@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --import tsx --test lib/*.test.ts"
+    "test": "node --import tsx --test lib/*.test.ts scripts/staging/*.test.ts",
+    "dev:staging": "node --env-file=.env.staging.local --import tsx scripts/staging/env.ts && node --env-file=.env.staging.local node_modules/next/dist/bin/next dev -p 3001",
+    "staging:schema": "node --env-file=.env.staging.local --import tsx scripts/staging/schema.ts",
+    "staging:seed": "node --env-file=.env.staging.local --import tsx scripts/staging/seed.ts",
+    "staging:verifier": "node --env-file=.env.staging.local --import tsx scripts/staging/verifier.ts",
+    "staging:mock": "node --import tsx scripts/staging/pennylane-mock.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",
@@ -24,9 +29,11 @@
   "devDependencies": {
     "@types/jsdom": "^30.0.0",
     "@types/node": "^20.14.9",
+    "@types/pg": "^8.23.1",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "jsdom": "^29.1.1",
+    "pg": "^8.23.1",
     "tsx": "^4.23.12",
     "typescript": "^5.5.3"
   }

@@ -1,4 +1,5 @@
 import { PennylaneCredentialProvider } from "./pennylaneCredentialProvider";
+import { estModeStaging } from "./environnementGuard";
 
 /**
  * Client HTTP minimal pour l'API Pennylane V2 — SERVEUR UNIQUEMENT (le token ne doit jamais
@@ -46,6 +47,24 @@ import { PennylaneCredentialProvider } from "./pennylaneCredentialProvider";
  */
 
 const BASE_URL = "https://app.pennylane.com";
+
+/**
+ * Base de l'API Pennylane. Toujours l'API officielle, sauf en mode staging où
+ * PENNYLANE_API_BASE_URL peut désigner le serveur mock local (scripts/staging/pennylane-mock.ts)
+ * pour rejouer des scénarios déterministes. Hors mode staging la variable est ignorée, et seule
+ * une adresse locale est acceptée : le token ne peut donc jamais être envoyé à un tiers.
+ */
+export function baseUrlPennylane(): string {
+  const surcharge = process.env.PENNYLANE_API_BASE_URL;
+  if (!surcharge || !estModeStaging()) return BASE_URL;
+  let hote: string;
+  try {
+    hote = new URL(surcharge).hostname;
+  } catch {
+    return BASE_URL;
+  }
+  return hote === "localhost" || hote === "127.0.0.1" ? surcharge.replace(/\/+$/, "") : BASE_URL;
+}
 const ENDPOINT_ME = "/api/external/v2/me";
 const ENDPOINT_TRANSACTIONS = "/api/external/v2/transactions";
 const ENDPOINT_CATEGORY_GROUPS = "/api/external/v2/category_groups";
@@ -172,7 +191,7 @@ async function appelerPennylane(bearer: string, endpoint: string, params: URLSea
     const minuteur = setTimeout(() => controller.abort(), TIMEOUT_MS);
     let reponse: Response;
     try {
-      reponse = await fetch(`${BASE_URL}${endpoint}?${params.toString()}`, {
+      reponse = await fetch(`${baseUrlPennylane()}${endpoint}?${params.toString()}`, {
         method: "GET",
         headers: { Authorization: `Bearer ${bearer}`, Accept: "application/json" },
         signal: controller.signal,

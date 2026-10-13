@@ -1,6 +1,7 @@
 import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import {
+  baseUrlPennylane,
   getMe,
   listCustomerInvoices,
   listSupplierInvoices,
@@ -213,5 +214,41 @@ describe("listSupplierInvoices — GET /api/external/v2/supplier_invoices", () =
       assert.equal(err.reason, "invalid_token");
       return true;
     });
+  });
+});
+
+describe("baseUrlPennylane", () => {
+  const OFFICIELLE = "https://app.pennylane.com";
+  let envOriginal: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    envOriginal = { ...process.env };
+  });
+
+  afterEach(() => {
+    process.env = envOriginal;
+  });
+
+  test("API officielle par défaut", () => {
+    delete process.env.PENNYLANE_API_BASE_URL;
+    assert.equal(baseUrlPennylane(), OFFICIELLE);
+  });
+
+  test("surcharge ignorée hors mode staging", () => {
+    delete process.env.NEXT_PUBLIC_NOVANTA_ENV;
+    process.env.PENNYLANE_API_BASE_URL = "http://localhost:4010";
+    assert.equal(baseUrlPennylane(), OFFICIELLE);
+  });
+
+  test("mode staging : serveur mock local accepté", () => {
+    process.env.NEXT_PUBLIC_NOVANTA_ENV = "staging";
+    process.env.PENNYLANE_API_BASE_URL = "http://localhost:4010/";
+    assert.equal(baseUrlPennylane(), "http://localhost:4010");
+  });
+
+  test("mode staging : une adresse non locale est refusée", () => {
+    process.env.NEXT_PUBLIC_NOVANTA_ENV = "staging";
+    process.env.PENNYLANE_API_BASE_URL = "https://exemple.com";
+    assert.equal(baseUrlPennylane(), OFFICIELLE);
   });
 });
