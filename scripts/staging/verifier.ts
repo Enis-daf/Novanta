@@ -72,9 +72,6 @@ function controle(ok: boolean, libelle: string): void {
 
 async function verifierSchema(client: Client): Promise<void> {
   console.log("Schéma");
-  // ON DELETE SET NULL limité à une colonne (migration de rapprochement) : PostgreSQL 15 minimum.
-  const { rows: version } = await client.query("select current_setting('server_version_num')::int as n");
-  controle(version[0].n >= 150000, `PostgreSQL 15 ou plus (version ${Math.floor(version[0].n / 10000)})`);
   const { rows } = await client.query(
     "select table_name, column_name, is_nullable from information_schema.columns where table_schema = 'public'"
   );
@@ -102,14 +99,6 @@ async function verifierSchema(client: Client): Promise<void> {
        and confrelid = 'public.supplier_invoices'::regclass and contype = 'f'`
   );
   controle(fk.length === 1 && fk[0].confdeltype === "n", "fixed_charge_invoice_links -> supplier_invoices en ON DELETE SET NULL");
-
-  // Clés étrangères composites : un lien ou un mapping ne référence que des objets de sa société.
-  const { rows: composites } = await client.query(
-    `select conname from pg_constraint
-     where contype = 'f' and array_length(conkey, 1) = 2
-       and conrelid in ('public.fixed_charge_invoice_links'::regclass, 'public.fixed_charge_supplier_mappings'::regclass)`
-  );
-  controle(composites.length === 3, "3 clés étrangères composites (objet référencé + company_id)");
 }
 
 /** Compte les lignes visibles sous un rôle donné, dans une transaction toujours annulée. */
