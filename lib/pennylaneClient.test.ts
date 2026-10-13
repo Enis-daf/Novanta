@@ -2,6 +2,7 @@ import { test, describe, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import {
   baseUrlPennylane,
+  modePennylane,
   getMe,
   listCustomerInvoices,
   listSupplierInvoices,
@@ -250,5 +251,71 @@ describe("baseUrlPennylane", () => {
     process.env.NEXT_PUBLIC_NOVANTA_ENV = "staging";
     process.env.PENNYLANE_API_BASE_URL = "https://exemple.com";
     assert.equal(baseUrlPennylane(), OFFICIELLE);
+  });
+});
+
+describe("mode Pennylane : réel ou mock, jamais mélangés", () => {
+  const OFFICIELLE = "https://app.pennylane.com";
+  let envOriginal: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    envOriginal = { ...process.env };
+    process.env.NEXT_PUBLIC_NOVANTA_ENV = "staging";
+  });
+
+  afterEach(() => {
+    process.env = envOriginal;
+  });
+
+  test("staging sans surcharge, ou surcharge vide : mode réel, API officielle", () => {
+    delete process.env.PENNYLANE_API_BASE_URL;
+    assert.deepEqual([modePennylane(), baseUrlPennylane()], ["reel", OFFICIELLE]);
+    process.env.PENNYLANE_API_BASE_URL = "";
+    assert.deepEqual([modePennylane(), baseUrlPennylane()], ["reel", OFFICIELLE]);
+    process.env.PENNYLANE_API_BASE_URL = "   ";
+    assert.deepEqual([modePennylane(), baseUrlPennylane()], ["reel", OFFICIELLE]);
+  });
+
+  test("staging avec le mock local : mode mock", () => {
+    process.env.PENNYLANE_API_BASE_URL = "http://localhost:4010";
+    assert.deepEqual([modePennylane(), baseUrlPennylane()], ["mock", "http://localhost:4010"]);
+  });
+
+  test("valeur illisible ou adresse non locale : mode réel, jamais un tiers", () => {
+    for (const valeur of ["n'importe quoi", "https://exemple.com", "http://192.168.1.10:4010"]) {
+      process.env.PENNYLANE_API_BASE_URL = valeur;
+      assert.deepEqual([modePennylane(), baseUrlPennylane()], ["reel", OFFICIELLE], valeur);
+    }
+  });
+
+  test("hors staging (Production, Preview) : toujours réel, même si la variable traîne", () => {
+    delete process.env.NEXT_PUBLIC_NOVANTA_ENV;
+    process.env.PENNYLANE_API_BASE_URL = "http://localhost:4010";
+    assert.deepEqual([modePennylane(), baseUrlPennylane()], ["reel", OFFICIELLE]);
+  });
+
+  test("mode réel : les appels partent vers Pennylane, aucun vers localhost:4010", async () => {
+    process.env.PENNYLANE_API_BASE_URL = "";
+    installerFetchMock([jsonResponse(200, {}), jsonResponse(200, { items: [], has_more: false, next_cursor: null })]);
+    await getMe(provider());
+    await listSupplierInvoices(provider());
+    assert.equal(appelsCaptures.length, 2);
+    for (const appel of appelsCaptures) {
+      assert.equal(appel.url.startsWith(`${OFFICIELLE}/api/external/v2/`), true, appel.url);
+      assert.equal(appel.url.includes("localhost"), false);
+    }
+  });
+
+  test("mode mock : les appels partent vers le mock, aucun vers Pennylane", async () => {
+    process.env.PENNYLANE_API_BASE_URL = "http://localhost:4010";
+    installerFetchMock([jsonResponse(200, {})]);
+    await getMe(provider());
+    assert.equal(appelsCaptures[0].url.startsWith("http://localhost:4010/api/external/v2/me"), true);
+  });
+
+  test("clé invalide en mode réel : erreur typée invalid_token, pas une panne", async () => {
+    process.env.PENNYLANE_API_BASE_URL = "";
+    installerFetchMock([jsonResponse(401, { error: "unauthorized" })]);
+    await assert.rejects(getMe(provider()), (erreur: unknown) => erreur instanceof PennylaneApiError && erreur.reason === "invalid_token");
   });
 });

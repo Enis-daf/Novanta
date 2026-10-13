@@ -49,22 +49,39 @@ import { estModeStaging } from "./environnementGuard";
 const BASE_URL = "https://app.pennylane.com";
 
 /**
- * Base de l'API Pennylane. Toujours l'API officielle, sauf en mode staging où
- * PENNYLANE_API_BASE_URL peut désigner le serveur mock local (scripts/staging/pennylane-mock.ts)
- * pour rejouer des scénarios déterministes. Hors mode staging la variable est ignorée, et seule
- * une adresse locale est acceptée : le token ne peut donc jamais être envoyé à un tiers.
+ * Adresse du serveur mock local, si le mode mock est demandé ET autorisé ; null sinon.
+ *
+ * Deux modes, jamais mélangés :
+ *  - RÉEL (par défaut, partout) : PENNYLANE_API_BASE_URL vide ou absente -> API officielle Pennylane ;
+ *  - MOCK (staging uniquement) : PENNYLANE_API_BASE_URL désigne le serveur mock local
+ *    (scripts/staging/pennylane-mock.ts), pour rejouer des scénarios déterministes.
+ *
+ * Hors mode staging la variable est ignorée, et seule une adresse locale est acceptée : un token
+ * ne peut donc jamais être envoyé ailleurs qu'à Pennylane ou à cette machine.
  */
-export function baseUrlPennylane(): string {
-  const surcharge = process.env.PENNYLANE_API_BASE_URL;
-  if (!surcharge || !estModeStaging()) return BASE_URL;
+function adresseMockPennylane(): string | null {
+  const surcharge = (process.env.PENNYLANE_API_BASE_URL ?? "").trim();
+  if (!surcharge || !estModeStaging()) return null;
   let hote: string;
   try {
     hote = new URL(surcharge).hostname;
   } catch {
-    return BASE_URL;
+    return null;
   }
-  return hote === "localhost" || hote === "127.0.0.1" ? surcharge.replace(/\/+$/, "") : BASE_URL;
+  return hote === "localhost" || hote === "127.0.0.1" ? surcharge.replace(/\/+$/, "") : null;
 }
+
+export type ModePennylane = "reel" | "mock";
+
+/** Mode Pennylane effectif de ce serveur. "mock" n'est possible qu'en staging. */
+export function modePennylane(): ModePennylane {
+  return adresseMockPennylane() ? "mock" : "reel";
+}
+
+export function baseUrlPennylane(): string {
+  return adresseMockPennylane() ?? BASE_URL;
+}
+
 const ENDPOINT_ME = "/api/external/v2/me";
 const ENDPOINT_TRANSACTIONS = "/api/external/v2/transactions";
 const ENDPOINT_CATEGORY_GROUPS = "/api/external/v2/category_groups";

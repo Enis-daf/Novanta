@@ -1,4 +1,4 @@
-import { PennylaneErrorReason } from "./pennylaneClient";
+import { modePennylane, PennylaneErrorReason } from "./pennylaneClient";
 
 /**
  * Messages utilisateur Pennylane — jamais de stack trace, de JSON brut, de token ou d'erreur
@@ -11,6 +11,14 @@ export const MESSAGE_TOKEN_INVALIDE = "Connexion Pennylane impossible. Vérifiez
 export const MESSAGE_SCOPE_INSUFFISANT =
   "Le token Pennylane ne permet pas de lire les transactions bancaires. Vérifiez ses autorisations.";
 export const MESSAGE_INDISPONIBLE = "Pennylane est temporairement indisponible. Réessayez.";
+// Environnement de test uniquement : l'application est réglée sur le serveur mock local et il ne
+// répond pas. À ne pas confondre avec une panne de Pennylane ni avec un token invalide.
+export const MESSAGE_MOCK_INJOIGNABLE =
+  "Mode mock Pennylane : le serveur mock local ne répond pas. Lancez-le (npm run staging:mock), ou redémarrez le staging en mode Pennylane réel (npm run dev:staging).";
+
+function messageIndisponible(reason: PennylaneErrorReason): string {
+  return reason === "unavailable" && modePennylane() === "mock" ? MESSAGE_MOCK_INJOIGNABLE : MESSAGE_INDISPONIBLE;
+}
 // Panne côté Novanta (config serveur manquante, erreur base de données) — jamais imputable au
 // token de l'utilisateur, jamais de détail technique dans le message.
 export const MESSAGE_CONFIG_SERVEUR = "La connexion Pennylane ne peut pas être enregistrée pour le moment.";
@@ -29,7 +37,7 @@ export function messageErreurConnexionInitiale(reason: PennylaneErrorReason): st
     case "unavailable":
     case "unknown":
     default:
-      return MESSAGE_INDISPONIBLE;
+      return messageIndisponible(reason);
   }
 }
 
@@ -46,7 +54,7 @@ export function messageErreurUtilisationPennylane(reason: PennylaneErrorReason):
     case "unavailable":
     case "unknown":
     default:
-      return MESSAGE_INDISPONIBLE;
+      return messageIndisponible(reason);
   }
 }
 

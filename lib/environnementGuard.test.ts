@@ -142,3 +142,19 @@ describe("verifierRefCible (scripts)", () => {
     assert.equal(verifierRefCible(null, REF_STAGING, REF_PROD).ok, false);
   });
 });
+
+describe("isolation staging / production : indépendante du mode Pennylane", () => {
+  test("Pennylane réel ou mock, le staging ne peut écrire que dans sa propre base", () => {
+    const envOriginal = { ...process.env };
+    try {
+      for (const pennylane of ["", "http://localhost:4010"]) {
+        process.env.PENNYLANE_API_BASE_URL = pennylane;
+        assert.equal(verifierEnvironnement(config()).ok, true);
+        assert.equal(verifierEnvironnement(config({ supabaseUrl: `https://${REF_PROD}.supabase.co` })).ok, false);
+        assert.equal(verifierEnvironnement(config({ cles: [jwtFactice(REF_PROD)] })).ok, false);
+      }
+    } finally {
+      process.env = envOriginal;
+    }
+  });
+});

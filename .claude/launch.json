@@ -43,6 +43,15 @@
         "dev:staging"
       ],
       "port": 3001
+    },
+    {
+      "name": "cockpit-staging-mock",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:staging:mock"
+      ],
+      "port": 3001
     }
   ]
 }

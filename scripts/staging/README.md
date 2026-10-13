@@ -14,11 +14,33 @@ refusent de se connecter à un autre projet que le staging déclaré.
 6. `npm run staging:seed -- --synthetique` — société « QANNT TEST » et Charges fixes de test.
 7. `npm run staging:verifier` — schéma, rattachement de la société, RLS.
 
-## Utilisation
+## Utilisation : deux modes Pennylane, choisis par la commande de lancement
 
-- `npm run staging:mock` — serveur mock Pennylane local (données synthétiques, cycles 1 à 3).
-- `npm run dev:staging` — application sur http://localhost:3001, bandeau « QANNT TEST — STAGING ».
-- Changer de cycle : `curl -X POST http://localhost:4010/__mock/cycle/2`
+Le bandeau en haut de l'application indique toujours le mode en cours :
+« QANNT TEST — STAGING · Pennylane réel » ou « · Pennylane mock ».
+
+### Pennylane réel — `npm run dev:staging`
+
+L'application (http://localhost:3001) appelle la vraie API Pennylane, comme en production.
+
+1. Se connecter avec l'utilisateur de test.
+2. En haut à droite : bouton **Intégrations** (page `/account/integrations`).
+3. Carte **Pennylane** → **Connecter Pennylane** → coller le token dans « Token API Pennylane » →
+   **Connecter et tester**.
+
+Le token est testé contre Pennylane, puis stocké chiffré dans la base STAGING, avec la clé de
+chiffrement du staging. La synchronisation n'écrit que dans la société QANNT TEST. Un token en
+lecture seule suffit ; idéalement un token dédié au staging, révocable séparément.
+
+### Pennylane mock — `npm run dev:staging:mock`
+
+Scénarios déterministes à données synthétiques (cycles 1 à 3). Lancer aussi, dans un autre
+terminal, `npm run staging:mock`. N'importe quel jeton est accepté dans Intégrations.
+Changer de cycle : `curl -X POST http://localhost:4010/__mock/cycle/2`
+
+Un token enregistré dans un mode n'est pas valable dans l'autre : après un changement de mode,
+remplacer le token dans Intégrations. `PENNYLANE_API_BASE_URL` ne se règle pas dans
+`.env.staging.local` : c'est la commande de lancement qui décide.
 
 ## Repartir de zéro
 
@@ -46,9 +68,9 @@ donc des données réelles. Les tables du module Passé (`past_*`) ne sont ni ex
 
 ## Checklist de test — QANNT TEST
 
-Prérequis : `npm run staging:mock` dans un terminal, `PENNYLANE_API_BASE_URL=http://localhost:4010`
-dans `.env.staging.local`, puis `npm run dev:staging`. Se connecter avec l'utilisateur de test, puis
-Compte → Intégrations → connecter Pennylane avec n'importe quel jeton (le mock les accepte tous).
+Prérequis : mode mock (`npm run staging:mock` dans un terminal, `npm run dev:staging:mock` dans un
+autre) et données synthétiques (`npm run staging:seed -- --synthetique --remplacer`). Se connecter
+avec l'utilisateur de test, puis bouton Intégrations → Pennylane → connecter avec un jeton quelconque.
 
 Cycle 1 (état initial du mock)
 1. Synchroniser Pennylane → 6 factures fournisseurs importées sur 237 analysées (pagination).
