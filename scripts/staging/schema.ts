@@ -40,8 +40,21 @@ async function migrationsAppliquees(client: Client): Promise<Set<string>> {
   return new Set(rows.map((row) => row.name as string));
 }
 
+/**
+ * Chaque fichier s'exécute dans une transaction : au moindre échec, rien n'en est appliqué. Un
+ * fichier qui ouvre lui-même sa transaction (begin; ... commit;) est exécuté tel quel.
+ */
 async function executerFichier(client: Client, cheminRelatif: string): Promise<void> {
   const sql = readFileSync(path.join(RACINE, cheminRelatif), "utf8");
+  if (/^\s*begin\s*;/im.test(sql)) {
+    try {
+      await client.query(sql);
+    } catch (erreur) {
+      await client.query("rollback");
+      throw erreur;
+    }
+    return;
+  }
   await client.query("begin");
   try {
     await client.query(sql);
