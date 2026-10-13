@@ -73,6 +73,7 @@ import {
   annulerValidationSigne,
   chargerAxeConfigure,
   chargerCibles,
+  commenterCibleEnBase,
   enregistrerCible,
   modifierCible,
   supprimerCible,
@@ -92,6 +93,7 @@ import {
 } from "@/lib/pastTransactionsRepository";
 import {
   Cible,
+  commenterCible,
   corrigerCible,
   ecartsVsCibles,
   MESSAGE_CONFLIT_CIBLE,
@@ -523,6 +525,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         setCibles((actuelles) => actuelles.map((c) => (c.id === cible.id ? enregistree : c)));
       } else if (operation.type === "update") {
         await modifierCible(supabase!, organizationId, operation.id, { valeur: operation.valeur, validFrom: operation.validFrom });
+      } else if (operation.type === "comment") {
+        await commenterCibleEnBase(supabase!, organizationId, operation.id, operation.commentaire);
       } else {
         await supprimerCible(supabase!, organizationId, operation.id);
       }
@@ -563,6 +567,9 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   // Remplacement confirmé par l'utilisateur : la cible prend la place de celle qui occupe la date.
   const remplacerUneCible = (cible: Cible, correction: { valeur: number; validFrom: string }) =>
     enregistrerCibles(remplacerCible(cibles, cible.id, correction), "replace", "Impossible de modifier la cible. Réessayez.");
+  // Commentaire d'une version d'objectif : la ligne garde sa valeur et sa date d'effet.
+  const commenterUneCible = (cible: Cible, saisie: string) =>
+    enregistrerCibles(commenterCible(cibles, cible.id, saisie), "comment", "Le commentaire n'a pas pu être enregistré. Réessayez.");
   const retirerCible = (cible: Cible) =>
     enregistrerCibles(
       { cibles: cibles.filter((c) => c.id !== cible.id), operations: [{ type: "delete", id: cible.id }] },
@@ -1130,6 +1137,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               onPoser={poserUneCible}
               onCorriger={corrigerUneCible}
               onRemplacer={remplacerUneCible}
+              onCommenter={commenterUneCible}
               onSupprimer={retirerCible}
             />
           ) : vue === "mapping" ? (

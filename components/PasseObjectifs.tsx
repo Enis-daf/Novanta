@@ -3,7 +3,15 @@
 import { Fragment, useState } from "react";
 import DateField from "./DateField";
 import { formatDateCourte } from "@/lib/dates";
-import { Cible, cibleEnConflit, DIMENSION_GLOBALE, historiqueDesCibles, TypeCible, valeurCibleValide } from "@/lib/pastTargets";
+import {
+  Cible,
+  cibleEnConflit,
+  DIMENSION_GLOBALE,
+  historiqueDesCibles,
+  LONGUEUR_MAX_COMMENTAIRE,
+  TypeCible,
+  valeurCibleValide,
+} from "@/lib/pastTargets";
 
 type Correction = { valeur: number; validFrom: string };
 
@@ -23,10 +31,79 @@ interface PasseObjectifsProps {
   onCorriger: (cible: Cible, correction: Correction) => void;
   // Idem, quand la date demandée est déjà celle d'une autre cible et que l'utilisateur a confirmé.
   onRemplacer: (cible: Cible, correction: Correction) => void;
+  // Commentaire libre de CETTE version de l'objectif ; vide = pas de commentaire.
+  onCommenter: (cible: Cible, saisie: string) => void;
   onSupprimer: (cible: Cible) => void;
 }
 
-type Actions = Pick<PasseObjectifsProps, "onCorriger" | "onRemplacer" | "onSupprimer">;
+type Actions = Pick<PasseObjectifsProps, "onCorriger" | "onRemplacer" | "onCommenter" | "onSupprimer">;
+
+/**
+ * Commentaire d'une version d'objectif : la note de l'utilisateur sur l'hypothèse derrière le
+ * chiffre. Replié par défaut sur une seule ligne (coupée par « … » si elle est longue) ; au clic,
+ * une zone de saisie préremplie. Enregistrer n'écrit que le commentaire ; Annuler ne touche à rien.
+ */
+function CommentaireCible({ cible, onCommenter }: { cible: Cible; onCommenter: PasseObjectifsProps["onCommenter"] }) {
+  const [saisie, setSaisie] = useState<string | null>(null);
+  const commentaire = cible.commentaire ?? null;
+  // Tant que l'ajout de la cible n'est pas confirmé par la base, il n'y a pas de ligne à commenter.
+  const enCoursDEnregistrement = cible.id.startsWith("provisoire:");
+
+  if (saisie === null) {
+    return (
+      <button
+        type="button"
+        className="passe-cibles__commentaire"
+        aria-expanded={false}
+        disabled={enCoursDEnregistrement}
+        title={commentaire ?? undefined}
+        onClick={() => setSaisie(commentaire ?? "")}
+      >
+        {commentaire === null ? (
+          "+ Ajouter un commentaire"
+        ) : (
+          <>
+            <span className="passe-cibles__commentaire-texte">Commentaire : {commentaire.replace(/\s+/g, " ")}</span>
+            <span aria-hidden="true">›</span>
+          </>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <form
+      className="passe-cibles__commentaire-saisie"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onCommenter(cible, saisie);
+        setSaisie(null);
+      }}
+    >
+      <textarea
+        aria-label="Commentaire de l'objectif"
+        aria-expanded
+        rows={4}
+        maxLength={LONGUEUR_MAX_COMMENTAIRE}
+        placeholder="Hypothèse derrière cet objectif…"
+        value={saisie}
+        autoFocus
+        onChange={(e) => setSaisie(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setSaisie(null);
+        }}
+      />
+      <div className="passe-tri">
+        <button type="submit" className="btn-secondaire btn-module--actif">
+          Enregistrer
+        </button>
+        <button type="button" className="btn-secondaire" onClick={() => setSaisie(null)}>
+          Annuler
+        </button>
+      </div>
+    </form>
+  );
+}
 
 const formatValeur = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 2 });
 const nombre = (saisie: string) => Number(saisie.replace(/\s/g, "").replace(",", "."));
@@ -40,7 +117,7 @@ const libelleValeur = (cible: Cible, unite: string) => `${formatValeur.format(ci
  * Même date : la valeur est simplement mise à jour. Date déplacée sur celle d'une autre cible :
  * une confirmation est demandée avant de remplacer quoi que ce soit.
  */
-function CibleExistante({ cible, toutes, unite, onCorriger, onRemplacer, onSupprimer }: { cible: Cible; toutes: Cible[]; unite: string } & Actions) {
+function CibleExistante({ cible, toutes, unite, onCorriger, onRemplacer, onCommenter, onSupprimer }: { cible: Cible; toutes: Cible[]; unite: string } & Actions) {
   const [edition, setEdition] = useState<{ saisie: string; dateEffet: string; aConfirmer: boolean } | null>(null);
   // Tant que l'ajout n'est pas confirmé par la base, la ligne n'a pas encore d'identifiant à corriger.
   const enCoursDEnregistrement = cible.id.startsWith("provisoire:");
@@ -111,6 +188,7 @@ function CibleExistante({ cible, toutes, unite, onCorriger, onRemplacer, onSuppr
   }
 
   return (
+    <div className="passe-cibles__cible">
     <span className="passe-cibles__valeur">
       <strong>{libelle}</strong>
       <span className="passe-cibles__date">depuis le {formatDateCourte(cible.validFrom)}</span>
@@ -137,6 +215,9 @@ function CibleExistante({ cible, toutes, unite, onCorriger, onRemplacer, onSuppr
         </button>
       </span>
     </span>
+    {/* Le commentaire appartient à cette version : chaque ligne de l'historique a le sien. */}
+    <CommentaireCible cible={cible} onCommenter={onCommenter} />
+    </div>
   );
 }
 
@@ -311,8 +392,8 @@ function CoutsDeStructure({ cibles, dateParDefaut, onPoser, ...actions }: Pick<P
 // détail. Les objectifs de marge se posent par catégorie de CA : la cible globale n'est jamais
 // saisie, elle se calcule en pondérant par le CA réellement réalisé (lib/pastTargets.ts).
 // Le crayon corrige une cible existante ; « Nouvelle cible » en pose une à partir d'une autre date.
-export default function PasseObjectifs({ cibles, categoriesCa, dateParDefaut, erreur, onPoser, onCorriger, onRemplacer, onSupprimer }: PasseObjectifsProps) {
-  const actions = { onCorriger, onRemplacer, onSupprimer };
+export default function PasseObjectifs({ cibles, categoriesCa, dateParDefaut, erreur, onPoser, onCorriger, onRemplacer, onCommenter, onSupprimer }: PasseObjectifsProps) {
+  const actions = { onCorriger, onRemplacer, onCommenter, onSupprimer };
   return (
     <div className="passe-cibles">
       {erreur && (

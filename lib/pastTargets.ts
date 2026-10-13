@@ -48,6 +48,18 @@ export interface Cible {
   validFrom: string; // YYYY-MM-DD, date d'effet incluse
   // Pourcentage (44 pour 44 %) pour les marges, euros par mois pour les coûts de structure.
   valeur: number;
+  // Note libre de l'utilisateur sur CETTE version de l'objectif (l'hypothèse derrière le chiffre).
+  // Propre à la version datée : jamais partagée avec la catégorie, ni recopiée sur une nouvelle
+  // version. Absente ou null : pas de commentaire.
+  commentaire?: string | null;
+}
+
+export const LONGUEUR_MAX_COMMENTAIRE = 2000;
+
+/** Commentaire saisi, nettoyé : espaces de bord retirés, vide = pas de commentaire. */
+export function normaliserCommentaire(saisie: string): string | null {
+  const texte = saisie.trim().slice(0, LONGUEUR_MAX_COMMENTAIRE);
+  return texte === "" ? null : texte;
 }
 
 /** Valeur saisie acceptable pour un type de cible : un pourcentage plausible, ou un montant positif. */
@@ -77,6 +89,7 @@ export function historiqueDesCibles(cibles: Cible[], type: TypeCible, dimension:
 export type OperationCible =
   | { type: "insert"; cible: Cible }
   | { type: "update"; id: string; valeur: number; validFrom: string }
+  | { type: "comment"; id: string; commentaire: string | null }
   | { type: "delete"; id: string };
 
 export const MESSAGE_CONFLIT_CIBLE = "Une cible existe déjà à cette date.";
@@ -104,8 +117,25 @@ export function poserCible(cibles: Cible[], cle: { type: TypeCible; dimension: s
       operations: existante.valeur === valeur ? [] : [{ type: "update", id: existante.id, valeur, validFrom: existante.validFrom }],
     };
   }
-  const cible: Cible = { id: nouvelId, ...cle, valeur };
+  // Une nouvelle version part sans commentaire : les hypothèses de la précédente ne lui sont pas
+  // prêtées.
+  const cible: Cible = { id: nouvelId, ...cle, valeur, commentaire: null };
   return { cibles: [...cibles, cible], operations: [{ type: "insert", cible }] };
+}
+
+/**
+ * Commentaire d'UNE version d'objectif : seule cette ligne change, et seulement son commentaire —
+ * ni sa valeur ni sa date d'effet, et aucune version n'est créée. Les autres versions gardent le
+ * leur. Inversement, corriger la valeur ou la date d'une cible ne touche pas à son commentaire.
+ */
+export function commenterCible(cibles: Cible[], id: string, saisie: string): ResultatCible {
+  const cible = cibles.find((c) => c.id === id);
+  const commentaire = normaliserCommentaire(saisie);
+  if (!cible || (cible.commentaire ?? null) === commentaire) return { cibles, operations: [] };
+  return {
+    cibles: cibles.map((c) => (c.id === id ? { ...c, commentaire } : c)),
+    operations: [{ type: "comment", id, commentaire }],
+  };
 }
 
 /**

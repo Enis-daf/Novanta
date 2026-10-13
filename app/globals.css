@@ -2386,6 +2386,68 @@ input[type="checkbox"] {
   color: var(--couleur-texte-secondaire);
 }
 
+/* Une version d'objectif et, dessous, son commentaire. */
+.passe-cibles__cible {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Commentaire replié : une seule ligne, discrète, coupée par « … » quand elle est longue. */
+.passe-cibles__commentaire {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  max-width: min(100%, 320px);
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  text-align: left;
+  cursor: pointer;
+}
+
+.passe-cibles__commentaire:hover,
+.passe-cibles__commentaire:focus-visible {
+  color: var(--couleur-texte);
+}
+
+.passe-cibles__commentaire:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.passe-cibles__commentaire-texte {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.passe-cibles__commentaire-saisie {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: min(100%, 420px);
+}
+
+.passe-cibles__commentaire-saisie textarea {
+  width: 100%;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--couleur-texte);
+  background: var(--couleur-fond);
+  resize: vertical;
+}
+
 /* Saisie sur place : correction d'une cible (valeur et date préremplies) ou nouvelle cible. */
 .passe-cibles__edition {
   display: flex;

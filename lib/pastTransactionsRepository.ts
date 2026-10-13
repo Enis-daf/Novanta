@@ -463,9 +463,11 @@ export async function supprimerGroupeFlux(supabase: SupabaseClient, organization
 export async function chargerCibles(supabase: SupabaseClient, organizationId: string): Promise<Cible[]> {
   const { data, error } = await supabase
     .from("past_performance_targets")
-    .select("id, target_type, dimension_key, valid_from, target_value")
+    .select("*")
     .eq("organization_id", organizationId);
   if (error) throw error;
+  // select("*") : la colonne comment (20261017_past_target_comments.sql) est lue si elle existe,
+  // sans faire échouer le chargement des objectifs là où la migration n'est pas encore passée.
   return ((data ?? []) as Row[])
     .filter((row) => estTypeCible(row.target_type))
     .map((row) => ({
@@ -474,6 +476,7 @@ export async function chargerCibles(supabase: SupabaseClient, organizationId: st
       dimension: (row.dimension_key as string | null) ?? "",
       validFrom: row.valid_from as string,
       valeur: Number(row.target_value),
+      commentaire: (row.comment as string | null) ?? null,
     }));
 }
 
@@ -498,7 +501,22 @@ export async function enregistrerCible(
     .select("id")
     .single();
   if (error) throw error;
-  return { id: (data as Row).id as string, type, dimension, validFrom, valeur };
+  return { id: (data as Row).id as string, type, dimension, validFrom, valeur, commentaire: null };
+}
+
+/**
+ * Commentaire d'une version d'objectif, désignée par son identifiant : seule cette colonne est
+ * écrite — la valeur et la date d'effet ne bougent pas, aucune ligne n'est créée. null l'efface.
+ */
+export async function commenterCibleEnBase(supabase: SupabaseClient, organizationId: string, id: string, commentaire: string | null): Promise<void> {
+  const { data, error } = await supabase
+    .from("past_performance_targets")
+    .update({ comment: commentaire })
+    .eq("organization_id", organizationId)
+    .eq("id", id)
+    .select("id");
+  if (error) throw error;
+  if ((data ?? []).length === 0) throw new Error("Aucune cible modifiée.");
 }
 
 /**
