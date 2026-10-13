@@ -2303,7 +2303,7 @@ input[type="checkbox"] {
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: baseline;
-  column-gap: var(--space-2);
+  column-gap: var(--space-1);
   margin: 0;
   padding: 0;
   border: none;
@@ -2317,20 +2317,81 @@ input[type="checkbox"] {
 
 .passe-cible--lien {
   width: 100%;
+}
+
+/* « Définir une cible » : le lien est le bouton lui-même. */
+button.passe-cible--lien,
+.passe-cible__lien {
   cursor: pointer;
   text-decoration: underline;
   text-decoration-color: var(--couleur-bordure);
   text-underline-offset: 3px;
 }
 
-.passe-cible--lien:hover,
-.passe-cible--lien:focus-visible {
+.passe-cible__lien {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+}
+
+button.passe-cible--lien:hover,
+button.passe-cible--lien:focus-visible,
+.passe-cible--lien:hover .passe-cible__lien,
+.passe-cible__lien:focus-visible {
   text-decoration-color: var(--couleur-texte);
 }
 
-.passe-cible__reserve {
-  flex-basis: 100%;
+/* Ce que la cible couvre, en infobulle : survol, focus clavier, ou toucher (--ouverte). */
+.passe-cible__info {
+  position: relative;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  margin: -6px calc(-1 * var(--space-1));
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--couleur-texte-secondaire);
+  cursor: help;
+}
+
+.passe-cible__info:hover,
+.passe-cible__info:focus-visible {
+  color: var(--couleur-texte);
+}
+
+.passe-cible__bulle {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-texte);
+  color: var(--couleur-fond);
   font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.passe-cible__info:hover .passe-cible__bulle,
+.passe-cible__info:focus-visible .passe-cible__bulle,
+.passe-cible__info--ouverte .passe-cible__bulle {
+  opacity: 1;
 }
 
 /* Écrans de détail : la cible se lit sous l'indicateur, alignée à gauche comme lui. */

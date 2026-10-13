@@ -264,8 +264,8 @@ export function cibleDeCoutsDeStructure(cibles: Cible[], periode: Periode): Cibl
  */
 export type StatutCible = "favorable" | "defavorable" | "neutre" | "incomplet";
 
-// En dessous, la cible ne couvre pas assez de CA : l'écart reste montré, à titre indicatif, mais
-// sans lecture favorable / défavorable.
+// En dessous, la cible ne couvre pas assez de CA : aucune lecture favorable / défavorable, et pas
+// d'écart en euros pour une marge (il reste indicatif pour l'EBITDA).
 export const COUVERTURE_MIN_VERDICT = 0.8;
 // Au-dessus, la couverture est tenue pour complète (arrondis de pondération).
 const COUVERTURE_COMPLETE = 0.999;
@@ -279,9 +279,9 @@ export interface EcartMarge {
   realise: number; // fraction du CA
   cible: number; // fraction du CA
   ecartPoints: number; // réalisé − cible, en fraction (0,038 = 3,8 points)
-  // Marge qui manque (négatif) ou dépasse (positif) par rapport à la cible, au CA réel observé.
-  // null quand la couverture est incomplète : la marge réalisée porte sur tout le CA, la cible sur
-  // une partie seulement — les multiplier donnerait un montant qui n'a pas de sens.
+  // Marge qui manque (négatif) ou dépasse (positif) par rapport à la cible, au CA réel observé :
+  // marge réelle − CA réel × cible pondérée. null sous COUVERTURE_MIN_VERDICT : la cible porte sur
+  // trop peu du CA pour être appliquée à tout le CA — même seuil que le verdict.
   ecartEuros: number | null;
   statut: StatutCible;
   couverture: number;
@@ -290,14 +290,14 @@ export interface EcartMarge {
 /** Marge réalisée face à sa cible. Au-dessus de la cible : favorable. */
 export function ecartDeMarge(realise: number, ca: number, cible: CiblePeriode): EcartMarge {
   const ecartPoints = realise - cible.valeur;
-  const complete = cible.couverture >= COUVERTURE_COMPLETE;
+  const suffisante = cible.couverture >= COUVERTURE_MIN_VERDICT;
   return {
     realise,
     cible: cible.valeur,
     ecartPoints,
-    ecartEuros: complete ? ca * ecartPoints : null,
+    ecartEuros: suffisante ? ca * ecartPoints : null,
     statut:
-      cible.couverture < COUVERTURE_MIN_VERDICT
+      !suffisante
         ? "incomplet"
         : Math.abs(ecartPoints) <= TOLERANCE_MARGE_POINTS
           ? "neutre"
@@ -446,7 +446,7 @@ function periodeDuMois(mois: string, periode: Periode): Periode {
   return { debut: debut < periode.debut ? periode.debut : debut, fin: fin > periode.fin ? periode.fin : fin };
 }
 
-// --- Libellés : factuels, jamais un verdict (« Cible 44,0 % · -3,8 pts · -27 k€ vs cible ») ---
+// --- Libellés : factuels, jamais un verdict (« Cible 44,0 % · -27 k€ vs cible ») ---
 
 const espaces = (texte: string) => texte.replace(/[\u202f\u00a0]/g, " ");
 // « + » devant un écart positif — sauf s'il s'arrondit à zéro : « 0 k€ », jamais « +0 k€ ».
@@ -461,30 +461,27 @@ export function libellePoints(fraction: number): string {
   return `${signe(points, espaces(formatPoints.format(points === 0 ? 0 : points)))} pt${Math.abs(points) >= 2 ? "s" : ""}`;
 }
 
+// Jamais « 100 % » pour une couverture incomplète : 99,6 % se lit « 99 % ».
+const pourcentageCouvert = (couverture: number) => `${Math.floor(couverture * 100 + 1e-9)} %`;
+
 export interface LibellesCible {
   cible: string;
   ecart: string;
-  // Précision à afficher quand la cible ne couvre qu'une partie de la période, sinon null.
+  // Précision sur ce que la cible couvre (part du CA, part de la période), sinon null. Courte :
+  // elle se lit en infobulle à côté de la cible, jamais en ligne permanente.
   reserve: string | null;
 }
 
+/**
+ * Marge : l'écart principal est le montant (« -322 k€ vs cible »). L'écart en points reste dans le
+ * modèle (ecartPoints, libellePoints) sans être affiché ici. Sans écart en euros — couverture
+ * insuffisante — seule la cible est donnée, et l'infobulle dit sur quelle part du CA elle porte.
+ */
 export function libellesEcartMarge(ecart: EcartMarge): LibellesCible {
-  const couvert = `${Math.round(ecart.couverture * 100)} % du CA`;
-  const points = libellePoints(ecart.ecartPoints);
   return {
     cible: `Cible ${espaces(formatPourcentage(ecart.cible))}`,
-    ecart:
-      ecart.statut === "incomplet"
-        ? `${points} (indicatif)`
-        : ecart.ecartEuros === null
-          ? `${points} vs cible`
-          : `${points} · ${signe(ecart.ecartEuros, enK(ecart.ecartEuros))} vs cible`,
-    reserve:
-      ecart.statut === "incomplet"
-        ? `Cible incomplète — ${couvert} couvert`
-        : ecart.couverture < COUVERTURE_COMPLETE
-          ? `Cible calculée sur ${couvert}`
-          : null,
+    ecart: ecart.ecartEuros === null ? "cible incomplète" : `${signe(ecart.ecartEuros, enK(ecart.ecartEuros))} vs cible`,
+    reserve: ecart.couverture < COUVERTURE_COMPLETE ? `Cible calculée sur ${pourcentageCouvert(ecart.couverture)} du CA` : null,
   };
 }
 
