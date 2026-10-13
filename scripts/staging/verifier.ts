@@ -151,11 +151,26 @@ async function verifierSocieteEtRls(client: Client): Promise<void> {
   }).catch(() => false);
   controle(liensVisibles, "l'utilisateur staging peut lire les tables de rapprochement");
 
-  const tokenInaccessible = await sousRole(client, "authenticated", userId, async () => {
-    await client.query("select count(*) from public.pennylane_connections");
-    return false;
-  }).catch(() => true);
-  controle(tokenInaccessible, "pennylane_connections illisible côté utilisateur (credential serveur uniquement)");
+  // Le credential Pennylane ne doit jamais être lisible par l'utilisateur, même le sien : soit le
+  // rôle n'a aucun droit sur la table, soit la RLS sans policy ne lui montre aucune ligne. Testé
+  // avec une ligne factice réellement présente, dans une transaction annulée.
+  await client.query("begin");
+  let credentialsVisibles = -1;
+  try {
+    await client.query("insert into public.pennylane_connections (company_id, token_ciphertext) values ($1, 'factice')", [companyId]);
+    await client.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: userId, role: "authenticated" })]);
+    await client.query("set local role authenticated");
+    await client.query("savepoint lecture");
+    try {
+      const { rows } = await client.query("select count(*)::int as n from public.pennylane_connections");
+      credentialsVisibles = rows[0].n as number;
+    } catch {
+      credentialsVisibles = 0; // aucun droit sur la table : lecture refusée
+    }
+  } finally {
+    await client.query("rollback");
+  }
+  controle(credentialsVisibles === 0, "credential Pennylane invisible pour l'utilisateur, même le sien (transaction annulée)");
 
   const vuesParAnonyme = await sousRole(client, "anon", null, async () => {
     const { rows } = await client.query("select count(*)::int as n from public.fixed_charges");
