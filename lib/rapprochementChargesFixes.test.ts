@@ -9,6 +9,7 @@ import {
   construireLien,
   construireMapping,
   dateCashFacture,
+  detacherFactures,
   liensARattacher,
   occurrenceCorrespondante,
   occurrencesRapprochables,
@@ -318,6 +319,19 @@ describe("durabilité du remplacement", () => {
     const ecarte = etat.liens.map((l) => ({ ...l, revueEcarteeLe: "2026-10-20T00:00:00Z" }));
     assert.deepEqual(resoudreRemplacements(ecarte, etat.charges, etat.factures, fin).aRevoir, []);
     assert.equal(soldeAu({ ...etat, liens: ecarte }, "2026-10-05"), SOLDE);
+  });
+
+  test("suppression de facture : décisions détachées et conservées, sauf un refus sans identité Pennylane", () => {
+    const manuelle = facture({ id: "f-man", pennylaneId: null, pennylaneSupplierId: null });
+    const liens = [
+      construireLien(facture(), "daf", "2026-10-05", "confirme", "confirme-pl"),
+      construireLien(facture(), "autre", "2026-10-05", "refuse", "refus-pl"),
+      construireLien(manuelle, "daf", "2026-11-05", "confirme", "confirme-man"),
+      construireLien(manuelle, "autre", "2026-11-05", "refuse", "refus-man"),
+    ];
+    const apres = detacherFactures(liens, ["f-oct", "f-man"]);
+    assert.deepEqual(apres.map((l) => [l.id, l.factureFournisseurId]), [["confirme-pl", null], ["refus-pl", null], ["confirme-man", null]]);
+    assert.deepEqual(detacherFactures(liens, ["autre-facture"]), liens);
   });
 
   test("même facture Pennylane réimportée sous un nouvel identifiant : décision reconnue, rattachée, pas de doublon", () => {

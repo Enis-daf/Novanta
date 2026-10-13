@@ -489,3 +489,16 @@ export function liensARattacher(
   }
   return rattachements;
 }
+
+/**
+ * Miroir local de ce que fait la base quand des factures sont supprimées (ON DELETE SET NULL) :
+ * les décisions sont conservées, détachées de la facture. Seule exception : un refus porté par une
+ * facture sans identifiant Pennylane ne pourra plus jamais être reconnu — il est abandonné.
+ */
+export function detacherFactures(liens: LienRapprochement[], idsFacturesSupprimees: string[]): LienRapprochement[] {
+  const ids = new Set(idsFacturesSupprimees);
+  const concerne = (l: LienRapprochement) => l.factureFournisseurId !== null && ids.has(l.factureFournisseurId);
+  return liens
+    .filter((l) => !(concerne(l) && l.statut === "refuse" && !l.facturePennylaneId))
+    .map((l) => (concerne(l) ? { ...l, factureFournisseurId: null } : l));
+}
