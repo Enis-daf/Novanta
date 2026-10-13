@@ -7,7 +7,10 @@ import { calculerPnl } from "./pastPnl";
 import {
   Cible,
   cibleEnConflit,
+  commenterCible,
   corrigerCible,
+  LONGUEUR_MAX_COMMENTAIRE,
+  normaliserCommentaire,
   poserCible,
   remplacerCible,
   cibleDeCoutsDeStructure,
@@ -403,7 +406,7 @@ describe("enregistrer une cible — l'utilisateur ne choisit pas entre créer et
 
   test("création à une nouvelle date d'effet : une nouvelle version, l'historique antérieur intact", () => {
     const { cibles, operations } = poserCible(depart, { type: "gross_margin_pct", dimension: "abo", validFrom: "2026-10-01" }, 80, "nouvelle");
-    assert.deepEqual(operations, [{ type: "insert", cible: brute("abo", "2026-10-01", 80, "nouvelle") }]);
+    assert.deepEqual(operations, [{ type: "insert", cible: { ...brute("abo", "2026-10-01", 80, "nouvelle"), commentaire: null } }]);
     assert.equal(cibles.length, depart.length + 1);
     assert.deepEqual(cibles.slice(0, depart.length), depart);
     assert.deepEqual(["2026-03-15", "2026-08-15", "2026-10-15"].map((date) => cibleEnVigueur(cibles, "gross_margin_pct", date, "abo")), [70, 75, 80]);
@@ -562,5 +565,84 @@ describe("EBITDA cible dans les écarts d'une période — même calcul pour Gé
   test("la cible de Marge brute n'entre pas dans l'EBITDA cible", () => {
     const avec = ecarts([mcA, mcB, structure, cible("gross_margin_pct", "2026-01-01", 99, "a")]);
     proche(avec.ebitda!.cible, 150_000);
+  });
+});
+
+describe("commentaire d'un objectif daté — une note par version, jamais par catégorie", () => {
+  const v1: Cible = { id: "v1", type: "gross_margin_pct", dimension: "abo", validFrom: "2026-01-01", valeur: 40, commentaire: null };
+  const v2: Cible = { id: "v2", type: "gross_margin_pct", dimension: "abo", validFrom: "2026-07-01", valeur: 45, commentaire: null };
+  const autre: Cible = { id: "p1", type: "gross_margin_pct", dimension: "projets", validFrom: "2026-01-01", valeur: 55 };
+  const depart = [v1, v2, autre];
+  const parId = (cibles: Cible[], id: string) => cibles.find((c) => c.id === id)!;
+  const HYPOTHESE = "Vente 20 k€, matière première 12 k€";
+
+  test("ajout d'un commentaire : une seule écriture, sur cette version, sans toucher à la valeur ni à la date", () => {
+    const { cibles, operations } = commenterCible(depart, "v1", HYPOTHESE);
+    assert.deepEqual(operations, [{ type: "comment", id: "v1", commentaire: HYPOTHESE }]);
+    assert.deepEqual(parId(cibles, "v1"), { ...v1, commentaire: HYPOTHESE });
+    assert.equal(cibles.length, depart.length);
+    assert.deepEqual([parId(cibles, "v2"), parId(cibles, "p1")], [v2, autre]);
+  });
+
+  test("deux versions datées : deux commentaires indépendants", () => {
+    let cibles = commenterCible(depart, "v1", HYPOTHESE).cibles;
+    cibles = commenterCible(cibles, "v2", "Nouveau tarif + baisse du coût matière").cibles;
+    assert.deepEqual(historiqueDesCibles(cibles, "gross_margin_pct", "abo").map((c) => [c.validFrom, c.commentaire]), [
+      ["2026-01-01", HYPOTHESE],
+      ["2026-07-01", "Nouveau tarif + baisse du coût matière"],
+    ]);
+  });
+
+  test("modifier le commentaire : même ligne, aucune nouvelle version d'objectif", () => {
+    const avec = commenterCible(depart, "v1", HYPOTHESE).cibles;
+    const { cibles, operations } = commenterCible(avec, "v1", "Vente 22 k€, matière première 12 k€");
+    assert.deepEqual(operations, [{ type: "comment", id: "v1", commentaire: "Vente 22 k€, matière première 12 k€" }]);
+    assert.equal(cibles.length, depart.length);
+    assert.equal(cibleEnVigueur(cibles, "gross_margin_pct", "2026-03-15", "abo"), 40);
+  });
+
+  test("commentaire inchangé (ou Annuler) : aucune écriture", () => {
+    const avec = commenterCible(depart, "v1", HYPOTHESE).cibles;
+    assert.deepEqual(commenterCible(avec, "v1", `  ${HYPOTHESE}  `).operations, []);
+    assert.deepEqual(commenterCible(depart, "v1", "   ").operations, []);
+    assert.deepEqual(commenterCible(depart, "inconnue", "x"), { cibles: depart, operations: [] });
+  });
+
+  test("commentaire vidé : il est effacé", () => {
+    const avec = commenterCible(depart, "v1", HYPOTHESE).cibles;
+    const { cibles, operations } = commenterCible(avec, "v1", "");
+    assert.deepEqual(operations, [{ type: "comment", id: "v1", commentaire: null }]);
+    assert.equal(parId(cibles, "v1").commentaire, null);
+  });
+
+  test("corriger la valeur à la même date : le commentaire reste attaché à la ligne", () => {
+    const avec = commenterCible(depart, "v1", HYPOTHESE).cibles;
+    const corrigee = corrigerCible(avec, "v1", { valeur: 42, validFrom: "2026-01-01" });
+    assert.deepEqual(parId(corrigee.cibles!, "v1"), { ...v1, valeur: 42, commentaire: HYPOTHESE });
+    assert.deepEqual(corrigee.operations, [{ type: "update", id: "v1", valeur: 42, validFrom: "2026-01-01" }]);
+    const reposee = poserCible(avec, { type: "gross_margin_pct", dimension: "abo", validFrom: "2026-01-01" }, 43, "n");
+    assert.equal(parId(reposee.cibles, "v1").commentaire, HYPOTHESE);
+    const deplacee = corrigerCible(avec, "v1", { valeur: 40, validFrom: "2026-02-01" });
+    assert.equal(parId(deplacee.cibles!, "v1").commentaire, HYPOTHESE);
+  });
+
+  test("nouvelle version à une nouvelle date : elle commence sans commentaire, celui de la précédente n'est pas recopié", () => {
+    const avec = commenterCible(depart, "v2", "Nouveau tarif").cibles;
+    const { cibles, operations } = poserCible(avec, { type: "gross_margin_pct", dimension: "abo", validFrom: "2026-10-01" }, 48, "v3");
+    assert.equal(parId(cibles, "v3").commentaire, null);
+    assert.equal(parId(cibles, "v2").commentaire, "Nouveau tarif");
+    assert.deepEqual(operations, [{ type: "insert", cible: { id: "v3", type: "gross_margin_pct", dimension: "abo", validFrom: "2026-10-01", valeur: 48, commentaire: null } }]);
+  });
+
+  test("le commentaire n'entre dans aucun calcul d'objectif", () => {
+    const avec = commenterCible(depart, "v1", HYPOTHESE).cibles;
+    const revenus = [{ date: "2026-03-10", montant: 100, categorie: "abo" }, { date: "2026-03-11", montant: 100, categorie: "projets" }];
+    assert.deepEqual(cibleDeMarge(avec, "gross_margin_pct", revenus), cibleDeMarge(depart, "gross_margin_pct", revenus));
+  });
+
+  test("saisie nettoyée : espaces de bord retirés, retours à la ligne gardés, longueur plafonnée", () => {
+    assert.equal(normaliserCommentaire("  Ligne 1\nLigne 2  "), "Ligne 1\nLigne 2");
+    assert.equal(normaliserCommentaire(" \n "), null);
+    assert.equal(normaliserCommentaire("x".repeat(LONGUEUR_MAX_COMMENTAIRE + 50))!.length, LONGUEUR_MAX_COMMENTAIRE);
   });
 });
