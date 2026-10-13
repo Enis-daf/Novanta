@@ -8,8 +8,11 @@
  *   npm run staging:seed -- --export .staging/qannt-export.json
  *       -> données exportées en lecture seule de la société réelle (scripts/staging/export-qannt.sql),
  *          réidentifiées (nouveaux UUID) et anonymisées côté clients avant insertion.
- *   --remplacer : supprime d'abord la société staging existante de cet utilisateur (et toutes ses
- *                 données, par cascade) avant de la recréer.
+ *   --remplacer : remplace les DONNÉES de la société staging existante (les 7 tables ci-dessous),
+ *                 dans une seule transaction. La société, son utilisateur et sa connexion Pennylane
+ *                 sont conservés ; rien d'autre n'est touché.
+ *   --verifier-export : avec --export, contrôle le fichier et affiche ce qui serait importé, sans
+ *                 aucune connexion à la base.
  *
  * À lancer AVANT la première connexion à l'application staging : sinon l'application crée
  * elle-même une société et y injecte ses données de démonstration.
@@ -72,8 +75,38 @@ function jeuSynthetique(): Jeu {
  * charges sont conservés (le rapprochement en dépend) ; les clients et leurs numéros de facture
  * sont remplacés. Les colonnes propres à la base d'origine (company_id, updated_at) sont retirées.
  */
+/**
+ * Lit le résultat de scripts/staging/export-qannt.sql. Accepte l'objet lui-même, ou la forme sous
+ * laquelle l'éditeur SQL Supabase le restitue : une ligne { "export": {...} }, seule ou dans un
+ * tableau, l'objet pouvant y être sérialisé en chaîne.
+ */
+export function lireExport(contenu: string): Partial<Jeu> {
+  let valeur: unknown = JSON.parse(contenu);
+  for (let i = 0; i < 4; i++) {
+    if (typeof valeur === "string") valeur = JSON.parse(valeur);
+    else if (Array.isArray(valeur) && valeur.length === 1) valeur = valeur[0];
+    else if (valeur && typeof valeur === "object" && "export" in valeur) valeur = (valeur as { export: unknown }).export;
+    else break;
+  }
+  if (!valeur || typeof valeur !== "object" || Array.isArray(valeur)) {
+    throw new RefusGardeFou("Fichier d'export illisible : objet JSON attendu (résultat de scripts/staging/export-qannt.sql).");
+  }
+  const brut = valeur as Record<string, unknown>;
+  const manquantes = TABLES_DONNEES.filter((table) => !Array.isArray(brut[table]));
+  if (manquantes.length > 0 || !("cash_settings" in brut)) {
+    throw new RefusGardeFou(
+      `Fichier d'export incomplet : ${[...manquantes, ...("cash_settings" in brut ? [] : ["cash_settings"])].join(", ")} absent(s).`
+    );
+  }
+  for (const table of TABLES_DONNEES) {
+    const sansId = (brut[table] as Ligne[]).filter((ligne) => !ligne || typeof ligne.id !== "string").length;
+    if (sansId > 0) throw new RefusGardeFou(`Fichier d'export invalide : ${sansId} ligne(s) sans id dans ${table}.`);
+  }
+  return brut as Partial<Jeu>;
+}
+
 function jeuDepuisExport(chemin: string): Jeu {
-  const brut = JSON.parse(readFileSync(chemin, "utf8")) as Partial<Jeu>;
+  const brut = lireExport(readFileSync(chemin, "utf8"));
   const nouveauxIds = new Map<string, string>();
   const nouvelId = (ancien: unknown): string => {
     const cle = String(ancien);
@@ -150,6 +183,15 @@ lancer(async () => {
 
   const jeu = cheminExport ? jeuDepuisExport(cheminExport) : jeuSynthetique();
 
+  if (process.argv.includes("--verifier-export")) {
+    console.log("Export valide. Lignes qui seraient importées (aucune connexion à la base) :");
+    console.log(`  cash_settings : ${jeu.cash_settings ? 1 : 0}`);
+    for (const table of TABLES_DONNEES) console.log(`  ${table} : ${jeu[table].length}`);
+    const sources = jeu.fixed_charges.filter((c) => c.source_calcul_id).length;
+    console.log(`  dont charges calculées (source réidentifiée) : ${sources}`);
+    return;
+  }
+
   const { client, ref } = await connecterStaging();
   try {
     console.log(`Projet ciblé : ${ref}`);
@@ -162,23 +204,32 @@ lancer(async () => {
     await client.query("begin");
     try {
       const { rows: existantes } = await client.query("select id from public.companies where owner_id = $1", [ownerId]);
+      let companyId: string;
       if (existantes.length > 0) {
         if (!process.argv.includes("--remplacer")) {
-          throw new RefusGardeFou("Cet utilisateur a déjà une société staging. Ajouter --remplacer pour la recréer.");
+          throw new RefusGardeFou("Cet utilisateur a déjà une société staging. Ajouter --remplacer pour remplacer ses données.");
         }
-        await client.query("delete from public.companies where owner_id = $1", [ownerId]);
-        console.log("Société staging existante supprimée (--remplacer).");
+        // Remplacement en place : la société, son utilisateur et sa connexion Pennylane restent.
+        // Seules les lignes de données de CETTE société sont retirées (les rapprochements liés aux
+        // Charges fixes retirées partent avec elles, par cascade).
+        companyId = existantes[0].id as string;
+        for (const table of ["cash_settings", ...TABLES_DONNEES]) {
+          const { rowCount } = await client.query(`delete from public.${client.escapeIdentifier(table)} where company_id = $1`, [companyId]);
+          if (rowCount) console.log(`  ${table} : ${rowCount} ligne(s) existante(s) retirée(s)`);
+        }
+        // access_enabled = true : pas de parcours Stripe dans l'environnement de test.
+        await client.query("update public.companies set name = $2, access_enabled = true where id = $1", [companyId, NOM_SOCIETE]);
+        console.log(`Société « ${NOM_SOCIETE} » conservée, données remplacées.`);
+      } else {
+        const { rows: creees } = await client.query(
+          "insert into public.companies (owner_id, name, access_enabled) values ($1, $2, true) returning id",
+          [ownerId, NOM_SOCIETE]
+        );
+        companyId = creees[0].id as string;
+        console.log(`Société « ${NOM_SOCIETE} » créée.`);
       }
-
-      // access_enabled = true : pas de parcours Stripe dans l'environnement de test.
-      const { rows: creees } = await client.query(
-        "insert into public.companies (owner_id, name, access_enabled) values ($1, $2, true) returning id",
-        [ownerId, NOM_SOCIETE]
-      );
-      const companyId = creees[0].id as string;
       const avecSociete = (lignes: Ligne[]) => lignes.map((ligne) => ({ ...ligne, company_id: companyId }));
 
-      console.log(`Société « ${NOM_SOCIETE} » créée.`);
       // Sans cash_settings l'application considérerait la société comme jamais initialisée et y
       // injecterait ses données de démonstration : une ligne est donc toujours créée.
       await inserer(client, "cash_settings", avecSociete([jeu.cash_settings ?? { solde_initial: 0 }]));

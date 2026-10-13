@@ -22,13 +22,21 @@ refusent de se connecter à un autre projet que le staging déclaré.
 
 ## Repartir de zéro
 
-`npm run staging:schema -- --executer --reset`, puis `npm run staging:seed -- --synthetique --remplacer`.
+`npm run staging:schema -- --executer --reset`, puis `npm run staging:seed -- --synthetique`.
 
-## Cloner les données réelles (optionnel)
+## Cloner les données réelles (module Futur)
 
 `scripts/staging/export-qannt.sql` est un SELECT en lecture seule à exécuter sur la base d'origine ;
-son résultat va dans `.staging/qannt-export.json` (ignoré par Git), puis
-`npm run staging:seed -- --export .staging/qannt-export.json --remplacer`.
+son résultat va dans `.staging/qannt-export.json` (dossier ignoré par Git). Le fichier peut être
+l'objet JSON lui-même ou la ligne `{ "export": ... }` telle que la restitue l'éditeur Supabase.
+
+- Contrôler le fichier sans toucher à la base :
+  `npm run staging:seed -- --export .staging/qannt-export.json --verifier-export`
+- Importer : `npm run staging:seed -- --export .staging/qannt-export.json --remplacer`
+
+`--remplacer` remplace les données de la société QANNT TEST en place, dans une seule transaction :
+la société, son utilisateur et sa connexion Pennylane sont conservés. Les tables du module Passé
+(`past_*`) ne sont ni exportées ni importées.
 
 `schema.sql` n'est joué que sur une base jamais initialisée. Il ne se rejoue jamais sur une base existante.
 
