@@ -81,6 +81,7 @@ import {
   chargerAjustementsGestion,
   chargerAxesAnalytiques,
   chargerExercice,
+  chargerSansStock,
   chargerMappingsCategories,
   chargerStocks,
   chargerPastTransactions,
@@ -88,6 +89,7 @@ import {
   sauvegarderAxeConfigure,
   sauvegarderEtageCategorie,
   sauvegarderExercice,
+  sauvegarderSansStock,
   sauvegarderStock,
   supprimerStock,
   validerSigne,
@@ -211,6 +213,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   const [ajustementsSaisis, setAjustementsSaisis] = useState<AjustementGestion[]>([]);
   const [stocks, setStocks] = useState<StockFinDeMois[]>([]);
   const [erreurStock, setErreurStock] = useState<string | null>(null);
+  // Organisation déclarée sans stock : retire le signal « stocks non renseignés ».
+  const [sansStock, setSansStock] = useState(false);
   const [chargement, setChargement] = useState(true);
   const [erreurChargement, setErreurChargement] = useState<string | null>(null);
   const [rechargement, setRechargement] = useState(0);
@@ -262,6 +266,22 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         // Sans exercice lisible, le module reste utilisable sur l'année civile.
         console.error("Échec de la lecture de l'exercice du module Passé :", error);
         setExercice(EXERCICE_PAR_DEFAUT);
+      });
+    return () => {
+      annule = true;
+    };
+  }, [organizationId]);
+
+  useEffect(() => {
+    let annule = false;
+    chargerSansStock(supabase!, organizationId)
+      .then((valeur) => {
+        if (!annule) setSansStock(valeur);
+      })
+      .catch((error) => {
+        if (annule) return;
+        const code = (error as { code?: string } | null)?.code ?? "inconnu";
+        console.error(`[passe/stocks] step=load-no-inventory organization=${organizationId} code=${code}`);
       });
     return () => {
       annule = true;
@@ -413,8 +433,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   // Données de gestion à compléter sur la période (stocks...) : signalées à côté des indicateurs
   // de transactions, jamais bloquantes. Recalculées dès qu'un stock est saisi ou retiré.
   const donneesACompleter = useMemo(
-    () => (periodeOk ? donneesDeGestionACompleter({ stocks, periode, aujourdhui }) : []),
-    [stocks, periode, periodeOk, aujourdhui]
+    () => (periodeOk ? donneesDeGestionACompleter({ stocks, sansStock, periode, aujourdhui }) : []),
+    [stocks, sansStock, periode, periodeOk, aujourdhui]
   );
   // Signes inhabituels sur la période : signalés seulement, jamais corrigés ni exclus du P&L.
   const anomaliesSigne = useMemo(
@@ -476,6 +496,17 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       () => sauvegarderStock(supabase!, organizationId, mois, valeur),
       mois
     );
+  const declarerSansStock = (valeur: boolean) => {
+    const precedent = sansStock;
+    setSansStock(valeur);
+    setErreurStock(null);
+    sauvegarderSansStock(supabase!, organizationId, valeur).catch((error) => {
+      const code = (error as { code?: string } | null)?.code ?? "inconnu";
+      console.error(`[passe/stocks] step=save-no-inventory organization=${organizationId} code=${code}`);
+      setSansStock(precedent);
+      setErreurStock("Le réglage n'a pas pu être enregistré. Réessayez.");
+    });
+  };
   const retirerStock = (mois: string) =>
     modifierStocks(
       stocks.filter((s) => s.mois !== mois),
@@ -1145,6 +1176,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
             <PasseStocks
               mois={moisDeLaPeriode(periode)}
               stocks={stocks}
+              sansStock={sansStock}
+              onDeclarerSansStock={declarerSansStock}
               onEnregistrer={enregistrerStock}
               onSupprimer={retirerStock}
             />

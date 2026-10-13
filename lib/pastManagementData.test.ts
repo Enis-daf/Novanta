@@ -6,7 +6,7 @@ const stock = (mois: string, valeur = 100_000) => ({ mois, valeur });
 const periode = (debut: string, fin: string) => ({ debut, fin });
 const AUJOURDHUI = "2026-10-13";
 const signaux = (stocks: { mois: string; valeur: number }[], p: { debut: string; fin: string }, aujourdhui = AUJOURDHUI) =>
-  donneesDeGestionACompleter({ stocks, periode: p, aujourdhui });
+  donneesDeGestionACompleter({ stocks, sansStock: false, periode: p, aujourdhui });
 
 // Stocks renseignés de janvier à août 2026, sans trou.
 const JANVIER_A_AOUT = ["01", "02", "03", "04", "05", "06", "07", "08"].map((m) => stock(`2026-${m}`));
@@ -17,8 +17,26 @@ describe("données de gestion à compléter — stocks", () => {
     assert.deepEqual(signaux(JANVIER_A_AOUT, periode("2026-03-01", "2026-05-31")), []);
   });
 
-  test("aucun stock jamais renseigné : aucun signal (organisation peut-être sans stock)", () => {
-    assert.deepEqual(signaux([], periode("2026-01-01", "2026-08-31")), []);
+  test("aucun stock jamais renseigné : stocks non renseignés, avec l'issue pour une société sans stock", () => {
+    const [signal] = signaux([], periode("2026-01-01", "2026-08-31"));
+    assert.equal(signal.libelle, "Stocks non renseignés");
+    assert.equal(signal.onglet, "stocks");
+    assert.match(signal.detail, /La marge brute peut être incomplète/);
+    assert.match(signal.detail, /Si la société n'a pas de stock, indiquez-le dans l'onglet Stocks\./);
+  });
+
+  test("organisation déclarée sans stock : aucun signal", () => {
+    assert.deepEqual(donneesDeGestionACompleter({ stocks: [], sansStock: true, periode: periode("2026-01-01", "2026-08-31"), aujourdhui: AUJOURDHUI }), []);
+  });
+
+  test("déclaration « sans stock » ignorée dès qu'un stock est saisi : les mois manquants sont signalés", () => {
+    const [signal] = donneesDeGestionACompleter({ stocks: JANVIER_A_AOUT, sansStock: true, periode: periode("2026-09-01", "2026-09-30"), aujourdhui: AUJOURDHUI });
+    assert.equal(signal.libelle, "Stock non renseigné pour septembre 2026");
+  });
+
+  test("aucun stock, mais aucun mois terminé dans la période : rien à signaler encore", () => {
+    assert.deepEqual(signaux([], periode("2026-10-01", "2026-10-31")), []);
+    assert.deepEqual(signaux([], periode("2026-09-01", "2026-09-15")), []);
   });
 
   test("stock renseigné jusqu'en août, période = septembre : stock non renseigné pour ce mois", () => {

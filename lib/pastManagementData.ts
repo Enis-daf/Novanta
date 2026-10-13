@@ -39,6 +39,18 @@ function moisSuivant(mois: string): string {
   return numero === 12 ? `${annee + 1}-01` : `${annee}-${String(numero + 1).padStart(2, "0")}`;
 }
 
+/** Mois de la période dont la fin est passée : ceux dont le stock de fin de mois peut être connu. */
+function moisTerminesDeLaPeriode(periode: Periode, aujourdhui: string): string[] {
+  const mois: string[] = [];
+  if (periode.debut > periode.fin) return mois;
+  const dernier = moisDe(periode.fin);
+  for (let courant = moisDe(periode.debut); courant <= dernier; courant = moisSuivant(courant)) {
+    const fin = finDeMois(courant);
+    if (fin >= periode.debut && fin <= periode.fin && fin < aujourdhui) mois.push(courant);
+  }
+  return mois;
+}
+
 /**
  * État des stocks sur la période. Un mois est attendu si sa fin :
  *  - tombe dans la période — la variation de stock est datée de la fin de son mois, c'est donc la
@@ -47,21 +59,19 @@ function moisSuivant(mois: string): string {
  *  - n'est pas antérieure au premier stock renseigné — ce premier mois est le point de départ de
  *    la série, aucune hypothèse n'est faite sur ce qui le précède.
  *
- * Sans aucun stock renseigné, rien n'est attendu : l'application n'a aucun moyen de distinguer une
- * organisation sans stock d'une organisation qui a oublié de le saisir.
+ * Sans aucun stock renseigné, aucun mois n'est attendu ici : il n'y a pas de série. Ce cas est
+ * signalé à part (voir stocksACompleter), sauf si l'organisation s'est déclarée sans stock.
  */
 export function etatDesStocks(stocks: StockFinDeMois[], periode: Periode, aujourdhui: string): EtatDesStocks {
   const etat: EtatDesStocks = { mois: [], manquants: [], incertains: [] };
-  if (stocks.length === 0 || periode.debut > periode.fin) return etat;
+  if (stocks.length === 0) return etat;
 
   const renseignes = new Set(stocks.map((s) => s.mois));
   const premier = [...renseignes].sort()[0];
   const variations = variationsDeStock(stocks);
-  const dernier = moisDe(periode.fin);
 
-  for (let mois = moisDe(periode.debut); mois <= dernier; mois = moisSuivant(mois)) {
-    const fin = finDeMois(mois);
-    if (fin < periode.debut || fin > periode.fin || fin >= aujourdhui || mois < premier) continue;
+  for (const mois of moisTerminesDeLaPeriode(periode, aujourdhui)) {
+    if (mois < premier) continue;
     const etatDuMois: EtatStockDuMois = !renseignes.has(mois) ? "manquant" : variations.get(mois)?.discontinue ? "incertain" : "complet";
     etat.mois.push({ mois, etat: etatDuMois });
     if (etatDuMois === "manquant") etat.manquants.push(mois);
@@ -77,8 +87,20 @@ function enumerer(mois: string[]): string {
   return noms.length <= 3 ? noms.join(", ") : `${noms.slice(0, 3).join(", ")} et ${noms.length - 3} autre${noms.length - 3 > 1 ? "s" : ""}`;
 }
 
-/** Le signal « stocks » : absent si tout est complet, « non renseigné » ou « incomplets » sinon. */
-function stocksACompleter(stocks: StockFinDeMois[], periode: Periode, aujourdhui: string): DonneeDeGestionACompleter | null {
+const AUCUN_STOCK = "Si la société n'a pas de stock, indiquez-le dans l'onglet Stocks.";
+
+/**
+ * Le signal « stocks » : absent si tout est complet, « non renseigné » ou « incomplets » sinon.
+ *
+ * Aucun stock jamais saisi : rien ne distingue une organisation sans stock d'une organisation qui
+ * a oublié de le saisir. Le signal est donc donné par défaut, et `sansStock` — la déclaration de
+ * l'organisation — le retire. Dès qu'un stock est saisi, cette déclaration ne compte plus.
+ */
+function stocksACompleter(stocks: StockFinDeMois[], sansStock: boolean, periode: Periode, aujourdhui: string): DonneeDeGestionACompleter | null {
+  if (stocks.length === 0) {
+    if (sansStock || moisTerminesDeLaPeriode(periode, aujourdhui).length === 0) return null;
+    return { type: "inventory", libelle: "Stocks non renseignés", detail: `${CONSEQUENCE_STOCKS} ${AUCUN_STOCK}`, onglet: "stocks" };
+  }
   const { mois, manquants, incertains } = etatDesStocks(stocks, periode, aujourdhui);
   if (manquants.length === 0 && incertains.length === 0) return null;
 
@@ -99,12 +121,14 @@ function stocksACompleter(stocks: StockFinDeMois[], periode: Periode, aujourdhui
 
 export interface SourcesDonneesDeGestion {
   stocks: StockFinDeMois[];
+  // L'organisation a déclaré ne pas avoir de stock (past_settings.no_inventory).
+  sansStock: boolean;
   periode: Periode;
   aujourdhui: string; // YYYY-MM-DD
 }
 
 /** Toutes les données de gestion à compléter pour la période affichée ([] = rien à signaler). */
-export function donneesDeGestionACompleter({ stocks, periode, aujourdhui }: SourcesDonneesDeGestion): DonneeDeGestionACompleter[] {
-  const signaux = [stocksACompleter(stocks, periode, aujourdhui)];
+export function donneesDeGestionACompleter({ stocks, sansStock, periode, aujourdhui }: SourcesDonneesDeGestion): DonneeDeGestionACompleter[] {
+  const signaux = [stocksACompleter(stocks, sansStock, periode, aujourdhui)];
   return signaux.filter((s): s is DonneeDeGestionACompleter => s !== null);
 }

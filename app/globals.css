@@ -2207,6 +2207,15 @@ input[type="checkbox"] {
   align-self: auto;
 }
 
+.passe-sans-stock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 13px;
+  cursor: pointer;
+}
+
 /* Données de gestion à compléter : même zone que les indicateurs de transactions, autre famille. */
 .passe-donnee-gestion {
   font-weight: 600;
