@@ -2207,6 +2207,16 @@ input[type="checkbox"] {
   align-self: auto;
 }
 
+/* Données de gestion à compléter : même zone que les indicateurs de transactions, autre famille. */
+.passe-donnee-gestion {
+  font-weight: 600;
+}
+
+.passe-donnee-gestion__famille {
+  font-weight: 400;
+  color: var(--couleur-texte-secondaire);
+}
+
 .passe-filtres-actifs .btn-secondaire {
   white-space: nowrap;
 }

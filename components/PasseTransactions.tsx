@@ -37,6 +37,7 @@ import {
 import { estMetriqueDetail, FiltresDetail, moisDeLaPeriode, partsMappees } from "@/lib/pastDetail";
 import { nomFichierPdf, pagesExportPdf } from "@/lib/pastPdfModel";
 import { calculerPnl } from "@/lib/pastPnl";
+import { donneesDeGestionACompleter } from "@/lib/pastManagementData";
 import {
   AnomalieSigne,
   anomaliesDeSigne,
@@ -408,6 +409,12 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   const pnl = useMemo(
     () => calculerPnl(stockees, axe.axeId, mappingsIndexes, ajustements),
     [stockees, axe.axeId, mappingsIndexes, ajustements]
+  );
+  // Données de gestion à compléter sur la période (stocks...) : signalées à côté des indicateurs
+  // de transactions, jamais bloquantes. Recalculées dès qu'un stock est saisi ou retiré.
+  const donneesACompleter = useMemo(
+    () => (periodeOk ? donneesDeGestionACompleter({ stocks, periode, aujourdhui }) : []),
+    [stocks, periode, periodeOk, aujourdhui]
   );
   // Signes inhabituels sur la période : signalés seulement, jamais corrigés ni exclus du P&L.
   const anomaliesSigne = useMemo(
@@ -983,6 +990,20 @@ export default function PasseTransactions({ organizationId, organizationName, ac
                   <span aria-hidden="true">{detailSignesOuvert ? "▴" : "▾"}</span>
                 </button>
               )}
+              {/* Autre famille que les indicateurs de transactions : ce que l'utilisateur renseigne lui-même. */}
+              {donneesACompleter.map((donnee) => (
+                <button
+                  key={donnee.type}
+                  type="button"
+                  className="btn-secondaire passe-donnee-gestion"
+                  title={donnee.detail}
+                  onClick={() => setVue(donnee.onglet)}
+                >
+                  <span className="passe-donnee-gestion__famille">Données de gestion :</span>{" "}
+                  {donnee.libelle.charAt(0).toLowerCase()}
+                  {donnee.libelle.slice(1)} →
+                </button>
+              ))}
             </div>
           )}
 
