@@ -1,6 +1,5 @@
 "use client";
 
-import MentionTTC from "./MentionTTC";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { NEUTRES, OPACITE_ATTENUEE, teintesDesParts } from "@/lib/dataviz";
 import { formatMontant, formatKiloEuros, formatPourcentage } from "@/lib/format";
@@ -25,7 +24,7 @@ function InfoBulle({ active, payload }: { active?: boolean; payload?: { payload:
   return (
     <div className="passe-structure__infobulle">
       <strong>{part.nom}</strong>
-      <span>{formatMontant(part.montant, { ttc: true })}</span>
+      <span>{formatMontant(part.montant)}</span>
       <span>{formatPourcentage(part.part)} du total</span>
     </div>
   );
@@ -82,11 +81,7 @@ export default function PasseStructureChart({
                 <Tooltip content={<InfoBulle />} />
               </PieChart>
             </ResponsiveContainer>
-            {/* Le total porte la mention pour toute la légende, qui reste sans « TTC » ligne à ligne. */}
-            <p className="passe-structure__total">
-              <MentionTTC />
-              {formatKiloEuros(total)}
-            </p>
+            <p className="passe-structure__total">{formatKiloEuros(total)}</p>
           </div>
           <ul className="passe-structure__legende">
             {parts.map((part, index) => {

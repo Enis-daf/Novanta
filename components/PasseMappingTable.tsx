@@ -65,7 +65,7 @@ export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onCh
                 <th className="col-montant">Transactions sur la période</th>
                 <th className="col-montant">
                   Montant sur la période
-                  <MentionTTC position="apres" />
+                  <MentionTTC />
                 </th>
                 <th>Étage P&amp;L</th>
                 <th>Statut</th>

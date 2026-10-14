@@ -2,7 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { graduationsAxe, NEUTRES, OPACITE_ATTENUEE, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
-import { formatMontant, formatKiloEuros } from "@/lib/format";
+import { formatMontant, formatKiloEuros, suffixeTTC } from "@/lib/format";
 import { libelleMois, libelleMoisCourt, PointEvolution } from "@/lib/pastDetail";
 
 interface PasseEvolutionChartProps {
@@ -29,7 +29,7 @@ function InfoBulle({
   return (
     <div className="passe-structure__infobulle">
       <strong>{libelleMois(mois)}</strong>
-      <span>{formatMontant(montant, { ttc: true })}</span>
+      <span>{suffixeTTC(formatMontant(montant))}</span>
       {enValeurAbsolue && montant < 0 && <span className="passe-structure__note">Montant réel ; barreau en valeur absolue</span>}
     </div>
   );

@@ -470,9 +470,6 @@ export interface LibellesCible {
   // Précision sur ce que la cible couvre (part du CA, part de la période), sinon null. Courte :
   // elle se lit en infobulle à côté de la cible, jamais en ligne permanente.
   reserve: string | null;
-  // Où afficher la mention TTC, une seule fois par ligne : devant la cible si elle est en euros
-  // (elle vaut aussi pour l'écart), devant l'écart si seul l'écart est en euros, sinon nulle part.
-  mentionTTC: "cible" | "ecart" | null;
 }
 
 /**
@@ -485,7 +482,6 @@ export function libellesEcartMarge(ecart: EcartMarge): LibellesCible {
     cible: `Cible ${espaces(formatPourcentage(ecart.cible))}`,
     ecart: ecart.ecartEuros === null ? "cible incomplète" : `${signe(ecart.ecartEuros, enK(ecart.ecartEuros))} vs cible`,
     reserve: ecart.couverture < COUVERTURE_COMPLETE ? `Cible calculée sur ${pourcentageCouvert(ecart.couverture)} du CA` : null,
-    mentionTTC: ecart.ecartEuros === null ? null : "ecart",
   };
 }
 
@@ -494,7 +490,6 @@ export function libellesEcartCouts(ecart: EcartCouts): LibellesCible {
     cible: `Cible ${enK(ecart.cible)}`,
     ecart: `${signe(ecart.ecart, enK(ecart.ecart))} vs cible`,
     reserve: ecart.couverture < COUVERTURE_COMPLETE ? `Cible définie sur ${Math.round(ecart.couverture * 100)} % de la période` : null,
-    mentionTTC: "cible",
   };
 }
 
@@ -510,6 +505,5 @@ export function libellesEcartEbitda(ecart: EcartEbitda): LibellesCible {
     cible: `Cible ${enK(ecart.cible)}`,
     ecart: ecart.statut === "incomplet" ? `${montant} (indicatif)` : `${montant} vs cible`,
     reserve: reserves.length > 0 ? reserves.join(" · ") : null,
-    mentionTTC: "cible",
   };
 }

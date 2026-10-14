@@ -1,6 +1,6 @@
 import { estDateValide, parseDateISO } from "./dates";
 import { AjustementGestion, LigneAjustement, moisDe, regrouperAjustements, sommeAjustements, TYPE_VARIATION_STOCK } from "./pastAdjustments";
-import { avecMentionTTC, formatKiloEuros } from "./format";
+import { formatKiloEuros } from "./format";
 import { EtagePnl, libelleEtagePnl, MappingCategorie, ventilerTransaction } from "./pastCategoryMapping";
 import { PnlCategorie, SensStructure, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
@@ -230,15 +230,14 @@ export interface VueDetail {
 
 export const MAX_AJUSTEMENTS_AFFICHES = 5;
 
-const montantNote = (montant: number, ttc = false) => {
+const montantNote = (montant: number) => {
   const texte = formatKiloEuros(montant, Math.abs(montant) < 10_000 ? 1 : 0);
-  const signe = montant > 0 ? `+${texte}` : texte;
-  return ttc ? avecMentionTTC(signe) : signe;
+  return montant > 0 ? `+${texte}` : texte;
 };
 
 /**
  * Ajustements de gestion compris dans un indicateur, résumés en note de bas de graphique : rien
- * s'il n'y en a pas ; l'ajustement nommé s'il est seul (« Variation de stock : TTC +12 k€ ») ; sinon le
+ * s'il n'y en a pas ; l'ajustement nommé s'il est seul (« Variation de stock : +12 k€ ») ; sinon le
  * total, et la variation de stock quand elle en fait partie. `mois` (YYYY-MM) : le mois
  * sélectionné, rappelé dans la note (« Variation de stock — mai 2026 : +67 k€ »). Simple
  * présentation : aucun montant n'est recalculé autrement que par addition des lignes fournies.
@@ -246,11 +245,10 @@ const montantNote = (montant: number, ttc = false) => {
 export function noteAjustements(lignes: LigneAjustement[], mois: string | null = null): string[] {
   if (lignes.length === 0) return [];
   const contexte = mois === null ? "" : ` — ${libelleMois(mois).toLocaleLowerCase("fr")}`;
-  // Mention TTC sur la ligne principale seulement : la ligne « dont » qui la suit en relève.
-  if (lignes.length === 1) return [`${lignes[0].label}${contexte} : ${montantNote(lignes[0].montant, true)}`];
+  if (lignes.length === 1) return [`${lignes[0].label}${contexte} : ${montantNote(lignes[0].montant)}`];
   const total = lignes.reduce((somme, ligne) => somme + ligne.montant, 0);
   const stock = lignes.find((ligne) => ligne.type === TYPE_VARIATION_STOCK);
-  return [`Ajustements de gestion${contexte} : ${montantNote(total, true)}`, ...(stock ? [`dont ${stock.label} : ${montantNote(stock.montant)}`] : [])];
+  return [`Ajustements de gestion${contexte} : ${montantNote(total)}`, ...(stock ? [`dont ${stock.label} : ${montantNote(stock.montant)}`] : [])];
 }
 
 function somme(parts: PartMappee[]): number {

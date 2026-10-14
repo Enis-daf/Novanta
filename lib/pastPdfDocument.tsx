@@ -72,6 +72,11 @@ function ecrire(doc: jsPDF, texte: string, x: number, y: number, style: Style): 
   return largeur;
 }
 
+/** « TTC » en suffixe secondaire, juste après un texte déjà écrit qui se termine en `x`. */
+function ecrireMentionTTC(doc: jsPDF, x: number, y: number, taille: number) {
+  ecrire(doc, MENTION_TTC, x + taille * 0.45, y, { taille, couleur: NEUTRES.secondaire });
+}
+
 function trait(doc: jsPDF, x1: number, y: number, x2: number, couleur: string = NEUTRES.bordure, epaisseur = 0.6) {
   doc.setDrawColor(couleur);
   doc.setLineWidth(epaisseur);
@@ -182,7 +187,7 @@ async function blocStructure(
   );
   if (svg) {
     const anneau = await dessinerSvg(doc, svg, { x: zone.x, y: haut, l: cote, h: cote });
-    const total = textePdf(formatKiloEuros(structure.total, 1, { ttc: true }));
+    const total = textePdf(formatKiloEuros(structure.total));
     doc.setFont(POLICE, "bold");
     doc.setFontSize(9);
     ecrire(doc, total, anneau.x + anneau.l / 2 + doc.getTextWidth(total) / 2, anneau.y + anneau.h / 2 + 3, { taille: 9, gras: true, aDroite: true });
@@ -271,8 +276,6 @@ async function pageGeneral(doc: jsPDF, page: PageGeneralPdf, teintes: ReadonlyMa
   const xMontant = gauche.x + gauche.l - 62;
   const xRatio = gauche.x + gauche.l;
 
-  // Une seule mention pour toute la colonne des montants du P&L, comme à l'écran.
-  ecrire(doc, MENTION_TTC, xMontant, gauche.y - 2, { taille: 6.5, couleur: NEUTRES.secondaire, aDroite: true });
   let y = gauche.y;
   for (const ligne of lignes) {
     const hauteur = hauteurDe(ligne) * echelle;
@@ -284,7 +287,10 @@ async function pageGeneral(doc: jsPDF, page: PageGeneralPdf, teintes: ReadonlyMa
       const fort = ligne.niveau !== undefined;
       const taille = (ligne.niveau === "titre" ? 12 : ligne.niveau === "solde" ? 10.5 : 9.5) * echelle;
       const base = y + hauteur * 0.72;
-      ecrire(doc, ligne.libelle, gauche.x, base, { taille, gras: fort, couleur: fort ? NEUTRES.encre : NEUTRES.secondaire, largeurMax: xMontant - gauche.x - 90 });
+      const largeurLibelle = ecrire(doc, ligne.libelle, gauche.x, base, { taille, gras: fort, couleur: fort ? NEUTRES.encre : NEUTRES.secondaire, largeurMax: xMontant - gauche.x - 90 });
+      // Indicateur principal : « Marge brute TTC », la mention en petit, à la suite du nom ; les
+      // lignes de coûts restent sans mention, comme à l'écran.
+      if (fort) ecrireMentionTTC(doc, gauche.x + largeurLibelle, base, 7 * echelle);
       ecrire(doc, formatMontantComptable(ligne.montant), xMontant, base, { taille, gras: fort, aDroite: true });
       if (ligne.ratio !== undefined) {
         ecrire(doc, formatPourcentage(ligne.ratio), xRatio, base, { taille: 8.5 * echelle, couleur: NEUTRES.secondaire, aDroite: true });
@@ -348,7 +354,8 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   if (vue.kpi.categorie) {
     ecrire(doc, `· ${config.libelleDetail}`, gauche.x + largeurTitre + 6, gauche.y + 9, { taille: 8.5, couleur: NEUTRES.secondaire });
   }
-  ecrire(doc, formatMontant(vue.kpi.montant, { ttc: true }), gauche.x, gauche.y + 38, { taille: 26, gras: true });
+  const largeurKpi = ecrire(doc, formatMontant(vue.kpi.montant), gauche.x, gauche.y + 38, { taille: 26, gras: true });
+  ecrireMentionTTC(doc, gauche.x + largeurKpi, gauche.y + 38, 9);
   if (vue.kpi.ratio !== undefined) {
     ecrire(doc, `${formatPourcentage(vue.kpi.ratio)} du CA`, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
   } else if (vue.kpi.precision && vue.kpi.categorie === null) {

@@ -521,22 +521,22 @@ export default function PasseEcarts({
               <div>
                 <p className="passe-ecarts__kpi-libelle">{libelleCashFlow("A", periodeA)}</p>
                 <p className="passe-ecarts__kpi-valeur">
-                  <MentionTTC />
                   {formatMontant(comparaison.cashFlowA)}
+                  <MentionTTC />
                 </p>
               </div>
               <div>
                 <p className="passe-ecarts__kpi-libelle">{libelleCashFlow("B", periodeB)}</p>
                 <p className="passe-ecarts__kpi-valeur">
-                  <MentionTTC />
                   {formatMontant(comparaison.cashFlowB)}
+                  <MentionTTC />
                 </p>
               </div>
               <div>
                 <p className="eyebrow">Écart</p>
                 <p className="passe-ecarts__kpi-valeur">
-                  <MentionTTC />
                   <Contribution montant={comparaison.ecart} />
+                  <MentionTTC />
                 </p>
                 <p className="passe-kpi__ratio">
                   {comparaison.ecartRelatif === null ? "—" : `${comparaison.ecartRelatif > 0 ? "+" : ""}${formatPourcentage(comparaison.ecartRelatif)}`}
@@ -576,7 +576,7 @@ export default function PasseEcarts({
                         <tr>
                           <th>
                             Catégorie
-                            <MentionTTC position="apres" libelle={LIBELLE_MONTANTS_TTC} />
+                            <MentionTTC libelle={LIBELLE_MONTANTS_TTC} />
                           </th>
                           <th className="col-montant">{enTete("A")}</th>
                           <th className="col-montant">{enTete("B")}</th>
@@ -670,7 +670,7 @@ export default function PasseEcarts({
                     <th>Libellé</th>
                     <th className="col-montant">
                       Montant
-                      <MentionTTC position="apres" />
+                      <MentionTTC />
                     </th>
                   </tr>
                 </thead>
@@ -852,7 +852,7 @@ export default function PasseEcarts({
                     <tr>
                       <th>
                         Flux
-                        <MentionTTC position="apres" libelle={LIBELLE_MONTANTS_TTC} />
+                        <MentionTTC libelle={LIBELLE_MONTANTS_TTC} />
                       </th>
                       <th className="col-montant">{enTete("A")}</th>
                       <th className="col-montant">{enTete("B")}</th>

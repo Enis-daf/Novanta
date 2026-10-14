@@ -142,8 +142,8 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
           </p>
           {/* EBITDA : l'indicateur se lit en k€, comme sa cible et son écart — une seule unité. */}
           <p className="passe-kpi__montant">
-            <MentionTTC />
             {metrique === "ebitda" ? enK(vue.kpi.montant) : formatMontant(vue.kpi.montant)}
+            <MentionTTC />
           </p>
           {vue.kpi.ratio !== undefined && <p className="passe-kpi__ratio">{formatPourcentage(vue.kpi.ratio)} du CA</p>}
           {/* Cash flow : la lecture choisie est toujours rappelée sous l'indicateur. */}
@@ -166,12 +166,8 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
                   — un élément de diagnostic, pas la cible de l'EBITDA. */}
               {metrique === "ebitda" && ecartCible.coutsStructure && (
                 <div className="passe-kpi__sous-cible">
-                  <span>
-                    Coûts de structure : <MentionTTC />
-                    {enK(-ecartCible.montantCoutsStructure)}
-                  </span>
-                  {/* Même bloc : la mention TTC ci-dessus vaut aussi pour la cible et l'écart. */}
-                  <PasseEcartCible ecart={{ type: "couts", valeur: ecartCible.coutsStructure }} sansMentionTTC />
+                  <span>Coûts de structure : {enK(-ecartCible.montantCoutsStructure)}</span>
+                  <PasseEcartCible ecart={{ type: "couts", valeur: ecartCible.coutsStructure }} />
                 </div>
               )}
             </div>
@@ -281,7 +277,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
           <p
             className="passe-note-ajustements"
             title={[
-              ...vue.ajustements.lignes.map((ligne) => [`${ligne.label} : ${formatKiloEuros(ligne.montant, 1, { ttc: true })}`, ...ligne.notes].join(" — ")),
+              ...vue.ajustements.lignes.map((ligne) => [`${ligne.label} : ${formatKiloEuros(ligne.montant)}`, ...ligne.notes].join(" — ")),
               ...(vue.ajustements.nombreMasques > 0 ? [`+ ${vue.ajustements.nombreMasques} autre${vue.ajustements.nombreMasques > 1 ? "s" : ""}`] : []),
             ].join("\n")}
           >
@@ -305,7 +301,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
             <p className="passe-message">
               Ajustements de gestion (hors banque)
               <span className="passe-detail__compte"> {vue.ajustementsDetail.length}</span>
-              <MentionTTC position="apres" libelle={LIBELLE_MONTANTS_TTC} />
+              <MentionTTC libelle={LIBELLE_MONTANTS_TTC} />
             </p>
             <div className="passe-detail__ajustements-liste">
             <table className="passe-table">
@@ -356,7 +352,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
                     <th>Libellé</th>
                     <th className="col-montant">
                       Montant
-                      <MentionTTC position="apres" />
+                      <MentionTTC />
                     </th>
                     <th>Catégorie</th>
                   </tr>

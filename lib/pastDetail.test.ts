@@ -513,13 +513,13 @@ describe("note des ajustements de gestion sous le graphique", () => {
   });
 
   test("un seul ajustement : il est nommé, la variation de stock explicitement", () => {
-    assert.deepEqual(noteAjustements([stock]), ["Variation de stock : TTC +12 k€"]);
-    assert.deepEqual(noteAjustements([ligne("Prime lissée", -4_000)]), ["Prime lissée : TTC -4 k€"]);
+    assert.deepEqual(noteAjustements([stock]), ["Variation de stock : +12 k€"]);
+    assert.deepEqual(noteAjustements([ligne("Prime lissée", -4_000)]), ["Prime lissée : -4 k€"]);
   });
 
   test("plusieurs ajustements : le total, et la variation de stock quand elle en fait partie", () => {
-    assert.deepEqual(noteAjustements([stock, ligne("Provision", 3_000)]), ["Ajustements de gestion : TTC +15 k€", "dont Variation de stock : +12 k€"]);
-    assert.deepEqual(noteAjustements([ligne("Provision", 3_000), ligne("Prime lissée", -4_000)]), ["Ajustements de gestion : TTC -1 k€"]);
+    assert.deepEqual(noteAjustements([stock, ligne("Provision", 3_000)]), ["Ajustements de gestion : +15 k€", "dont Variation de stock : +12 k€"]);
+    assert.deepEqual(noteAjustements([ligne("Provision", 3_000), ligne("Prime lissée", -4_000)]), ["Ajustements de gestion : -1 k€"]);
   });
 
   test("la note dit ce que l'indicateur contient déjà : même total, calcul inchangé", () => {
@@ -530,7 +530,7 @@ describe("note des ajustements de gestion sous le graphique", () => {
     const sans = calculerDetail(parts, "cash_flow", SANS_FILTRE, PERIODE);
     const avec = calculerDetail(parts, "cash_flow", SANS_FILTRE, PERIODE, ajustements);
     assert.equal(avec.kpi.montant, sans.kpi.montant + 1_500);
-    assert.deepEqual(avec.ajustements.note, ["Ajustements de gestion : TTC +1,5 k€", "dont Variation de stock : +2 k€"]);
+    assert.deepEqual(avec.ajustements.note, ["Ajustements de gestion : +1,5 k€", "dont Variation de stock : +2 k€"]);
     assert.equal(avec.ajustements.lignes.length, 2);
   });
 });
@@ -543,12 +543,12 @@ describe("note des ajustements — Marge brute, période, mois et catégorie", (
   const vue = (filtres = SANS_FILTRE, ajustements = stocks) => calculerDetail(parts, "marge_brute", filtres, PERIODE, ajustements);
 
   test("période entière : la variation de stock de la période", () => {
-    assert.deepEqual(vue().ajustements.note, ["Variation de stock : TTC +47 k€"]);
+    assert.deepEqual(vue().ajustements.note, ["Variation de stock : +47 k€"]);
   });
 
   test("mois sélectionné : la variation de ce mois, le mois rappelé", () => {
-    assert.deepEqual(vue({ categorie: null, mois: "2026-08" }).ajustements.note, ["Variation de stock — août 2026 : TTC +67 k€"]);
-    assert.deepEqual(vue({ categorie: null, mois: "2026-09" }).ajustements.note, ["Variation de stock — septembre 2026 : TTC -20 k€"]);
+    assert.deepEqual(vue({ categorie: null, mois: "2026-08" }).ajustements.note, ["Variation de stock — août 2026 : +67 k€"]);
+    assert.deepEqual(vue({ categorie: null, mois: "2026-09" }).ajustements.note, ["Variation de stock — septembre 2026 : -20 k€"]);
     assert.deepEqual(vue({ categorie: null, mois: "2026-07" }).ajustements.note, []);
   });
 
@@ -559,7 +559,7 @@ describe("note des ajustements — Marge brute, période, mois et catégorie", (
 
   test("plusieurs ajustements sur un mois : total et variation de stock", () => {
     const autres = [...stocks, { id: "p", date: "2026-08-15", label: "Provision", montant: 5_000, etage: "gross_margin" as const, type: "manual", notes: null }];
-    assert.deepEqual(vue({ categorie: null, mois: "2026-08" }, autres).ajustements.note, ["Ajustements de gestion — août 2026 : TTC +72 k€", "dont Variation de stock : +67 k€"]);
+    assert.deepEqual(vue({ categorie: null, mois: "2026-08" }, autres).ajustements.note, ["Ajustements de gestion — août 2026 : +72 k€", "dont Variation de stock : +67 k€"]);
   });
 
   test("aucun ajustement : aucune note ; et la Marge brute ne change pas de valeur", () => {

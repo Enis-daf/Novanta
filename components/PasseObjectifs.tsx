@@ -346,7 +346,7 @@ function CoutsDeStructure({ cibles, dateParDefaut, onPoser, ...actions }: Pick<P
       <div className="passe-cibles__saisie">
         <span className="passe-controle__label">
           Montant mensuel cible
-          <MentionTTC position="apres" />
+          <MentionTTC />
         </span>
         <ObjectifCourant historique={historique} toutes={cibles} unite="€ / mois" {...actions} />
         <button type="button" className="btn-secondaire" aria-expanded={nouvelle !== null} onClick={() => setNouvelle(nouvelle ? null : { saisie: "", dateEffet: dateParDefaut })}>

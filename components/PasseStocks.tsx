@@ -66,7 +66,7 @@ export default function PasseStocks({ mois, stocks, sansStock, onDeclarerSansSto
             <tr>
               <th>
                 Mois
-                <MentionTTC position="apres" libelle={LIBELLE_MONTANTS_TTC} />
+                <MentionTTC libelle={LIBELLE_MONTANTS_TTC} />
               </th>
               <th className="col-montant">Stock fin de mois</th>
               <th className="col-montant">Variation calculée</th>

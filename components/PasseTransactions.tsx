@@ -777,7 +777,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       }
       if (pnl.nonMappees.nombreCategories > 0) {
         avertissements.push(
-          `Reporting incomplet : ${pluriel(pnl.nonMappees.nombreCategories, "catégorie reste", "catégories restent")} à mapper (${formatMontantComptable(pnl.nonMappees.montant, { ttc: true })} exclus des calculs).`
+          `Reporting incomplet : ${pluriel(pnl.nonMappees.nombreCategories, "catégorie reste", "catégories restent")} à mapper (${formatMontantComptable(pnl.nonMappees.montant)} exclus des calculs).`
         );
       }
       if (nombreSignesInhabituels > 0) {
@@ -1083,7 +1083,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
                         <th>Libellé</th>
                         <th className="col-montant">
                           Montant
-                          <MentionTTC position="apres" />
+                          <MentionTTC />
                         </th>
                         <th>Catégorie</th>
                         <th>Étage P&amp;L</th>

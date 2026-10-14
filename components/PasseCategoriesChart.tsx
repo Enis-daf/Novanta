@@ -3,7 +3,7 @@
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { decimalesAxeK, libelleBarreauK } from "./PasseEvolutionChart";
 import { graduationsAxe, NEUTRES, OPACITE_ATTENUEE, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
-import { formatMontant, formatKiloEuros } from "@/lib/format";
+import { formatMontant, formatKiloEuros, suffixeTTC } from "@/lib/format";
 
 type BarreCategorie = { cle: string; nom: string; montant: number };
 
@@ -21,7 +21,7 @@ function InfoBulle({ active, payload }: { active?: boolean; payload?: { payload:
   return (
     <div className="passe-structure__infobulle">
       <strong>{nom}</strong>
-      <span>{formatMontant(montant, { ttc: true })}</span>
+      <span>{suffixeTTC(formatMontant(montant))}</span>
     </div>
   );
 }

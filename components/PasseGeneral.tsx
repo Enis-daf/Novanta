@@ -1,6 +1,6 @@
 "use client";
 
-import MentionTTC, { LIBELLE_MONTANTS_TTC } from "./MentionTTC";
+import MentionTTC from "./MentionTTC";
 import { Fragment } from "react";
 import PasseEcartCible from "./PasseEcartCible";
 import PasseNotesAjustement from "./PasseNotesAjustement";
@@ -42,7 +42,12 @@ function Ligne({
 }) {
   return (
     <div className={`passe-pnl__ligne${niveau ? ` passe-pnl__ligne--${niveau}` : ""}`}>
-      <span className="passe-pnl__libelle">{libelle}</span>
+      <span className="passe-pnl__libelle">
+        {libelle}
+        {/* Indicateurs principaux seulement (titre, soldes, total) : ils posent le contexte TTC
+            pour les lignes de coûts qui les précèdent, qui restent sans mention. */}
+        {niveau && <MentionTTC />}
+      </span>
       <span className="passe-pnl__montant">{formatMontantComptable(montant)}</span>
       <span className="passe-pnl__ratio">{ratio === undefined ? "" : formatPourcentage(ratio)}</span>
     </div>
@@ -69,15 +74,7 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
   return (
     <div className="passe-general">
       {/* Colonne gauche : la performance. Un bloc par étage, répartis sur toute la hauteur. */}
-      <section className="passe-pnl" aria-label={`P&L synthétique, ${LIBELLE_MONTANTS_TTC}`}>
-        {/* Une seule mention pour toute la colonne des montants, au lieu d'un « TTC » par ligne. */}
-        <div className="passe-pnl__ligne passe-pnl__ligne--entete" aria-hidden="true">
-          <span />
-          <span className="passe-pnl__montant">
-            <MentionTTC position="apres" />
-          </span>
-          <span />
-        </div>
+      <section className="passe-pnl" aria-label="P&L synthétique">
         <div className="passe-pnl__bloc">
           <Ligne libelle="Chiffre d'affaires" montant={pnl.ca} niveau="titre" />
           <LignesAjustements lignes={pnl.ajustements.revenue} />
