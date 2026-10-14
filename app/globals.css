@@ -3212,3 +3212,34 @@ button.passe-cible--lien:focus-visible,
 .passe-detail__table {
   overflow-x: auto;
 }
+
+/* Mention « TTC » du module Passé : secondaire, jamais un badge. */
+.mention-ttc {
+  color: var(--couleur-texte-secondaire);
+  /* Plus petite que le montant, mais jamais illisible dans les lignes déjà en petit corps. */
+  font-size: max(0.72em, 10px);
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.mention-ttc--avant {
+  margin-right: 0.35em;
+}
+
+.mention-ttc--apres {
+  margin-left: 0.35em;
+}
+
+/* P&L : la mention unique au-dessus de la colonne des montants, sans hauteur de ligne pleine. */
+.passe-pnl__ligne--entete {
+  padding: 0;
+  line-height: 1;
+}
+
+/* Grands chiffres : la mention reste à la taille du texte courant, pas à celle du KPI. */
+.passe-kpi__montant .mention-ttc,
+.passe-ecarts__kpi-valeur .mention-ttc {
+  font-size: 13px;
+  vertical-align: middle;
+}
