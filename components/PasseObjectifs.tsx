@@ -1,7 +1,5 @@
 "use client";
 
-import MentionTTC from "./MentionTTC";
-import { MENTION_TTC } from "@/lib/format";
 import { Fragment, useState } from "react";
 import DateField from "./DateField";
 import { formatDateCourte } from "@/lib/dates";
@@ -344,10 +342,7 @@ function CoutsDeStructure({ cibles, dateParDefaut, onPoser, ...actions }: Pick<P
   return (
     <div className="passe-cibles__ligne">
       <div className="passe-cibles__saisie">
-        <span className="passe-controle__label">
-          Montant mensuel cible
-          <MentionTTC />
-        </span>
+        <span className="passe-controle__label">Montant mensuel cible</span>
         <ObjectifCourant historique={historique} toutes={cibles} unite="€ / mois" {...actions} />
         <button type="button" className="btn-secondaire" aria-expanded={nouvelle !== null} onClick={() => setNouvelle(nouvelle ? null : { saisie: "", dateEffet: dateParDefaut })}>
           {historique.length > 0 ? "Nouvelle cible" : "Définir"}
@@ -377,7 +372,7 @@ function CoutsDeStructure({ cibles, dateParDefaut, onPoser, ...actions }: Pick<P
             value={nouvelle.saisie}
             onChange={(e) => setNouvelle({ ...nouvelle, saisie: e.target.value })}
           />
-          <span>€ {MENTION_TTC} / mois à partir du</span>
+          <span>€ / mois à partir du</span>
           <DateField value={nouvelle.dateEffet} onChange={(dateEffet) => setNouvelle({ ...nouvelle, dateEffet })} effacable={false} />
           <button type="submit" className="btn-secondaire btn-module--actif" disabled={!valide}>
             Enregistrer
@@ -408,19 +403,19 @@ export default function PasseObjectifs({ cibles, categoriesCa, dateParDefaut, er
       )}
 
       <section className="passe-cibles__section">
-        <h3 className="eyebrow eyebrow--encre">Objectifs de marge par catégorie de CA</h3>
+        <h3 className="eyebrow eyebrow--encre">Objectifs de marge par catégorie d&apos;encaissements</h3>
         <p className="passe-message">
-          L&apos;objectif global de marge n&apos;est pas saisi : il est calculé en pondérant ces cibles par le CA réellement
-          réalisé dans chaque catégorie sur la période. Une cible s&apos;applique à partir de sa date d&apos;effet.
+          L&apos;objectif global de marge n&apos;est pas saisi : il est calculé en pondérant ces cibles par les
+          encaissements réels de chaque catégorie sur la période. Une cible s&apos;applique à partir de sa date d&apos;effet.
         </p>
         {categoriesCa.length === 0 ? (
-          <p className="passe-cibles__vide">Aucune catégorie n&apos;est rattachée à l&apos;étage CA pour le moment.</p>
+          <p className="passe-cibles__vide">Aucune catégorie n&apos;est rattachée à l&apos;étage Encaissements pour le moment.</p>
         ) : (
           <div className="table-wrapper">
             <table className="passe-table passe-cibles__table">
               <thead>
                 <tr>
-                  <th>Catégorie de CA</th>
+                  <th>Catégorie d&apos;encaissements</th>
                   <th>Marge brute cible</th>
                   <th>Marge contributive cible</th>
                   <th>

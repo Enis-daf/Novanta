@@ -145,7 +145,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
             {metrique === "ebitda" ? enK(vue.kpi.montant) : formatMontant(vue.kpi.montant)}
             <MentionTTC />
           </p>
-          {vue.kpi.ratio !== undefined && <p className="passe-kpi__ratio">{formatPourcentage(vue.kpi.ratio)} du CA</p>}
+          {vue.kpi.ratio !== undefined && <p className="passe-kpi__ratio">{formatPourcentage(vue.kpi.ratio)} des encaissements</p>}
           {/* Cash flow : la lecture choisie est toujours rappelée sous l'indicateur. */}
           {vue.kpi.precision && vue.kpi.categorie === null && <p className="passe-kpi__ratio">{vue.kpi.precision}</p>}
 

@@ -70,6 +70,7 @@ import {
   indexerMappings,
   lignesMapping,
   MappingCategorie,
+  LIBELLE_ENCAISSEMENTS,
 } from "@/lib/pastCategoryMapping";
 import {
   annulerValidationSigne,
@@ -121,7 +122,7 @@ const LIGNES_PAR_PAGE = 50;
 // l'ordre du P&L, puis l'analyse transversale), à droite ce qu'on RENSEIGNE ou configure.
 const ONGLETS = [
   { cle: "general", libelle: "Général" },
-  { cle: "ca", libelle: "CA" },
+  { cle: "ca", libelle: LIBELLE_ENCAISSEMENTS },
   { cle: "marge_brute", libelle: "Marge brute" },
   { cle: "marge_contributive", libelle: "Marge contributive" },
   { cle: "ebitda", libelle: "EBITDA" },

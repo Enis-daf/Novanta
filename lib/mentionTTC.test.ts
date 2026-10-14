@@ -93,7 +93,7 @@ describe("P&L (Général) : TTC après le nom des indicateurs principaux", () =>
   const suivi = (libelle: string) => lignes[lignes.indexOf(libelle) + 1];
 
   test("chaque indicateur principal est suivi de la mention", () => {
-    for (const principal of ["Chiffre d'affaires", "Marge brute", "Marge contributive", "EBITDA", "Cash flow opérationnel", "Variation de trésorerie"]) {
+    for (const principal of ["Encaissements", "Marge brute", "Marge contributive", "EBITDA", "Cash flow opérationnel", "Variation de trésorerie"]) {
       assert.ok(lignes.includes(principal), principal);
       assert.equal(suivi(principal), MENTION_TTC, principal);
     }

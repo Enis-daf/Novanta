@@ -8,7 +8,7 @@ import PasseStructureChart from "./PasseStructureChart";
 import { formatMontantComptable, formatPourcentage } from "@/lib/format";
 import { LigneAjustement } from "@/lib/pastAdjustments";
 import { EcartsVsCibles } from "@/lib/pastTargets";
-import { libelleEtagePnl } from "@/lib/pastCategoryMapping";
+import { LIBELLE_ENCAISSEMENTS, libelleEtagePnl } from "@/lib/pastCategoryMapping";
 import {
   ETAGES_COUTS,
   ETAGES_REVENUS,
@@ -76,7 +76,7 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
       {/* Colonne gauche : la performance. Un bloc par étage, répartis sur toute la hauteur. */}
       <section className="passe-pnl" aria-label="P&L synthétique">
         <div className="passe-pnl__bloc">
-          <Ligne libelle="Chiffre d'affaires" montant={pnl.ca} niveau="titre" />
+          <Ligne libelle={LIBELLE_ENCAISSEMENTS} montant={pnl.ca} niveau="titre" />
           <LignesAjustements lignes={pnl.ajustements.revenue} />
         </div>
         <div className="passe-pnl__bloc">

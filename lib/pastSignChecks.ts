@@ -15,7 +15,7 @@ import { PastTransactionStockee } from "./pastTransactions";
 export type TypeAnomalieSigne = "ca_negatif" | "cout_positif";
 
 export const LIBELLES_ANOMALIE_SIGNE: Record<TypeAnomalieSigne, string> = {
-  ca_negatif: "CA négatif",
+  ca_negatif: "Encaissements négatifs",
   cout_positif: "Coût positif",
 };
 

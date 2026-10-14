@@ -1,7 +1,7 @@
 import { estDateValide, parseDateISO } from "./dates";
 import { AjustementGestion, LigneAjustement, moisDe, regrouperAjustements, sommeAjustements, TYPE_VARIATION_STOCK } from "./pastAdjustments";
 import { formatKiloEuros } from "./format";
-import { EtagePnl, libelleEtagePnl, MappingCategorie, ventilerTransaction } from "./pastCategoryMapping";
+import { EtagePnl, libelleEtagePnl, MappingCategorie, ventilerTransaction, LIBELLE_ENCAISSEMENTS } from "./pastCategoryMapping";
 import { PnlCategorie, SensStructure, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
 
@@ -91,10 +91,10 @@ interface ConfigMetrique {
  */
 export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
   ca: {
-    libelle: "CA",
+    libelle: LIBELLE_ENCAISSEMENTS,
     etagesKpi: ["revenue"],
     etagesDetail: ["revenue"],
-    libelleDetail: "CA",
+    libelleDetail: LIBELLE_ENCAISSEMENTS,
     repartition: { type: "camembert", sens: "revenus", maxCategories: 5 },
     ratioSurCa: false,
     coutsAssocies: false,

@@ -207,9 +207,9 @@ describe("écart d'une marge à sa cible pondérée", () => {
 
   test("couverture 99 % : écart en k€ gardé, couverture dite en infobulle seulement", () => {
     const ecart = ecartDeMarge(970_000 / 2_475_000, 2_475_000, { valeur: 0.522, couverture: 0.99 });
-    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 52,2 %", ecart: "-321,9 k€ vs cible", reserve: "Cible calculée sur 99 % du CA" });
+    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 52,2 %", ecart: "-321,9 k€ vs cible", reserve: "Cible calculée sur 99 % des encaissements" });
     // Jamais « 100 % » tant que la couverture n'est pas complète.
-    assert.equal(libellesEcartMarge(ecartDeMarge(0.4, 100_000, { valeur: 0.5, couverture: 0.996 })).reserve, "Cible calculée sur 99 % du CA");
+    assert.equal(libellesEcartMarge(ecartDeMarge(0.4, 100_000, { valeur: 0.5, couverture: 0.996 })).reserve, "Cible calculée sur 99 % des encaissements");
     assert.equal(libellesEcartMarge(ecartDeMarge(0.4, 100_000, { valeur: 0.5, couverture: 0.9995 })).reserve, null);
   });
 
@@ -223,7 +223,7 @@ describe("écart d'une marge à sa cible pondérée", () => {
     const ecart = ecartDeMarge(0.61, 300_000, { valeur: 0.648333, couverture: 0.82 });
     assert.equal(ecart.statut, "defavorable");
     proche(ecart.ecartEuros!, -11_499.9, 0.01);
-    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 64,8 %", ecart: "-11,5 k€ vs cible", reserve: "Cible calculée sur 82 % du CA" });
+    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 64,8 %", ecart: "-11,5 k€ vs cible", reserve: "Cible calculée sur 82 % des encaissements" });
   });
 
   test("couverture trop faible : cible gardée, aucun écart en euros, aucun verdict", () => {
@@ -231,7 +231,7 @@ describe("écart d'une marge à sa cible pondérée", () => {
     const ecart = ecartDeMarge(0.61, 300_000, { valeur: 0.648333, couverture: 0.64 });
     assert.equal(ecart.statut, "incomplet");
     assert.equal(ecart.ecartEuros, null);
-    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 64,8 %", ecart: "cible incomplète", reserve: "Cible calculée sur 64 % du CA" });
+    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 64,8 %", ecart: "cible incomplète", reserve: "Cible calculée sur 64 % des encaissements" });
     proche(ecart.ecartPoints, -0.038333);
     assert.equal(ecartDeMarge(0.61, 300_000, { valeur: 0.648333, couverture: 0.8 }).statut, "defavorable");
   });
@@ -497,7 +497,7 @@ describe("EBITDA cible — dérivé de la Marge contributive cible et des Coûts
   test("couverture partielle de la Marge contributive : propagée, écart seulement indicatif", () => {
     const ecart = ecartDEbitda(130_000, 1_000_000, { valeur: 0.4, couverture: 0.82 }, complete(250_000));
     assert.equal(ecart.statut, "incomplet");
-    assert.deepEqual(libellesEcartEbitda(ecart), { cible: "Cible 150 k€", ecart: "-20 k€ (indicatif)", reserve: "Cible EBITDA calculée sur 82 % du CA" });
+    assert.deepEqual(libellesEcartEbitda(ecart), { cible: "Cible 150 k€", ecart: "-20 k€ (indicatif)", reserve: "Cible EBITDA calculée sur 82 % des encaissements" });
   });
 
   test("cible de coûts de structure ne couvrant qu'une partie de la période : dite aussi", () => {
@@ -587,7 +587,7 @@ describe("EBITDA cible dans les écarts d'une période — même calcul pour Gé
     const { ebitda } = ecarts([mcA, structure]);
     assert.equal(ebitda!.couvertureCa, 0.9);
     assert.equal(ebitda!.statut, "incomplet");
-    assert.equal(libellesEcartEbitda(ebitda!).reserve, "Cible EBITDA calculée sur 90 % du CA");
+    assert.equal(libellesEcartEbitda(ebitda!).reserve, "Cible EBITDA calculée sur 90 % des encaissements");
   });
 
   test("la cible de Marge brute n'entre pas dans l'EBITDA cible", () => {

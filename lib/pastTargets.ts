@@ -481,7 +481,7 @@ export function libellesEcartMarge(ecart: EcartMarge): LibellesCible {
   return {
     cible: `Cible ${espaces(formatPourcentage(ecart.cible))}`,
     ecart: ecart.ecartEuros === null ? "cible incomplète" : `${signe(ecart.ecartEuros, enK(ecart.ecartEuros))} vs cible`,
-    reserve: ecart.couverture < COUVERTURE_COMPLETE ? `Cible calculée sur ${pourcentageCouvert(ecart.couverture)} du CA` : null,
+    reserve: ecart.couverture < COUVERTURE_COMPLETE ? `Cible calculée sur ${pourcentageCouvert(ecart.couverture)} des encaissements` : null,
   };
 }
 
@@ -497,7 +497,7 @@ export const LIBELLE_EBITDA_INCOMPLET = "Objectif EBITDA incomplet";
 
 export function libellesEcartEbitda(ecart: EcartEbitda): LibellesCible {
   const reserves = [
-    ...(ecart.couvertureCa < COUVERTURE_COMPLETE ? [`Cible EBITDA calculée sur ${Math.round(ecart.couvertureCa * 100)} % du CA`] : []),
+    ...(ecart.couvertureCa < COUVERTURE_COMPLETE ? [`Cible EBITDA calculée sur ${Math.round(ecart.couvertureCa * 100)} % des encaissements`] : []),
     ...(ecart.couverturePeriode < COUVERTURE_COMPLETE ? [`Cible de coûts de structure définie sur ${Math.round(ecart.couverturePeriode * 100)} % de la période`] : []),
   ];
   const montant = signe(ecart.ecart, enK(ecart.ecart));

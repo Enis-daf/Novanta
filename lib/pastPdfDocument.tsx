@@ -8,7 +8,7 @@ import { formatDateCourte } from "./dates";
 import { NEUTRES, teintesDesParts } from "./dataviz";
 import { formatKiloEuros, formatMontant, formatMontantComptable, formatPourcentage, MENTION_TTC } from "./format";
 import { LigneAjustement } from "./pastAdjustments";
-import { libelleEtagePnl } from "./pastCategoryMapping";
+import { libelleEtagePnl, LIBELLE_ENCAISSEMENTS } from "./pastCategoryMapping";
 import { METRIQUES_DETAIL } from "./pastDetail";
 import { DISCLAIMER_PASSE, PageDetailPdf, PageGeneralPdf, PagePdf, textePdf } from "./pastPdfModel";
 import { ETAGES_COUTS, ETAGES_REVENUS, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
@@ -235,7 +235,7 @@ function lignesPnl(page: PageGeneralPdf): LignePnl[] {
       ...ligne.notes.map((texte) => ({ type: "note", texte }) as LignePnl),
     ]);
   return [
-    { type: "ligne", libelle: "Chiffre d'affaires", montant: pnl.ca, niveau: "titre" },
+    { type: "ligne", libelle: LIBELLE_ENCAISSEMENTS, montant: pnl.ca, niveau: "titre" },
     ...ajustements(pnl.ajustements.revenue),
     { type: "bloc" },
     { type: "ligne", libelle: "Coûts directs", montant: pnl.coutsDirects },
@@ -357,7 +357,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   const largeurKpi = ecrire(doc, formatMontant(vue.kpi.montant), gauche.x, gauche.y + 38, { taille: 26, gras: true });
   ecrireMentionTTC(doc, gauche.x + largeurKpi, gauche.y + 38, 9);
   if (vue.kpi.ratio !== undefined) {
-    ecrire(doc, `${formatPourcentage(vue.kpi.ratio)} du CA`, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
+    ecrire(doc, `${formatPourcentage(vue.kpi.ratio)} des encaissements`, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
   } else if (vue.kpi.precision && vue.kpi.categorie === null) {
     // Cash flow : le périmètre exporté (hors financement, comme l'écran à son ouverture) est dit.
     ecrire(doc, vue.kpi.precision, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
