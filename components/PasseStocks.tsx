@@ -1,5 +1,6 @@
 "use client";
 
+import MentionTTC, { LIBELLE_MONTANTS_TTC } from "./MentionTTC";
 import { useState } from "react";
 import { formatMontant } from "@/lib/format";
 import { notePeriodisationIncertaine, StockFinDeMois, variationsDeStock } from "@/lib/pastAdjustments";
@@ -63,7 +64,10 @@ export default function PasseStocks({ mois, stocks, sansStock, onDeclarerSansSto
         <table className="passe-table passe-stocks">
           <thead>
             <tr>
-              <th>Mois</th>
+              <th>
+                Mois
+                <MentionTTC position="apres" libelle={LIBELLE_MONTANTS_TTC} />
+              </th>
               <th className="col-montant">Stock fin de mois</th>
               <th className="col-montant">Variation calculée</th>
             </tr>

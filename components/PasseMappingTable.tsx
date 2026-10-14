@@ -1,5 +1,6 @@
 "use client";
 
+import MentionTTC from "./MentionTTC";
 import { formatMontant } from "@/lib/format";
 import {
   EtagePnl,
@@ -62,7 +63,10 @@ export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onCh
               <tr>
                 <th>Catégorie</th>
                 <th className="col-montant">Transactions sur la période</th>
-                <th className="col-montant">Montant sur la période</th>
+                <th className="col-montant">
+                  Montant sur la période
+                  <MentionTTC position="apres" />
+                </th>
                 <th>Étage P&amp;L</th>
                 <th>Statut</th>
               </tr>

@@ -1,5 +1,6 @@
 "use client";
 
+import MentionTTC, { LIBELLE_MONTANTS_TTC } from "./MentionTTC";
 import { Fragment } from "react";
 import PasseEcartCible from "./PasseEcartCible";
 import PasseNotesAjustement from "./PasseNotesAjustement";
@@ -68,7 +69,15 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
   return (
     <div className="passe-general">
       {/* Colonne gauche : la performance. Un bloc par étage, répartis sur toute la hauteur. */}
-      <section className="passe-pnl" aria-label="P&L synthétique">
+      <section className="passe-pnl" aria-label={`P&L synthétique, ${LIBELLE_MONTANTS_TTC}`}>
+        {/* Une seule mention pour toute la colonne des montants, au lieu d'un « TTC » par ligne. */}
+        <div className="passe-pnl__ligne passe-pnl__ligne--entete" aria-hidden="true">
+          <span />
+          <span className="passe-pnl__montant">
+            <MentionTTC position="apres" />
+          </span>
+          <span />
+        </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle="Chiffre d'affaires" montant={pnl.ca} niveau="titre" />
           <LignesAjustements lignes={pnl.ajustements.revenue} />

@@ -29,7 +29,7 @@ function InfoBulle({
   return (
     <div className="passe-structure__infobulle">
       <strong>{libelleMois(mois)}</strong>
-      <span>{formatMontant(montant)}</span>
+      <span>{formatMontant(montant, { ttc: true })}</span>
       {enValeurAbsolue && montant < 0 && <span className="passe-structure__note">Montant réel ; barreau en valeur absolue</span>}
     </div>
   );

@@ -21,7 +21,7 @@ function InfoBulle({ active, payload }: { active?: boolean; payload?: { payload:
   return (
     <div className="passe-structure__infobulle">
       <strong>{nom}</strong>
-      <span>{formatMontant(montant)}</span>
+      <span>{formatMontant(montant, { ttc: true })}</span>
     </div>
   );
 }

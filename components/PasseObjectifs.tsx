@@ -1,5 +1,7 @@
 "use client";
 
+import MentionTTC from "./MentionTTC";
+import { MENTION_TTC } from "@/lib/format";
 import { Fragment, useState } from "react";
 import DateField from "./DateField";
 import { formatDateCourte } from "@/lib/dates";
@@ -342,7 +344,10 @@ function CoutsDeStructure({ cibles, dateParDefaut, onPoser, ...actions }: Pick<P
   return (
     <div className="passe-cibles__ligne">
       <div className="passe-cibles__saisie">
-        <span className="passe-controle__label">Montant mensuel cible</span>
+        <span className="passe-controle__label">
+          Montant mensuel cible
+          <MentionTTC position="apres" />
+        </span>
         <ObjectifCourant historique={historique} toutes={cibles} unite="€ / mois" {...actions} />
         <button type="button" className="btn-secondaire" aria-expanded={nouvelle !== null} onClick={() => setNouvelle(nouvelle ? null : { saisie: "", dateEffet: dateParDefaut })}>
           {historique.length > 0 ? "Nouvelle cible" : "Définir"}
@@ -372,7 +377,7 @@ function CoutsDeStructure({ cibles, dateParDefaut, onPoser, ...actions }: Pick<P
             value={nouvelle.saisie}
             onChange={(e) => setNouvelle({ ...nouvelle, saisie: e.target.value })}
           />
-          <span>€ / mois à partir du</span>
+          <span>€ {MENTION_TTC} / mois à partir du</span>
           <DateField value={nouvelle.dateEffet} onChange={(dateEffet) => setNouvelle({ ...nouvelle, dateEffet })} effacable={false} />
           <button type="submit" className="btn-secondaire btn-module--actif" disabled={!valide}>
             Enregistrer

@@ -1,5 +1,7 @@
 "use client";
 
+import MentionTTC from "./MentionTTC";
+import { MENTION_TTC } from "@/lib/format";
 import { useState } from "react";
 import {
   EcartCouts,
@@ -63,10 +65,12 @@ interface PasseEcartCibleProps {
   onOuvrir?: () => void;
   onDefinir?: () => void;
   libelleLien?: string;
+  // Le bloc parent affiche déjà la mention TTC pour ces montants : ne pas la répéter.
+  sansMentionTTC?: boolean;
 }
 
 /** Cible et écart d'un indicateur : « Cible 44,0 % ⓘ · -27 k€ vs cible ». */
-export default function PasseEcartCible({ ecart, onOuvrir, onDefinir, libelleLien }: PasseEcartCibleProps) {
+export default function PasseEcartCible({ ecart, onOuvrir, onDefinir, libelleLien, sansMentionTTC = false }: PasseEcartCibleProps) {
   if (ecart.valeur === null) {
     const incomplet = ecart.type === "ebitda" && ecart.incomplet;
     if (onDefinir) {
@@ -80,12 +84,23 @@ export default function PasseEcartCible({ ecart, onOuvrir, onDefinir, libelleLie
   }
   const libelles =
     ecart.type === "marge" ? libellesEcartMarge(ecart.valeur) : ecart.type === "couts" ? libellesEcartCouts(ecart.valeur) : libellesEcartEbitda(ecart.valeur);
-  const cible = <span className="passe-cible__valeur">{libelles.cible}</span>;
+  // Une seule mention TTC par ligne : devant la cible quand elle est en euros (elle vaut alors aussi
+  // pour l'écart), sinon devant l'écart en euros (cible de marge en %).
+  const mention = sansMentionTTC ? null : libelles.mentionTTC;
+  const cible = (
+    <span className="passe-cible__valeur">
+      {mention === "cible" && <MentionTTC />}
+      {libelles.cible}
+    </span>
+  );
   const info = libelles.reserve && <InfoCible texte={libelles.reserve} />;
   const valeurEcart = (
     <>
       <span aria-hidden="true">· </span>
-      <span className={`passe-ecart${CLASSES[ecart.valeur.statut]}`}>{libelles.ecart}</span>
+      <span className={`passe-ecart${CLASSES[ecart.valeur.statut]}`}>
+        {mention === "ecart" && <MentionTTC />}
+        {libelles.ecart}
+      </span>
     </>
   );
   if (!onOuvrir) {
@@ -105,7 +120,7 @@ export default function PasseEcartCible({ ecart, onOuvrir, onDefinir, libelleLie
         {cible}
       </button>
       {info}
-      <button type="button" className="passe-cible__lien" onClick={onOuvrir} aria-label={`${libelles.cible}, ${libelles.ecart}. ${libelleLien ?? "Voir le détail"}`}>
+      <button type="button" className="passe-cible__lien" onClick={onOuvrir} aria-label={`${libelles.cible}, ${libelles.ecart}${mention ? ` (montants ${MENTION_TTC})` : ""}. ${libelleLien ?? "Voir le détail"}`}>
         {valeurEcart}
       </button>
     </div>

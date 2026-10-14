@@ -6,7 +6,7 @@ import PasseEvolutionChart from "@/components/PasseEvolutionChart";
 import PasseStructureChart from "@/components/PasseStructureChart";
 import { formatDateCourte } from "./dates";
 import { NEUTRES, teintesDesParts } from "./dataviz";
-import { formatKiloEuros, formatMontant, formatMontantComptable, formatPourcentage } from "./format";
+import { formatKiloEuros, formatMontant, formatMontantComptable, formatPourcentage, MENTION_TTC } from "./format";
 import { LigneAjustement } from "./pastAdjustments";
 import { libelleEtagePnl } from "./pastCategoryMapping";
 import { METRIQUES_DETAIL } from "./pastDetail";
@@ -182,7 +182,7 @@ async function blocStructure(
   );
   if (svg) {
     const anneau = await dessinerSvg(doc, svg, { x: zone.x, y: haut, l: cote, h: cote });
-    const total = textePdf(formatKiloEuros(structure.total));
+    const total = textePdf(formatKiloEuros(structure.total, 1, { ttc: true }));
     doc.setFont(POLICE, "bold");
     doc.setFontSize(9);
     ecrire(doc, total, anneau.x + anneau.l / 2 + doc.getTextWidth(total) / 2, anneau.y + anneau.h / 2 + 3, { taille: 9, gras: true, aDroite: true });
@@ -271,6 +271,8 @@ async function pageGeneral(doc: jsPDF, page: PageGeneralPdf, teintes: ReadonlyMa
   const xMontant = gauche.x + gauche.l - 62;
   const xRatio = gauche.x + gauche.l;
 
+  // Une seule mention pour toute la colonne des montants du P&L, comme à l'écran.
+  ecrire(doc, MENTION_TTC, xMontant, gauche.y - 2, { taille: 6.5, couleur: NEUTRES.secondaire, aDroite: true });
   let y = gauche.y;
   for (const ligne of lignes) {
     const hauteur = hauteurDe(ligne) * echelle;
@@ -346,7 +348,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   if (vue.kpi.categorie) {
     ecrire(doc, `· ${config.libelleDetail}`, gauche.x + largeurTitre + 6, gauche.y + 9, { taille: 8.5, couleur: NEUTRES.secondaire });
   }
-  ecrire(doc, formatMontant(vue.kpi.montant), gauche.x, gauche.y + 38, { taille: 26, gras: true });
+  ecrire(doc, formatMontant(vue.kpi.montant, { ttc: true }), gauche.x, gauche.y + 38, { taille: 26, gras: true });
   if (vue.kpi.ratio !== undefined) {
     ecrire(doc, `${formatPourcentage(vue.kpi.ratio)} du CA`, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
   } else if (vue.kpi.precision && vue.kpi.categorie === null) {
@@ -421,7 +423,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
     const entete = { taille: 6.5, gras: true, capitales: true, couleur: NEUTRES.secondaire };
     ecrire(doc, "Date", colonnes.date, y, entete);
     ecrire(doc, "Libellé", colonnes.libelle, y, entete);
-    ecrire(doc, "Montant", colonnes.montant, y, { ...entete, aDroite: true });
+    ecrire(doc, `Montant ${MENTION_TTC}`, colonnes.montant, y, { ...entete, aDroite: true });
     ecrire(doc, "Catégorie", colonnes.categorie, y, entete);
     y += 5;
     trait(doc, x, y, x + largeur, NEUTRES.secondaire, 0.5);
@@ -450,7 +452,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   if (lignes.length > 0) {
     y += 18;
     const largeurTitreAjustements = titreBloc(doc, "Ajustements de gestion", x, y);
-    ecrire(doc, "hors banque, compris dans l'indicateur", x + largeurTitreAjustements + 8, y, { taille: 6.5, couleur: NEUTRES.secondaire });
+    ecrire(doc, `hors banque, compris dans l'indicateur · montants ${MENTION_TTC}`, x + largeurTitreAjustements + 8, y, { taille: 6.5, couleur: NEUTRES.secondaire });
     y += 6;
     let affichees = 0;
     for (const ligne of lignes) {
