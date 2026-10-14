@@ -68,11 +68,11 @@ describe("getMe — GET /api/external/v2/me", () => {
     });
   });
 
-  test("404 : endpoint/base URL incorrect -> reason 'unknown', jamais imputé au token de l'utilisateur", async () => {
+  test("404 : endpoint/base URL incorrect -> reason 'not_found', jamais imputé au token de l'utilisateur", async () => {
     installerFetchMock([jsonResponse(404, {})]);
     await assert.rejects(() => getMe(provider()), (err: unknown) => {
       assert.ok(err instanceof PennylaneApiError);
-      assert.equal(err.reason, "unknown");
+      assert.equal(err.reason, "not_found");
       assert.equal(err.httpStatus, 404);
       return true;
     });
@@ -317,5 +317,79 @@ describe("mode Pennylane : réel ou mock, jamais mélangés", () => {
     process.env.PENNYLANE_API_BASE_URL = "";
     installerFetchMock([jsonResponse(401, { error: "unauthorized" })]);
     await assert.rejects(getMe(provider()), (erreur: unknown) => erreur instanceof PennylaneApiError && erreur.reason === "invalid_token");
+  });
+});
+
+describe("échecs Pennylane : cause exacte, endpoint, journaux sans secret", () => {
+  const journal: string[] = [];
+  let warnOriginal: typeof console.warn;
+  beforeEach(() => {
+    journal.length = 0;
+    warnOriginal = console.warn;
+    console.warn = (...args: unknown[]) => journal.push(args.join(" "));
+  });
+  afterEach(() => {
+    console.warn = warnOriginal;
+  });
+
+  const cas: [number, string][] = [
+    [401, "invalid_token"],
+    [403, "insufficient_scope"],
+    [404, "not_found"],
+    [500, "unavailable"],
+    [422, "unknown"],
+  ];
+  for (const [statut, raison] of cas) {
+    test(`HTTP ${statut} -> ${raison}, avec l'endpoint appelé`, async () => {
+      installerFetchMock([jsonResponse(statut, { error: "détail Pennylane" })]);
+      await assert.rejects(listSupplierInvoices(provider()), (err: unknown) => {
+        assert.ok(err instanceof PennylaneApiError);
+        assert.equal(err.reason, raison);
+        assert.equal(err.httpStatus, statut);
+        assert.equal(err.endpoint, "/api/external/v2/supplier_invoices");
+        return true;
+      });
+      assert.equal(journal.length, 1);
+      assert.match(journal[0], new RegExp(`GET /api/external/v2/supplier_invoices -> HTTP ${statut} reason=${raison}`));
+      assert.equal(journal[0].includes(TOKEN_FACTICE), false, "jamais le token dans les journaux");
+    });
+  }
+
+  test("aucune réponse (réseau) -> network, jamais une autorisation manquante", async () => {
+    global.fetch = (async () => {
+      throw new TypeError("fetch failed");
+    }) as typeof fetch;
+    await assert.rejects(listTransactions(provider(), "2026-01-01", "2026-01-31"), (err: unknown) => {
+      assert.ok(err instanceof PennylaneApiError);
+      assert.equal(err.reason, "network");
+      assert.equal(err.endpoint, "/api/external/v2/transactions");
+      return true;
+    });
+    assert.match(journal[0], /aucune réponse reason=network/);
+  });
+
+  test("429 persistant -> rate_limited", async () => {
+    installerFetchMock([jsonResponse(429, {}, { "retry-after": "0.001" })]);
+    await assert.rejects(getMe(provider()), (err: unknown) => err instanceof PennylaneApiError && err.reason === "rate_limited");
+  });
+
+  test("token valide, transactions lisibles -> aucune erreur, aucun journal", async () => {
+    installerFetchMock([jsonResponse(200, {}), jsonResponse(200, { items: [], has_more: false, next_cursor: null })]);
+    await getMe(provider());
+    await listTransactions(provider(), "2026-01-01", "2026-01-01");
+    assert.deepEqual(journal, []);
+  });
+
+  test("en Production, le corps de l'erreur Pennylane n'est jamais journalisé", async () => {
+    const vercelEnv = process.env.VERCEL_ENV;
+    process.env.VERCEL_ENV = "production";
+    try {
+      installerFetchMock([jsonResponse(403, { error: "détail Pennylane" })]);
+      await assert.rejects(getMe(provider()));
+      assert.equal(journal[0].includes("détail Pennylane"), false);
+    } finally {
+      if (vercelEnv === undefined) delete process.env.VERCEL_ENV;
+      else process.env.VERCEL_ENV = vercelEnv;
+    }
   });
 });

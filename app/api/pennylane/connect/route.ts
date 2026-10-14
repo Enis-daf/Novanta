@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
   } catch (erreur) {
     if (erreur instanceof PennylaneApiError) {
       console.log(`[pennylane/connect] /me returned ${erreur.httpStatus ?? "?"} reason=${erreur.reason}`);
-      return NextResponse.json({ error: messageErreurConnexionInitiale(erreur.reason) }, { status: 400 });
+      return NextResponse.json({ error: messageErreurConnexionInitiale(erreur.reason, erreur.endpoint) }, { status: 400 });
     }
     console.error("[pennylane/connect] /me: erreur inattendue", erreur);
     return NextResponse.json({ error: MESSAGE_CONFIG_SERVEUR }, { status: 500 });
@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
   } catch (erreur) {
     if (erreur instanceof PennylaneApiError) {
       console.log(`[pennylane/connect] transactions returned ${erreur.httpStatus ?? "?"} reason=${erreur.reason}`);
-      return NextResponse.json({ error: messageErreurConnexionInitiale(erreur.reason) }, { status: 400 });
+      return NextResponse.json({ error: messageErreurConnexionInitiale(erreur.reason, erreur.endpoint) }, { status: 400 });
     }
     console.error("[pennylane/connect] transactions: erreur inattendue", erreur);
     return NextResponse.json({ error: MESSAGE_CONFIG_SERVEUR }, { status: 500 });

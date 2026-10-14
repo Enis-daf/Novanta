@@ -16,7 +16,12 @@ import {
   CandidatsPennylane,
 } from "@/lib/pennylaneInvoiceAdapter";
 import { cleChiffrementConfiguree } from "@/lib/pennylaneCrypto";
-import { MESSAGE_CONFIG_SERVEUR, codeErreurPennylane, messageErreurUtilisationPennylane } from "@/lib/pennylaneMessages";
+import {
+  MESSAGE_CONFIG_SERVEUR,
+  codeErreurPennylane,
+  messageAutorisationsFacturesManquantes,
+  messageErreurUtilisationPennylane,
+} from "@/lib/pennylaneMessages";
 
 interface ReponseType {
   clientCandidates: CandidatFacturePennylane[] | null;
@@ -96,10 +101,18 @@ export async function POST(req: NextRequest) {
     erreurFournisseurs: null,
   };
 
+  // Raisons des échecs, par catégorie, pour un message unique quand les deux sont refusées.
+  const raisons: Partial<Record<"clients" | "fournisseurs", string>> = {};
   const traiterErreur = async (categorie: "clients" | "fournisseurs", erreur: unknown): Promise<string> => {
     if (erreur instanceof PennylaneApiError) {
-      console.log(`[pennylane/invoices] Pennylane returned ${erreur.httpStatus ?? "?"} reason=${erreur.reason} categorie=${categorie}`);
-      if (erreur.reason === "invalid_token" || erreur.reason === "insufficient_scope") {
+      raisons[categorie] = erreur.reason;
+      console.log(
+        `[pennylane/invoices] Pennylane returned ${erreur.httpStatus ?? "?"} reason=${erreur.reason} endpoint=${erreur.endpoint ?? "?"} categorie=${categorie}`
+      );
+      // Seul un token refusé (401) rend la connexion invalide. Une autorisation de factures
+      // manquante (403) ne dit rien du token pour les transactions, que la connexion exige : la
+      // connexion reste valide, seule cette synchronisation échoue, avec sa cause exacte.
+      if (erreur.reason === "invalid_token") {
         try {
           await marquerResultatTestPennylane(supabaseAdmin!, companyId, {
             status: "invalid",
@@ -109,7 +122,7 @@ export async function POST(req: NextRequest) {
           console.error(`[pennylane/invoices] DB save (statut invalide) failed ${resumeErreurSupabaseSansSecret(dbErreur)}`);
         }
       }
-      return messageErreurUtilisationPennylane(erreur.reason);
+      return messageErreurUtilisationPennylane(erreur.reason, erreur.endpoint);
     }
     console.error(`[pennylane/invoices] erreur inattendue en contactant Pennylane (${categorie})`, erreur);
     return MESSAGE_CONFIG_SERVEUR;
@@ -133,7 +146,11 @@ export async function POST(req: NextRequest) {
 
   if (resultat.clientCandidates === null && resultat.fournisseurCandidates === null) {
     // Échec total : un seul message d'erreur exploitable, jamais deux messages redondants.
-    return NextResponse.json({ error: resultat.erreurClients ?? resultat.erreurFournisseurs }, { status: 400 });
+    const deuxAutorisationsManquantes = raisons.clients === "insufficient_scope" && raisons.fournisseurs === "insufficient_scope";
+    return NextResponse.json(
+      { error: deuxAutorisationsManquantes ? messageAutorisationsFacturesManquantes() : (resultat.erreurClients ?? resultat.erreurFournisseurs) },
+      { status: 400 }
+    );
   }
 
   return NextResponse.json(resultat);

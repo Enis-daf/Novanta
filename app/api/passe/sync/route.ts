@@ -160,7 +160,7 @@ export async function POST(req: NextRequest) {
           console.error(`[passe/sync] DB save (statut invalide) failed ${resumeErreurSupabaseSansSecret(dbErreur)}`);
         }
       }
-      return NextResponse.json({ error: messageErreurUtilisationPennylane(erreur.reason) }, { status: 400 });
+      return NextResponse.json({ error: messageErreurUtilisationPennylane(erreur.reason, erreur.endpoint) }, { status: 400 });
     }
     const err = erreur as { code?: string; message?: string } | null;
     console.error(`[passe/sync] échec code=${err?.code ?? "inconnu"} message=${err?.message ?? "inconnu"}`);
