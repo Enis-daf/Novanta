@@ -9,6 +9,7 @@ import {
   FactureFusionnable,
   normaliserNumero,
   planFusion,
+  rattachementPossible,
 } from "./doublonsFactures";
 import { calculerSynchronisation, CandidatFacturePennylane, FactureExistantePourSync } from "./pennylaneInvoiceAdapter";
 
@@ -159,19 +160,32 @@ describe("fusion conservatrice", () => {
     ...extra,
   });
 
-  test("4 + 5. ligne Novanta modifiée + import Pennylane : la ligne Novanta reste avec ses réglages et reçoit l'identité source", () => {
-    const novanta = ligne("nov", null, { datePrevue: "2026-10-16" });
-    const source = ligne("pl", "pl-28387979223040");
+  test("4. ligne Novanta modifiée (date) + import Pennylane, même montant : la ligne Novanta reste et reçoit l'identité source", () => {
+    const novanta = ligne("nov", null, { montant: 12_086, datePrevue: "2026-10-16" });
+    const source = ligne("pl", "pl-29540726988800", { montant: 12_086.4 });
     const plan = planFusion(novanta, source);
     assert.ok(plan.possible);
     if (!plan.possible) return;
     assert.equal(plan.survivantId, "nov");
     assert.equal(plan.surnumeraireId, "pl");
-    assert.equal(plan.pennylaneIdATransferer, "pl-28387979223040");
+    assert.equal(plan.pennylaneIdATransferer, "pl-29540726988800");
     assert.deepEqual(
       plan.ecarts.map((e) => e.replace(/[\u202f\u00a0]/g, " ")),
-      ["Montant : 24 360 € / 34 800 €", "Date prévue : 2026-10-16 / 2026-10-04"]
+      ["Montant : 12 086 € / 12 086,4 €", "Date prévue : 2026-10-16 / 2026-10-04"]
     );
+  });
+
+  test("5. montants différents (au-delà de l'arrondi) : jamais fusionnés, question laissée ouverte", () => {
+    const plan = planFusion(ligne("nov", null), ligne("pl", "pl-28387979223040"));
+    assert.equal(plan.possible, false);
+    if (!plan.possible) assert.match(plan.motif, /Montants différents : à vérifier et traiter à la main/);
+  });
+
+  test("rattachement d'un clic proposé seulement si les montants concordent", () => {
+    const meme = comparerFactures(f("PE080084/L26", "FLS PEMP Cuxac", 12_086), f("PE080084/L26", "FLS", 12_086.4), FOURNISSEUR);
+    const different = comparerFactures(f("FR-SI-262792", "TKH 200miniPTZ", 24_360), f("FR-SI-262792", "TKH SECURITY SAS", 34_800), FOURNISSEUR);
+    assert.equal(rattachementPossible(meme), true);
+    assert.equal(rattachementPossible(different), false);
   });
 
   test("ligne Pennylane elle aussi modifiée : pas de fusion automatique, décision de l'utilisateur", () => {

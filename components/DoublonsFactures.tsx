@@ -2,7 +2,7 @@
 
 import { formatDateCourte } from "@/lib/dates";
 import { formatMontant } from "@/lib/format";
-import { DetectionDoublon, FactureFusionnable, PaireDoublon, planFusion } from "@/lib/doublonsFactures";
+import { DetectionDoublon, FactureFusionnable, MOTIF_MONTANTS_DIFFERENTS, PaireDoublon, planFusion, rattachementPossible } from "@/lib/doublonsFactures";
 import { RattachementPropose } from "@/lib/pennylaneInvoiceAdapter";
 
 interface DoublonsFacturesProps {
@@ -78,14 +78,23 @@ export default function DoublonsFactures({
                 <Ligne titre="Déjà dans Novanta" facture={existante.facture} tiers={existante.tiers} montant={existante.montant} echeance={existante.dateEcheance} />
                 <Ligne titre="Reçue de Pennylane" facture={r.candidat.facture} tiers={r.candidat.tiers} montant={r.candidat.montant} echeance={r.candidat.dateEcheance} />
               </div>
-              <p className="doublons-cote__detail">
-                Rattacher conserve la ligne Novanta telle quelle (montant, date prévue, statuts) et la relie à la facture
-                Pennylane : elle ne sera plus jamais importée en double.
-              </p>
+              {rattachementPossible(r.detection) ? (
+                <p className="doublons-cote__detail">
+                  Rattacher conserve la ligne Novanta telle quelle (montant, date prévue, statuts) et la relie à la facture
+                  Pennylane : elle ne sera plus jamais importée en double.
+                </p>
+              ) : (
+                <p className="doublons-cote__detail">
+                  {MOTIF_MONTANTS_DIFFERENTS}. La facture Pennylane n&apos;est pas importée tant que vous n&apos;avez pas
+                  décidé : corrigez ou retirez la ligne Novanta si besoin.
+                </p>
+              )}
               <div className="doublons-carte__actions">
-                <button type="button" className="btn-add" onClick={() => onRattacher(r)}>
-                  Rattacher à la facture existante
-                </button>
+                {rattachementPossible(r.detection) && (
+                  <button type="button" className="btn-add" onClick={() => onRattacher(r)}>
+                    Rattacher à la facture existante
+                  </button>
+                )}
                 <button type="button" className="btn-secondaire" onClick={() => onImporterSeparement(r)}>
                   Importer comme facture distincte
                 </button>

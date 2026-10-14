@@ -282,6 +282,17 @@ export type PlanFusion =
     }
   | { possible: false; motif: string };
 
+export const MOTIF_MONTANTS_DIFFERENTS = "Montants différents : à vérifier et traiter à la main";
+
+/**
+ * Une facture Pennylane peut-elle être rattachée d'un clic à la ligne Novanta qu'elle semble
+ * dupliquer ? Seulement si les montants concordent (à l'arrondi près) : sinon, même règle que pour
+ * la fusion, la question reste ouverte.
+ */
+export function rattachementPossible(detection: DetectionDoublon): boolean {
+  return detection.signaux.includes("montant_identique") || detection.signaux.includes("montant_arrondi");
+}
+
 const formatEuros = (montant: number) => `${montant.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} €`;
 
 /**
@@ -299,6 +310,11 @@ const formatEuros = (montant: number) => `${montant.toLocaleString("fr-FR", { ma
 export function planFusion(a: FactureFusionnable, b: FactureFusionnable): PlanFusion {
   if (a.pennylaneId && b.pennylaneId && a.pennylaneId !== b.pennylaneId) {
     return { possible: false, motif: "Deux documents Pennylane distincts : archivez le doublon dans Pennylane." };
+  }
+  // Montants différents (au-delà d'un arrondi à l'euro) : la question reste ouverte. Aucune des deux
+  // valeurs n'est retenue d'office ; l'utilisateur traite la paire à la main.
+  if (comparerMontants(a.montant, b.montant) === null) {
+    return { possible: false, motif: `${MOTIF_MONTANTS_DIFFERENTS} (${formatEuros(a.montant)} / ${formatEuros(b.montant)}).` };
   }
   const ecarts = [
     ...(Math.abs(a.montant - b.montant) >= EGALITE_CENTIME ? [`Montant : ${formatEuros(a.montant)} / ${formatEuros(b.montant)}`] : []),
