@@ -78,13 +78,16 @@ export function estNumeroFiable(numero: string | null | undefined): boolean {
 // --- Montant ---
 
 const EGALITE_CENTIME = 0.005;
-// Tolérance d'arrondi à l'euro, et rien de plus : une saisie arrondie (1 641 € pour 1 641,67 €).
+// Montants « quasi identiques » : un arrondi de saisie à l'euro (1 641 € pour 1 641,67 €), ou un
+// écart d'au plus 1 % du plus grand des deux. Au-delà, ce sont des montants différents (choix
+// produit validé : jamais de tolérance plus large).
 const TOLERANCE_ARRONDI = 1;
+export const TOLERANCE_RELATIVE_MONTANT = 0.01;
 
 function comparerMontants(a: number, b: number): "identique" | "arrondi" | null {
   const ecart = Math.abs(a - b);
   if (ecart < EGALITE_CENTIME) return "identique";
-  if (ecart < TOLERANCE_ARRONDI) return "arrondi";
+  if (ecart < TOLERANCE_ARRONDI || ecart <= TOLERANCE_RELATIVE_MONTANT * Math.max(Math.abs(a), Math.abs(b))) return "arrondi";
   return null;
 }
 
@@ -286,7 +289,7 @@ export const MOTIF_MONTANTS_DIFFERENTS = "Montants différents : à vérifier et
 
 /**
  * Une facture Pennylane peut-elle être rattachée d'un clic à la ligne Novanta qu'elle semble
- * dupliquer ? Seulement si les montants concordent (à l'arrondi près) : sinon, même règle que pour
+ * dupliquer ? Seulement si les montants concordent (à l'arrondi ou à 1 % près) : sinon, même règle que pour
  * la fusion, la question reste ouverte.
  */
 export function rattachementPossible(detection: DetectionDoublon): boolean {
@@ -311,7 +314,7 @@ export function planFusion(a: FactureFusionnable, b: FactureFusionnable): PlanFu
   if (a.pennylaneId && b.pennylaneId && a.pennylaneId !== b.pennylaneId) {
     return { possible: false, motif: "Deux documents Pennylane distincts : archivez le doublon dans Pennylane." };
   }
-  // Montants différents (au-delà d'un arrondi à l'euro) : la question reste ouverte. Aucune des deux
+  // Montants différents (au-delà d'un arrondi à l'euro et de 1 %) : la question reste ouverte. Aucune des deux
   // valeurs n'est retenue d'office ; l'utilisateur traite la paire à la main.
   if (comparerMontants(a.montant, b.montant) === null) {
     return { possible: false, motif: `${MOTIF_MONTANTS_DIFFERENTS} (${formatEuros(a.montant)} / ${formatEuros(b.montant)}).` };

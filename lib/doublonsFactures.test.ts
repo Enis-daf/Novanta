@@ -63,11 +63,13 @@ describe("hiérarchie des signaux", () => {
     assert.equal(d.raison, "Même n° de facture · même montant");
   });
 
-  test("3. même n° + montant quasi identique (arrondi à l'euro) : confiance renforcée", () => {
+  test("3. même n° + montant quasi identique (arrondi à l'euro, ou écart d'au plus 1 %) : confiance renforcée", () => {
     const d = statut(f("ZZ-20261", "Alpha", 34_171), f("ZZ-20261", "Omega", 34_171.2));
     assert.equal(d.statut, "SAME_DOCUMENT");
     assert.deepEqual(d.signaux.includes("montant_arrondi"), true);
-    assert.equal(statut(f("ZZ-20261", "Alpha", 34_171), f("ZZ-20261", "Omega", 34_175)).statut, "REVIEW", "au-delà de l'arrondi : plus de signal montant");
+    assert.ok(statut(f("ZZ-20261", "Alpha", 10_000), f("ZZ-20261", "Omega", 10_100)).signaux.includes("montant_arrondi"), "1 % : quasi identique");
+    assert.equal(statut(f("ZZ-20261", "Alpha", 10_000), f("ZZ-20261", "Omega", 10_150)).statut, "REVIEW", "au-delà de 1 % : plus de signal montant");
+    assert.ok(statut(f("ZZ-20261", "Alpha", 15.2), f("ZZ-20261", "Omega", 15.84)).signaux.includes("montant_arrondi"), "petit montant : arrondi à l'euro");
   });
 
   test("4. même n° + fournisseur similaire : confiance renforcée", () => {
