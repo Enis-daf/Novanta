@@ -9,6 +9,7 @@
  */
 import { PennylaneCustomerInvoiceListItem, PennylaneSupplierInvoiceListItem } from "./pennylaneClient";
 import { FactureClient, FactureFournisseur } from "./types";
+import { comparerDetections, comparerFactures, DetectionDoublon, Sens } from "./doublonsFactures";
 
 /**
  * Résultat affiché après un clic sur "Synchroniser Pennylane" — déclenchable depuis
@@ -332,12 +333,28 @@ export interface FactureExistantePourSync {
   id: string; // id Novanta (jamais l'id Pennylane)
   pennylaneId?: string | null;
   payee: boolean;
+  // Le document tel que saisi dans Novanta : sert à reconnaître une facture déjà présente sans
+  // identifiant Pennylane (saisie à la main, import par fichier) — voir calculerSynchronisation.
+  facture?: string;
+  tiers?: string;
+  montant?: number;
+  dateEcheance?: string;
+}
+
+/** Facture Pennylane qui correspond probablement à une ligne Novanta existante sans identifiant. */
+export interface RattachementPropose {
+  candidat: CandidatFacturePennylane;
+  existanteId: string; // id NOVANTA de la ligne qui représente déjà ce document
+  detection: DetectionDoublon;
 }
 
 export interface ResultatCalculSynchronisation {
   aInserer: CandidatFacturePennylane[];
   idsAMettreAJourPayee: string[]; // ids NOVANTA (pas pennylaneId) à patcher payee=true
   idsASupprimer: string[]; // ids NOVANTA dont la version Pennylane est archivée
+  // Jamais insérées : elles représentent probablement un document déjà présent dans Novanta.
+  // L'utilisateur choisit de les rattacher à la ligne existante ou de les importer à part.
+  aRattacher: RattachementPropose[];
 }
 
 /**
@@ -356,10 +373,18 @@ export interface ResultatCalculSynchronisation {
  * par convention d'appel.
  * Idempotente par construction : ré-appliquer avec les mêmes candidats sur un état Novanta déjà
  * synchronisé renvoie aInserer=[], idsAMettreAJourPayee=[] et idsASupprimer=[].
+ *
+ * Document déjà présent sans identifiant Pennylane : avant d'insérer une facture inconnue, elle est
+ * comparée aux lignes Novanta qui n'ont pas encore d'identifiant Pennylane (lib/doublonsFactures.ts).
+ * Au moindre signal documentaire sérieux (même n° de facture fiable), elle n'est PAS insérée : elle
+ * est proposée au rattachement (aRattacher). Sans cette règle, une facture saisie dans Novanta puis
+ * synchronisée existait deux fois — c'était la cause des doublons. Rien n'est rattaché sans
+ * l'utilisateur : la proposition se renouvelle à chaque synchronisation tant qu'il n'a pas choisi.
  */
 export function calculerSynchronisation(
   candidats: CandidatFacturePennylane[],
-  facturesExistantes: FactureExistantePourSync[]
+  facturesExistantes: FactureExistantePourSync[],
+  sens: Sens = "fournisseur"
 ): ResultatCalculSynchronisation {
   const existanteParPennylaneId = new Map<string, FactureExistantePourSync>();
   for (const facture of facturesExistantes) {
@@ -369,6 +394,10 @@ export function calculerSynchronisation(
   const aInserer: CandidatFacturePennylane[] = [];
   const idsAMettreAJourPayee: string[] = [];
   const idsASupprimer: string[] = [];
+  const aRattacher: RattachementPropose[] = [];
+  const dejaInseres = new Set<string>();
+  // Lignes Novanta sans identifiant Pennylane, décrites par leur document : seules candidates à un rattachement.
+  const sansIdentiteSource = facturesExistantes.filter((f) => !f.pennylaneId && f.facture !== undefined);
 
   for (const candidat of candidats) {
     const existante = existanteParPennylaneId.get(candidat.pennylaneId);
@@ -379,7 +408,24 @@ export function calculerSynchronisation(
     }
 
     if (!existante) {
-      if (!candidat.payee) aInserer.push(candidat);
+      if (candidat.payee || dejaInseres.has(candidat.pennylaneId)) continue;
+      const correspondances = sansIdentiteSource
+        .map((f) => ({
+          existanteId: f.id,
+          detection: comparerFactures(
+            { id: candidat.pennylaneId, facture: candidat.facture, tiers: candidat.tiers, montant: candidat.montant, dateEcheance: candidat.dateEcheance, pennylaneId: candidat.pennylaneId },
+            { id: f.id, facture: f.facture ?? "", tiers: f.tiers ?? "", montant: f.montant ?? Number.NaN, dateEcheance: f.dateEcheance ?? "" },
+            sens
+          ),
+        }))
+        .filter((c) => c.detection.statut !== "DISTINCT")
+        .sort((x, y) => comparerDetections(x.detection, y.detection));
+      if (correspondances.length > 0) {
+        aRattacher.push({ candidat, ...correspondances[0] });
+        continue;
+      }
+      dejaInseres.add(candidat.pennylaneId);
+      aInserer.push(candidat);
       continue;
     }
 
@@ -388,7 +434,7 @@ export function calculerSynchronisation(
     }
   }
 
-  return { aInserer, idsAMettreAJourPayee, idsASupprimer };
+  return { aInserer, idsAMettreAJourPayee, idsASupprimer, aRattacher };
 }
 
 /**
