@@ -31,7 +31,15 @@ import {
   RattachementPropose,
   ResultatSyncPennylane,
 } from "@/lib/pennylaneInvoiceAdapter";
-import { detecterDoublons, FactureFusionnable, PaireDoublon, planFusion } from "@/lib/doublonsFactures";
+import {
+  appliquerFusion,
+  ChoixFusion,
+  clePaire,
+  detecterDoublons,
+  FactureFusionnable,
+  PaireDoublon,
+  PropositionFusion,
+} from "@/lib/doublonsFactures";
 import DoublonsFactures from "@/components/DoublonsFactures";
 import { calculerProjectionCash } from "@/lib/cash-engine";
 import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
@@ -98,6 +106,11 @@ import {
   supprimerFacturesFournisseurs,
   supprimerFinancement,
   supprimerRentreeReguliere,
+  chargerDecisionsDoublons,
+  DecisionDoublon,
+  enregistrerFusion,
+  enregistrerPaireDistincte,
+  SensFacture,
 } from "@/lib/supabaseRepository";
 
 const DELAI_DEBOUNCE_MS = 600;
@@ -161,12 +174,13 @@ export default function Home() {
   const [financements, setFinancements] = useState<Financement[]>(mockFinancements);
   const [rentreesRegulieres, setRentreesRegulieres] = useState<RentreeReguliere[]>(mockRentreesRegulieres);
   // Doublons de factures : factures Pennylane non importées car probablement déjà présentes
-  // (proposées après une synchronisation), et paires écartées par l'utilisateur pour la session.
+  // (proposées après une synchronisation), et décisions enregistrées de l'utilisateur (paires
+  // écartées, fusions confirmées).
   const [rattachementsProposes, setRattachementsProposes] = useState<{ client: RattachementPropose[]; fournisseur: RattachementPropose[] }>({
     client: [],
     fournisseur: [],
   });
-  const [pairesIgnorees, setPairesIgnorees] = useState<Set<string>>(new Set());
+  const [decisionsDoublons, setDecisionsDoublons] = useState<DecisionDoublon[]>([]);
   const [recherche, setRecherche] = useState("");
   const [tri, setTri] = useState<TriMode>("date");
   const [dateClicCourbe, setDateClicCourbe] = useState<string | null>(null);
@@ -315,6 +329,12 @@ export default function Home() {
       setFinancements(donnees.financements);
       setRentreesRegulieres(donnees.rentreesRegulieres);
       setDonneesChargees(true);
+      // Décisions sur les doublons : leur échec n'empêche pas le cockpit de s'ouvrir.
+      chargerDecisionsDoublons(company.id)
+        .then((decisions) => {
+          if (!annule) setDecisionsDoublons(decisions);
+        })
+        .catch((error) => console.error("Décisions sur les doublons illisibles :", error));
     })().catch((error) => {
       if (annule) return;
       console.error("Échec de la vérification d'accès :", error);
@@ -675,7 +695,8 @@ export default function Home() {
         const { aInserer, idsAMettreAJourPayee, aRattacher } = calculerSynchronisation(
           data.clientCandidates,
           facturesClientsExistantesPourSync,
-          "client"
+          "client",
+          pennylaneIdsFusionnes("client")
         );
         rattachements.client = aRattacher;
         nouvellesFacturesClients = aInserer.map(candidatVersFactureClient);
@@ -687,7 +708,8 @@ export default function Home() {
         const { aInserer, idsAMettreAJourPayee, idsASupprimer, aRattacher } = calculerSynchronisation(
           data.fournisseurCandidates,
           facturesFournisseursExistantesPourSync,
-          "fournisseur"
+          "fournisseur",
+          pennylaneIdsFusionnes("fournisseur")
         );
         rattachements.fournisseur = aRattacher;
         nouvellesFacturesFournisseurs = aInserer.map(candidatVersFactureFournisseur);
@@ -746,16 +768,24 @@ export default function Home() {
     litigieuse: f.litigieuse,
     pennylaneId: f.pennylaneId,
   });
-  const clePaire = (paire: PaireDoublon<FactureFusionnable>) => [paire.a.id, paire.b.id].sort().join("|");
+  // Paires écartées (« Ce ne sont pas des doublons ») : enregistrées, jamais reproposées.
+  const pairesEcartees = useMemo(
+    () => new Set(decisionsDoublons.filter((d) => d.decision === "distinct").map((d) => `${d.sens}:${d.cle}`)),
+    [decisionsDoublons]
+  );
+  // Identifiants Pennylane des lignes retirées par une fusion : la synchronisation ne les réimporte pas.
+  const pennylaneIdsFusionnes = (sens: SensFacture) =>
+    new Set(decisionsDoublons.filter((d) => d.sens === sens && d.decision === "fusion" && d.pennylaneIdRetire).map((d) => d.pennylaneIdRetire!));
+  const nonEcartee = (sens: SensFacture) => (p: PaireDoublon<FactureFusionnable>) => !pairesEcartees.has(`${sens}:${clePaire(p.a.id, p.b.id)}`);
   const doublonsClients = useMemo(
-    () => detecterDoublons(facturesClients.map(commeFusionnableClient), "client").filter((p) => !pairesIgnorees.has(clePaire(p))),
+    () => detecterDoublons(facturesClients.map(commeFusionnableClient), "client").filter(nonEcartee("client")),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [facturesClients, pairesIgnorees]
+    [facturesClients, pairesEcartees]
   );
   const doublonsFournisseurs = useMemo(
-    () => detecterDoublons(facturesFournisseurs.map(commeFusionnableFournisseur), "fournisseur").filter((p) => !pairesIgnorees.has(clePaire(p))),
+    () => detecterDoublons(facturesFournisseurs.map(commeFusionnableFournisseur), "fournisseur").filter(nonEcartee("fournisseur")),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [facturesFournisseurs, pairesIgnorees]
+    [facturesFournisseurs, pairesEcartees]
   );
 
   const retirerProposition = (sens: "client" | "fournisseur", rattachement: RattachementPropose) =>
@@ -787,37 +817,56 @@ export default function Home() {
     else handleImporterFactures([], [candidatVersFactureFournisseur(rattachement.candidat)]);
   };
 
-  // Fusion confirmée : la ligne retirée l'est d'abord (l'identifiant Pennylane est unique par
-  // société), puis le survivant reçoit l'identité source. Ses réglages ne changent pas.
-  const handleFusionner = (sens: "client" | "fournisseur", paire: PaireDoublon<FactureFusionnable>) => {
-    const plan = planFusion(paire.a, paire.b);
-    if (!plan.possible) return;
-    if (sens === "client") {
-      const survivant = facturesClients.find((f) => f.id === plan.survivantId);
-      if (!survivant) return;
-      const fusionne = plan.pennylaneIdATransferer ? { ...survivant, pennylaneId: plan.pennylaneIdATransferer } : survivant;
-      setFacturesClients((prev) => prev.filter((f) => f.id !== plan.surnumeraireId).map((f) => (f.id === fusionne.id ? fusionne : f)));
-      if (companyId) {
-        persist(async () => {
-          await supprimerFactureClient(plan.surnumeraireId);
-          await sauvegarderFactureClient(companyId, fusionne);
-        });
+  // Fusion confirmée par l'utilisateur, avec ses choix (lib/doublonsFactures.ts::appliquerFusion).
+  // L'écran ne change qu'une fois la fusion enregistrée : en cas d'échec, les factures sont relues
+  // et la carte reste affichée avec l'erreur (rejet propagé au composant).
+  const handleFusionner = async (sens: SensFacture, paire: PaireDoublon<FactureFusionnable>, proposition: PropositionFusion, choix: ChoixFusion) => {
+    const resultat = appliquerFusion(paire.a, paire.b, proposition, choix);
+    if (!resultat || !companyId) throw new Error("Fusion incomplète.");
+    const decision: DecisionDoublon = { sens, cle: clePaire(paire.a.id, paire.b.id), decision: "fusion", pennylaneIdRetire: resultat.pennylaneIdRetire };
+    // Payée vient de la ligne choisie : sa date de paiement aussi.
+    const datePaiement = <T extends { id: string; payee: boolean; paidAt: string | null }>(ref: T, autre: T) =>
+      resultat.reference.payee === ref.payee ? ref.paidAt : autre.paidAt;
+    const valeurs = { montant: resultat.reference.montant, litigieuse: resultat.reference.litigieuse, payee: resultat.reference.payee, montantSource: resultat.reference.montantSource ?? null };
+    try {
+      if (sens === "client") {
+        const [ref, autre] = [facturesClients.find((f) => f.id === resultat.reference.id), facturesClients.find((f) => f.id === resultat.retiree.id)];
+        if (!ref || !autre) throw new Error("Facture introuvable.");
+        const reference: FactureClient = { ...ref, ...valeurs, dateEncaissementAnticipee: resultat.reference.datePrevue, paidAt: datePaiement(ref, autre) };
+        await enregistrerFusion(companyId, "client", { avant: [ref, autre], reference, retiree: autre, pennylaneIdRetire: resultat.pennylaneIdRetire, choix: { ...choix } });
+        setFacturesClients((prev) => prev.filter((f) => f.id !== autre.id).map((f) => (f.id === reference.id ? reference : f)));
+      } else {
+        const [ref, autre] = [facturesFournisseurs.find((f) => f.id === resultat.reference.id), facturesFournisseurs.find((f) => f.id === resultat.retiree.id)];
+        if (!ref || !autre) throw new Error("Facture introuvable.");
+        const reference: FactureFournisseur = { ...ref, ...valeurs, datePaiementPrevue: resultat.reference.datePrevue, paidAt: datePaiement(ref, autre) };
+        await enregistrerFusion(companyId, "fournisseur", { avant: [ref, autre], reference, retiree: autre, pennylaneIdRetire: resultat.pennylaneIdRetire, choix: { ...choix } });
+        setFacturesFournisseurs((prev) => prev.filter((f) => f.id !== autre.id).map((f) => (f.id === reference.id ? reference : f)));
       }
-    } else {
-      const survivant = facturesFournisseurs.find((f) => f.id === plan.survivantId);
-      if (!survivant) return;
-      const fusionne = plan.pennylaneIdATransferer ? { ...survivant, pennylaneId: plan.pennylaneIdATransferer } : survivant;
-      setFacturesFournisseurs((prev) => prev.filter((f) => f.id !== plan.surnumeraireId).map((f) => (f.id === fusionne.id ? fusionne : f)));
-      if (companyId) {
-        persist(async () => {
-          await supprimerFactureFournisseur(plan.surnumeraireId);
-          await sauvegarderFactureFournisseur(companyId, fusionne);
-        });
+      setDecisionsDoublons((prev) => [...prev.filter((d) => !(d.sens === sens && d.cle === decision.cle)), decision]);
+    } catch (error) {
+      console.error(`[doublons] fusion sens=${sens} code=${(error as { code?: string } | null)?.code ?? "inconnu"}`);
+      // Une partie a pu être écrite : l'état réel est relu (rejouer la fusion la termine).
+      const donnees = await chargerOuInitialiserDonnees(companyId).catch(() => null);
+      if (donnees) {
+        setFacturesClients(donnees.facturesClients);
+        setFacturesFournisseurs(donnees.facturesFournisseurs);
       }
+      throw error;
     }
   };
 
-  const handleIgnorerPaire = (paire: PaireDoublon<FactureFusionnable>) => setPairesIgnorees((prev) => new Set(prev).add(clePaire(paire)));
+  // « Ce ne sont pas des doublons » : enregistré, la paire n'est plus proposée (rechargement compris).
+  const handleIgnorerPaire = async (sens: SensFacture, paire: PaireDoublon<FactureFusionnable>) => {
+    const decision: DecisionDoublon = { sens, cle: clePaire(paire.a.id, paire.b.id), decision: "distinct", pennylaneIdRetire: null };
+    setDecisionsDoublons((prev) => [...prev, decision]);
+    if (!companyId) return;
+    try {
+      await enregistrerPaireDistincte(companyId, sens, paire.a.id, paire.b.id);
+    } catch (error) {
+      setDecisionsDoublons((prev) => prev.filter((d) => d !== decision));
+      throw error;
+    }
+  };
 
   const handleImporterChargesFixesDetectees = (nouvellesChargesFixes: ChargeFixe[]) => {
     if (nouvellesChargesFixes.length === 0) return;
@@ -1147,8 +1196,8 @@ export default function Home() {
             }}
             onRattacher={(r) => handleRattacher("client", r)}
             onImporterSeparement={(r) => handleImporterSeparement("client", r)}
-            onFusionner={(p) => handleFusionner("client", p)}
-            onIgnorer={handleIgnorerPaire}
+            onFusionner={(p, proposition, choix) => handleFusionner("client", p, proposition, choix)}
+            onIgnorer={(p) => handleIgnorerPaire("client", p)}
           />
           <FacturesClientsTable
             factures={facturesClients}
@@ -1196,8 +1245,8 @@ export default function Home() {
             }}
             onRattacher={(r) => handleRattacher("fournisseur", r)}
             onImporterSeparement={(r) => handleImporterSeparement("fournisseur", r)}
-            onFusionner={(p) => handleFusionner("fournisseur", p)}
-            onIgnorer={handleIgnorerPaire}
+            onFusionner={(p, proposition, choix) => handleFusionner("fournisseur", p, proposition, choix)}
+            onIgnorer={(p) => handleIgnorerPaire("fournisseur", p)}
           />
           <FacturesFournisseursTable
             factures={facturesFournisseurs}

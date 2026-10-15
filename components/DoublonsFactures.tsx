@@ -1,8 +1,22 @@
 "use client";
 
+import { useState } from "react";
 import { formatDateCourte } from "@/lib/dates";
 import { formatMontant } from "@/lib/format";
-import { DetectionDoublon, FactureFusionnable, MOTIF_MONTANTS_DIFFERENTS, PaireDoublon, planFusion, rattachementPossible } from "@/lib/doublonsFactures";
+import {
+  appliquerFusion,
+  ChampFusion,
+  choixManquants,
+  ChoixFusion,
+  clePaire,
+  CoteFusion,
+  DetectionDoublon,
+  FactureFusionnable,
+  PaireDoublon,
+  PropositionFusion,
+  proposerFusion,
+  rattachementPossible,
+} from "@/lib/doublonsFactures";
 import { RattachementPropose } from "@/lib/pennylaneInvoiceAdapter";
 
 interface DoublonsFacturesProps {
@@ -15,9 +29,12 @@ interface DoublonsFacturesProps {
   factureParId: (id: string) => FactureFusionnable | undefined;
   onRattacher: (rattachement: RattachementPropose) => void;
   onImporterSeparement: (rattachement: RattachementPropose) => void;
-  onFusionner: (paire: PaireDoublon<FactureFusionnable>) => void;
-  onIgnorer: (paire: PaireDoublon<FactureFusionnable>) => void;
+  // Fusion confirmée : rejette en cas d'échec (la carte reste affichée, avec l'erreur).
+  onFusionner: (paire: PaireDoublon<FactureFusionnable>, proposition: PropositionFusion, choix: ChoixFusion) => Promise<void>;
+  onIgnorer: (paire: PaireDoublon<FactureFusionnable>) => Promise<void>;
 }
+
+const origine = (f: FactureFusionnable) => (f.pennylaneId ? "Pennylane" : "Novanta");
 
 function Ligne({ titre, facture, tiers, montant, echeance }: { titre: string; facture: string; tiers: string; montant: number; echeance: string }) {
   return (
@@ -43,6 +60,148 @@ function Diagnostic({ detection }: { detection: DetectionDoublon }) {
   );
 }
 
+const LIGNES_COMPARAISON: { libelle: string; valeur: (f: FactureFusionnable) => string }[] = [
+  { libelle: "Tiers", valeur: (f) => f.tiers || "—" },
+  { libelle: "N° de facture", valeur: (f) => f.facture || "—" },
+  { libelle: "Montant", valeur: (f) => formatMontant(f.montant) },
+  { libelle: "Échéance", valeur: (f) => (f.dateEcheance ? formatDateCourte(f.dateEcheance) : "—") },
+  { libelle: "Origine", valeur: origine },
+  { libelle: "Date prévue", valeur: (f) => (f.datePrevue ? formatDateCourte(f.datePrevue) : "—") },
+  { libelle: "Payée", valeur: (f) => (f.payee ? "Oui" : "Non") },
+  { libelle: "Litigieuse", valeur: (f) => (f.litigieuse ? "Oui" : "Non") },
+];
+
+/**
+ * Résolution d'un doublon, avant toute écriture : les deux lignes côte à côte, la ligne conservée
+ * comme référence, et un choix pour chaque valeur qui diffère. Rien n'est retenu d'office quand
+ * rien ne permet de trancher (montants différents, réglages contradictoires) : la confirmation
+ * reste impossible tant que ces choix manquent.
+ */
+function ResolutionFusion({
+  paire,
+  onConfirmer,
+  onAnnuler,
+}: {
+  paire: PaireDoublon<FactureFusionnable>;
+  onConfirmer: (proposition: PropositionFusion, choix: ChoixFusion) => Promise<void>;
+  onAnnuler: () => void;
+}) {
+  const [referenceChoisie, setReferenceChoisie] = useState<string | null>(null);
+  const [choix, setChoix] = useState<ChoixFusion>({});
+  const [enCours, setEnCours] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const proposition = proposerFusion(paire.a, paire.b, referenceChoisie);
+  const manquants = choixManquants(proposition, choix);
+  const resultat = appliquerFusion(paire.a, paire.b, proposition, choix);
+  const reference = proposition.referenceId === paire.a.id ? paire.a : paire.b;
+  const retiree = reference === paire.a ? paire.b : paire.a;
+  const ecartMontant = Math.abs(paire.a.montant - paire.b.montant);
+
+  const confirmer = async () => {
+    // Un seul envoi : le bouton est désactivé dès le premier clic.
+    if (enCours || !resultat) return;
+    setEnCours(true);
+    setErreur(null);
+    try {
+      await onConfirmer(proposition, choix);
+    } catch {
+      setErreur("La fusion n'a pas pu être enregistrée. Les deux lignes ont été relues ; réessayez.");
+      setEnCours(false);
+    }
+  };
+
+  return (
+    <div className="doublons-fusion" role="group" aria-label="Fusionner ces deux factures">
+      <table className="doublons-fusion__table">
+        <thead>
+          <tr>
+            <th scope="col">
+              <span className="passe-visuellement-cache">Champ</span>
+            </th>
+            {[paire.a, paire.b].map((f) => (
+              <th key={f.id} scope="col">
+                {f === reference ? "Conservée (référence)" : "Retirée"}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {LIGNES_COMPARAISON.map((ligne) => (
+            <tr key={ligne.libelle}>
+              <th scope="row">{ligne.libelle}</th>
+              <td>{ligne.valeur(paire.a)}</td>
+              <td>{ligne.valeur(paire.b)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {proposition.referenceImposee ? (
+        <p className="doublons-cote__detail">
+          La facture Pennylane est conservée comme référence : la synchronisation continuera de la reconnaître.
+        </p>
+      ) : (
+        <fieldset className="doublons-fusion__choix">
+          <legend>Ligne conservée comme référence</legend>
+          {[paire.a, paire.b].map((f) => (
+            <label key={f.id}>
+              <input type="radio" name={`ref-${clePaire(paire.a.id, paire.b.id)}`} checked={f === reference} onChange={() => setReferenceChoisie(f.id)} />
+              {f.tiers || "Tiers non renseigné"} ({origine(f)})
+            </label>
+          ))}
+        </fieldset>
+      )}
+
+      {proposition.differences.map((difference) => {
+        const retenu = choix[difference.champ] ?? difference.parDefaut;
+        return (
+          <fieldset key={difference.champ} className="doublons-fusion__choix">
+            <legend>
+              {difference.libelle}
+              {difference.champ === "montant" && <span className="doublons-cote__detail"> — écart de {formatMontant(ecartMontant)}</span>}
+              {difference.parDefaut === null && <span className="doublons-cote__detail"> — à choisir</span>}
+            </legend>
+            {(["a", "b"] as const).map((c) => (
+              <label key={c}>
+                <input
+                  type="radio"
+                  name={`${difference.champ}-${clePaire(paire.a.id, paire.b.id)}`}
+                  checked={retenu === c}
+                  onChange={() => setChoix({ ...choix, [difference.champ]: c } as Record<ChampFusion, CoteFusion>)}
+                />
+                {difference.valeurs[c]} <span className="doublons-cote__detail">({origine(c === "a" ? paire.a : paire.b)})</span>
+              </label>
+            ))}
+          </fieldset>
+        );
+      })}
+
+      <p className="doublons-cote__detail">
+        Après fusion, une seule facture compte dans les prévisions : celle de {reference.tiers || "la référence"} ({origine(reference)}), avec
+        les valeurs retenues ci-dessus.
+        {resultat?.reference.montantSource != null &&
+          ` Le montant de la facture Pennylane (${formatMontant(resultat.reference.montantSource)}) reste conservé à part ; ${formatMontant(resultat.reference.montant)} est retenu pour la prévision.`}{" "}
+        La ligne {origine(retiree)} est retirée des prévisions ; son contenu est gardé dans l&apos;historique de la fusion.
+        {retiree.pennylaneId ? " Cette facture Pennylane ne sera plus importée." : ""}
+      </p>
+      {manquants.length > 0 && <p className="doublons-cote__detail">Choisissez une valeur pour chaque ligne « à choisir ».</p>}
+      {erreur && (
+        <p className="login-erreur" role="alert">
+          {erreur}
+        </p>
+      )}
+      <div className="doublons-carte__actions">
+        <button type="button" className="btn-add" onClick={confirmer} disabled={enCours || !resultat}>
+          {enCours ? "Fusion en cours…" : "Confirmer la fusion"}
+        </button>
+        <button type="button" className="btn-secondaire" onClick={onAnnuler} disabled={enCours}>
+          Annuler
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Doublons de factures : suggestions seulement. Rien n'est fusionné ni rattaché sans un clic de
  * l'utilisateur ; la raison de chaque suggestion est affichée.
@@ -57,16 +216,30 @@ export default function DoublonsFactures({
   onFusionner,
   onIgnorer,
 }: DoublonsFacturesProps) {
-  if (rattachements.length === 0 && paires.length === 0) return null;
-  const libelleTiers = sens === "client" ? "client" : "fournisseur";
+  const [ouverte, setOuverte] = useState<string | null>(null);
+  const [confirmation, setConfirmation] = useState<string | null>(null);
+  const [erreurIgnorer, setErreurIgnorer] = useState<string | null>(null);
+  if (rattachements.length === 0 && paires.length === 0 && !confirmation) return null;
 
   return (
     <div className="doublons">
       <h3>Doublons de factures {sens === "client" ? "clients" : "fournisseurs"} possibles</h3>
-      <p className="doublons__intro">
-        Ces factures semblent représenter le même document. Vérifiez avant de confirmer : rien n&apos;est fusionné sans
-        votre accord.
-      </p>
+      {confirmation && (
+        <p className="doublons__confirmation" role="status">
+          {confirmation}
+        </p>
+      )}
+      {(rattachements.length > 0 || paires.length > 0) && (
+        <p className="doublons__intro">
+          Ces factures semblent représenter le même document. Vérifiez avant de confirmer : rien n&apos;est fusionné sans
+          votre accord.
+        </p>
+      )}
+      {erreurIgnorer && (
+        <p className="login-erreur" role="alert">
+          {erreurIgnorer}
+        </p>
+      )}
       <ul className="doublons__liste">
         {rattachements.map((r) => {
           const existante = factureParId(r.existanteId);
@@ -85,8 +258,8 @@ export default function DoublonsFactures({
                 </p>
               ) : (
                 <p className="doublons-cote__detail">
-                  {MOTIF_MONTANTS_DIFFERENTS}. La facture Pennylane n&apos;est pas importée tant que vous n&apos;avez pas
-                  décidé : corrigez ou retirez la ligne Novanta si besoin.
+                  Montants différents. Importez la facture Pennylane : la paire pourra ensuite être fusionnée en choisissant le
+                  montant à retenir.
                 </p>
               )}
               <div className="doublons-carte__actions">
@@ -103,34 +276,55 @@ export default function DoublonsFactures({
           );
         })}
         {paires.map((paire) => {
-          const plan = planFusion(paire.a, paire.b);
+          const cle = clePaire(paire.a.id, paire.b.id);
           const titre = (f: FactureFusionnable) => (f.pennylaneId ? "Importée de Pennylane" : "Saisie dans Novanta");
           return (
-            <li key={`p-${[paire.a.id, paire.b.id].sort().join("-")}`} className="doublons-carte">
+            <li key={`p-${cle}`} className="doublons-carte">
               <Diagnostic detection={paire.detection} />
               <div className="doublons-carte__paire">
                 <Ligne titre={titre(paire.a)} facture={paire.a.facture} tiers={paire.a.tiers} montant={paire.a.montant} echeance={paire.a.dateEcheance} />
                 <Ligne titre={titre(paire.b)} facture={paire.b.facture} tiers={paire.b.tiers} montant={paire.b.montant} echeance={paire.b.dateEcheance} />
               </div>
-              {plan.possible ? (
-                <p className="doublons-cote__detail">
-                  Fusionner garde la ligne « {factureParId(plan.survivantId)?.tiers || libelleTiers} » avec ses réglages
-                  {plan.pennylaneIdATransferer ? " et la relie à la facture Pennylane" : ""}, puis retire l&apos;autre.
-                  {plan.ecarts.length > 0 ? ` Écarts : ${plan.ecarts.join(" ; ")}.` : ""}
-                </p>
+              {ouverte === cle ? (
+                <ResolutionFusion
+                  paire={paire}
+                  onAnnuler={() => setOuverte(null)}
+                  onConfirmer={async (proposition, choix) => {
+                    await onFusionner(paire, proposition, choix);
+                    setOuverte(null);
+                    setConfirmation(`Factures fusionnées : ${paire.a.facture || paire.a.tiers}. Une seule ligne compte désormais dans les prévisions.`);
+                  }}
+                />
               ) : (
-                <p className="doublons-cote__detail">{plan.motif}</p>
+                <>
+                  <p className="doublons-cote__detail">
+                    Fusionner garde une seule facture : vous verrez les deux lignes côte à côte et choisirez les valeurs à
+                    conserver avant de confirmer. S&apos;il s&apos;agit de deux factures distinctes, écartez la suggestion.
+                  </p>
+                  <div className="doublons-carte__actions">
+                    <button
+                      type="button"
+                      className="btn-add"
+                      onClick={() => {
+                        setConfirmation(null);
+                        setOuverte(cle);
+                      }}
+                    >
+                      Fusionner
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondaire"
+                      onClick={() => {
+                        setErreurIgnorer(null);
+                        onIgnorer(paire).catch(() => setErreurIgnorer("Ce choix n'a pas pu être enregistré. Réessayez."));
+                      }}
+                    >
+                      Ce ne sont pas des doublons
+                    </button>
+                  </div>
+                </>
               )}
-              <div className="doublons-carte__actions">
-                {plan.possible && (
-                  <button type="button" className="btn-add" onClick={() => onFusionner(paire)}>
-                    Fusionner
-                  </button>
-                )}
-                <button type="button" className="btn-secondaire" onClick={() => onIgnorer(paire)}>
-                  Ce ne sont pas des doublons
-                </button>
-              </div>
             </li>
           );
         })}

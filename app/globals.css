@@ -3294,6 +3294,62 @@ button.passe-cible--lien:focus-visible,
   margin-top: 0;
 }
 
+.doublons__confirmation {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+
+/* Résolution d'un doublon : les deux lignes côte à côte, puis les choix. */
+.doublons-fusion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.doublons-fusion__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.doublons-fusion__table th,
+.doublons-fusion__table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--couleur-bordure);
+  text-align: left;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.doublons-fusion__table thead th,
+.doublons-fusion__table tbody th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--couleur-texte-secondaire);
+}
+
+.doublons-fusion__choix {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--space-3);
+  margin: 0;
+  padding: var(--space-1) 0 0;
+  border: 0;
+}
+
+.doublons-fusion__choix legend {
+  width: 100%;
+  padding: 0;
+  font-weight: 600;
+}
+
+.doublons-fusion__choix label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
 @media (max-width: 700px) {
   .doublons-carte__paire {
     grid-template-columns: 1fr;
