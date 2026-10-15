@@ -49,11 +49,13 @@ describe("vocabulaire du module Passé : Encaissements", () => {
     assert.match(lire("components/PastDetailDashboard.tsx"), /des encaissements<\/p>/);
   });
 
-  test("Objectifs : encaissements, jamais « CA », et sans mention TTC", () => {
+  // Seule exception : la base d'un objectif MONÉTAIRE (coûts de structure), via MENTION_TTC.
+  test("Objectifs : encaissements, jamais « CA », et sans mention TTC sur les pourcentages", () => {
     const source = sansCommentaires(lire("components/PasseObjectifs.tsx"));
     assert.match(source, /Objectifs de marge par catégorie d&apos;encaissements/);
     assert.match(source, /<th>Catégorie d&apos;encaissements<\/th>/);
-    assert.equal(/MentionTTC|MENTION_TTC|\bTTC\b/.test(source), false);
+    assert.equal(/MentionTTC|\bTTC\b/.test(source), false);
+    assert.equal(source.match(/MENTION_TTC/g)?.length, 2, "import + choix de base des coûts de structure");
     const marge = libellesEcartMarge({ cible: 0.648, ecartEuros: -11_500, couverture: 0.82 } as never);
     assert.equal(marge.reserve, "Cible calculée sur 82 % des encaissements");
     const ebitda = libellesEcartEbitda({ cible: 150_000, ecart: -20_000, statut: "defavorable", couvertureCa: 0.9, couverturePeriode: 1 } as never);
@@ -67,7 +69,7 @@ describe("rendus", () => {
   const tx = (amount: number, id: string) =>
     ({ id: `t-${id}`, sourceType: "pennylane", transactionDate: "2026-03-01", label: "", amount, currency: "EUR", affectations: [{ groupId: AXE, categoryId: id, categoryName: id, weight: 1 }] }) as never;
   const pnl = calculerPnl([tx(2_477_907, "stripe"), tx(-1_507_791, "achats")], AXE, indexerMappings([mapping("stripe", "revenue"), mapping("achats", "gross_margin")]));
-  const cibles = { margeBrute: null, margeContributive: null, ebitda: null, ebitdaIncomplet: false, coutsStructure: null, montantCoutsStructure: 0 } as unknown as EcartsVsCibles;
+  const cibles = { margeBrute: null, margeContributive: null, ebitda: null, ebitdaIncomplet: false, coutsStructure: null, montantCoutsStructure: 0, base: "ttc", indisponibles: { margeBrute: null, margeContributive: null, ebitda: null, coutsStructure: null } } as unknown as EcartsVsCibles;
 
   test("P&L : « Encaissements TTC » en tête, montant inchangé", () => {
     const lignes = texteVisible(renderToStaticMarkup(React.createElement(PasseGeneral, { pnl: { ...pnl, base: "ttc", couvertures: null }, cibles, onOuvrir: () => {}, onDefinirCible: () => {}, onConfigurerTva: () => {}, teintes: new Map() })));

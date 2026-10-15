@@ -7,7 +7,7 @@ import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import PasseTvaIncomplete from "./PasseTvaIncomplete";
 import { formatMontantComptable, formatPourcentage, MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
-import { CouvertureTva, IndicateurEconomique, LIBELLE_FRONTIERE_TRESORERIE, LIBELLE_OBJECTIF_EN_TTC, PnlEnBase } from "@/lib/pastHtEstime";
+import { CouvertureTva, IndicateurEconomique, LIBELLE_FRONTIERE_TRESORERIE, PnlEnBase } from "@/lib/pastHtEstime";
 import { LigneAjustement } from "@/lib/pastAdjustments";
 import { EcartsVsCibles } from "@/lib/pastTargets";
 import { LIBELLE_ENCAISSEMENTS, libelleEtagePnl } from "@/lib/pastCategoryMapping";
@@ -23,10 +23,9 @@ import {
 interface PasseGeneralProps {
   // P&L dans la lecture choisie (TTC ou HT estimé) : la trésorerie y est toujours TTC.
   pnl: PnlEnBase;
-  // Écarts aux cibles de performance de la période (null par indicateur = aucune cible applicable).
-  // null en lecture HT estimé : les objectifs ont été posés sur des montants TTC, l'écart n'est
-  // alors pas affiché plutôt que comparé sur une base différente.
-  cibles: EcartsVsCibles | null;
+  // Écarts aux cibles de performance de la période, dans la MÊME lecture que `pnl` (null par
+  // indicateur = aucune cible applicable ; `indisponibles` dit pourquoi un objectif ne se compare pas).
+  cibles: EcartsVsCibles;
   // Ouvre l'écran de diagnostic d'un indicateur, ou la configuration des cibles.
   onOuvrir: (ecran: "marge_brute" | "marge_contributive" | "ebitda") => void;
   onDefinirCible: () => void;
@@ -81,12 +80,6 @@ function LignesAjustements({ lignes }: { lignes: LigneAjustement[] }) {
   );
 }
 
-// Écart à la cible sous un indicateur : en lecture HT estimé, une phrase à la place de l'écart.
-function EcartOuMention({ cibles, children }: { cibles: EcartsVsCibles | null; children: (cibles: EcartsVsCibles) => React.ReactNode }) {
-  if (cibles) return <>{children(cibles)}</>;
-  return <p className="passe-cible">{LIBELLE_OBJECTIF_EN_TTC}</p>;
-}
-
 // Onglet "Général" : P&L synthétique, Cash flow et structure des revenus / des coûts, sur la
 // période du module. Tout est dérivé à la lecture ; rien n'est interrogé chez Pennylane ici.
 export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinirCible, onConfigurerTva }: PasseGeneralProps) {
@@ -107,16 +100,13 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
           <Ligne libelle="Coûts directs" montant={pnl.coutsDirects} />
           <LignesAjustements lignes={pnl.ajustements.gross_margin} />
           <Ligne libelle="Marge brute" montant={pnl.margeBrute} ratio={pnl.ratios.margeBrute} niveau="solde" mention={mention} incomplet={incomplet("margeBrute")} />
-          <EcartOuMention cibles={cibles}>
-            {(c) => (
-              <PasseEcartCible
-                ecart={{ type: "marge", valeur: c.margeBrute }}
-                onOuvrir={() => onOuvrir("marge_brute")}
-                onDefinir={onDefinirCible}
-                libelleLien="Ouvrir l'écran Marge brute"
-              />
-            )}
-          </EcartOuMention>
+          <PasseEcartCible
+            ecart={{ type: "marge", valeur: cibles.margeBrute }}
+            motif={cibles.indisponibles.margeBrute}
+            onOuvrir={() => onOuvrir("marge_brute")}
+            onDefinir={onDefinirCible}
+            libelleLien="Ouvrir l'écran Marge brute"
+          />
         </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle={libelleEtagePnl("contribution_margin")} montant={pnl.coutsCommerciaux} />
@@ -129,16 +119,13 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
             mention={mention}
             incomplet={incomplet("margeContributive")}
           />
-          <EcartOuMention cibles={cibles}>
-            {(c) => (
-              <PasseEcartCible
-                ecart={{ type: "marge", valeur: c.margeContributive }}
-                onOuvrir={() => onOuvrir("marge_contributive")}
-                onDefinir={onDefinirCible}
-                libelleLien="Ouvrir l'écran Marge contributive"
-              />
-            )}
-          </EcartOuMention>
+          <PasseEcartCible
+            ecart={{ type: "marge", valeur: cibles.margeContributive }}
+            motif={cibles.indisponibles.margeContributive}
+            onOuvrir={() => onOuvrir("marge_contributive")}
+            onDefinir={onDefinirCible}
+            libelleLien="Ouvrir l'écran Marge contributive"
+          />
         </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle="Coûts de structure" montant={pnl.coutsStructure} />
@@ -146,16 +133,13 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
           <Ligne libelle="EBITDA" montant={pnl.ebitda} ratio={pnl.ratios.ebitda} niveau="solde" mention={mention} incomplet={incomplet("ebitda")} />
           {/* Même lecture que les deux marges : l'EBITDA face à SA cible, dérivée des objectifs de
               Marge contributive et de Coûts de structure — pas une cible de coûts posée là. */}
-          <EcartOuMention cibles={cibles}>
-            {(c) => (
-              <PasseEcartCible
-                ecart={{ type: "ebitda", valeur: c.ebitda, incomplet: c.ebitdaIncomplet }}
-                onOuvrir={() => onOuvrir("ebitda")}
-                onDefinir={onDefinirCible}
-                libelleLien="Ouvrir l'écran EBITDA"
-              />
-            )}
-          </EcartOuMention>
+          <PasseEcartCible
+            ecart={{ type: "ebitda", valeur: cibles.ebitda, incomplet: cibles.ebitdaIncomplet }}
+            motif={cibles.indisponibles.ebitda}
+            onOuvrir={() => onOuvrir("ebitda")}
+            onDefinir={onDefinirCible}
+            libelleLien="Ouvrir l'écran EBITDA"
+          />
         </div>
         {ht && pnl.couvertures && !pnl.couvertures.ebitda.complete && (
           <PasseTvaIncomplete couverture={pnl.couvertures.ebitda} onConfigurer={onConfigurerTva} />

@@ -9,6 +9,8 @@ import {
   trierTransactions,
   VueDetail,
 } from "./pastDetail";
+import { MENTION_HT_ESTIME, MENTION_TTC } from "./format";
+import type { BaseMontants, IndicateurEconomique, PnlEnBase } from "./pastHtEstime";
 import { Pnl } from "./pastPnl";
 import { Periode } from "./pastTransactions";
 
@@ -28,6 +30,18 @@ export const DISCLAIMER_PASSE = "Tous les chiffres sont bien des transactions et
 export const DISCLAIMER_HT_ESTIME =
   "Les montants HT sont des estimations calculées à partir des taux de TVA renseignés dans Novanta. Ils ne constituent pas des données comptables.";
 export const PRECISION_HT_ESTIME = "La trésorerie reste en TTC ; les ajustements de gestion (variation de stock…) sont repris tels que saisis.";
+// Pied de page du PDF en lecture HT estimé : une seule ligne, la même idée que l'écran.
+export const DISCLAIMER_PDF_HT_ESTIME = `Montants HT estimés à partir des taux de TVA renseignés dans Novanta, non comptables. Trésorerie en ${MENTION_TTC}.`;
+
+/** Mention d'un montant selon la lecture : « TTC » ou « HT estimé ». */
+export function mentionDeLaBase(base: BaseMontants): string {
+  return base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC;
+}
+
+/** Pied de page du PDF selon la lecture exportée. */
+export function disclaimerPdf(base: BaseMontants): string {
+  return base === "ht" ? DISCLAIMER_PDF_HT_ESTIME : DISCLAIMER_PASSE;
+}
 
 const ORDRE_DETAILS: readonly MetriqueDetail[] = ["ca", "marge_brute", "marge_contributive", "ebitda", "cash_flow"];
 
@@ -37,6 +51,10 @@ export interface PageGeneralPdf {
   type: "general";
   titre: string;
   pnl: Pnl;
+  // Lecture des indicateurs principaux ; la trésorerie reste toujours TTC.
+  base: BaseMontants;
+  // Lecture HT : indicateurs dont la TVA n'est pas renseignée sur tous les montants — « Incomplet ».
+  incomplets: IndicateurEconomique[];
   avertissements: string[];
 }
 
@@ -51,13 +69,21 @@ export interface PageDetailPdf {
   // Les MAX_TRANSACTIONS_PDF plus importantes en valeur absolue, parmi nombreTransactions.
   transactions: PartMappee[];
   nombreTransactions: number;
+  // Lecture de la page : celle de l'export, sauf le Cash flow, toujours TTC.
+  base: BaseMontants;
+  // Lecture HT : TVA non renseignée sur une partie des montants de l'indicateur.
+  estimationIncomplete: boolean;
 }
 
 export type PagePdf = PageGeneralPdf | PageDetailPdf;
 
 export interface SourceExportPdf {
-  pnl: Pnl;
+  // P&L et parts dans la lecture exportée (lib/pastHtEstime.ts). TTC si `base` est absente.
+  pnl: Pnl | PnlEnBase;
   parts: PartMappee[];
+  base?: BaseMontants;
+  // Parts TTC, pour le Cash flow : des flux bancaires réels, jamais convertis. Par défaut `parts`.
+  partsTtc?: PartMappee[];
   periode: Periode;
   ajustements: AjustementGestion[];
   avertissements: string[];
@@ -81,10 +107,15 @@ export function libellesDesFiltres(vue: VueDetail, filtres: FiltresDetail): stri
  * sont bien les plus importantes, pas un extrait de ce que l'écran avait déroulé.
  */
 export function pagesExportPdf(source: SourceExportPdf): PagePdf[] {
-  const pages: PagePdf[] = [{ type: "general", titre: "Général", pnl: source.pnl, avertissements: source.avertissements }];
+  const base = source.base ?? "ttc";
+  const couvertures = "couvertures" in source.pnl ? source.pnl.couvertures : null;
+  const incomplets = couvertures ? (Object.keys(couvertures) as IndicateurEconomique[]).filter((cle) => !couvertures[cle].complete) : [];
+  const pages: PagePdf[] = [{ type: "general", titre: "Général", pnl: source.pnl, base, incomplets, avertissements: source.avertissements }];
   for (const metrique of ORDRE_DETAILS) {
     const filtres = metrique === source.ongletOuvert ? source.filtresOngletOuvert : SANS_FILTRE;
-    const vue = calculerDetail(source.parts, metrique, filtres, source.periode, source.ajustements);
+    const tresorerie = metrique === "cash_flow";
+    const basePage: BaseMontants = tresorerie ? "ttc" : base;
+    const vue = calculerDetail(tresorerie ? (source.partsTtc ?? source.parts) : source.parts, metrique, filtres, source.periode, source.ajustements);
     pages.push({
       type: "detail",
       titre: METRIQUES_DETAIL[metrique].libelle,
@@ -94,6 +125,8 @@ export function pagesExportPdf(source: SourceExportPdf): PagePdf[] {
       vue,
       transactions: trierTransactions(vue.transactions, "montant").slice(0, MAX_TRANSACTIONS_PDF),
       nombreTransactions: vue.transactions.length,
+      base: basePage,
+      estimationIncomplete: basePage === "ht" && vue.couvertureKpi !== null && !vue.couvertureKpi.complete,
     });
   }
   return pages;

@@ -9,7 +9,7 @@ import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import { formatDateCourte } from "@/lib/dates";
 import { formatMontant, formatKiloEuros, formatPourcentage, MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
-import { BaseMontants, LIBELLE_OBJECTIF_EN_TTC } from "@/lib/pastHtEstime";
+import { BaseMontants } from "@/lib/pastHtEstime";
 import PasseTvaIncomplete from "./PasseTvaIncomplete";
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import {
@@ -45,10 +45,9 @@ interface PastDetailDashboardProps {
   // Cibles de performance de l'organisation. L'écran compare son indicateur à la cible avec la
   // même fonction que l'onglet Général (lib/pastTargets.ts), sur son mois filtré le cas échéant.
   cibles?: Cible[];
-  // Lecture des montants : les parts reçues sont déjà dans cette base (lib/pastHtEstime.ts).
+  // Lecture des montants : les parts reçues sont déjà dans cette base (lib/pastHtEstime.ts). Les
+  // cibles sont comparées dans la même base.
   base?: BaseMontants;
-  // Lecture HT estimé : les objectifs ne sont pas comparés (posés sur des montants TTC).
-  ciblesMasquees?: boolean;
   onConfigurerTva?: () => void;
 }
 
@@ -89,7 +88,6 @@ export default function PastDetailDashboard({
   onFiltresChange,
   cibles,
   base = "ttc",
-  ciblesMasquees = false,
   onConfigurerTva,
 }: PastDetailDashboardProps) {
   const mention = base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC;
@@ -136,9 +134,9 @@ export default function PastDetailDashboard({
   const ecartCible = useMemo(
     () =>
       cibles && ECRANS_AVEC_CIBLE.includes(metrique) && filtres.categorie === null
-        ? ecartsVsCibles(cibles, parts, ajustements, periode, filtres.mois)
+        ? ecartsVsCibles(cibles, parts, ajustements, periode, filtres.mois, base)
         : null,
-    [cibles, metrique, parts, ajustements, periode, filtres.categorie, filtres.mois]
+    [cibles, metrique, parts, ajustements, periode, filtres.categorie, filtres.mois, base]
   );
   // Tri sur TOUTES les transactions qui correspondent aux filtres, puis découpage en lots.
   const transactionsTriees = useMemo(() => trierTransactions(vue.transactions, tri), [vue.transactions, tri]);
@@ -181,7 +179,6 @@ export default function PastDetailDashboard({
           {estimationIncomplete && vue.couvertureKpi && (
             <PasseTvaIncomplete couverture={vue.couvertureKpi} onConfigurer={onConfigurerTva ?? (() => {})} />
           )}
-          {ciblesMasquees && ECRANS_AVEC_CIBLE.includes(metrique) && <p className="passe-cible">{LIBELLE_OBJECTIF_EN_TTC}</p>}
           {/* Cash flow : la lecture choisie est toujours rappelée sous l'indicateur. */}
           {vue.kpi.precision && vue.kpi.categorie === null && <p className="passe-kpi__ratio">{vue.kpi.precision}</p>}
 
@@ -197,13 +194,16 @@ export default function PastDetailDashboard({
                       ? { type: "marge", valeur: ecartCible.margeContributive }
                       : { type: "ebitda", valeur: ecartCible.ebitda, incomplet: ecartCible.ebitdaIncomplet }
                 }
+                motif={
+                  ecartCible.indisponibles[metrique === "marge_brute" ? "margeBrute" : metrique === "marge_contributive" ? "margeContributive" : "ebitda"]
+                }
               />
               {/* EBITDA : la brique « coûts de structure » de sa cible, à part et nommée comme telle
                   — un élément de diagnostic, pas la cible de l'EBITDA. */}
-              {metrique === "ebitda" && ecartCible.coutsStructure && (
+              {metrique === "ebitda" && (ecartCible.coutsStructure || ecartCible.indisponibles.coutsStructure) && (
                 <div className="passe-kpi__sous-cible">
                   <span>Coûts de structure : {enK(-ecartCible.montantCoutsStructure)}</span>
-                  <PasseEcartCible ecart={{ type: "couts", valeur: ecartCible.coutsStructure }} />
+                  <PasseEcartCible ecart={{ type: "couts", valeur: ecartCible.coutsStructure }} motif={ecartCible.indisponibles.coutsStructure} />
                 </div>
               )}
             </div>

@@ -4,13 +4,13 @@ import { MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
 import { BaseMontants } from "@/lib/pastHtEstime";
 
 const OPTIONS: { base: BaseMontants; libelle: string }[] = [
-  { base: "ttc", libelle: MENTION_TTC },
   { base: "ht", libelle: MENTION_HT_ESTIME },
+  { base: "ttc", libelle: MENTION_TTC },
 ];
 
 /**
- * Lecture des montants du reporting : TTC (les transactions telles quelles, par défaut) ou HT
- * estimé (lib/pastHtEstime.ts). Ne change que l'affichage : aucune donnée n'est modifiée, et la
+ * Lecture des montants du reporting : HT estimé (par défaut, lib/pastHtEstime.ts) ou TTC (les
+ * transactions telles quelles). Ne change que l'affichage : aucune donnée n'est modifiée, et la
  * trésorerie reste TTC dans les deux lectures.
  */
 export default function PasseSelecteurBase({ base, onChange }: { base: BaseMontants; onChange: (base: BaseMontants) => void }) {

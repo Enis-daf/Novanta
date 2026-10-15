@@ -11,7 +11,7 @@ import PasseSelecteurPeriode from "./PasseSelecteurPeriode";
 import PasseSelecteurBase from "./PasseSelecteurBase";
 import { BaseMontants, calculerPnlEnBase, partsEnBase, tauxParCategorie } from "@/lib/pastHtEstime";
 import { DISCLAIMER_HT_ESTIME, DISCLAIMER_PASSE, PRECISION_HT_ESTIME } from "@/lib/pastPdfModel";
-import { LIBELLE_ECARTS_EN_TTC, libelleCouverture } from "@/lib/pastHtEstime";
+import { baseEnregistree, cleStockageBase, LIBELLE_ECARTS_EN_TTC, libelleCouverture } from "@/lib/pastHtEstime";
 import PasseStocks from "./PasseStocks";
 import PastDetailDashboard from "./PastDetailDashboard";
 import { supabase } from "@/lib/supabaseClient";
@@ -204,9 +204,25 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   // Correspondance catégorie -> étage P&L : indépendante de la période, toujours accessible.
   const [mappings, setMappings] = useState<MappingCategorie[]>([]);
   const [vue, setVue] = useState<Vue>("general");
-  // Lecture des montants (TTC par défaut, ou HT estimé) : état du module, conservé d'un onglet à
-  // l'autre. Ne modifie aucune donnée ; la trésorerie reste TTC dans les deux lectures.
-  const [base, setBase] = useState<BaseMontants>("ttc");
+  // Lecture des montants (HT estimé par défaut, ou TTC) : état du module, conservé d'un onglet à
+  // l'autre et, comme la période, relu du stockage local de CETTE organisation au montage. Seul un
+  // choix explicite y est écrit : une préférence TTC reste TTC. Ne modifie aucune donnée ; la
+  // trésorerie reste TTC dans les deux lectures.
+  const [base, setBase] = useState<BaseMontants>(() => {
+    try {
+      return baseEnregistree(window.localStorage.getItem(cleStockageBase(organizationId)));
+    } catch {
+      return baseEnregistree(null);
+    }
+  });
+  const choisirBase = (suivante: BaseMontants) => {
+    setBase(suivante);
+    try {
+      window.localStorage.setItem(cleStockageBase(organizationId), suivante);
+    } catch {
+      // Stockage local indisponible : la lecture vaut pour la session en cours seulement.
+    }
+  };
   const [filtreMapping, setFiltreMapping] = useState<FiltreMapping>("toutes");
   const [erreurMapping, setErreurMapping] = useState<string | null>(null);
   const [detailSignesOuvert, setDetailSignesOuvert] = useState(false);
@@ -464,8 +480,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     () => partsMappees(stockees, axe.axeId, mappingsIndexes),
     [stockees, axe.axeId, mappingsIndexes]
   );
-  // Lecture affichée. pnl et partsDetail restent TTC : ils servent aussi à l'export PDF, aux
-  // anomalies et aux objectifs, qui ne changent pas de base.
+  // Lecture affichée — écrans, objectifs et export PDF. pnl et partsDetail restent TTC : ils
+  // servent aux anomalies et à la trésorerie (Cash flow), qui ne changent pas de base.
   const pnlAffiche = useMemo(
     () => calculerPnlEnBase(stockees, axe.axeId, mappingsIndexes, ajustements, base),
     [stockees, axe.axeId, mappingsIndexes, ajustements, base]
@@ -474,10 +490,10 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     () => partsEnBase(partsDetail, tauxParCategorie(mappingsIndexes), base),
     [partsDetail, mappingsIndexes, base]
   );
-  // Réalisé de la période face aux cibles en vigueur : lu dans Général et les écrans de détail.
+  // Réalisé de la période face aux cibles en vigueur, dans la lecture affichée : lu dans Général.
   const ecartsCibles = useMemo(
-    () => ecartsVsCibles(cibles, partsDetail, ajustements, periode),
-    [cibles, partsDetail, ajustements, periode]
+    () => ecartsVsCibles(cibles, partsDetailAffichees, ajustements, periode, null, base),
+    [cibles, partsDetailAffichees, ajustements, periode, base]
   );
 
   const changerEtage = (sourceCategoryId: string, etage: EtagePnl) => {
@@ -596,10 +612,10 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     for (const operation of operations) {
       if (operation.type === "insert") {
         const { cible } = operation;
-        const enregistree = await enregistrerCible(supabase!, organizationId, cible.type, cible.dimension, cible.validFrom, cible.valeur);
+        const enregistree = await enregistrerCible(supabase!, organizationId, cible.type, cible.dimension, cible.validFrom, cible.valeur, cible.base ?? null);
         setCibles((actuelles) => actuelles.map((c) => (c.id === cible.id ? enregistree : c)));
       } else if (operation.type === "update") {
-        await modifierCible(supabase!, organizationId, operation.id, { valeur: operation.valeur, validFrom: operation.validFrom });
+        await modifierCible(supabase!, organizationId, operation.id, { valeur: operation.valeur, validFrom: operation.validFrom, base: operation.base });
       } else if (operation.type === "comment") {
         await commenterCibleEnBase(supabase!, organizationId, operation.id, operation.commentaire);
       } else {
@@ -623,9 +639,10 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   };
   // `dimension` : la catégorie de CA d'un objectif de marge ; vide pour les coûts de structure.
   // Posée à une date d'effet déjà utilisée pour la même cible, la valeur la met à jour.
-  const poserUneCible = (type: TypeCible, dimension: string, validFrom: string, valeur: number) =>
+  // `baseObjectif` : base du montant d'un objectif de coûts de structure (HT par défaut).
+  const poserUneCible = (type: TypeCible, dimension: string, validFrom: string, valeur: number, baseObjectif?: BaseMontants) =>
     enregistrerCibles(
-      poserCible(cibles, { type, dimension, validFrom }, valeur, `provisoire:${type}:${dimension}:${validFrom}`),
+      poserCible(cibles, { type, dimension, validFrom }, valeur, `provisoire:${type}:${dimension}:${validFrom}`, baseObjectif),
       "save",
       "La cible n'a pas pu être enregistrée. Réessayez."
     );
@@ -821,9 +838,16 @@ export default function PasseTransactions({ organizationId, organizationName, ac
           `${pluriel(nombreSignesInhabituels, "transaction avec un signe inhabituel", "transactions avec un signe inhabituel")}, prises en compte telles quelles.`
         );
       }
+      // Lecture HT : la couverture de la TVA est dite en tête, comme à l'écran.
+      if (base === "ht" && pnlAffiche.couvertures && !pnlAffiche.couvertures.ebitda.complete) {
+        avertissements.push(`Estimation incomplète : ${libelleCouverture(pnlAffiche.couvertures.ebitda).toLocaleLowerCase("fr")}`);
+      }
+      // L'export suit la lecture affichée ; le Cash flow reste sur les parts TTC.
       const pages = pagesExportPdf({
-        pnl,
-        parts: partsDetail,
+        pnl: pnlAffiche,
+        parts: partsDetailAffichees,
+        partsTtc: partsDetail,
+        base,
         periode,
         ajustements,
         avertissements,
@@ -849,7 +873,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         <div className="passe-controle passe-axe">
           {/* L'onglet Écarts compare deux périodes qui lui sont propres : la période du module n'y
               joue pas, elle est masquée pour ne pas laisser croire le contraire. */}
-          {(vue === "general" || estMetriqueDetail(vue)) && <PasseSelecteurBase base={base} onChange={setBase} />}
+          {(vue === "general" || estMetriqueDetail(vue)) && <PasseSelecteurBase base={base} onChange={choisirBase} />}
           {vue !== "ecarts" && (
             <PasseSelecteurPeriode
               id="passe-periode-preset"
@@ -1189,7 +1213,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
             <PasseGeneral
               pnl={pnlAffiche}
               teintes={teintesCategories}
-              cibles={base === "ttc" ? ecartsCibles : null}
+              cibles={ecartsCibles}
               onOuvrir={setVue}
               onDefinirCible={voirCibles}
               onConfigurerTva={() => setVue("mapping")}
@@ -1208,9 +1232,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               ajustements={ajustements}
               teintes={teintesCategories}
               onFiltresChange={retenirFiltresOnglet}
-              // Objectifs posés sur des montants TTC : pas de comparaison en lecture HT estimé.
-              cibles={base === "ttc" ? cibles : undefined}
-              ciblesMasquees={base === "ht"}
+              // Comparés dans la lecture affichée (lib/pastTargets.ts::ecartsVsCibles).
+              cibles={cibles}
             />
           ) : vue === "ecarts" ? (
             <>

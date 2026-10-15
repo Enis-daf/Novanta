@@ -32,13 +32,25 @@ export type { CategorieSansTva, CouvertureTva } from "./pastCouvertureTva";
 import { PastTransactionStockee } from "./pastTransactions";
 import { MENTION_TTC } from "./format";
 
-// Textes de la lecture HT estimé : la trésorerie et les objectifs restent sur la base TTC.
-export const LIBELLE_OBJECTIF_EN_TTC = `Objectif comparé en lecture ${MENTION_TTC} uniquement`;
+// Textes de la lecture HT estimé : la trésorerie reste sur la base TTC.
 export const LIBELLE_FRONTIERE_TRESORERIE = `Trésorerie : flux bancaires réels, toujours en ${MENTION_TTC}`;
 export const LIBELLE_ECARTS_EN_TTC = `L'analyse d'écarts porte sur le Cash flow : des flux bancaires réels, toujours en ${MENTION_TTC}.`;
 export const LIBELLE_TVA_SANS_OBJET = `Flux de trésorerie : toujours lu en ${MENTION_TTC}`;
 
 export type BaseMontants = "ttc" | "ht";
+
+// Lecture du module Passé à l'ouverture, tant que l'utilisateur n'en a pas choisi une autre.
+export const BASE_PAR_DEFAUT: BaseMontants = "ht";
+
+/** Clé du stockage local de la lecture choisie, propre à chaque organisation (comme la période). */
+export function cleStockageBase(organizationId: string): string {
+  return `past_reporting_basis_${organizationId}`;
+}
+
+/** Lecture enregistrée : un choix explicite (« ttc » ou « ht ») est repris, sinon HT estimé. */
+export function baseEnregistree(valeur: string | null): BaseMontants {
+  return valeur === "ttc" || valeur === "ht" ? valeur : BASE_PAR_DEFAUT;
+}
 
 /** Taux proposés dans la correspondance P&L ; « Autre » permet tout taux valide. */
 export const TAUX_TVA_PROPOSES = [0, 2.1, 5.5, 10, 20] as const;

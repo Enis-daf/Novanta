@@ -201,22 +201,22 @@ describe("persistance par organisation", () => {
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import PasseGeneral from "../components/PasseGeneral";
-import { EcartsVsCibles } from "./pastTargets";
+import { EcartsVsCibles, ecartsVsCibles } from "./pastTargets";
 import { MENTION_HT_ESTIME, MENTION_TTC } from "./format";
 
 (globalThis as unknown as { React: typeof React }).React = React;
 const texte = (html: string) =>
   html.replace(/<[^>]+>/g, "\n").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/[  ]/g, " ").split("\n").map((t) => t.trim()).filter(Boolean);
 
-describe("écran Général : HT estimé jusqu'à l'EBITDA, trésorerie en TTC, objectifs non comparés", () => {
+describe("écran Général : HT estimé jusqu'à l'EBITDA, trésorerie en TTC, objectifs dans la lecture active", () => {
   const mappings = indexerMappings([mapping("ventes", "revenue", 20), mapping("achats", "gross_margin", 20), mapping("tva", "extra_pnl", null)]);
   const transactions = [tx(12_000, [["ventes", 1]]), tx(-6_000, [["achats", 1]]), tx(-800, [["tva", 1]])];
-  const cibles = { margeBrute: null, margeContributive: null, ebitda: null, ebitdaIncomplet: false, coutsStructure: null, montantCoutsStructure: 0 } as unknown as EcartsVsCibles;
-  const rendre = (pnl: ReturnType<typeof calculerPnlEnBase>, c: EcartsVsCibles | null) =>
+  const cibles = ecartsVsCibles([], [], [], PERIODE);
+  const rendre = (pnl: ReturnType<typeof calculerPnlEnBase>, c: EcartsVsCibles = cibles) =>
     texte(renderToStaticMarkup(React.createElement(PasseGeneral, { pnl, cibles: c, onOuvrir: () => {}, onDefinirCible: () => {}, onConfigurerTva: () => {}, teintes: new Map() })));
 
   test("lecture HT : « Encaissements HT estimé », « Cash flow opérationnel TTC », frontière explicite", () => {
-    const lignes = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ht"), null);
+    const lignes = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ht"));
     const suivi = (libelle: string) => lignes[lignes.indexOf(libelle) + 1];
     assert.equal(suivi("Encaissements"), MENTION_HT_ESTIME);
     assert.equal(suivi("Marge brute"), MENTION_HT_ESTIME);
@@ -227,17 +227,21 @@ describe("écran Général : HT estimé jusqu'à l'EBITDA, trésorerie en TTC, o
     assert.ok(lignes.includes("5 200 €"), "cash flow : 12 000 − 6 000 − 800, en TTC");
   });
 
-  test("objectifs : non comparés en lecture HT, phrase explicite à la place de l'écart", () => {
-    const lignes = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ht"), null);
-    assert.equal(lignes.filter((t) => t === "Objectif comparé en lecture TTC uniquement").length, 3);
-    assert.equal(lignes.includes("Définir une cible"), false);
-    const ttc = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ttc"), cibles);
-    assert.equal(ttc.includes("Objectif comparé en lecture TTC uniquement"), false);
+  test("objectifs : comparés en lecture HT, cible et écart en HT estimé", () => {
+    const objectifs = [{ id: "mb", type: "gross_margin_pct" as const, dimension: "ventes", validFrom: "2026-01-01", valeur: 40 }];
+    const parts = (base: "ht" | "ttc") => partsEnBase(partsMappees(transactions, AXE, mappings), tauxParCategorie(mappings), base);
+    const ht = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ht"), ecartsVsCibles(objectifs, parts("ht"), [], PERIODE, null, "ht"));
+    // HT : CA 10 000, marge 5 000 (50 %), cible 40 % → 4 000 ; écart +1 000.
+    assert.ok(ht.includes("Cible 40,0 %"));
+    assert.ok(ht.some((t) => t.includes("+1 k€ vs cible")), ht.join(" | "));
+    const ttc = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ttc"), ecartsVsCibles(objectifs, parts("ttc"), [], PERIODE, null, "ttc"));
+    // TTC : CA 12 000, marge 6 000, cible 4 800 ; écart +1 200.
+    assert.ok(ttc.some((t) => t.includes("+1,2 k€ vs cible")), ttc.join(" | "));
   });
 
   test("TVA manquante : « Incomplet » à la place du montant, catégorie nommée, pas de répartition HT", () => {
     const sansTaux = indexerMappings([mapping("ventes", "revenue", 20), mapping("achats", "gross_margin", null)]);
-    const lignes = rendre(calculerPnlEnBase([tx(12_000, [["ventes", 1]]), tx(-6_000, [["achats", 1]])], AXE, sansTaux, [], "ht"), null);
+    const lignes = rendre(calculerPnlEnBase([tx(12_000, [["ventes", 1]]), tx(-6_000, [["achats", 1]])], AXE, sansTaux, [], "ht"));
     const suivi = (libelle: string) => lignes[lignes.indexOf(libelle) + 2];
     assert.equal(suivi("Encaissements"), "10 000 €", "Encaissements : couverts");
     assert.equal(suivi("Marge brute"), "Incomplet");

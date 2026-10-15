@@ -83,6 +83,8 @@ const cibles = {
   ebitdaIncomplet: false,
   coutsStructure: null,
   montantCoutsStructure: -320_000,
+  base: "ttc",
+  indisponibles: { margeBrute: null, margeContributive: null, ebitda: null, coutsStructure: null },
 } as unknown as EcartsVsCibles;
 
 describe("P&L (Général) : TTC après le nom des indicateurs principaux", () => {
