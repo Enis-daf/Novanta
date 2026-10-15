@@ -3285,3 +3285,138 @@ button.passe-cible--lien:focus-visible,
   font-size: 12px;
   color: var(--couleur-texte-secondaire);
 }
+
+/* Onglet BFR : synthèse et décomposition côte à côte, puis évolution, explication et actions. */
+.passe-bfr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding-top: var(--space-4);
+}
+
+.passe-bfr__barre {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.passe-bfr__haut {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-6);
+}
+
+@media (min-width: 960px) {
+  .passe-bfr__haut {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    align-items: start;
+  }
+}
+
+.passe-bfr__synthese {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.passe-bfr__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-bfr__statut--validee {
+  background: var(--couleur-fond-alt-vert);
+  color: #0f766e;
+}
+
+.passe-bfr__statut--provisoire {
+  background: var(--couleur-fond);
+  border: 1px solid var(--couleur-bordure);
+}
+
+.passe-bfr__statut--incomplete {
+  background: var(--couleur-fond-alt-rose);
+  color: var(--couleur-accent-fonce);
+}
+
+.passe-bfr__statut {
+  padding: 2px var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.passe-bfr__alerte {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-fond-alt-rose);
+  color: var(--couleur-accent-fonce);
+  font-size: 13px;
+}
+
+.passe-bfr__alerte p,
+.passe-bfr__alerte ul {
+  margin: 0;
+}
+
+.passe-bfr__alerte ul {
+  padding-left: var(--space-4);
+}
+
+.passe-bfr__decomposition {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.passe-bfr__terme {
+  display: flex;
+  flex: 1 1 140px;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-bfr__terme strong {
+  font-size: 20px;
+  color: var(--couleur-texte);
+  font-variant-numeric: tabular-nums;
+}
+
+.passe-bfr__terme--total {
+  background: var(--couleur-fond-alt-vert);
+  border-color: transparent;
+}
+
+.passe-bfr__operateur {
+  align-self: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-bfr__variation-total td {
+  font-weight: 700;
+}
+
+.passe-bfr__stocks,
+.passe-bfr__incertaines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}

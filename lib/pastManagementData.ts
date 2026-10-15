@@ -40,7 +40,7 @@ function moisSuivant(mois: string): string {
 }
 
 /** Mois de la période dont la fin est passée : ceux dont le stock de fin de mois peut être connu. */
-function moisTerminesDeLaPeriode(periode: Periode, aujourdhui: string): string[] {
+export function moisTerminesDeLaPeriode(periode: Periode, aujourdhui: string): string[] {
   const mois: string[] = [];
   if (periode.debut > periode.fin) return mois;
   const dernier = moisDe(periode.fin);

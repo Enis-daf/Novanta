@@ -293,6 +293,32 @@ export async function listSupplierInvoices(
   return paginerParCurseur<PennylaneSupplierInvoiceListItem>(bearer, ENDPOINT_SUPPLIER_INVOICES, {});
 }
 
+/** Nombre maximal de factures qu'une liste peut renvoyer (pagination bornée) : au-delà, tronquée. */
+export const MAX_FACTURES_PAR_LISTE = LIMITE_PAR_PAGE * MAX_PAGES;
+
+/** Transaction bancaire rapprochée d'une facture : seuls l'id, la date et le montant sont lus. */
+export interface PennylaneMatchedTransactionRaw {
+  id: number | string;
+  date?: string | null;
+  amount?: string | null;
+}
+
+/**
+ * Transactions bancaires rapprochées d'une facture (GET /customer_invoices/{id}/matched_transactions
+ * ou /supplier_invoices/{id}/matched_transactions, mêmes scopes que les listes de factures). Leur
+ * date est la seule date de règlement effectif que l'API expose ; la part de chaque transaction
+ * affectée à la facture, elle, n'est pas fournie. Vide pour une facture archivée ou brouillon.
+ */
+export async function listMatchedTransactions(
+  credentialProvider: PennylaneCredentialProvider,
+  type: "customer" | "supplier",
+  invoiceId: string
+): Promise<PennylaneMatchedTransactionRaw[]> {
+  const bearer = await credentialProvider.getBearerToken();
+  const endpoint = `${type === "customer" ? ENDPOINT_CUSTOMER_INVOICES : ENDPOINT_SUPPLIER_INVOICES}/${encodeURIComponent(invoiceId)}/matched_transactions`;
+  return paginerParCurseur<PennylaneMatchedTransactionRaw>(bearer, endpoint, {});
+}
+
 /** Groupe de catégories analytiques (un "axe" analytique côté Pennylane). */
 export interface PennylaneCategoryGroupRaw {
   id: number | string;
