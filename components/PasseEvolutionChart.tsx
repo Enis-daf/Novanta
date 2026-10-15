@@ -2,10 +2,12 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { graduationsAxe, NEUTRES, OPACITE_ATTENUEE, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
-import { formatMontant, formatKiloEuros, suffixeTTC } from "@/lib/format";
+import { formatMontant, formatKiloEuros, MENTION_TTC } from "@/lib/format";
 import { libelleMois, libelleMoisCourt, PointEvolution } from "@/lib/pastDetail";
 
 interface PasseEvolutionChartProps {
+  // Mention de l\'infobulle : « TTC », ou « HT estimé » en lecture HT (lib/pastHtEstime.ts).
+  mention?: string;
   titre: string;
   evolution: PointEvolution[];
   // Les barreaux montrent la valeur absolue des montants (catégorie sélectionnée) : l'infobulle
@@ -19,17 +21,19 @@ function InfoBulle({
   active,
   payload,
   enValeurAbsolue,
+  mention,
 }: {
   active?: boolean;
   payload?: { payload: PointEvolution }[];
   enValeurAbsolue: boolean;
+  mention: string;
 }) {
   if (!active || !payload?.length) return null;
   const { mois, montant } = payload[0].payload;
   return (
     <div className="passe-structure__infobulle">
       <strong>{libelleMois(mois)}</strong>
-      <span>{suffixeTTC(formatMontant(montant))}</span>
+      <span>{`${formatMontant(montant)} ${mention}`}</span>
       {enValeurAbsolue && montant < 0 && <span className="passe-structure__note">Montant réel ; barreau en valeur absolue</span>}
     </div>
   );
@@ -53,7 +57,7 @@ export function decimalesAxeK(amplitude: number): number {
 
 // Histogramme mensuel : un barreau par mois de la période (y compris à zéro), en k€. Cliquer sur
 // un mois (toute la colonne, pas seulement le barreau) le sélectionne comme filtre.
-export default function PasseEvolutionChart({ titre, evolution, enValeurAbsolue = false, selection, onSelect }: PasseEvolutionChartProps) {
+export default function PasseEvolutionChart({ titre, evolution, enValeurAbsolue = false, selection, onSelect, mention = MENTION_TTC }: PasseEvolutionChartProps) {
   const plusieursAnnees = new Set(evolution.map((e) => e.mois.slice(0, 4))).size > 1;
   const graduations = graduationsAxe(evolution.map((e) => e.valeur));
   const decimales = decimalesAxeK(Math.max(...graduations.map(Math.abs)));
@@ -92,7 +96,7 @@ export default function PasseEvolutionChart({ titre, evolution, enValeurAbsolue 
               axisLine={false}
               tickLine={false}
             />
-            <Tooltip content={<InfoBulle enValeurAbsolue={enValeurAbsolue} />} cursor={{ fill: NEUTRES.bordure, fillOpacity: 0.5 }} />
+            <Tooltip content={<InfoBulle enValeurAbsolue={enValeurAbsolue} mention={mention} />} cursor={{ fill: NEUTRES.bordure, fillOpacity: 0.5 }} />
             <ReferenceLine y={0} stroke={NEUTRES.secondaire} />
             <Bar dataKey="valeur" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={false}>
               {evolution.map((e) => (

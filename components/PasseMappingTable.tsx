@@ -1,7 +1,9 @@
 "use client";
 
 import MentionTTC from "./MentionTTC";
+import { useState } from "react";
 import { formatMontant } from "@/lib/format";
+import { estEtageEconomique, estTauxTvaValide, LIBELLE_TVA_SANS_OBJET, TAUX_TVA_PROPOSES } from "@/lib/pastHtEstime";
 import {
   EtagePnl,
   ETAGES_PNL,
@@ -15,6 +17,68 @@ interface PasseMappingTableProps {
   filtre: FiltreMapping;
   onChangeFiltre: (filtre: FiltreMapping) => void;
   onChangeEtage: (sourceCategoryId: string, etage: EtagePnl) => void;
+  // Taux de TVA estimé (null = « Non défini ») : sert à la lecture HT estimé du reporting.
+  onChangeTva: (sourceCategoryId: string, taux: number | null) => void;
+}
+
+const formatTaux = (taux: number) => `${taux.toLocaleString("fr-FR")} %`;
+const AUTRE = "autre";
+
+/**
+ * Taux de TVA estimé d'une catégorie : « Non défini » par défaut (jamais prérempli), un taux
+ * courant, ou un autre taux saisi. Sans objet pour les étages de trésorerie, jamais convertis.
+ */
+function SelecteurTva({ ligne, onChange }: { ligne: LigneMapping; onChange: (taux: number | null) => void }) {
+  const taux = ligne.vatRate ?? null;
+  const tauxPropose = taux !== null && (TAUX_TVA_PROPOSES as readonly number[]).includes(taux);
+  const [saisieLibre, setSaisieLibre] = useState(taux !== null && !tauxPropose);
+  const [brouillon, setBrouillon] = useState(taux !== null && !tauxPropose ? String(taux).replace(".", ",") : "");
+
+  if (ligne.pnlStage !== null && !estEtageEconomique(ligne.pnlStage)) {
+    return <span className="passe-mapping__tva-sans-objet" title={LIBELLE_TVA_SANS_OBJET}>Sans objet</span>;
+  }
+  const valider = () => {
+    const valeur = Number(brouillon.replace(",", ".").trim());
+    if (brouillon.trim() !== "" && estTauxTvaValide(valeur)) onChange(Math.round(valeur * 100) / 100);
+  };
+  return (
+    <span className="passe-mapping__tva">
+      <select
+        aria-label={`TVA estimée de la catégorie ${ligne.sourceCategoryName}`}
+        value={saisieLibre ? AUTRE : taux === null ? "" : String(taux)}
+        onChange={(e) => {
+          const valeur = e.target.value;
+          if (valeur === AUTRE) {
+            setSaisieLibre(true);
+            return;
+          }
+          setSaisieLibre(false);
+          onChange(valeur === "" ? null : Number(valeur));
+        }}
+      >
+        <option value="">Non défini</option>
+        {TAUX_TVA_PROPOSES.map((t) => (
+          <option key={t} value={String(t)}>
+            {formatTaux(t)}
+          </option>
+        ))}
+        <option value={AUTRE}>Autre…</option>
+      </select>
+      {saisieLibre && (
+        <input
+          type="text"
+          inputMode="decimal"
+          className="passe-mapping__tva-libre"
+          aria-label={`Autre taux de TVA pour ${ligne.sourceCategoryName}, en %`}
+          placeholder="%"
+          value={brouillon}
+          onChange={(e) => setBrouillon(e.target.value)}
+          onBlur={valider}
+          onKeyDown={(e) => e.key === "Enter" && valider()}
+        />
+      )}
+    </span>
+  );
 }
 
 const formatNombre = new Intl.NumberFormat("fr-FR");
@@ -22,7 +86,7 @@ const formatNombre = new Intl.NumberFormat("fr-FR");
 // Table de correspondance catégorie source -> étage P&L. Toujours accessible et modifiable : ce
 // n'est pas un écran d'onboarding. Le nombre et le montant suivent la période affichée ; le
 // mapping lui-même en est indépendant.
-export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onChangeEtage }: PasseMappingTableProps) {
+export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onChangeEtage, onChangeTva }: PasseMappingTableProps) {
   const lignesFiltrees = filtrerLignesMapping(lignes, filtre);
 
   return (
@@ -68,6 +132,7 @@ export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onCh
                   <MentionTTC />
                 </th>
                 <th>Étage P&amp;L</th>
+                <th>TVA estimée</th>
                 <th>Statut</th>
               </tr>
             </thead>
@@ -90,6 +155,9 @@ export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onCh
                         </option>
                       ))}
                     </select>
+                  </td>
+                  <td>
+                    <SelecteurTva key={`${ligne.sourceCategoryId}:${ligne.vatRate ?? "nd"}`} ligne={ligne} onChange={(taux) => onChangeTva(ligne.sourceCategoryId, taux)} />
                   </td>
                   <td>
                     {ligne.pnlStage === null ? (

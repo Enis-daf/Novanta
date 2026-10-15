@@ -24,6 +24,10 @@ import { Periode } from "./pastTransactions";
 export const MAX_TRANSACTIONS_PDF = 20;
 
 export const DISCLAIMER_PASSE = "Tous les chiffres sont bien des transactions et non des chiffres comptables. Ils sont TTC.";
+// Lecture HT estimé (lib/pastHtEstime.ts) : remplace le rappel TTC à l'écran.
+export const DISCLAIMER_HT_ESTIME =
+  "Les montants HT sont des estimations calculées à partir des taux de TVA renseignés dans Novanta. Ils ne constituent pas des données comptables.";
+export const PRECISION_HT_ESTIME = "La trésorerie reste en TTC ; les ajustements de gestion (variation de stock…) sont repris tels que saisis.";
 
 const ORDRE_DETAILS: readonly MetriqueDetail[] = ["ca", "marge_brute", "marge_contributive", "ebitda", "cash_flow"];
 

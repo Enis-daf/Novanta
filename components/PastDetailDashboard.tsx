@@ -8,7 +8,9 @@ import PasseEvolutionChart from "./PasseEvolutionChart";
 import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import { formatDateCourte } from "@/lib/dates";
-import { formatMontant, formatKiloEuros, formatPourcentage } from "@/lib/format";
+import { formatMontant, formatKiloEuros, formatPourcentage, MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
+import { BaseMontants, LIBELLE_OBJECTIF_EN_TTC } from "@/lib/pastHtEstime";
+import PasseTvaIncomplete from "./PasseTvaIncomplete";
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import {
   calculerDetail,
@@ -43,6 +45,11 @@ interface PastDetailDashboardProps {
   // Cibles de performance de l'organisation. L'écran compare son indicateur à la cible avec la
   // même fonction que l'onglet Général (lib/pastTargets.ts), sur son mois filtré le cas échéant.
   cibles?: Cible[];
+  // Lecture des montants : les parts reçues sont déjà dans cette base (lib/pastHtEstime.ts).
+  base?: BaseMontants;
+  // Lecture HT estimé : les objectifs ne sont pas comparés (posés sur des montants TTC).
+  ciblesMasquees?: boolean;
+  onConfigurerTva?: () => void;
 }
 
 const PAS_AFFICHAGE = 100;
@@ -73,7 +80,19 @@ const LECTURES_CASH_FLOW = [
 // (catégorie, mois) vivent ICI, en un seul état que les quatre blocs consomment ; ils s'ajoutent
 // à la période globale. Le parent remonte ce composant à chaque changement d'onglet (prop `key`),
 // ce qui réinitialise les filtres locaux sans toucher à la période.
-export default function PastDetailDashboard({ metrique, parts, periode, ajustements, teintes, onFiltresChange, cibles }: PastDetailDashboardProps) {
+export default function PastDetailDashboard({
+  metrique,
+  parts,
+  periode,
+  ajustements,
+  teintes,
+  onFiltresChange,
+  cibles,
+  base = "ttc",
+  ciblesMasquees = false,
+  onConfigurerTva,
+}: PastDetailDashboardProps) {
+  const mention = base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC;
   // Écran Cash flow : « hors financement » (par défaut, la lecture la plus exploitable) ou
   // « financement compris » (la lecture bancaire complète). Tous les blocs de l'écran suivent le
   // même périmètre. Propre à l'écran : retour à « hors financement » en changeant d'onglet.
@@ -111,6 +130,9 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
   );
 
   const filtreActif = filtres.categorie !== null || filtres.mois !== null;
+  // Lecture HT : une partie des montants de l'indicateur n'a pas de taux de TVA. Aucun total n'est
+  // alors présenté comme fiable.
+  const estimationIncomplete = base === "ht" && vue.couvertureKpi !== null && !vue.couvertureKpi.complete;
   const ecartCible = useMemo(
     () =>
       cibles && ECRANS_AVEC_CIBLE.includes(metrique) && filtres.categorie === null
@@ -141,11 +163,25 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
             {vue.kpi.categorie && <span className="passe-kpi__contexte"> · {config.libelleDetail}</span>}
           </p>
           {/* EBITDA : l'indicateur se lit en k€, comme sa cible et son écart — une seule unité. */}
-          <p className="passe-kpi__montant">
-            {metrique === "ebitda" ? enK(vue.kpi.montant) : formatMontant(vue.kpi.montant)}
-            <MentionTTC />
-          </p>
-          {vue.kpi.ratio !== undefined && <p className="passe-kpi__ratio">{formatPourcentage(vue.kpi.ratio)} des encaissements</p>}
+          {estimationIncomplete ? (
+            <p className="passe-kpi__montant passe-kpi__montant--incomplet">
+              Estimation incomplète
+              <MentionTTC libelle={mention} />
+            </p>
+          ) : (
+            <p className="passe-kpi__montant">
+              {metrique === "ebitda" ? enK(vue.kpi.montant) : formatMontant(vue.kpi.montant)}
+              <MentionTTC libelle={mention} />
+            </p>
+          )}
+          {vue.kpi.ratio !== undefined && !estimationIncomplete && (
+            <p className="passe-kpi__ratio">{formatPourcentage(vue.kpi.ratio)} des encaissements</p>
+          )}
+          {base === "ht" && vue.couvertureKpi?.complete && <p className="passe-kpi__ratio">TVA renseignée sur 100 % des montants concernés.</p>}
+          {estimationIncomplete && vue.couvertureKpi && (
+            <PasseTvaIncomplete couverture={vue.couvertureKpi} onConfigurer={onConfigurerTva ?? (() => {})} />
+          )}
+          {ciblesMasquees && ECRANS_AVEC_CIBLE.includes(metrique) && <p className="passe-cible">{LIBELLE_OBJECTIF_EN_TTC}</p>}
           {/* Cash flow : la lecture choisie est toujours rappelée sous l'indicateur. */}
           {vue.kpi.precision && vue.kpi.categorie === null && <p className="passe-kpi__ratio">{vue.kpi.precision}</p>}
 
@@ -196,7 +232,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
           )}
         </section>
 
-        {vue.structure && (
+        {!estimationIncomplete && vue.structure && (
           <PasseStructureChart
             titre={`${config.libelleDetail} par catégorie`}
             structure={vue.structure}
@@ -211,7 +247,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
           />
         )}
 
-        {vue.barresCategories && (
+        {!estimationIncomplete && vue.barresCategories && (
           <PasseCategoriesChart
             titre={`${config.libelleDetail} par catégorie`}
             categories={vue.barresCategories}
@@ -222,6 +258,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
             }
             selection={filtres.categorie}
             onSelect={basculerCategorie}
+            mention={mention}
           />
         )}
 
@@ -262,13 +299,17 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
           </div>
         )}
         {/* Le graphique occupe toute la largeur de son panneau, sur tous les écrans. */}
-        <PasseEvolutionChart
-          titre={titreEvolution}
-          evolution={voirLesCouts ? evolutionCouts : vue.evolution}
-          enValeurAbsolue={voirLesCouts || vue.evolutionAbsolue}
-          selection={filtres.mois}
-          onSelect={basculerMois}
-        />
+        {/* Lecture HT incomplète : ni répartition ni évolution, qui mêleraient montants HT et TTC. */}
+        {!estimationIncomplete && (
+          <PasseEvolutionChart
+            titre={titreEvolution}
+            evolution={voirLesCouts ? evolutionCouts : vue.evolution}
+            enValeurAbsolue={voirLesCouts || vue.evolutionAbsolue}
+            selection={filtres.mois}
+            onSelect={basculerMois}
+            mention={mention}
+          />
+        )}
         {/* Ajustements de gestion compris dans l'indicateur (variation de stock...) : une note
             discrète sous le graphique, sur la période ou le mois sélectionné. Absente quand une
             catégorie est sélectionnée (un ajustement n'appartient à aucune catégorie) et en lecture
@@ -301,7 +342,8 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
             <p className="passe-message">
               Ajustements de gestion (hors banque)
               <span className="passe-detail__compte"> {vue.ajustementsDetail.length}</span>
-              <MentionTTC libelle={LIBELLE_MONTANTS_TTC} />
+              {/* Ajustements de gestion : jamais convertis (valeurs saisies), dans les deux lectures. */}
+              <MentionTTC libelle={base === "ht" ? "montants saisis, non convertis" : LIBELLE_MONTANTS_TTC} />
             </p>
             <div className="passe-detail__ajustements-liste">
             <table className="passe-table">
@@ -352,7 +394,7 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
                     <th>Libellé</th>
                     <th className="col-montant">
                       Montant
-                      <MentionTTC />
+                      <MentionTTC libelle={mention} />
                     </th>
                     <th>Catégorie</th>
                   </tr>
@@ -364,6 +406,8 @@ export default function PastDetailDashboard({ metrique, parts, periode, ajusteme
                       <td className="passe-table__libelle">{part.label || "—"}</td>
                       <td className="col-montant passe-table__montant">
                         {formatMontant(part.montant)}
+                        {/* Lecture HT : catégorie sans taux, montant resté TTC et signalé comme tel. */}
+                        {part.tvaManquante && <span className="passe-detail__source">{MENTION_TTC} · TVA non définie</span>}
                         {/* Transaction ventilée : la ligne porte la part de la catégorie, le montant bancaire reste visible. */}
                         {part.weight !== 1 && (
                           <span className="passe-detail__source">

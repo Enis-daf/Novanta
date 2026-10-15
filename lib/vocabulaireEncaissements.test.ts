@@ -70,7 +70,7 @@ describe("rendus", () => {
   const cibles = { margeBrute: null, margeContributive: null, ebitda: null, ebitdaIncomplet: false, coutsStructure: null, montantCoutsStructure: 0 } as unknown as EcartsVsCibles;
 
   test("P&L : « Encaissements TTC » en tête, montant inchangé", () => {
-    const lignes = texteVisible(renderToStaticMarkup(React.createElement(PasseGeneral, { pnl, cibles, onOuvrir: () => {}, onDefinirCible: () => {}, teintes: new Map() })));
+    const lignes = texteVisible(renderToStaticMarkup(React.createElement(PasseGeneral, { pnl: { ...pnl, base: "ttc", couvertures: null }, cibles, onOuvrir: () => {}, onDefinirCible: () => {}, onConfigurerTva: () => {}, teintes: new Map() })));
     const index = lignes.indexOf("Encaissements");
     assert.ok(index >= 0);
     assert.deepEqual(lignes.slice(index, index + 3), ["Encaissements", MENTION_TTC, "2 477 907 €"]);

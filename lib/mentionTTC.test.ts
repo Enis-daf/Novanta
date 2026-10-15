@@ -87,7 +87,7 @@ const cibles = {
 
 describe("P&L (Général) : TTC après le nom des indicateurs principaux", () => {
   const html = renderToStaticMarkup(
-    React.createElement(PasseGeneral, { pnl, cibles, onOuvrir: () => {}, onDefinirCible: () => {}, teintes: new Map() })
+    React.createElement(PasseGeneral, { pnl: { ...pnl, base: "ttc", couvertures: null }, cibles, onOuvrir: () => {}, onDefinirCible: () => {}, onConfigurerTva: () => {}, teintes: new Map() })
   );
   const lignes = texteDe(html);
   const suivi = (libelle: string) => lignes[lignes.indexOf(libelle) + 1];
@@ -138,7 +138,7 @@ describe("gros KPI : montant puis TTC", () => {
   const source = (nom: string) => readFileSync(path.resolve(__dirname, `../components/${nom}.tsx`), "utf8");
 
   test("CA, marges, EBITDA, Cash flow (écran de détail) : <MentionTTC /> après le montant", () => {
-    assert.match(source("PastDetailDashboard"), /passe-kpi__montant">\s*\{[^}]*\}\s*<MentionTTC \/>/);
+    assert.match(source("PastDetailDashboard"), /passe-kpi__montant">\s*\{[^}]*\}\s*<MentionTTC( libelle=\{mention\})? \/>/);
   });
 
   test("Analyse d'écarts : les trois KPI, montant puis mention", () => {
@@ -170,6 +170,7 @@ describe("garde-fous", () => {
   });
 
   test("le disclaimer en bas de page est conservé", () => {
-    assert.match(readFileSync(path.resolve(__dirname, "../app/passe/page.tsx"), "utf8"), /Ils sont TTC\./);
+    assert.match(readFileSync(path.resolve(__dirname, "pastPdfModel.ts"), "utf8"), /Ils sont TTC\./);
+    assert.match(readFileSync(path.resolve(__dirname, "../components/PasseTransactions.tsx"), "utf8"), /\{DISCLAIMER_PASSE\}/);
   });
 });

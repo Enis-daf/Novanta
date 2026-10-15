@@ -6,6 +6,12 @@
 export const MENTION_TTC = "TTC";
 
 /**
+ * Mention de la lecture « HT estimé » du module Passé (lib/pastHtEstime.ts) : des montants
+ * recalculés à partir de taux de TVA saisis, jamais des données comptables.
+ */
+export const MENTION_HT_ESTIME = "HT estimé";
+
+/**
  * Montant suivi de la mention (« 12 400 € TTC »), pour un texte brut (infobulle, PDF). Toujours
  * APRÈS le montant, jamais deux fois.
  */

@@ -1,4 +1,4 @@
-import { MENTION_TTC } from "@/lib/format";
+import { MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
 
 /**
  * Mention « TTC » du module Passé, toujours en SUFFIXE et toujours secondaire (gris, plus petite,
@@ -10,7 +10,8 @@ import { MENTION_TTC } from "@/lib/format";
  */
 export default function MentionTTC({ libelle = MENTION_TTC }: { libelle?: string }) {
   // Mention de bloc (« montants TTC ») : séparée de l'intitulé par un point médian.
-  return <span className="mention-ttc">{libelle === MENTION_TTC ? libelle : `· ${libelle}`}</span>;
+  const mentionSimple = libelle === MENTION_TTC || libelle === MENTION_HT_ESTIME;
+  return <span className="mention-ttc">{mentionSimple ? libelle : `· ${libelle}`}</span>;
 }
 
 /** Mention d'un tableau ou d'un bloc dont toutes les valeurs sont des montants. */
