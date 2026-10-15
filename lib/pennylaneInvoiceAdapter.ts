@@ -380,11 +380,16 @@ export interface ResultatCalculSynchronisation {
  * est proposée au rattachement (aRattacher). Sans cette règle, une facture saisie dans Novanta puis
  * synchronisée existait deux fois — c'était la cause des doublons. Rien n'est rattaché sans
  * l'utilisateur : la proposition se renouvelle à chaque synchronisation tant qu'il n'a pas choisi.
+ *
+ * `pennylaneIdsFusionnes` : identifiants Pennylane des lignes retirées par une fusion de doublons
+ * confirmée. Ces factures sont déjà représentées par la ligne conservée : elles ne sont ni
+ * réimportées, ni reproposées.
  */
 export function calculerSynchronisation(
   candidats: CandidatFacturePennylane[],
   facturesExistantes: FactureExistantePourSync[],
-  sens: Sens = "fournisseur"
+  sens: Sens = "fournisseur",
+  pennylaneIdsFusionnes: ReadonlySet<string> = new Set()
 ): ResultatCalculSynchronisation {
   const existanteParPennylaneId = new Map<string, FactureExistantePourSync>();
   for (const facture of facturesExistantes) {
@@ -401,6 +406,7 @@ export function calculerSynchronisation(
 
   for (const candidat of candidats) {
     const existante = existanteParPennylaneId.get(candidat.pennylaneId);
+    if (!existante && pennylaneIdsFusionnes.has(candidat.pennylaneId)) continue;
 
     if (candidat.aRetirer) {
       if (existante) idsASupprimer.push(existante.id);

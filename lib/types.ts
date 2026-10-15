@@ -12,6 +12,10 @@ export interface FactureClient {
   // Pennylane (voir lib/pennylaneInvoiceAdapter.ts) ; absent/null pour une facture créée
   // manuellement ou importée par fichier. Clé de dédoublonnage, jamais recalculée.
   pennylaneId?: string | null;
+  // Montant de la facture Pennylane, conservé à part quand une fusion de doublons a retenu un autre
+  // montant pour la prévision (lib/doublonsFactures.ts::appliquerFusion). `montant` reste le
+  // montant des prévisions. Absent : rien à conserver.
+  montantSource?: number | null;
 }
 
 export interface FactureFournisseur {
@@ -26,6 +30,10 @@ export interface FactureFournisseur {
   paidAt: string | null; // ISO 8601 datetime — moment où "Payée" a été cochée
   // Voir FactureClient.pennylaneId — même rôle côté factures fournisseurs.
   pennylaneId?: string | null;
+  // Montant de la facture Pennylane, conservé à part quand une fusion de doublons a retenu un autre
+  // montant pour la prévision (lib/doublonsFactures.ts::appliquerFusion). `montant` reste le
+  // montant des prévisions. Absent : rien à conserver.
+  montantSource?: number | null;
 }
 
 export type ModeMontantChargeFixe = "fixe" | "calcule";
