@@ -3329,6 +3329,11 @@ button.passe-cible--lien:focus-visible,
   color: var(--couleur-texte-secondaire);
 }
 
+/* Valeurs différentes entre les deux lignes : repérées, sans couleur de verdict. */
+.doublons-fusion__difference td {
+  background: var(--couleur-fond-alt-vert);
+}
+
 .doublons-fusion__choix {
   display: flex;
   flex-wrap: wrap;

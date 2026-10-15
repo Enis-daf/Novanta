@@ -28,11 +28,13 @@ import {
   calculerSynchronisation,
   candidatVersFactureClient,
   candidatVersFactureFournisseur,
+  MiseAJourDocument,
   RattachementPropose,
   ResultatSyncPennylane,
 } from "@/lib/pennylaneInvoiceAdapter";
 import {
   appliquerFusion,
+  rattacherAPennylane,
   ChoixFusion,
   clePaire,
   detecterDoublons,
@@ -106,6 +108,7 @@ import {
   supprimerFacturesFournisseurs,
   supprimerFinancement,
   supprimerRentreeReguliere,
+  actualiserDocumentsFactures,
   chargerDecisionsDoublons,
   DecisionDoublon,
   enregistrerFusion,
@@ -642,6 +645,30 @@ export default function Home() {
     }
   };
 
+  // Pennylane a modifié le document d'une facture déjà liée : n°, tiers, montant et échéance sont
+  // actualisés ; la date prévue ne l'est que si elle suivait l'échéance (réglage Novanta conservé).
+  const appliquerMisesAJourDocument = (sens: SensFacture, misesAJour: MiseAJourDocument[]) => {
+    if (misesAJour.length === 0) return;
+    const parId = new Map(misesAJour.map((m) => [m.id, m]));
+    if (sens === "client") {
+      setFacturesClients((prev) =>
+        prev.map((f) => {
+          const m = parId.get(f.id);
+          return m ? { ...f, facture: m.facture, client: m.tiers, montant: m.montant, dateEcheance: m.dateEcheance, dateEncaissementAnticipee: m.datePrevue ?? f.dateEncaissementAnticipee } : f;
+        })
+      );
+      persist(() => actualiserDocumentsFactures("client", misesAJour));
+    } else {
+      setFacturesFournisseurs((prev) =>
+        prev.map((f) => {
+          const m = parId.get(f.id);
+          return m ? { ...f, facture: m.facture, fournisseur: m.tiers, montant: m.montant, dateEcheance: m.dateEcheance, datePaiementPrevue: m.datePrevue ?? f.datePaiementPrevue } : f;
+        })
+      );
+      persist(() => actualiserDocumentsFactures("fournisseur", misesAJour));
+    }
+  };
+
   // Déclenché depuis le bouton "Synchroniser Pennylane" de FacturesClientsTable OU
   // FacturesFournisseursTable (les deux appellent cette même fonction — une seule opération,
   // affichée aux deux endroits). N'est jamais appelé si Pennylane n'est pas connecté : le bouton
@@ -671,6 +698,7 @@ export default function Home() {
         tiers: f.client,
         montant: f.montant,
         dateEcheance: f.dateEcheance,
+        datePrevue: f.dateEncaissementAnticipee,
       }));
       const facturesFournisseursExistantesPourSync = facturesFournisseurs.map((f) => ({
         id: f.id,
@@ -680,6 +708,7 @@ export default function Home() {
         tiers: f.fournisseur,
         montant: f.montant,
         dateEcheance: f.dateEcheance,
+        datePrevue: f.datePaiementPrevue,
       }));
       const rattachements: { client: RattachementPropose[]; fournisseur: RattachementPropose[] } = { client: [], fournisseur: [] };
 
@@ -692,26 +721,28 @@ export default function Home() {
       let nouvellesFacturesFournisseurs: FactureFournisseur[] = [];
 
       if (data.clientCandidates) {
-        const { aInserer, idsAMettreAJourPayee, aRattacher } = calculerSynchronisation(
+        const { aInserer, idsAMettreAJourPayee, aRattacher, misesAJourDocument } = calculerSynchronisation(
           data.clientCandidates,
           facturesClientsExistantesPourSync,
           "client",
           pennylaneIdsFusionnes("client")
         );
         rattachements.client = aRattacher;
+        appliquerMisesAJourDocument("client", misesAJourDocument);
         nouvellesFacturesClients = aInserer.map(candidatVersFactureClient);
         idsClientsAMettreAJourPayee = idsAMettreAJourPayee;
         nombreClientsAjoutes = nouvellesFacturesClients.length;
       }
 
       if (data.fournisseurCandidates) {
-        const { aInserer, idsAMettreAJourPayee, idsASupprimer, aRattacher } = calculerSynchronisation(
+        const { aInserer, idsAMettreAJourPayee, idsASupprimer, aRattacher, misesAJourDocument } = calculerSynchronisation(
           data.fournisseurCandidates,
           facturesFournisseursExistantesPourSync,
           "fournisseur",
           pennylaneIdsFusionnes("fournisseur")
         );
         rattachements.fournisseur = aRattacher;
+        appliquerMisesAJourDocument("fournisseur", misesAJourDocument);
         nouvellesFacturesFournisseurs = aInserer.map(candidatVersFactureFournisseur);
         idsFournisseursAMettreAJourPayee = idsAMettreAJourPayee;
         idsFournisseursASupprimer = idsASupprimer;
@@ -793,19 +824,43 @@ export default function Home() {
 
   // La ligne Novanta reste telle quelle ; elle reçoit l'identifiant de la facture Pennylane, que la
   // synchronisation reconnaîtra désormais (plus jamais d'import en double).
+  // Même règle que la fusion (lib/doublonsFactures.ts::rattacherAPennylane) : la ligne prend le
+  // document Pennylane et garde ses réglages de prévision Novanta.
   const handleRattacher = (sens: "client" | "fournisseur", rattachement: RattachementPropose) => {
     retirerProposition(sens, rattachement);
-    const pennylaneId = rattachement.candidat.pennylaneId;
+    const document = rattachement.candidat;
     if (sens === "client") {
       const existante = facturesClients.find((f) => f.id === rattachement.existanteId);
       if (!existante) return;
-      const rattachee = { ...existante, pennylaneId };
+      const r = rattacherAPennylane(commeFusionnableClient(existante), document);
+      const rattachee: FactureClient = {
+        ...existante,
+        pennylaneId: r.pennylaneId,
+        facture: r.facture,
+        client: r.tiers,
+        montant: r.montant,
+        dateEcheance: r.dateEcheance,
+        dateEncaissementAnticipee: r.datePrevue,
+        payee: r.payee,
+        paidAt: existante.payee ? existante.paidAt : r.payee ? new Date().toISOString() : null,
+      };
       setFacturesClients((prev) => prev.map((f) => (f.id === rattachee.id ? rattachee : f)));
       if (companyId) persist(() => sauvegarderFactureClient(companyId, rattachee));
     } else {
       const existante = facturesFournisseurs.find((f) => f.id === rattachement.existanteId);
       if (!existante) return;
-      const rattachee = { ...existante, pennylaneId };
+      const r = rattacherAPennylane(commeFusionnableFournisseur(existante), document);
+      const rattachee: FactureFournisseur = {
+        ...existante,
+        pennylaneId: r.pennylaneId,
+        facture: r.facture,
+        fournisseur: r.tiers,
+        montant: r.montant,
+        dateEcheance: r.dateEcheance,
+        datePaiementPrevue: r.datePrevue,
+        payee: r.payee,
+        paidAt: existante.payee ? existante.paidAt : r.payee ? new Date().toISOString() : null,
+      };
       setFacturesFournisseurs((prev) => prev.map((f) => (f.id === rattachee.id ? rattachee : f)));
       if (companyId) persist(() => sauvegarderFactureFournisseur(companyId, rattachee));
     }
@@ -824,10 +879,10 @@ export default function Home() {
     const resultat = appliquerFusion(paire.a, paire.b, proposition, choix);
     if (!resultat || !companyId) throw new Error("Fusion incomplète.");
     const decision: DecisionDoublon = { sens, cle: clePaire(paire.a.id, paire.b.id), decision: "fusion", pennylaneIdRetire: resultat.pennylaneIdRetire };
-    // Payée vient de la ligne choisie : sa date de paiement aussi.
-    const datePaiement = <T extends { id: string; payee: boolean; paidAt: string | null }>(ref: T, autre: T) =>
-      resultat.reference.payee === ref.payee ? ref.paidAt : autre.paidAt;
-    const valeurs = { montant: resultat.reference.montant, litigieuse: resultat.reference.litigieuse, payee: resultat.reference.payee, montantSource: resultat.reference.montantSource ?? null };
+    // La référence garde son document (n°, tiers, montant, échéance) ; elle reçoit les réglages de
+    // prévision repris. Payée : la date de paiement vient de la ligne qui la portait.
+    const datePaiement = <T extends { payee: boolean; paidAt: string | null }>(ref: T, autre: T) => (ref.payee ? ref.paidAt : autre.payee ? autre.paidAt : null);
+    const valeurs = { litigieuse: resultat.reference.litigieuse, payee: resultat.reference.payee };
     try {
       if (sens === "client") {
         const [ref, autre] = [facturesClients.find((f) => f.id === resultat.reference.id), facturesClients.find((f) => f.id === resultat.retiree.id)];

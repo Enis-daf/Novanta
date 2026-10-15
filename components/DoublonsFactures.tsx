@@ -5,11 +5,8 @@ import { formatDateCourte } from "@/lib/dates";
 import { formatMontant } from "@/lib/format";
 import {
   appliquerFusion,
-  ChampFusion,
-  choixManquants,
   ChoixFusion,
   clePaire,
-  CoteFusion,
   DetectionDoublon,
   FactureFusionnable,
   PaireDoublon,
@@ -60,22 +57,26 @@ function Diagnostic({ detection }: { detection: DetectionDoublon }) {
   );
 }
 
-const LIGNES_COMPARAISON: { libelle: string; valeur: (f: FactureFusionnable) => string }[] = [
+const date = (valeur: string) => (valeur ? formatDateCourte(valeur) : "—");
+const ouiNon = (valeur: boolean) => (valeur ? "Oui" : "Non");
+
+// Lignes du comparatif : le document (repris de la référence) puis les réglages de prévision.
+const LIGNES_COMPARAISON: { libelle: string; valeur: (f: FactureFusionnable) => string; reglage?: boolean }[] = [
   { libelle: "Tiers", valeur: (f) => f.tiers || "—" },
   { libelle: "N° de facture", valeur: (f) => f.facture || "—" },
   { libelle: "Montant", valeur: (f) => formatMontant(f.montant) },
-  { libelle: "Échéance", valeur: (f) => (f.dateEcheance ? formatDateCourte(f.dateEcheance) : "—") },
+  { libelle: "Échéance", valeur: (f) => date(f.dateEcheance) },
   { libelle: "Origine", valeur: origine },
-  { libelle: "Date prévue", valeur: (f) => (f.datePrevue ? formatDateCourte(f.datePrevue) : "—") },
-  { libelle: "Payée", valeur: (f) => (f.payee ? "Oui" : "Non") },
-  { libelle: "Litigieuse", valeur: (f) => (f.litigieuse ? "Oui" : "Non") },
+  { libelle: "Paiement prévu", valeur: (f) => date(f.datePrevue), reglage: true },
+  { libelle: "Payée", valeur: (f) => ouiNon(f.payee), reglage: true },
+  { libelle: "Litigieuse", valeur: (f) => ouiNon(f.litigieuse), reglage: true },
 ];
 
 /**
- * Résolution d'un doublon, avant toute écriture : les deux lignes côte à côte, la ligne conservée
- * comme référence, et un choix pour chaque valeur qui diffère. Rien n'est retenu d'office quand
- * rien ne permet de trancher (montants différents, réglages contradictoires) : la confirmation
- * reste impossible tant que ces choix manquent.
+ * Résolution d'un doublon, avant toute écriture (lib/doublonsFactures.ts) : les deux lignes et le
+ * résultat côte à côte. Le document de la facture Pennylane est conservé sans choix possible ; les
+ * réglages de prévision Novanta sont repris. Seul un vrai conflit (deux dates de paiement prévues
+ * explicites différentes) demande une décision.
  */
 function ResolutionFusion({
   paire,
@@ -91,11 +92,10 @@ function ResolutionFusion({
   const [enCours, setEnCours] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const proposition = proposerFusion(paire.a, paire.b, referenceChoisie);
-  const manquants = choixManquants(proposition, choix);
   const resultat = appliquerFusion(paire.a, paire.b, proposition, choix);
   const reference = proposition.referenceId === paire.a.id ? paire.a : paire.b;
   const retiree = reference === paire.a ? paire.b : paire.a;
-  const ecartMontant = Math.abs(paire.a.montant - paire.b.montant);
+  const cle = clePaire(paire.a.id, paire.b.id);
 
   const confirmer = async () => {
     // Un seul envoi : le bouton est désactivé dès le premier clic.
@@ -118,73 +118,64 @@ function ResolutionFusion({
             <th scope="col">
               <span className="passe-visuellement-cache">Champ</span>
             </th>
-            {[paire.a, paire.b].map((f) => (
-              <th key={f.id} scope="col">
-                {f === reference ? "Conservée (référence)" : "Retirée"}
-              </th>
-            ))}
+            <th scope="col">{origine(paire.a)}</th>
+            <th scope="col">{origine(paire.b)}</th>
+            <th scope="col">Après fusion</th>
           </tr>
         </thead>
         <tbody>
-          {LIGNES_COMPARAISON.map((ligne) => (
-            <tr key={ligne.libelle}>
-              <th scope="row">{ligne.libelle}</th>
-              <td>{ligne.valeur(paire.a)}</td>
-              <td>{ligne.valeur(paire.b)}</td>
-            </tr>
-          ))}
+          {LIGNES_COMPARAISON.map((ligne) => {
+            const [va, vb] = [ligne.valeur(paire.a), ligne.valeur(paire.b)];
+            const apres = resultat ? ligne.valeur(resultat.reference) : ligne.libelle === "Paiement prévu" ? "À choisir" : ligne.valeur(reference);
+            return (
+              <tr key={ligne.libelle} className={va !== vb ? "doublons-fusion__difference" : undefined}>
+                <th scope="row">{ligne.libelle}</th>
+                <td>{va}</td>
+                <td>{vb}</td>
+                <td>
+                  <strong>{apres}</strong>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 
-      {proposition.referenceImposee ? (
-        <p className="doublons-cote__detail">
-          La facture Pennylane est conservée comme référence : la synchronisation continuera de la reconnaître.
-        </p>
-      ) : (
+      <p className="doublons-cote__detail">
+        {proposition.referenceImposee
+          ? "Les informations de facturation Pennylane seront conservées. Les réglages de prévision Novanta seront repris."
+          : "Les informations de facturation de la ligne de référence seront conservées. Les réglages de prévision des deux lignes seront repris."}{" "}
+        Une seule facture comptera dans les prévisions ; la ligne {origine(retiree)} est retirée et son contenu gardé dans
+        l&apos;historique de la fusion.
+        {retiree.pennylaneId ? " Cette autre facture Pennylane ne sera plus importée." : ""}
+      </p>
+
+      {!proposition.referenceImposee && (
         <fieldset className="doublons-fusion__choix">
-          <legend>Ligne conservée comme référence</legend>
+          <legend>Facture de référence</legend>
           {[paire.a, paire.b].map((f) => (
             <label key={f.id}>
-              <input type="radio" name={`ref-${clePaire(paire.a.id, paire.b.id)}`} checked={f === reference} onChange={() => setReferenceChoisie(f.id)} />
-              {f.tiers || "Tiers non renseigné"} ({origine(f)})
+              <input type="radio" name={`ref-${cle}`} checked={f === reference} onChange={() => setReferenceChoisie(f.id)} />
+              {f.tiers || "Tiers non renseigné"} — {formatMontant(f.montant)} ({origine(f)})
             </label>
           ))}
         </fieldset>
       )}
 
-      {proposition.differences.map((difference) => {
-        const retenu = choix[difference.champ] ?? difference.parDefaut;
-        return (
-          <fieldset key={difference.champ} className="doublons-fusion__choix">
-            <legend>
-              {difference.libelle}
-              {difference.champ === "montant" && <span className="doublons-cote__detail"> — écart de {formatMontant(ecartMontant)}</span>}
-              {difference.parDefaut === null && <span className="doublons-cote__detail"> — à choisir</span>}
-            </legend>
-            {(["a", "b"] as const).map((c) => (
-              <label key={c}>
-                <input
-                  type="radio"
-                  name={`${difference.champ}-${clePaire(paire.a.id, paire.b.id)}`}
-                  checked={retenu === c}
-                  onChange={() => setChoix({ ...choix, [difference.champ]: c } as Record<ChampFusion, CoteFusion>)}
-                />
-                {difference.valeurs[c]} <span className="doublons-cote__detail">({origine(c === "a" ? paire.a : paire.b)})</span>
-              </label>
-            ))}
-          </fieldset>
-        );
-      })}
+      {proposition.conflitDatePrevue && (
+        <fieldset className="doublons-fusion__choix">
+          <legend>
+            Paiement prévu <span className="doublons-cote__detail">— deux dates posées dans Novanta, à choisir</span>
+          </legend>
+          {(["a", "b"] as const).map((c) => (
+            <label key={c}>
+              <input type="radio" name={`date-${cle}`} checked={choix.datePrevue === c} onChange={() => setChoix({ datePrevue: c })} />
+              {date(proposition.conflitDatePrevue!.valeurs[c])} <span className="doublons-cote__detail">({origine(c === "a" ? paire.a : paire.b)})</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
 
-      <p className="doublons-cote__detail">
-        Après fusion, une seule facture compte dans les prévisions : celle de {reference.tiers || "la référence"} ({origine(reference)}), avec
-        les valeurs retenues ci-dessus.
-        {resultat?.reference.montantSource != null &&
-          ` Le montant de la facture Pennylane (${formatMontant(resultat.reference.montantSource)}) reste conservé à part ; ${formatMontant(resultat.reference.montant)} est retenu pour la prévision.`}{" "}
-        La ligne {origine(retiree)} est retirée des prévisions ; son contenu est gardé dans l&apos;historique de la fusion.
-        {retiree.pennylaneId ? " Cette facture Pennylane ne sera plus importée." : ""}
-      </p>
-      {manquants.length > 0 && <p className="doublons-cote__detail">Choisissez une valeur pour chaque ligne « à choisir ».</p>}
       {erreur && (
         <p className="login-erreur" role="alert">
           {erreur}
@@ -251,23 +242,17 @@ export default function DoublonsFactures({
                 <Ligne titre="Déjà dans Novanta" facture={existante.facture} tiers={existante.tiers} montant={existante.montant} echeance={existante.dateEcheance} />
                 <Ligne titre="Reçue de Pennylane" facture={r.candidat.facture} tiers={r.candidat.tiers} montant={r.candidat.montant} echeance={r.candidat.dateEcheance} />
               </div>
-              {rattachementPossible(r.detection) ? (
-                <p className="doublons-cote__detail">
-                  Rattacher conserve la ligne Novanta telle quelle (montant, date prévue, statuts) et la relie à la facture
-                  Pennylane : elle ne sera plus jamais importée en double.
-                </p>
-              ) : (
-                <p className="doublons-cote__detail">
-                  Montants différents. Importez la facture Pennylane : la paire pourra ensuite être fusionnée en choisissant le
-                  montant à retenir.
-                </p>
-              )}
+              <p className="doublons-cote__detail">
+                Rattacher : la ligne Novanta prend les informations de facturation Pennylane (montant{" "}
+                {formatMontant(r.candidat.montant)}
+                {r.candidat.dateEcheance ? `, échéance ${formatDateCourte(r.candidat.dateEcheance)}` : ""}) et garde ses réglages de
+                prévision. Elle ne sera plus importée en double.
+                {!rattachementPossible(r.detection) && ` Montants différents (${formatMontant(existante.montant)} saisi dans Novanta) : vérifiez qu'il s'agit bien de la même facture.`}
+              </p>
               <div className="doublons-carte__actions">
-                {rattachementPossible(r.detection) && (
-                  <button type="button" className="btn-add" onClick={() => onRattacher(r)}>
-                    Rattacher à la facture existante
-                  </button>
-                )}
+                <button type="button" className="btn-add" onClick={() => onRattacher(r)}>
+                  Rattacher à la facture existante
+                </button>
                 <button type="button" className="btn-secondaire" onClick={() => onImporterSeparement(r)}>
                   Importer comme facture distincte
                 </button>
@@ -298,8 +283,8 @@ export default function DoublonsFactures({
               ) : (
                 <>
                   <p className="doublons-cote__detail">
-                    Fusionner garde une seule facture : vous verrez les deux lignes côte à côte et choisirez les valeurs à
-                    conserver avant de confirmer. S&apos;il s&apos;agit de deux factures distinctes, écartez la suggestion.
+                    Fusionner garde une seule facture : vous verrez les deux lignes et le résultat côte à côte avant de
+                    confirmer. S&apos;il s&apos;agit de deux factures distinctes, écartez la suggestion.
                   </p>
                   <div className="doublons-carte__actions">
                     <button

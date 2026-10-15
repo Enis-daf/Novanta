@@ -9,9 +9,10 @@ import {
   FactureFusionnable,
   normaliserNumero,
   appliquerFusion,
-  choixManquants,
   clePaire,
+  fusionPrete,
   proposerFusion,
+  rattacherAPennylane,
   rattachementPossible,
 } from "./doublonsFactures";
 import { calculerSynchronisation, CandidatFacturePennylane, FactureExistantePourSync } from "./pennylaneInvoiceAdapter";
@@ -157,7 +158,7 @@ describe("hiérarchie des signaux", () => {
   });
 });
 
-describe("fusion confirmée : cas réels du staging", () => {
+describe("fusion confirmée : Pennylane prime sur la facture, Novanta garde la prévision", () => {
   // Lignes telles qu'en base de staging (n°, tiers, montants, échéances, statuts).
   const ligne = (id: string, facture: string, tiers: string, montant: number, dateEcheance: string, extra: Partial<FactureFusionnable> = {}): FactureFusionnable => ({
     id,
@@ -171,98 +172,85 @@ describe("fusion confirmée : cas réels du staging", () => {
     pennylaneId: null,
     ...extra,
   });
-  const A = {
-    novanta: ligne("nov-a", "FR-SI-262590", "TKH 8ht parl", 2_996, "2026-09-10", { payee: true }),
-    pennylane: ligne("pl-a", "FR-SI-262590", "TKH SECURITY SAS", 2_996.06, "2026-09-10", { payee: true, pennylaneId: "pl-262590" }),
-  };
-  const B = {
-    pennylane: ligne("pl-b", "F-202610-7", "CHAUDRONNERIE DE LA CERE", 17_988.48, "2026-11-07", { pennylaneId: "pl-202610" }),
-    novanta: ligne("nov-b", "F-202610-7", "CDLC boxes 8 éoliennes", 17_498, "2026-11-07", { datePrevue: "2026-11-12" }),
-  };
-  const C = {
-    pennylane: ligne("pl-c", "FR-SI-262819", "TKH SECURITY SAS", 5_330.81, "2026-09-30", { payee: true, pennylaneId: "pl-262819" }),
-    novanta: ligne("nov-c", "FR-SI-262819", "TKH 6disk durs", 3_731, "2026-09-30", { payee: true, datePrevue: "2026-10-07" }),
-  };
-  const D = {
-    novanta: ligne("nov-d", "FR-SI-261751", "TKH 133MiniPTZ solde", 27_871.2, "2026-07-04", { payee: true }),
-    pennylane: ligne("pl-d", "FR-SI-261751", "TKH SECURITY SAS", 39_816, "2026-07-09", { pennylaneId: "pl-261751" }),
-  };
+  const fusion = (a: FactureFusionnable, b: FactureFusionnable) => appliquerFusion(a, b, proposerFusion(a, b), {})!;
 
-  test("A. montants quasi identiques : référence Pennylane, montant à choisir (aucun écart deviné)", () => {
-    const proposition = proposerFusion(A.novanta, A.pennylane);
-    assert.equal(proposition.referenceId, "pl-a");
-    assert.equal(proposition.referenceImposee, true);
-    assert.deepEqual(choixManquants(proposition, {}), ["montant"]);
-    assert.equal(appliquerFusion(A.novanta, A.pennylane, proposition, {}), null, "pas de fusion tant qu'un choix manque");
-    const resultat = appliquerFusion(A.novanta, A.pennylane, proposition, { montant: "b" })!;
-    assert.equal(resultat.reference.id, "pl-a");
-    assert.equal(resultat.reference.montant, 2_996.06);
-    assert.equal(resultat.reference.montantSource, null);
-    assert.equal(resultat.retiree.id, "nov-a");
-    assert.equal(resultat.pennylaneIdRetire, null);
+  test("exemple de la règle : 5 330,81 € et échéance 30/09 de Pennylane, paiement prévu 15/10 de Novanta", () => {
+    const pennylane = ligne("pl", "FR-SI-262819", "TKH SECURITY SAS", 5_330.81, "2026-09-30", { pennylaneId: "pl-262819" });
+    const novanta = ligne("nov", "FR-SI-262819", "TKH 6disk durs", 3_731, "2026-09-28", { datePrevue: "2026-10-15" });
+    const proposition = proposerFusion(novanta, pennylane);
+    assert.deepEqual([proposition.referenceId, proposition.referenceImposee, proposition.conflitDatePrevue], ["pl", true, null]);
+    const r = fusion(novanta, pennylane).reference;
+    assert.deepEqual(
+      [r.id, r.pennylaneId, r.facture, r.tiers, r.montant, r.dateEcheance, r.datePrevue],
+      ["pl", "pl-262819", "FR-SI-262819", "TKH SECURITY SAS", 5_330.81, "2026-09-30", "2026-10-15"]
+    );
   });
 
-  test("B. montants différents : fusion possible, montant Novanta retenu pour la prévision, montant Pennylane conservé à part", () => {
-    const proposition = proposerFusion(B.pennylane, B.novanta);
-    const montant = proposition.differences.find((d) => d.champ === "montant")!;
-    assert.equal(montant.parDefaut, null);
-    // Date prévue déplacée sur la seule ligne Novanta : son réglage est repris d'office.
-    assert.equal(proposition.differences.find((d) => d.champ === "datePrevue")!.parDefaut, "b");
-    const resultat = appliquerFusion(B.pennylane, B.novanta, proposition, { montant: "b" })!;
-    assert.equal(resultat.reference.id, "pl-b");
-    assert.equal(resultat.reference.pennylaneId, "pl-202610");
-    assert.equal(resultat.reference.montant, 17_498);
-    assert.equal(resultat.reference.montantSource, 17_988.48);
-    assert.equal(resultat.reference.datePrevue, "2026-11-12");
-    assert.equal(resultat.reference.facture, "F-202610-7");
+  test("montants très différents : Pennylane conservé, aucun choix demandé, aucun montant de prévision créé", () => {
+    // Cas D du staging : 27 871,20 € saisis (« solde ») / 39 816 € Pennylane.
+    const novanta = ligne("nov-d", "FR-SI-261751", "TKH 133MiniPTZ solde", 27_871.2, "2026-07-04", { payee: true });
+    const pennylane = ligne("pl-d", "FR-SI-261751", "TKH SECURITY SAS", 39_816, "2026-07-09", { pennylaneId: "pl-261751" });
+    assert.equal(fusionPrete(proposerFusion(novanta, pennylane), {}), true);
+    const r = fusion(novanta, pennylane).reference;
+    assert.equal(r.montant, 39_816);
+    assert.deepEqual(Object.keys(r).sort(), Object.keys(pennylane).sort(), "aucun champ d'override ajouté");
+    assert.equal(r.dateEcheance, "2026-07-09");
+    // Payée est un réglage de suivi Novanta : il est repris tel quel, rien n'est déduit de l'écart de montant.
+    assert.equal(r.payee, true);
   });
 
-  test("C. montants différents, Pennylane retenu : aucun montant source à part", () => {
-    const proposition = proposerFusion(C.pennylane, C.novanta);
-    const resultat = appliquerFusion(C.pennylane, C.novanta, proposition, { montant: "a" })!;
-    assert.equal(resultat.reference.montant, 5_330.81);
-    assert.equal(resultat.reference.montantSource, null);
-    assert.equal(resultat.reference.payee, true);
-    assert.equal(resultat.reference.datePrevue, "2026-10-07", "réglage de la ligne Novanta repris");
+  test("échéances différentes, aucune date prévue explicite : échéance et paiement prévu de Pennylane", () => {
+    const pennylane = ligne("pl", "F-202610-7", "CHAUDRONNERIE DE LA CERE", 17_988.48, "2026-11-07", { pennylaneId: "pl-1" });
+    const novanta = ligne("nov", "F-202610-7", "CDLC boxes", 17_498, "2026-11-01");
+    const r = fusion(pennylane, novanta).reference;
+    assert.deepEqual([r.montant, r.dateEcheance, r.datePrevue], [17_988.48, "2026-11-07", "2026-11-07"]);
   });
 
-  test("D. montants et statuts contradictoires : rien de choisi d'office", () => {
-    const proposition = proposerFusion(D.novanta, D.pennylane);
-    assert.deepEqual(choixManquants(proposition, {}).sort(), ["montant", "payee"]);
-    // Les deux dates prévues sont leurs échéances : aucune n'est un réglage, celle de la référence est proposée.
-    assert.equal(proposition.differences.find((d) => d.champ === "datePrevue")!.parDefaut, "b");
-    const resultat = appliquerFusion(D.novanta, D.pennylane, proposition, { montant: "a", payee: "a" })!;
-    assert.deepEqual([resultat.reference.id, resultat.reference.montant, resultat.reference.montantSource, resultat.reference.payee], ["pl-d", 27_871.2, 39_816, true]);
+  test("cas B du staging : date de paiement prévue Novanta (12/11) conservée", () => {
+    const pennylane = ligne("pl-b", "F-202610-7", "CHAUDRONNERIE DE LA CERE", 17_988.48, "2026-11-07", { pennylaneId: "pl-202610" });
+    const novanta = ligne("nov-b", "F-202610-7", "CDLC boxes 8 éoliennes", 17_498, "2026-11-07", { datePrevue: "2026-11-12" });
+    const r = fusion(pennylane, novanta).reference;
+    assert.deepEqual([r.id, r.montant, r.datePrevue], ["pl-b", 17_988.48, "2026-11-12"]);
   });
 
-  test("réglages contradictoires (deux dates prévues déplacées) : choix obligatoire ; un choix explicite l'emporte", () => {
-    const x = ligne("x", "FA2609-0091", "SOLVEO", 100, "2026-10-01", { datePrevue: "2026-10-05" });
-    const y = ligne("y", "FA2609-0091", "SOLVEO", 100, "2026-10-01", { datePrevue: "2026-10-20", litigieuse: true });
-    const proposition = proposerFusion(x, y);
-    assert.deepEqual(choixManquants(proposition, {}), ["datePrevue"]);
-    assert.equal(proposition.differences.find((d) => d.champ === "litigieuse")!.parDefaut, "b");
-    const resultat = appliquerFusion(x, y, proposition, { datePrevue: "a", litigieuse: "a" })!;
-    assert.deepEqual([resultat.reference.datePrevue, resultat.reference.litigieuse], ["2026-10-05", false]);
+  test("date prévue posée sur la ligne Pennylane elle-même : conservée", () => {
+    const pennylane = ligne("pl", "F-1234", "Alpha", 100, "2026-11-07", { pennylaneId: "pl-1", datePrevue: "2026-11-20" });
+    const novanta = ligne("nov", "F-1234", "Alpha", 90, "2026-11-07");
+    assert.equal(fusion(pennylane, novanta).reference.datePrevue, "2026-11-20");
   });
 
-  test("sans réglage ni écart : rien à choisir, deux lignes Novanta → la référence se choisit", () => {
+  test("seul vrai conflit : deux dates prévues explicites différentes — choix demandé", () => {
+    const pennylane = ligne("pl", "F-1234", "Alpha", 100, "2026-11-07", { pennylaneId: "pl-1", datePrevue: "2026-11-20" });
+    const novanta = ligne("nov", "F-1234", "Alpha", 90, "2026-11-07", { datePrevue: "2026-11-25", litigieuse: true });
+    const proposition = proposerFusion(pennylane, novanta);
+    assert.deepEqual(proposition.conflitDatePrevue, { valeurs: { a: "2026-11-20", b: "2026-11-25" } });
+    assert.equal(appliquerFusion(pennylane, novanta, proposition, {}), null);
+    const r = appliquerFusion(pennylane, novanta, proposition, { datePrevue: "b" })!.reference;
+    assert.deepEqual([r.montant, r.datePrevue, r.litigieuse], [100, "2026-11-25", true]);
+  });
+
+  test("deux lignes Novanta : la référence se choisit, son document est gardé", () => {
     const x = ligne("x", "FA2609-0091", "SOLVEO", 100, "2026-10-01");
-    const y = ligne("y", "FA2609-0091", "SOLVEO", 100, "2026-10-01");
-    const proposition = proposerFusion(x, y);
-    assert.deepEqual([proposition.differences, proposition.referenceImposee, proposition.referenceId], [[], false, "x"]);
-    assert.equal(proposerFusion(x, y, "y").referenceId, "y");
-    assert.equal(appliquerFusion(x, y, proposerFusion(x, y, "y"), {})!.retiree.id, "x");
+    const y = ligne("y", "FA2609-0091", "SOLVEO ENERGIES", 110, "2026-10-05", { datePrevue: "2026-10-20" });
+    assert.equal(proposerFusion(x, y).referenceImposee, false);
+    const r = appliquerFusion(x, y, proposerFusion(x, y, "y"), {})!;
+    assert.deepEqual([r.reference.id, r.reference.montant, r.retiree.id], ["y", 110, "x"]);
+    assert.equal(proposerFusion(ligne("p", "F-1", "A", 1, "2026-01-01", { pennylaneId: "p" }), x, "x").referenceId, "p", "une facture Pennylane reste la référence");
   });
 
-  test("une facture Pennylane reste toujours la référence, quel que soit le choix demandé", () => {
-    assert.equal(proposerFusion(B.pennylane, B.novanta, "nov-b").referenceId, "pl-b");
+  test("rattachement d'une facture Pennylane : même règle que la fusion", () => {
+    const novanta = ligne("nov", "FR-SI-262819", "TKH 6disk durs", 3_731, "2026-09-28", { datePrevue: "2026-10-15" });
+    const r = rattacherAPennylane(novanta, { pennylaneId: "pl-1", facture: "FR-SI-262819", tiers: "TKH SECURITY SAS", montant: 5_330.81, dateEcheance: "2026-09-30", payee: false });
+    assert.deepEqual([r.id, r.pennylaneId, r.montant, r.dateEcheance, r.datePrevue, r.tiers], ["nov", "pl-1", 5_330.81, "2026-09-30", "2026-10-15", "TKH SECURITY SAS"]);
+    const sansDate = rattacherAPennylane(ligne("n2", "F-1", "A", 1, "2026-01-01"), { pennylaneId: "p", facture: "F-1", tiers: "A", montant: 2, dateEcheance: "2026-02-01", payee: false });
+    assert.equal(sansDate.datePrevue, "2026-02-01", "sans date explicite, la prévision suit l'échéance Pennylane");
   });
 
   test("clé de paire indépendante de l'ordre", () => {
     assert.equal(clePaire("b", "a"), clePaire("a", "b"));
   });
 
-  test("rattachement d'un clic proposé seulement si les montants concordent", () => {
+  test("montants concordants : information seulement", () => {
     const meme = comparerFactures(f("PE080084/L26", "FLS PEMP Cuxac", 12_086), f("PE080084/L26", "FLS", 12_086.4), FOURNISSEUR);
     const different = comparerFactures(f("FR-SI-262792", "TKH 200miniPTZ", 24_360), f("FR-SI-262792", "TKH SECURITY SAS", 34_800), FOURNISSEUR);
     assert.equal(rattachementPossible(meme), true);
@@ -326,6 +314,26 @@ describe("synchronisation Pennylane : plus de seconde facture", () => {
     // Ligne Novanta retirée (sans identifiant) : rien à mémoriser, la référence Pennylane est reconnue.
     const apresFusionNovanta = calculerSynchronisation([candidat("pl-a", "FR-SI-263009", "TKH SECURITY SAS", 7_996.21)], etat, "fournisseur");
     assert.deepEqual([apresFusionNovanta.aInserer, apresFusionNovanta.aRattacher], [[], []]);
+  });
+
+  test("nouvelle synchronisation : document actualisé depuis Pennylane, date prévue explicite conservée", () => {
+    const lie = { ...existante("ref", "FR-SI-262819", "TKH SECURITY SAS", 5_330.81, "pl-1"), datePrevue: "2026-10-15" };
+    const resultat = calculerSynchronisation([candidat("pl-1", "FR-SI-262819", "TKH SECURITY SAS", 5_500, { dateEcheance: "2026-10-05" })], [lie]);
+    assert.deepEqual(resultat.misesAJourDocument, [
+      { id: "ref", facture: "FR-SI-262819", tiers: "TKH SECURITY SAS", montant: 5_500, dateEcheance: "2026-10-05", datePrevue: null },
+    ]);
+    assert.deepEqual([resultat.aInserer, resultat.aRattacher], [[], []]);
+  });
+
+  test("nouvelle synchronisation : sans date explicite, la date prévue suit la nouvelle échéance", () => {
+    const lie = { ...existante("ref", "F-1234", "Alpha", 100, "pl-1"), datePrevue: "2026-09-30" };
+    const resultat = calculerSynchronisation([candidat("pl-1", "F-1234", "Alpha", 100, { dateEcheance: "2026-10-10" })], [lie]);
+    assert.equal(resultat.misesAJourDocument[0].datePrevue, "2026-10-10");
+  });
+
+  test("document inchangé : aucune actualisation (idempotent)", () => {
+    const lie = { ...existante("ref", "F-1234", "Alpha", 100, "pl-1"), datePrevue: "2026-10-15" };
+    assert.deepEqual(calculerSynchronisation([candidat("pl-1", "F-1234", "Alpha", 100)], [lie]).misesAJourDocument, []);
   });
 
   test("10. synchronisation exécutée deux fois : idempotente, aucune facture supplémentaire", () => {

@@ -68,12 +68,6 @@ async function deleteOne(table: string, id: string): Promise<void> {
   if (error) throw error;
 }
 
-// source_amount (20261021_invoice_duplicate_merges.sql) : écrit seulement quand la ligne le porte
-// (lue d'une base qui a la colonne, ou fusionnée) — une base sans la colonne reste utilisable.
-const montantSourceVersRow = (montantSource: number | null | undefined): Row => (montantSource === undefined ? {} : { source_amount: montantSource });
-const montantSourceDepuisRow = (row: Row): { montantSource?: number | null } =>
-  "source_amount" in row ? { montantSource: row.source_amount === null ? null : Number(row.source_amount) } : {};
-
 function factureClientToRow(companyId: string, f: FactureClient): Row {
   return {
     id: f.id,
@@ -87,7 +81,6 @@ function factureClientToRow(companyId: string, f: FactureClient): Row {
     paid: f.payee,
     paid_at: f.paidAt,
     pennylane_id: f.pennylaneId ?? null,
-    ...montantSourceVersRow(f.montantSource),
   };
 }
 
@@ -103,7 +96,6 @@ function rowToFactureClient(row: Row): FactureClient {
     payee: Boolean(row.paid),
     paidAt: (row.paid_at as string | null) ?? null,
     pennylaneId: (row.pennylane_id as string | null) ?? null,
-    ...montantSourceDepuisRow(row),
   };
 }
 
@@ -120,7 +112,6 @@ function factureFournisseurToRow(companyId: string, f: FactureFournisseur): Row 
     paid: f.payee,
     paid_at: f.paidAt,
     pennylane_id: f.pennylaneId ?? null,
-    ...montantSourceVersRow(f.montantSource),
   };
 }
 
@@ -136,7 +127,6 @@ function rowToFactureFournisseur(row: Row): FactureFournisseur {
     payee: Boolean(row.paid),
     paidAt: (row.paid_at as string | null) ?? null,
     pennylaneId: (row.pennylane_id as string | null) ?? null,
-    ...montantSourceDepuisRow(row),
   };
 }
 
@@ -563,4 +553,30 @@ export async function enregistrerFusion<T extends FactureClient | FactureFournis
   await upsertOne(table, versRow(fusion.reference));
   await avantRetrait();
   await deleteOne(table, fusion.retiree.id);
+}
+
+/**
+ * Document d'une facture liée à Pennylane, actualisé à la synchronisation : seules ces colonnes
+ * sont écrites (jamais Payée ni les autres réglages, mis à jour séparément).
+ */
+export async function actualiserDocumentsFactures(
+  sens: SensFacture,
+  misesAJour: { id: string; facture: string; tiers: string; montant: number; dateEcheance: string; datePrevue: string | null }[]
+): Promise<void> {
+  const table = sens === "client" ? "customer_invoices" : "supplier_invoices";
+  const colonneTiers = sens === "client" ? "client" : "fournisseur";
+  const colonneDatePrevue = sens === "client" ? "date_encaissement_anticipee" : "date_paiement_prevue";
+  for (const m of misesAJour) {
+    const { error } = await client()
+      .from(table)
+      .update({
+        facture: m.facture,
+        [colonneTiers]: m.tiers,
+        montant: m.montant,
+        date_echeance: dateOuNull(m.dateEcheance),
+        ...(m.datePrevue !== null ? { [colonneDatePrevue]: dateOuNull(m.datePrevue) } : {}),
+      })
+      .eq("id", m.id);
+    if (error) throw error;
+  }
 }

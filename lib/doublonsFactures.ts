@@ -267,135 +267,109 @@ export function detecterDoublons<T extends FactureComparable>(factures: T[], sen
 }
 
 // --- Fusion confirmée par l'utilisateur ---
+//
+// Règle de priorité (impérative) :
+//  - FACTURE : la facture de référence fait foi pour le document — n°, tiers, montant, échéance,
+//    identité Pennylane. Quand une seule des deux lignes vient de Pennylane, c'est elle, sans
+//    exception ni choix : Pennylane est la source de vérité, même si les valeurs diffèrent fortement.
+//  - PRÉVISION : les réglages posés dans Novanta (date de paiement prévue, Payée, Litigieuse) sont
+//    repris. L'échéance n'est jamais la date de paiement prévue : une date prévue explicite est
+//    conservée telle quelle.
+//  - Un écart de montant ne devient jamais un paiement partiel ni un montant de prévision : le
+//    montant de la référence est le montant pris en compte.
+// Seul un vrai conflit entre deux réglages Novanta (deux dates prévues explicites différentes) est
+// soumis à l'utilisateur.
 
 /** Ce qu'une ligne porte en plus du document : les réglages de prévision Novanta. */
 export interface FactureFusionnable extends FactureComparable {
   datePrevue: string; // date d'encaissement ou de paiement prévue
   payee: boolean;
   litigieuse: boolean;
-  // Montant de la facture Pennylane quand le montant retenu pour la prévision est différent.
-  montantSource?: number | null;
 }
 
-/** Valeurs qu'une fusion peut avoir à départager : le montant retenu et les réglages de prévision. */
-export type ChampFusion = "montant" | "datePrevue" | "payee" | "litigieuse";
 export type CoteFusion = "a" | "b";
 
-export interface DifferenceFusion {
-  champ: ChampFusion;
-  libelle: string;
-  valeurs: Record<CoteFusion, string>; // valeurs affichables
-  // Proposé d'office quand une seule des deux lignes porte un réglage ; null quand rien ne permet
-  // de trancher (montants différents, deux réglages contradictoires) : l'utilisateur choisit.
-  parDefaut: CoteFusion | null;
+export interface ConflitDatePrevue {
+  valeurs: Record<CoteFusion, string>; // YYYY-MM-DD
 }
 
 export interface PropositionFusion {
-  // Ligne conservée comme référence : la facture Pennylane quand une seule l'est (la
-  // synchronisation continue de la reconnaître) ; sinon au choix de l'utilisateur.
+  // Ligne de référence : la facture Pennylane quand une seule l'est ; sinon au choix.
   referenceId: string;
   retireeId: string;
   referenceImposee: boolean;
-  differences: DifferenceFusion[];
+  // Deux dates de paiement prévues explicites et différentes : l'utilisateur choisit. null sinon.
+  conflitDatePrevue: ConflitDatePrevue | null;
 }
 
-export type ChoixFusion = Partial<Record<ChampFusion, CoteFusion>>;
+export interface ChoixFusion {
+  datePrevue?: CoteFusion;
+}
 
 export interface ResultatFusion<T extends FactureFusionnable = FactureFusionnable> {
-  reference: T; // la ligne conservée, avec les valeurs retenues
+  reference: T; // la ligne conservée : document de la référence, réglages Novanta repris
   retiree: T; // la ligne retirée, telle qu'avant la fusion (historique)
   // Identifiant Pennylane de la ligne retirée : la synchronisation ne la réimportera plus.
   pennylaneIdRetire: string | null;
 }
 
-const formatEuros = (montant: number) => `${montant.toLocaleString("fr-FR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`;
-const formatDate = (date: string) => (date ? date.split("-").reverse().join("/") : "—");
-const ouiNon = (valeur: boolean) => (valeur ? "Oui" : "Non");
+/** Date de paiement prévue posée explicitement : différente de l'échéance de sa ligne. */
+export const datePrevueExplicite = (f: FactureFusionnable) => f.datePrevue !== "" && f.datePrevue !== f.dateEcheance;
 
-// Une date prévue différente de l'échéance, une facture marquée litigieuse : des réglages posés
-// dans Novanta. « Payée » n'en est pas un : Pennylane le renseigne aussi.
-const dateDeplacee = (f: FactureFusionnable) => f.datePrevue !== "" && f.datePrevue !== f.dateEcheance;
-
-function reference<T extends FactureFusionnable>(a: T, b: T, choisie: string | null): { ref: T; autre: T; imposee: boolean } {
+function choisirReference<T extends FactureFusionnable>(a: T, b: T, choisie: string | null): { ref: T; autre: T; imposee: boolean } {
   if (a.pennylaneId && !b.pennylaneId) return { ref: a, autre: b, imposee: true };
   if (b.pennylaneId && !a.pennylaneId) return { ref: b, autre: a, imposee: true };
   if (choisie === b.id) return { ref: b, autre: a, imposee: false };
-  if (choisie === a.id) return { ref: a, autre: b, imposee: false };
-  // Par défaut, la ligne qui porte des réglages.
-  return dateDeplacee(b) && !dateDeplacee(a) ? { ref: b, autre: a, imposee: false } : { ref: a, autre: b, imposee: false };
+  return { ref: a, autre: b, imposee: false };
 }
 
-/**
- * Ce que la fusion de deux lignes implique, à montrer AVANT confirmation : la ligne de référence,
- * et chaque valeur qui diffère avec, s'il existe, le choix proposé d'office. Rien n'est appliqué
- * ici. Aucune règle ne déduit le sens d'un écart de montant : s'ils diffèrent, l'utilisateur
- * choisit le montant retenu pour la prévision.
- */
+/** Ce que la fusion implique, à montrer AVANT confirmation. Rien n'est appliqué ici. */
 export function proposerFusion(a: FactureFusionnable, b: FactureFusionnable, referenceChoisie: string | null = null): PropositionFusion {
-  const { ref, autre, imposee } = reference(a, b, referenceChoisie);
-  const cote = (f: FactureFusionnable): CoteFusion => (f.id === a.id ? "a" : "b");
-  const differences: DifferenceFusion[] = [];
-
-  if (Math.abs(a.montant - b.montant) >= EGALITE_CENTIME) {
-    differences.push({ champ: "montant", libelle: "Montant retenu pour la prévision", valeurs: { a: formatEuros(a.montant), b: formatEuros(b.montant) }, parDefaut: null });
-  }
-  if (a.datePrevue !== b.datePrevue) {
-    const [da, db] = [dateDeplacee(a), dateDeplacee(b)];
-    // Une seule ligne déplacée : son réglage est repris. Aucune : la date de la référence. Deux : à choisir.
-    const parDefaut: CoteFusion | null = da && db ? null : da ? "a" : db ? "b" : cote(ref);
-    differences.push({ champ: "datePrevue", libelle: "Date prévue", valeurs: { a: formatDate(a.datePrevue), b: formatDate(b.datePrevue) }, parDefaut });
-  }
-  if (a.payee !== b.payee) {
-    differences.push({ champ: "payee", libelle: "Payée", valeurs: { a: ouiNon(a.payee), b: ouiNon(b.payee) }, parDefaut: null });
-  }
-  if (a.litigieuse !== b.litigieuse) {
-    // Litigieuse est un réglage posé à la main : la ligne qui le porte l'emporte d'office.
-    differences.push({ champ: "litigieuse", libelle: "Litigieuse", valeurs: { a: ouiNon(a.litigieuse), b: ouiNon(b.litigieuse) }, parDefaut: a.litigieuse ? "a" : "b" });
-  }
-  return { referenceId: ref.id, retireeId: autre.id, referenceImposee: imposee, differences };
+  const { ref, autre, imposee } = choisirReference(a, b, referenceChoisie);
+  const conflit = datePrevueExplicite(a) && datePrevueExplicite(b) && a.datePrevue !== b.datePrevue;
+  return {
+    referenceId: ref.id,
+    retireeId: autre.id,
+    referenceImposee: imposee,
+    conflitDatePrevue: conflit ? { valeurs: { a: a.datePrevue, b: b.datePrevue } } : null,
+  };
 }
 
-/** Choix complétés des valeurs proposées d'office ; les champs encore sans réponse. */
-export function choixManquants(proposition: PropositionFusion, choix: ChoixFusion): ChampFusion[] {
-  return proposition.differences.filter((d) => (choix[d.champ] ?? d.parDefaut) === null).map((d) => d.champ);
+/** Le conflit éventuel est-il tranché ? */
+export function fusionPrete(proposition: PropositionFusion, choix: ChoixFusion): boolean {
+  return proposition.conflitDatePrevue === null || choix.datePrevue !== undefined;
 }
 
 /**
- * Applique une fusion confirmée : la ligne de référence garde son document (n°, tiers, échéance,
- * identité Pennylane) et reçoit les valeurs choisies ; l'autre est retirée. Quand le montant
- * retenu pour la prévision n'est pas celui de la facture Pennylane de référence, ce dernier est
- * conservé à part (montantSource) : l'ajustement ne remplace jamais le montant réel. null tant
- * qu'une valeur reste à choisir.
+ * Applique une fusion confirmée. La référence garde tout son document ; reçoit les réglages de
+ * prévision Novanta :
+ *  - date prévue : la date explicite de l'une ou l'autre ligne (celle choisie en cas de conflit) ;
+ *    sans date explicite, celle de la référence ;
+ *  - Payée, Litigieuse : repris dès que l'une des deux lignes les porte.
+ * null tant que le conflit éventuel n'est pas tranché.
  */
 export function appliquerFusion<T extends FactureFusionnable>(a: T, b: T, proposition: PropositionFusion, choix: ChoixFusion): ResultatFusion<T> | null {
-  if (choixManquants(proposition, choix).length > 0) return null;
-  const parCote = { a, b };
-  const valeur = <K extends ChampFusion>(champ: K, ref: T): T[K] => {
-    const difference = proposition.differences.find((d) => d.champ === champ);
-    return difference ? parCote[(choix[champ] ?? difference.parDefaut)!][champ] : ref[champ];
-  };
+  if (!fusionPrete(proposition, choix)) return null;
   const ref = proposition.referenceId === a.id ? a : b;
   const retiree = ref === a ? b : a;
-  const montant = valeur("montant", ref);
-  const montantPennylane = ref.pennylaneId ? (ref.montantSource ?? ref.montant) : null;
+  const datePrevue = proposition.conflitDatePrevue
+    ? (choix.datePrevue === "a" ? a : b).datePrevue
+    : datePrevueExplicite(ref)
+      ? ref.datePrevue
+      : datePrevueExplicite(retiree)
+        ? retiree.datePrevue
+        : ref.datePrevue;
   return {
-    reference: {
-      ...ref,
-      montant,
-      datePrevue: valeur("datePrevue", ref),
-      payee: valeur("payee", ref),
-      litigieuse: valeur("litigieuse", ref),
-      montantSource: montantPennylane !== null && Math.abs(montantPennylane - montant) >= EGALITE_CENTIME ? montantPennylane : null,
-    },
+    reference: { ...ref, datePrevue, payee: ref.payee || retiree.payee, litigieuse: ref.litigieuse || retiree.litigieuse },
     retiree,
     pennylaneIdRetire: retiree.pennylaneId ?? null,
   };
 }
 
 /**
- * Une facture Pennylane peut-elle être rattachée d'un clic à la ligne Novanta qu'elle semble
- * dupliquer ? Seulement si les montants concordent (à l'arrondi ou à 1 % près). Sinon, elle est
- * importée à part sur demande, puis la paire se fusionne avec choix du montant.
+ * Les montants concordent-ils (à l'arrondi ou à 1 % près) ? Information affichée seulement : même
+ * différents, une facture Pennylane se rattache à la ligne Novanta sur confirmation, avec les mêmes
+ * règles que la fusion (voir rattacherAPennylane).
  */
 export function rattachementPossible(detection: DetectionDoublon): boolean {
   return detection.signaux.includes("montant_identique") || detection.signaux.includes("montant_arrondi");
@@ -404,4 +378,33 @@ export function rattachementPossible(detection: DetectionDoublon): boolean {
 /** Clé d'une paire, indépendante de l'ordre : la même que celle des décisions enregistrées. */
 export function clePaire(idA: string, idB: string): string {
   return [idA, idB].sort().join("|");
+}
+
+/** Document d'une facture Pennylane, tel que reçu à la synchronisation. */
+export interface DocumentPennylane {
+  pennylaneId: string;
+  facture: string;
+  tiers: string;
+  montant: number;
+  dateEcheance: string;
+  payee: boolean;
+}
+
+/**
+ * Rattachement d'une facture Pennylane non encore importée à la ligne Novanta qui la représente :
+ * même règle que la fusion. La ligne prend le document Pennylane (n°, tiers, montant, échéance,
+ * identité) et garde ses réglages de prévision (date prévue explicite, Payée, Litigieuse).
+ */
+export function rattacherAPennylane<T extends FactureFusionnable>(ligne: T, document: DocumentPennylane): T {
+  return {
+    ...ligne,
+    pennylaneId: document.pennylaneId,
+    facture: document.facture,
+    tiers: document.tiers,
+    montant: document.montant,
+    dateEcheance: document.dateEcheance,
+    // Sans date explicite, la prévision suit l'échéance Pennylane.
+    datePrevue: datePrevueExplicite(ligne) ? ligne.datePrevue : document.dateEcheance,
+    payee: ligne.payee || document.payee,
+  };
 }

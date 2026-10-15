@@ -1,12 +1,7 @@
--- Doublons de factures : décisions de l'utilisateur et montant source (lib/doublonsFactures.ts).
+-- Doublons de factures : décisions de l'utilisateur (lib/doublonsFactures.ts).
 --
 -- Additif et non destructif :
--- - 1 colonne nullable sur customer_invoices et sur supplier_invoices (aucune ligne modifiée) ;
--- - 1 nouvelle table ;
--- - aucune colonne existante modifiée, renommée ou supprimée.
---
--- source_amount : montant de la facture Pennylane, conservé à part quand une fusion a retenu un autre
--- montant pour la prévision. `montant` reste le montant des prévisions. NULL : rien à conserver.
+-- - 1 nouvelle table ; aucune table ni colonne existante modifiée.
 --
 -- invoice_duplicate_decisions : une ligne par paire de factures tranchée par l'utilisateur.
 --  - 'distinct' : « Ce ne sont pas des doublons » — la paire n'est plus proposée ;
@@ -16,14 +11,9 @@
 --    de la ligne retirée, que la synchronisation ne réimporte plus.
 -- Pas de clé étrangère vers les factures : une ligne fusionnée est retirée, sa décision demeure.
 --
--- Atomique. Rollback logique : drop table invoice_duplicate_decisions ; alter table
--- customer_invoices drop column source_amount ; alter table supplier_invoices drop column
--- source_amount.
+-- Atomique. Rollback logique : drop table invoice_duplicate_decisions.
 
 begin;
-
-alter table customer_invoices add column if not exists source_amount numeric;
-alter table supplier_invoices add column if not exists source_amount numeric;
 
 create table if not exists invoice_duplicate_decisions (
   id uuid primary key default gen_random_uuid(),

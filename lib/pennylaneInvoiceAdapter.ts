@@ -339,6 +339,23 @@ export interface FactureExistantePourSync {
   tiers?: string;
   montant?: number;
   dateEcheance?: string;
+  // Date de paiement / d'encaissement prévue (réglage Novanta) : jamais écrasée quand elle est
+  // explicite, c'est-à-dire différente de l'échéance.
+  datePrevue?: string;
+}
+
+/**
+ * Document d'une facture déjà liée à Pennylane, à actualiser : Pennylane est la source de vérité
+ * du n°, du tiers, du montant et de l'échéance. `datePrevue` : nouvelle date prévue quand elle
+ * suivait l'échéance (pas de date explicite), sinon null — le réglage Novanta est conservé.
+ */
+export interface MiseAJourDocument {
+  id: string;
+  facture: string;
+  tiers: string;
+  montant: number;
+  dateEcheance: string;
+  datePrevue: string | null;
 }
 
 /** Facture Pennylane qui correspond probablement à une ligne Novanta existante sans identifiant. */
@@ -355,6 +372,8 @@ export interface ResultatCalculSynchronisation {
   // Jamais insérées : elles représentent probablement un document déjà présent dans Novanta.
   // L'utilisateur choisit de les rattacher à la ligne existante ou de les importer à part.
   aRattacher: RattachementPropose[];
+  // Factures déjà liées dont Pennylane a modifié le document (voir MiseAJourDocument).
+  misesAJourDocument: MiseAJourDocument[];
 }
 
 /**
@@ -400,6 +419,7 @@ export function calculerSynchronisation(
   const idsAMettreAJourPayee: string[] = [];
   const idsASupprimer: string[] = [];
   const aRattacher: RattachementPropose[] = [];
+  const misesAJourDocument: MiseAJourDocument[] = [];
   const dejaInseres = new Set<string>();
   // Lignes Novanta sans identifiant Pennylane, décrites par leur document : seules candidates à un rattachement.
   const sansIdentiteSource = facturesExistantes.filter((f) => !f.pennylaneId && f.facture !== undefined);
@@ -438,9 +458,31 @@ export function calculerSynchronisation(
     if (candidat.payee && !existante.payee) {
       idsAMettreAJourPayee.push(existante.id);
     }
+
+    // Document modifié dans Pennylane : il prime sur la ligne Novanta. Seules les lignes décrites
+    // (facture renseignée) sont comparées ; jamais d'actualisation sur une valeur inconnue.
+    if (existante.facture !== undefined) {
+      const change =
+        existante.facture !== candidat.facture ||
+        existante.tiers !== candidat.tiers ||
+        Math.abs((existante.montant ?? Number.NaN) - candidat.montant) >= 0.005 ||
+        Number.isNaN(existante.montant ?? Number.NaN) ||
+        existante.dateEcheance !== candidat.dateEcheance;
+      if (change) {
+        const suitEcheance = existante.datePrevue === undefined || existante.datePrevue === "" || existante.datePrevue === existante.dateEcheance;
+        misesAJourDocument.push({
+          id: existante.id,
+          facture: candidat.facture,
+          tiers: candidat.tiers,
+          montant: candidat.montant,
+          dateEcheance: candidat.dateEcheance,
+          datePrevue: suitEcheance && existante.datePrevue !== candidat.dateEcheance ? candidat.dateEcheance : null,
+        });
+      }
+    }
   }
 
-  return { aInserer, idsAMettreAJourPayee, idsASupprimer, aRattacher };
+  return { aInserer, idsAMettreAJourPayee, idsASupprimer, aRattacher, misesAJourDocument };
 }
 
 /**
