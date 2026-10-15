@@ -84,7 +84,7 @@ Cycle 1 (état initial du mock)
 13. FIDUCIA 590 € face à « Expert-comptable » → « Ce n'est pas la même dépense » : projection
     inchangée, plus jamais reproposé.
 14. IMMO GESTION 1 500 € : deux loyers possibles, rien de présélectionné, rien de neutralisé.
-    ASSURIX 1 100 € n'est pas proposée (hors seuil) → « Rapprocher à une charge fixe » → Assurance.
+    ASSURIX 1 100 € n'est pas proposée (hors seuil) → « Rapprocher d'une charge fixe » → Assurance.
 
 Cycle 2 — `curl -X POST http://localhost:4010/__mock/cycle/2`, puis synchroniser
 4. La facture CROCATUS passe Payée dans Novanta.
