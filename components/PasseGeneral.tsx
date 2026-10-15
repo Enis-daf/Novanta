@@ -9,7 +9,7 @@ import PasseTvaIncomplete from "./PasseTvaIncomplete";
 import { formatMontantComptable, formatPourcentage, MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
 import { CouvertureTva, IndicateurEconomique, LIBELLE_FRONTIERE_TRESORERIE, PnlEnBase } from "@/lib/pastHtEstime";
 import { LigneAjustement } from "@/lib/pastAdjustments";
-import { EcartsVsCibles, LIBELLE_OBJECTIFS_HT_UNIQUEMENT } from "@/lib/pastTargets";
+import { EcartsVsCibles } from "@/lib/pastTargets";
 import { LIBELLE_ENCAISSEMENTS, libelleEtagePnl } from "@/lib/pastCategoryMapping";
 import {
   ETAGES_COUTS,
@@ -154,8 +154,6 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
         {/* Frontière explicite en lecture HT : au-dessous, des flux bancaires réels, toujours TTC.
             Le Cash flow n'est jamais déduit de l'EBITDA HT. */}
         {ht && <p className="passe-pnl__frontiere">{LIBELLE_FRONTIERE_TRESORERIE}</p>}
-        {/* Lecture TTC : ni cible ni écart — une seule mention discrète, pas une par indicateur. */}
-        {!cibles && <p className="passe-message">{LIBELLE_OBJECTIFS_HT_UNIQUEMENT}</p>}
         {/* Trésorerie, à part du P&L opérationnel et sans ratio : ce que l'activité génère après
             l'Extra P&L (sous-total, au rang des marges), puis l'effet des virements internes et du
             financement, jusqu'au total final. */}

@@ -227,18 +227,17 @@ describe("écran Général : HT estimé jusqu'à l'EBITDA, trésorerie en TTC, o
     assert.ok(lignes.includes("5 200 €"), "cash flow : 12 000 − 6 000 − 800, en TTC");
   });
 
-  test("objectifs : en HT, cible et écart HT ; en TTC, aucun objectif et une seule mention", () => {
+  test("objectifs : en HT, cible et écart HT ; en TTC, aucun objectif ni mention", () => {
     const objectifs = [{ id: "mb", type: "gross_margin_pct" as const, dimension: "ventes", validFrom: "2026-01-01", valeur: 40 }];
     const parts = (base: "ht" | "ttc") => partsEnBase(partsMappees(transactions, AXE, mappings), tauxParCategorie(mappings), base);
     const ht = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ht"), ecartsVsCibles(objectifs, parts("ht"), [], PERIODE));
     // HT : CA 10 000, marge 5 000 (50 %), cible 40 % → 4 000 ; écart +1 000.
     assert.ok(ht.includes("Cible 40,0 %"));
     assert.ok(ht.some((t) => t.includes("+1 k€ vs cible")), ht.join(" | "));
-    assert.equal(ht.includes("Les objectifs sont suivis uniquement en HT estimé."), false);
-    // TTC : ni cible, ni écart, ni « Définir une cible » — une seule mention, réalisé inchangé.
+    // TTC : ni cible, ni écart, ni « Définir une cible », ni mention des objectifs ; réalisé inchangé.
     const ttc = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ttc"), null);
     assert.equal(ttc.some((t) => /Cible|vs cible|Définir une cible|Objectif EBITDA/.test(t)), false, ttc.join(" | "));
-    assert.equal(ttc.filter((t) => t === "Les objectifs sont suivis uniquement en HT estimé.").length, 1);
+    assert.equal(ttc.some((t) => /objectif/i.test(t)), false);
     assert.ok(ttc.includes("12 000 €"));
     assert.throws(() => ecartsVsCibles(objectifs, parts("ttc"), [], PERIODE), /HT estimées uniquement/);
   });

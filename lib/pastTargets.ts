@@ -389,8 +389,6 @@ export type IndicateurCible = "margeBrute" | "margeContributive" | "ebitda" | "c
 // 80 % des encaissements »), qui dit sur quoi porte la cible.
 export const LIBELLE_ECART_TVA_INCOMPLETE = "Écart indisponible : TVA non renseignée sur une partie des montants";
 export const LIBELLE_EBITDA_TVA_INCOMPLETE = "Objectif EBITDA indisponible : TVA non renseignée sur une partie des montants";
-// Lecture TTC : une seule mention, discrète — aucune cible, aucun écart n'y est affiché.
-export const LIBELLE_OBJECTIFS_HT_UNIQUEMENT = "Les objectifs sont suivis uniquement en HT estimé.";
 
 /** Ce que les écrans affichent : null = aucune cible applicable (ou pas de CA), jamais un 0 inventé. */
 export interface EcartsVsCibles {
