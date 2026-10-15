@@ -155,7 +155,7 @@ function RapprochementManuel({
 
   return (
     <div className="rapprochement-carte">
-      <p className="rapprochement-carte__contexte">Rapprocher à une charge fixe</p>
+      <p className="rapprochement-carte__contexte">Rapprocher d&apos;une charge fixe</p>
       <div className="rapprochement-carte__paire">
         <BlocFacture facture={facture} />
         <div className="rapprochement-cote">

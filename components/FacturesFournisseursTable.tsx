@@ -135,7 +135,7 @@ export default function FacturesFournisseursTable({
                     </span>
                   ) : (
                     <button type="button" className="btn-shift rapprochement-ligne" onClick={() => onRapprocher(facture.id)}>
-                      Rapprocher à une charge fixe
+                      Rapprocher d&apos;une charge fixe
                     </button>
                   ))}
               </td>
