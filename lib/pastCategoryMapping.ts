@@ -53,6 +53,9 @@ export interface MappingCategorie {
   sourceCategoryName: string;
   sourceGroupId: string | null;
   pnlStage: EtagePnl | null;
+  // Taux de TVA estimé de la catégorie, en % (lecture HT estimé, lib/pastHtEstime.ts). null ou
+  // absent = « Non défini », jamais assimilé à 0 % ; 0 est un taux valide.
+  vatRate?: number | null;
 }
 
 /** Catégorie rencontrée par une synchronisation, à faire connaître à la table de mapping. */
