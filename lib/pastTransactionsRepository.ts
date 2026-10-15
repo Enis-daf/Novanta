@@ -5,6 +5,7 @@ import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./past
 import { GroupeManuel } from "./flowGroups";
 import { CleEnregistree, clesARecalculer, FLOW_ENGINE_VERSION, FlowAlias } from "./flowMatching";
 import { ValidationSigne } from "./pastSignChecks";
+import type { BaseMontants } from "./pastHtEstime";
 import { Cible, estTypeCible, TypeCible } from "./pastTargets";
 import {
   AffectationAnalytique,
@@ -531,6 +532,9 @@ export async function chargerCibles(supabase: SupabaseClient, organizationId: st
       validFrom: row.valid_from as string,
       valeur: Number(row.target_value),
       commentaire: (row.comment as string | null) ?? null,
+      // amount_basis (20261021_past_target_amount_basis.sql) : NULL ou absente = objectif
+      // historique, lu comme TTC (baseDeLaCible).
+      base: row.amount_basis === "ht" || row.amount_basis === "ttc" ? row.amount_basis : null,
     }));
 }
 
@@ -540,6 +544,9 @@ export async function chargerCibles(supabase: SupabaseClient, organizationId: st
  * remplacement : si une cible existe déjà à cette date pour la même dimension, la base refuse
  * (contrainte d'unicité, code 23505) et rien n'est écrasé. Pour corriger une cible existante, voir
  * modifierCible. Renvoie la ligne enregistrée. Auteur et date : posés par trigger.
+ * `base` : base du montant d'un objectif de coûts de structure, toujours écrite explicitement ;
+ * null pour une marge (un pourcentage). Sans la colonne amount_basis en base, l'écriture d'un
+ * objectif de coûts de structure échoue plutôt que d'enregistrer un HT lu ensuite comme TTC.
  */
 export async function enregistrerCible(
   supabase: SupabaseClient,
@@ -547,15 +554,23 @@ export async function enregistrerCible(
   type: TypeCible,
   dimension: string,
   validFrom: string,
-  valeur: number
+  valeur: number,
+  base: BaseMontants | null = null
 ): Promise<Cible> {
   const { data, error } = await supabase
     .from("past_performance_targets")
-    .insert({ organization_id: organizationId, target_type: type, dimension_key: dimension, valid_from: validFrom, target_value: valeur })
+    .insert({
+      organization_id: organizationId,
+      target_type: type,
+      dimension_key: dimension,
+      valid_from: validFrom,
+      target_value: valeur,
+      ...(base !== null ? { amount_basis: base } : {}),
+    })
     .select("id")
     .single();
   if (error) throw error;
-  return { id: (data as Row).id as string, type, dimension, validFrom, valeur, commentaire: null };
+  return { id: (data as Row).id as string, type, dimension, validFrom, valeur, commentaire: null, ...(base !== null ? { base } : {}) };
 }
 
 /**
@@ -583,11 +598,16 @@ export async function modifierCible(
   supabase: SupabaseClient,
   organizationId: string,
   id: string,
-  correction: { valeur: number; validFrom: string }
+  correction: { valeur: number; validFrom: string; base?: BaseMontants }
 ): Promise<void> {
   const { data, error } = await supabase
     .from("past_performance_targets")
-    .update({ target_value: correction.valeur, valid_from: correction.validFrom })
+    .update({
+      target_value: correction.valeur,
+      valid_from: correction.validFrom,
+      // La base ne s'écrit que lorsqu'elle change : une correction de valeur la conserve.
+      ...(correction.base ? { amount_basis: correction.base } : {}),
+    })
     .eq("organization_id", organizationId)
     .eq("id", id)
     .select("id");

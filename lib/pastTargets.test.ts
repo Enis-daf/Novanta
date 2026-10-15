@@ -445,7 +445,7 @@ describe("enregistrer une cible — l'utilisateur ne choisit pas entre créer et
     assert.equal(services.operations[0].type, "insert");
     const structure = poserCible(depart, { type: "structure_cost_monthly", dimension: "", validFrom: "2026-07-01" }, 100_000, "n2");
     assert.deepEqual(historiqueDesCibles(structure.cibles, "structure_cost_monthly").map((c) => c.valeur), [85_000, 100_000]);
-    const memeDate = poserCible(depart, { type: "structure_cost_monthly", dimension: "", validFrom: "2026-01-01" }, 90_000, "n3");
+    const memeDate = poserCible(depart, { type: "structure_cost_monthly", dimension: "", validFrom: "2026-01-01" }, 90_000, "n3", "ttc");
     assert.deepEqual(memeDate.operations, [{ type: "update", id: "structure", valeur: 90_000, validFrom: "2026-01-01" }]);
   });
 
