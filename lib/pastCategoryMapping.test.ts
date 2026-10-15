@@ -38,7 +38,7 @@ describe("étages P&L", () => {
     assert.deepEqual(
       ETAGES_PNL.map((e) => [e.cle, e.libelle]),
       [
-        ["revenue", "CA"],
+        ["revenue", "Encaissements"],
         ["gross_margin", "Coûts directs"],
         ["contribution_margin", "Autres coûts variables"],
         ["ebitda", "Coûts de structure"],

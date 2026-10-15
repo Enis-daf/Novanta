@@ -3,7 +3,7 @@
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { decimalesAxeK, libelleBarreauK } from "./PasseEvolutionChart";
 import { graduationsAxe, NEUTRES, OPACITE_ATTENUEE, TEINTE_AMELIORATION, TEINTE_DEGRADATION, TEINTE_TOTAL } from "@/lib/dataviz";
-import { formatKiloEuros, formatMontant } from "@/lib/format";
+import { formatKiloEuros, formatMontant, suffixeTTC } from "@/lib/format";
 import { EtagePnl } from "@/lib/pastCategoryMapping";
 import { Comparaison, libelleVariation, phraseVariation, VariationPoste } from "@/lib/pastVariance";
 
@@ -41,11 +41,11 @@ function InfoBulle({ active, payload, metrique }: { active?: boolean; payload?: 
         <>
           <span>{phraseVariation(barreau.variation, formatMontant)}</span>
           <span>
-            Impact sur {ARTICLES[metrique] ?? "le"} {metrique} : {signe(barreau.valeur, formatMontant)}
+            Impact sur {ARTICLES[metrique] ?? "le"} {metrique} : {suffixeTTC(signe(barreau.valeur, formatMontant))}
           </span>
         </>
       ) : (
-        <span>{formatMontant(barreau.valeur)}</span>
+        <span>{suffixeTTC(formatMontant(barreau.valeur))}</span>
       )}
     </div>
   );

@@ -55,7 +55,7 @@ describe("pagesExportPdf — une page par onglet de résultats", () => {
   test("six pages, dans l'ordre des onglets ; ni Stocks ni Correspondance P&L", () => {
     assert.deepEqual(
       pagesExportPdf(source(transactions)).map((p) => p.titre),
-      ["Général", "CA", "Marge brute", "Marge contributive", "EBITDA", "Cash flow"]
+      ["Général", "Encaissements", "Marge brute", "Marge contributive", "EBITDA", "Cash flow"]
     );
   });
 

@@ -1,9 +1,10 @@
 import { estDateValide, parseDateISO } from "./dates";
 import { AjustementGestion, LigneAjustement, moisDe, regrouperAjustements, sommeAjustements, TYPE_VARIATION_STOCK } from "./pastAdjustments";
 import { formatKiloEuros } from "./format";
-import { EtagePnl, libelleEtagePnl, MappingCategorie, ventilerTransaction } from "./pastCategoryMapping";
+import { EtagePnl, libelleEtagePnl, MappingCategorie, ventilerTransaction, LIBELLE_ENCAISSEMENTS } from "./pastCategoryMapping";
 import { PnlCategorie, SensStructure, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
+import { CouvertureTva, couvertureTva } from "./pastCouvertureTva";
 
 /**
  * Écrans détaillés du module "Passé" (CA, Marge brute, Marge contributive, EBITDA, Cash flow) :
@@ -27,6 +28,10 @@ export interface PartMappee {
   sourceCategoryId: string;
   sourceCategoryName: string;
   etage: EtagePnl;
+  // Lecture HT estimé (lib/pastHtEstime.ts::partsEnBase) : montant d'origine, et taux de TVA non
+  // défini pour la catégorie (montant alors resté TTC). Absents en lecture TTC.
+  montantTtc?: number;
+  tvaManquante?: boolean;
 }
 
 /**
@@ -91,10 +96,10 @@ interface ConfigMetrique {
  */
 export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
   ca: {
-    libelle: "CA",
+    libelle: LIBELLE_ENCAISSEMENTS,
     etagesKpi: ["revenue"],
     etagesDetail: ["revenue"],
-    libelleDetail: "CA",
+    libelleDetail: LIBELLE_ENCAISSEMENTS,
     repartition: { type: "camembert", sens: "revenus", maxCategories: 5 },
     ratioSurCa: false,
     coutsAssocies: false,
@@ -208,6 +213,9 @@ export interface VueDetail {
     // undefined = pas de ratio pour cet indicateur ; null = ratio indéfini (CA nul).
     ratio: number | null | undefined;
   };
+  // Lecture HT estimé : part des montants de l'indicateur (période, mois et catégorie filtrés) dont
+  // la TVA est renseignée. null en lecture TTC.
+  couvertureKpi: CouvertureTva | null;
   // Répartition par catégorie : l'un ou l'autre selon l'écran (voir ConfigMetrique.repartition).
   structure: Structure | null;
   // Montants signés par catégorie, du plus grand au plus petit en valeur absolue.
@@ -294,7 +302,9 @@ export function calculerDetail(
   const ajustementsKpi = categorie === null ? ajustements.filter((a) => config.etagesKpi.includes(a.etage)) : [];
   const ajustementsKpiDuMois = ajustementsKpi.filter((a) => filtres.mois === null || moisDe(a.date) === filtres.mois);
 
-  const montantKpi = somme(parts.filter((p) => duKpi(p) && duMois(p))) + sommeAjustements(ajustementsKpiDuMois, config.etagesKpi);
+  const partsKpi = parts.filter((p) => duKpi(p) && duMois(p));
+  const montantKpi = somme(partsKpi) + sommeAjustements(ajustementsKpiDuMois, config.etagesKpi);
+  const lectureHt = parts.some((p) => p.montantTtc !== undefined);
   const ca = somme(parts.filter((p) => p.etage === "revenue" && duMois(p))) + sommeAjustements(ajustementsDuMois, ["revenue"]);
   const avecRatio = categorie !== null || config.ratioSurCa;
   const categorieSelectionnee =
@@ -352,6 +362,7 @@ export function calculerDetail(
       montant: montantKpi,
       ratio: avecRatio ? (ca === 0 ? null : montantKpi / ca) : undefined,
     },
+    couvertureKpi: lectureHt ? couvertureTva(partsKpi) : null,
     structure,
     barresCategories,
     evolution: tousLesMois.map((mois) => {

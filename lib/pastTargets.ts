@@ -1,6 +1,8 @@
 import { estDateValide, parseDateISO, toISODate } from "./dates";
 import { formatKiloEuros, formatPourcentage } from "./format";
 import { AjustementGestion } from "./pastAdjustments";
+import type { EtagePnl } from "./pastCategoryMapping";
+import { couvertureTva } from "./pastCouvertureTva";
 import { calculerDetail, MetriqueDetail, PartMappee } from "./pastDetail";
 import { Periode } from "./pastTransactions";
 
@@ -19,6 +21,11 @@ import { Periode } from "./pastTransactions";
  *
  * Les cibles sont DATÉES : une valeur s'applique à partir de sa date d'effet, jusqu'à la date
  * d'effet de la suivante. Changer une cible aujourd'hui ne réécrit donc pas la lecture du passé.
+ *
+ * Les objectifs sont EXCLUSIVEMENT HT : ils se définissent et s'évaluent sur les montants HT estimés
+ * (lib/pastHtEstime.ts). Les marges cibles sont pondérées par les encaissements HT, les coûts de
+ * structure cibles sont des montants mensuels HT, l'EBITDA cible s'en déduit. Il n'existe ni
+ * objectif, ni cible, ni écart TTC, et aucun objectif n'est converti en TTC.
  */
 
 export const TYPES_CIBLE = [
@@ -36,6 +43,9 @@ export function estTypeCible(valeur: unknown): valeur is TypeCible {
 // Dimension d'une cible : l'identifiant stable de la catégorie de CA (sourceCategoryId) pour une
 // cible de marge ; vide pour les coûts de structure, qui sont globaux.
 export const DIMENSION_GLOBALE = "";
+
+// Unité des objectifs de coûts de structure : des montants mensuels saisis en HT.
+export const UNITE_COUTS_DE_STRUCTURE = "€ HT / mois";
 
 export function estCibleDeMarge(type: TypeCible): boolean {
   return type !== "structure_cost_monthly";
@@ -372,8 +382,19 @@ export function ecartDEbitda(ebitdaRealise: number, ca: number, cibleMargeContri
   };
 }
 
+export type IndicateurCible = "margeBrute" | "margeContributive" | "ebitda" | "coutsStructure";
+
+// La TVA n'est pas renseignée sur une partie des montants de l'indicateur : son réalisé HT n'est pas
+// fiable, aucun écart n'est calculé. Distinct de la couverture des OBJECTIFS (« Cible calculée sur
+// 80 % des encaissements »), qui dit sur quoi porte la cible.
+export const LIBELLE_ECART_TVA_INCOMPLETE = "Écart indisponible : TVA non renseignée sur une partie des montants";
+export const LIBELLE_EBITDA_TVA_INCOMPLETE = "Objectif EBITDA indisponible : TVA non renseignée sur une partie des montants";
+
 /** Ce que les écrans affichent : null = aucune cible applicable (ou pas de CA), jamais un 0 inventé. */
 export interface EcartsVsCibles {
+  // Pourquoi un objectif qui existe n'est pas comparé (TVA non renseignée sur son périmètre) ; null
+  // quand rien ne l'empêche. L'écart correspondant est alors null.
+  indisponibles: Record<IndicateurCible, string | null>;
   margeBrute: EcartMarge | null;
   margeContributive: EcartMarge | null;
   // Cible d'EBITDA dérivée (voir ecartDEbitda). null tant que l'une de ses deux briques manque ;
@@ -397,6 +418,8 @@ const SANS_CATEGORIE = { categorie: null } as const;
  *    mois-là, le réalisé, et la cible de coûts de structure (un mois de cible).
  *  - Seul le CA des catégories actuellement rattachées à l'étage CA pondère la cible : une
  *    catégorie remappée ailleurs n'y compte plus, même si une cible lui reste enregistrée.
+ *  - `parts` : parts HT estimées (partsEnBase(…, "ht")). Des parts TTC sont refusées : un objectif
+ *    ne se compare jamais à des montants TTC.
  */
 export function ecartsVsCibles(
   cibles: Cible[],
@@ -405,6 +428,7 @@ export function ecartsVsCibles(
   periode: Periode,
   mois: string | null = null
 ): EcartsVsCibles {
+  if (parts.some((p) => p.montantTtc === undefined)) throw new Error("Objectifs : comparaison sur des parts HT estimées uniquement.");
   const filtres = { ...SANS_CATEGORIE, mois };
   const kpi = (metrique: MetriqueDetail) => calculerDetail(parts, metrique, filtres, periode, ajustements).kpi;
   const duMois = (date: string) => mois === null || date.slice(0, 7) === mois;
@@ -415,11 +439,21 @@ export function ecartsVsCibles(
   ];
   const ca = revenus.reduce((somme, revenu) => somme + revenu.montant, 0);
 
+  // La TVA doit être renseignée sur TOUS les montants du périmètre de l'indicateur (sur le mois
+  // filtré le cas échéant). Sinon, réalisé et pondération mêleraient HT et TTC : pas d'écart.
+  const partsDuPerimetre = parts.filter((p) => duMois(p.transactionDate));
+  const tvaComplete = (etages: readonly EtagePnl[]) => couvertureTva(partsDuPerimetre.filter((p) => etages.includes(p.etage))).complete;
+  const tvaMargeBrute = tvaComplete(["revenue", "gross_margin"]);
+  const tvaMargeContributive = tvaComplete(["revenue", "gross_margin", "contribution_margin"]);
+  const tvaEbitda = tvaComplete(["revenue", "gross_margin", "contribution_margin", "ebitda"]);
+  const tvaCoutsStructure = tvaComplete(["ebitda"]);
+
   const cibleDe = (type: TypeCible) => cibleDeMarge(cibles, type, revenus);
-  const marge = (cible: CiblePeriode | null, metrique: MetriqueDetail): EcartMarge | null => {
+  const marge = (cible: CiblePeriode | null, metrique: MetriqueDetail, tva: boolean): EcartMarge | null => {
     const ratio = kpi(metrique).ratio;
-    return cible === null || ratio === null || ratio === undefined ? null : ecartDeMarge(ratio, ca, cible);
+    return cible === null || !tva || ratio === null || ratio === undefined ? null : ecartDeMarge(ratio, ca, cible);
   };
+  const cibleBrute = cibleDe("gross_margin_pct");
   const cibleContributive = cibleDe("contribution_margin_pct");
 
   // Coûts de structure : ce qui sépare la Marge contributive de l'EBITDA.
@@ -427,13 +461,21 @@ export function ecartsVsCibles(
   const montantCoutsStructure = ebitda - kpi("marge_contributive").montant;
   const cibleCouts = cibleDeCoutsDeStructure(cibles, mois === null ? periode : periodeDuMois(mois, periode));
   const deuxBriques = cibleContributive !== null && cibleCouts !== null;
+  const motifTva = (cible: unknown, tva: boolean) => (cible !== null && !tva ? LIBELLE_ECART_TVA_INCOMPLETE : null);
   return {
-    margeBrute: marge(cibleDe("gross_margin_pct"), "marge_brute"),
-    margeContributive: marge(cibleContributive, "marge_contributive"),
-    ebitda: deuxBriques ? ecartDEbitda(ebitda, ca, cibleContributive, cibleCouts) : null,
+    margeBrute: marge(cibleBrute, "marge_brute", tvaMargeBrute),
+    margeContributive: marge(cibleContributive, "marge_contributive", tvaMargeContributive),
+    // EBITDA cible HT = encaissements HT × marge contributive cible − coûts de structure cibles HT.
+    ebitda: deuxBriques && tvaEbitda ? ecartDEbitda(ebitda, ca, cibleContributive, cibleCouts) : null,
     ebitdaIncomplet: !deuxBriques && (cibleContributive !== null || cibleCouts !== null),
-    coutsStructure: cibleCouts === null ? null : ecartDeCouts(montantCoutsStructure, cibleCouts),
+    coutsStructure: cibleCouts === null || !tvaCoutsStructure ? null : ecartDeCouts(montantCoutsStructure, cibleCouts),
     montantCoutsStructure,
+    indisponibles: {
+      margeBrute: motifTva(cibleBrute, tvaMargeBrute),
+      margeContributive: motifTva(cibleContributive, tvaMargeContributive),
+      ebitda: deuxBriques && !tvaEbitda ? LIBELLE_EBITDA_TVA_INCOMPLETE : null,
+      coutsStructure: motifTva(cibleCouts, tvaCoutsStructure),
+    },
   };
 }
 
@@ -481,7 +523,7 @@ export function libellesEcartMarge(ecart: EcartMarge): LibellesCible {
   return {
     cible: `Cible ${espaces(formatPourcentage(ecart.cible))}`,
     ecart: ecart.ecartEuros === null ? "cible incomplète" : `${signe(ecart.ecartEuros, enK(ecart.ecartEuros))} vs cible`,
-    reserve: ecart.couverture < COUVERTURE_COMPLETE ? `Cible calculée sur ${pourcentageCouvert(ecart.couverture)} du CA` : null,
+    reserve: ecart.couverture < COUVERTURE_COMPLETE ? `Cible calculée sur ${pourcentageCouvert(ecart.couverture)} des encaissements` : null,
   };
 }
 
@@ -497,7 +539,7 @@ export const LIBELLE_EBITDA_INCOMPLET = "Objectif EBITDA incomplet";
 
 export function libellesEcartEbitda(ecart: EcartEbitda): LibellesCible {
   const reserves = [
-    ...(ecart.couvertureCa < COUVERTURE_COMPLETE ? [`Cible EBITDA calculée sur ${Math.round(ecart.couvertureCa * 100)} % du CA`] : []),
+    ...(ecart.couvertureCa < COUVERTURE_COMPLETE ? [`Cible EBITDA calculée sur ${Math.round(ecart.couvertureCa * 100)} % des encaissements`] : []),
     ...(ecart.couverturePeriode < COUVERTURE_COMPLETE ? [`Cible de coûts de structure définie sur ${Math.round(ecart.couverturePeriode * 100)} % de la période`] : []),
   ];
   const montant = signe(ecart.ecart, enK(ecart.ecart));

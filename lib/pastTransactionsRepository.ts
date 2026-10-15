@@ -174,19 +174,49 @@ export async function sauvegarderAxeConfigure(
   if (error) throw error;
 }
 
-/** Toutes les catégories connues de l'organisation et leur étage P&L courant (null = à mapper). */
+const COLONNES_MAPPING = "source_category_id, source_category_name, source_group_id, pnl_stage";
+
+/**
+ * Toutes les catégories connues de l'organisation, leur étage P&L courant (null = à mapper) et leur
+ * taux de TVA estimé (null = non défini). Si la colonne vat_rate n'existe pas encore sur cette base
+ * (migration 20261020_past_category_vat_rate.sql non appliquée), les correspondances se chargent
+ * quand même, sans taux : le reporting TTC n'en dépend pas.
+ */
 export async function chargerMappingsCategories(supabase: SupabaseClient, organizationId: string): Promise<MappingCategorie[]> {
+  const charger = (colonnes: string) => supabase.from("past_category_mappings").select(colonnes).eq("organization_id", organizationId);
+  let { data, error } = await charger(`${COLONNES_MAPPING}, vat_rate`);
+  if (error && (error.code === "42703" || /vat_rate/.test(error.message ?? ""))) ({ data, error } = await charger(COLONNES_MAPPING));
+  if (error) throw error;
+  return ((data ?? []) as unknown as Row[]).map((row) => {
+    const taux = row.vat_rate === null || row.vat_rate === undefined ? null : Number(row.vat_rate);
+    return {
+      sourceCategoryId: row.source_category_id as string,
+      sourceCategoryName: row.source_category_name as string,
+      sourceGroupId: (row.source_group_id as string | null) ?? null,
+      pnlStage: estEtagePnl(row.pnl_stage) ? row.pnl_stage : null,
+      vatRate: Number.isFinite(taux) ? taux : null,
+    };
+  });
+}
+
+/**
+ * Taux de TVA estimé d'une catégorie (null = « Non défini »). Seul vat_rate est écrit. Lève une
+ * erreur si aucune ligne n'a été modifiée (catégorie inconnue ou accès refusé).
+ */
+export async function sauvegarderTauxTvaCategorie(
+  supabase: SupabaseClient,
+  organizationId: string,
+  sourceCategoryId: string,
+  taux: number | null
+): Promise<void> {
   const { data, error } = await supabase
     .from("past_category_mappings")
-    .select("source_category_id, source_category_name, source_group_id, pnl_stage")
-    .eq("organization_id", organizationId);
+    .update({ vat_rate: taux })
+    .eq("organization_id", organizationId)
+    .eq("source_category_id", sourceCategoryId)
+    .select("source_category_id");
   if (error) throw error;
-  return ((data ?? []) as Row[]).map((row) => ({
-    sourceCategoryId: row.source_category_id as string,
-    sourceCategoryName: row.source_category_name as string,
-    sourceGroupId: (row.source_group_id as string | null) ?? null,
-    pnlStage: estEtagePnl(row.pnl_stage) ? row.pnl_stage : null,
-  }));
+  if ((data ?? []).length === 0) throw new Error("Aucun taux modifié.");
 }
 
 /**

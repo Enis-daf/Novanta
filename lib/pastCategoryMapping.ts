@@ -17,8 +17,15 @@ import {
 // qu'il produit : la clé gross_margin porte les "Coûts directs", dont on déduit la marge brute.
 // Les 5 étages, fixes en V1 : ni création, ni suppression, ni renommage par l'utilisateur. Les clés
 // sont stables (stockées en base, voir la contrainte de past_category_mappings.pnl_stage).
+/**
+ * Nom produit de l'étage « revenue » du module Passé : des encaissements bancaires, pas un
+ * produit comptable. Seul endroit où il est écrit ; la clé technique reste "revenue" (et "ca" pour
+ * l'écran), seul le vocabulaire affiché change.
+ */
+export const LIBELLE_ENCAISSEMENTS = "Encaissements";
+
 export const ETAGES_PNL = [
-  { cle: "revenue", libelle: "CA" },
+  { cle: "revenue", libelle: LIBELLE_ENCAISSEMENTS },
   { cle: "gross_margin", libelle: "Coûts directs" },
   { cle: "contribution_margin", libelle: "Autres coûts variables" },
   { cle: "ebitda", libelle: "Coûts de structure" },
@@ -46,6 +53,9 @@ export interface MappingCategorie {
   sourceCategoryName: string;
   sourceGroupId: string | null;
   pnlStage: EtagePnl | null;
+  // Taux de TVA estimé de la catégorie, en % (lecture HT estimé, lib/pastHtEstime.ts). null ou
+  // absent = « Non défini », jamais assimilé à 0 % ; 0 est un taux valide.
+  vatRate?: number | null;
 }
 
 /** Catégorie rencontrée par une synchronisation, à faire connaître à la table de mapping. */

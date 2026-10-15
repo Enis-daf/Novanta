@@ -1,5 +1,6 @@
 "use client";
 
+import MentionTTC from "./MentionTTC";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import PasseEcarts, { SelectionsEcarts } from "./PasseEcarts";
@@ -7,6 +8,10 @@ import PasseObjectifs from "./PasseObjectifs";
 import PasseGeneral from "./PasseGeneral";
 import PasseMappingTable from "./PasseMappingTable";
 import PasseSelecteurPeriode from "./PasseSelecteurPeriode";
+import PasseSelecteurBase from "./PasseSelecteurBase";
+import { BaseMontants, calculerPnlEnBase, partsEnBase, tauxParCategorie } from "@/lib/pastHtEstime";
+import { DISCLAIMER_HT_ESTIME, DISCLAIMER_PASSE, PRECISION_HT_ESTIME } from "@/lib/pastPdfModel";
+import { baseEnregistree, cleStockageBase, LIBELLE_ECARTS_EN_TTC, libelleCouverture } from "@/lib/pastHtEstime";
 import PasseStocks from "./PasseStocks";
 import PastDetailDashboard from "./PastDetailDashboard";
 import { supabase } from "@/lib/supabaseClient";
@@ -69,6 +74,7 @@ import {
   indexerMappings,
   lignesMapping,
   MappingCategorie,
+  LIBELLE_ENCAISSEMENTS,
 } from "@/lib/pastCategoryMapping";
 import {
   annulerValidationSigne,
@@ -93,6 +99,7 @@ import {
   sauvegarderStock,
   supprimerStock,
   validerSigne,
+  sauvegarderTauxTvaCategorie,
 } from "@/lib/pastTransactionsRepository";
 import {
   Cible,
@@ -120,7 +127,7 @@ const LIGNES_PAR_PAGE = 50;
 // l'ordre du P&L, puis l'analyse transversale), à droite ce qu'on RENSEIGNE ou configure.
 const ONGLETS = [
   { cle: "general", libelle: "Général" },
-  { cle: "ca", libelle: "CA" },
+  { cle: "ca", libelle: LIBELLE_ENCAISSEMENTS },
   { cle: "marge_brute", libelle: "Marge brute" },
   { cle: "marge_contributive", libelle: "Marge contributive" },
   { cle: "ebitda", libelle: "EBITDA" },
@@ -197,6 +204,25 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   // Correspondance catégorie -> étage P&L : indépendante de la période, toujours accessible.
   const [mappings, setMappings] = useState<MappingCategorie[]>([]);
   const [vue, setVue] = useState<Vue>("general");
+  // Lecture des montants (HT estimé par défaut, ou TTC) : état du module, conservé d'un onglet à
+  // l'autre et, comme la période, relu du stockage local de CETTE organisation au montage. Seul un
+  // choix explicite y est écrit : une préférence TTC reste TTC. Ne modifie aucune donnée ; la
+  // trésorerie reste TTC dans les deux lectures.
+  const [base, setBase] = useState<BaseMontants>(() => {
+    try {
+      return baseEnregistree(window.localStorage.getItem(cleStockageBase(organizationId)));
+    } catch {
+      return baseEnregistree(null);
+    }
+  });
+  const choisirBase = (suivante: BaseMontants) => {
+    setBase(suivante);
+    try {
+      window.localStorage.setItem(cleStockageBase(organizationId), suivante);
+    } catch {
+      // Stockage local indisponible : la lecture vaut pour la session en cours seulement.
+    }
+  };
   const [filtreMapping, setFiltreMapping] = useState<FiltreMapping>("toutes");
   const [erreurMapping, setErreurMapping] = useState<string | null>(null);
   const [detailSignesOuvert, setDetailSignesOuvert] = useState(false);
@@ -454,10 +480,21 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     () => partsMappees(stockees, axe.axeId, mappingsIndexes),
     [stockees, axe.axeId, mappingsIndexes]
   );
-  // Réalisé de la période face aux cibles en vigueur : lu dans Général et les écrans de détail.
+  // Lecture affichée — écrans, objectifs et export PDF. pnl et partsDetail restent TTC : ils
+  // servent aux anomalies et à la trésorerie (Cash flow), qui ne changent pas de base.
+  const pnlAffiche = useMemo(
+    () => calculerPnlEnBase(stockees, axe.axeId, mappingsIndexes, ajustements, base),
+    [stockees, axe.axeId, mappingsIndexes, ajustements, base]
+  );
+  const partsDetailAffichees = useMemo(
+    () => partsEnBase(partsDetail, tauxParCategorie(mappingsIndexes), base),
+    [partsDetail, mappingsIndexes, base]
+  );
+  // Réalisé de la période face aux cibles en vigueur : lu dans Général. Les objectifs sont
+  // exclusivement HT — en lecture TTC, aucune cible ni aucun écart n'est calculé (null).
   const ecartsCibles = useMemo(
-    () => ecartsVsCibles(cibles, partsDetail, ajustements, periode),
-    [cibles, partsDetail, ajustements, periode]
+    () => (base === "ht" ? ecartsVsCibles(cibles, partsDetailAffichees, ajustements, periode) : null),
+    [cibles, partsDetailAffichees, ajustements, periode, base]
   );
 
   const changerEtage = (sourceCategoryId: string, etage: EtagePnl) => {
@@ -474,6 +511,23 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       );
       appliquer(precedent);
       setErreurMapping("Le mapping n'a pas pu être enregistré. Réessayez.");
+    });
+  };
+
+  // Taux de TVA estimé d'une catégorie : affiché et appliqué tout de suite, puis enregistré ; en
+  // cas d'échec, retour au taux précédent.
+  const changerTauxTva = (sourceCategoryId: string, taux: number | null) => {
+    const precedent = mappings.find((m) => m.sourceCategoryId === sourceCategoryId)?.vatRate ?? null;
+    if (precedent === taux) return;
+    const appliquer = (valeur: number | null) =>
+      setMappings((prev) => prev.map((m) => (m.sourceCategoryId === sourceCategoryId ? { ...m, vatRate: valeur } : m)));
+    appliquer(taux);
+    setErreurMapping(null);
+    sauvegarderTauxTvaCategorie(supabase!, organizationId, sourceCategoryId, taux).catch((error) => {
+      const code = (error as { code?: string } | null)?.code ?? "inconnu";
+      console.error(`[passe/mapping] step=update_vat_rate organization=${organizationId} category=${sourceCategoryId} code=${code}`);
+      appliquer(precedent);
+      setErreurMapping("Le taux de TVA n'a pas pu être enregistré. Réessayez.");
     });
   };
 
@@ -784,9 +838,16 @@ export default function PasseTransactions({ organizationId, organizationName, ac
           `${pluriel(nombreSignesInhabituels, "transaction avec un signe inhabituel", "transactions avec un signe inhabituel")}, prises en compte telles quelles.`
         );
       }
+      // Lecture HT : la couverture de la TVA est dite en tête, comme à l'écran.
+      if (base === "ht" && pnlAffiche.couvertures && !pnlAffiche.couvertures.ebitda.complete) {
+        avertissements.push(`Estimation incomplète : ${libelleCouverture(pnlAffiche.couvertures.ebitda).toLocaleLowerCase("fr")}`);
+      }
+      // L'export suit la lecture affichée ; le Cash flow reste sur les parts TTC.
       const pages = pagesExportPdf({
-        pnl,
-        parts: partsDetail,
+        pnl: pnlAffiche,
+        parts: partsDetailAffichees,
+        partsTtc: partsDetail,
+        base,
         periode,
         ajustements,
         avertissements,
@@ -812,6 +873,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         <div className="passe-controle passe-axe">
           {/* L'onglet Écarts compare deux périodes qui lui sont propres : la période du module n'y
               joue pas, elle est masquée pour ne pas laisser croire le contraire. */}
+          {(vue === "general" || estMetriqueDetail(vue)) && <PasseSelecteurBase base={base} onChange={choisirBase} />}
           {vue !== "ecarts" && (
             <PasseSelecteurPeriode
               id="passe-periode-preset"
@@ -1080,7 +1142,10 @@ export default function PasseTransactions({ organizationId, organizationName, ac
                       <tr>
                         <th>Date</th>
                         <th>Libellé</th>
-                        <th className="col-montant">Montant</th>
+                        <th className="col-montant">
+                          Montant
+                          <MentionTTC />
+                        </th>
                         <th>Catégorie</th>
                         <th>Étage P&amp;L</th>
                         <th>Anomalie</th>
@@ -1145,21 +1210,34 @@ export default function PasseTransactions({ organizationId, organizationName, ac
           )}
 
           {axeAConfigurer ? null : vue === "general" ? (
-            <PasseGeneral pnl={pnl} teintes={teintesCategories} cibles={ecartsCibles} onOuvrir={setVue} onDefinirCible={voirCibles} />
+            <PasseGeneral
+              pnl={pnlAffiche}
+              teintes={teintesCategories}
+              cibles={ecartsCibles}
+              onOuvrir={setVue}
+              onDefinirCible={voirCibles}
+              onConfigurerTva={() => setVue("mapping")}
+            />
           ) : estMetriqueDetail(vue) ? (
             // `key` : changer d'onglet remonte l'écran, donc réinitialise ses filtres locaux
             // (catégorie, mois) ; la période, elle, vit ici et reste inchangée.
             <PastDetailDashboard
               key={vue}
               metrique={vue}
-              parts={partsDetail}
+              // Cash flow : flux bancaires réels, toujours sur les parts TTC.
+              parts={vue === "cash_flow" ? partsDetail : partsDetailAffichees}
+              base={vue === "cash_flow" ? "ttc" : base}
+              onConfigurerTva={() => setVue("mapping")}
               periode={periode}
               ajustements={ajustements}
               teintes={teintesCategories}
               onFiltresChange={retenirFiltresOnglet}
-              cibles={cibles}
+              // Objectifs exclusivement HT : aucune cible en lecture TTC, ni sur le Cash flow.
+              cibles={base === "ht" && vue !== "cash_flow" ? cibles : undefined}
             />
           ) : vue === "ecarts" ? (
+            <>
+            {base === "ht" && <p className="passe-message">{LIBELLE_ECARTS_EN_TTC}</p>}
             <PasseEcarts
               organizationId={organizationId}
               axeId={axe.axeId}
@@ -1173,6 +1251,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               onChangeSelections={setSelectionsEcarts}
               rechargement={rechargement}
             />
+            </>
           ) : vue === "stocks" ? (
             <PasseStocks
               mois={moisDeLaPeriode(periode)}
@@ -1201,6 +1280,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               filtre={filtreMapping}
               onChangeFiltre={setFiltreMapping}
               onChangeEtage={changerEtage}
+              onChangeTva={changerTauxTva}
             />
           ) : transactions.length === 0 ? (
             <div className="passe-etat">
@@ -1267,6 +1347,17 @@ export default function PasseTransactions({ organizationId, organizationName, ac
             </>
           )}
         </>
+      )}
+      {/* Rappel permanent, commun à tous les onglets du module, selon la lecture choisie. */}
+      {base === "ttc" ? (
+        <p className="passe-disclaimer">{DISCLAIMER_PASSE}</p>
+      ) : (
+        <p className="passe-disclaimer">
+          {DISCLAIMER_HT_ESTIME} {PRECISION_HT_ESTIME}
+          {pnlAffiche.couvertures && !pnlAffiche.couvertures.ebitda.complete
+            ? ` Estimation incomplète sur la période : ${libelleCouverture(pnlAffiche.couvertures.ebitda).toLocaleLowerCase("fr")}`
+            : ""}
+        </p>
       )}
     </section>
   );

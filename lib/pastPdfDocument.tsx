@@ -6,11 +6,12 @@ import PasseEvolutionChart from "@/components/PasseEvolutionChart";
 import PasseStructureChart from "@/components/PasseStructureChart";
 import { formatDateCourte } from "./dates";
 import { NEUTRES, teintesDesParts } from "./dataviz";
-import { formatKiloEuros, formatMontant, formatMontantComptable, formatPourcentage } from "./format";
+import { formatKiloEuros, formatMontant, formatMontantComptable, formatPourcentage, MENTION_TTC } from "./format";
 import { LigneAjustement } from "./pastAdjustments";
-import { libelleEtagePnl } from "./pastCategoryMapping";
+import { libelleEtagePnl, LIBELLE_ENCAISSEMENTS } from "./pastCategoryMapping";
 import { METRIQUES_DETAIL } from "./pastDetail";
-import { DISCLAIMER_PASSE, PageDetailPdf, PageGeneralPdf, PagePdf, textePdf } from "./pastPdfModel";
+import { BaseMontants, IndicateurEconomique } from "./pastHtEstime";
+import { disclaimerPdf, mentionDeLaBase, PageDetailPdf, PageGeneralPdf, PagePdf, textePdf } from "./pastPdfModel";
 import { ETAGES_COUTS, ETAGES_REVENUS, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { Periode } from "./pastTransactions";
 
@@ -70,6 +71,11 @@ function ecrire(doc: jsPDF, texte: string, x: number, y: number, style: Style): 
   const largeur = largeurTexte(doc, ligne, espacement);
   doc.text(ligne, style.aDroite ? x - largeur : x, y, { charSpace: espacement });
   return largeur;
+}
+
+/** « TTC » ou « HT estimé » en suffixe secondaire, juste après un texte déjà écrit qui se termine en `x`. */
+function ecrireMentionTTC(doc: jsPDF, x: number, y: number, taille: number, mention: string = MENTION_TTC) {
+  ecrire(doc, mention, x + taille * 0.45, y, { taille, couleur: NEUTRES.secondaire });
 }
 
 function trait(doc: jsPDF, x1: number, y: number, x2: number, couleur: string = NEUTRES.bordure, epaisseur = 0.6) {
@@ -135,7 +141,7 @@ const rien = () => {};
 
 // --- Cadre commun à toutes les pages ---
 
-function cadre(doc: jsPDF, organisation: string, titre: string, periode: Periode, filtres: string[], numero: number, total: number) {
+function cadre(doc: jsPDF, organisation: string, titre: string, periode: Periode, filtres: string[], numero: number, total: number, base: BaseMontants) {
   doc.setFillColor(NEUTRES.fond);
   doc.rect(0, 0, PAGE.largeur, PAGE.hauteur, "F");
 
@@ -154,7 +160,7 @@ function cadre(doc: jsPDF, organisation: string, titre: string, periode: Periode
   trait(doc, PAGE.marge, 88, DROITE);
 
   trait(doc, PAGE.marge, PAGE.hauteur - 42, DROITE);
-  ecrire(doc, DISCLAIMER_PASSE, PAGE.marge, PAGE.hauteur - 28, { taille: 7.5, couleur: NEUTRES.secondaire });
+  ecrire(doc, disclaimerPdf(base), PAGE.marge, PAGE.hauteur - 28, { taille: 7.5, couleur: NEUTRES.secondaire, largeurMax: DROITE - PAGE.marge - 110 });
   ecrire(doc, `Novanta · Passé · ${numero} / ${total}`, DROITE, PAGE.hauteur - 28, { taille: 7.5, couleur: NEUTRES.secondaire, aDroite: true });
 }
 
@@ -218,7 +224,9 @@ async function blocStructure(
 // --- Page Général ---
 
 type LignePnl =
-  | { type: "ligne"; libelle: string; montant: number; ratio?: number | null; niveau?: "titre" | "solde" }
+  // `tresorerie` : flux bancaires réels, toujours TTC. `indicateur` : indicateur économique, lu dans
+  // la base de l'export (« Incomplet » si sa TVA n'est pas renseignée partout).
+  | { type: "ligne"; libelle: string; montant: number; ratio?: number | null; niveau?: "titre" | "solde"; tresorerie?: boolean; indicateur?: IndicateurEconomique }
   | { type: "note"; texte: string }
   | { type: "bloc"; cash?: boolean };
 
@@ -230,30 +238,30 @@ function lignesPnl(page: PageGeneralPdf): LignePnl[] {
       ...ligne.notes.map((texte) => ({ type: "note", texte }) as LignePnl),
     ]);
   return [
-    { type: "ligne", libelle: "Chiffre d'affaires", montant: pnl.ca, niveau: "titre" },
+    { type: "ligne", libelle: LIBELLE_ENCAISSEMENTS, montant: pnl.ca, niveau: "titre", indicateur: "ca" },
     ...ajustements(pnl.ajustements.revenue),
     { type: "bloc" },
     { type: "ligne", libelle: "Coûts directs", montant: pnl.coutsDirects },
     ...ajustements(pnl.ajustements.gross_margin),
-    { type: "ligne", libelle: "Marge brute", montant: pnl.margeBrute, ratio: pnl.ratios.margeBrute, niveau: "solde" },
+    { type: "ligne", libelle: "Marge brute", montant: pnl.margeBrute, ratio: pnl.ratios.margeBrute, niveau: "solde", indicateur: "margeBrute" },
     { type: "bloc" },
     { type: "ligne", libelle: libelleEtagePnl("contribution_margin"), montant: pnl.coutsCommerciaux },
     ...ajustements(pnl.ajustements.contribution_margin),
-    { type: "ligne", libelle: "Marge contributive", montant: pnl.margeContributive, ratio: pnl.ratios.margeContributive, niveau: "solde" },
+    { type: "ligne", libelle: "Marge contributive", montant: pnl.margeContributive, ratio: pnl.ratios.margeContributive, niveau: "solde", indicateur: "margeContributive" },
     { type: "bloc" },
     { type: "ligne", libelle: "Coûts de structure", montant: pnl.coutsStructure },
     ...ajustements(pnl.ajustements.ebitda),
-    { type: "ligne", libelle: "EBITDA", montant: pnl.ebitda, ratio: pnl.ratios.ebitda, niveau: "solde" },
+    { type: "ligne", libelle: "EBITDA", montant: pnl.ebitda, ratio: pnl.ratios.ebitda, niveau: "solde", indicateur: "ebitda" },
     { type: "bloc", cash: true },
     { type: "ligne", libelle: libelleEtagePnl("extra_pnl"), montant: pnl.extraPnl },
     ...ajustements(pnl.ajustements.extra_pnl),
-    { type: "ligne", libelle: LIBELLE_CASH_FLOW_OPERATIONNEL, montant: pnl.cashFlowOperationnel, niveau: "solde" },
+    { type: "ligne", libelle: LIBELLE_CASH_FLOW_OPERATIONNEL, montant: pnl.cashFlowOperationnel, niveau: "solde", tresorerie: true },
     { type: "bloc" },
     { type: "ligne", libelle: libelleEtagePnl("financing"), montant: pnl.financements },
     ...ajustements(pnl.ajustements.financing),
     // Total final de la section : filet plein juste au-dessus.
     { type: "bloc", cash: true },
-    { type: "ligne", libelle: LIBELLE_VARIATION_TRESORERIE, montant: pnl.variationTresorerie, niveau: "titre" },
+    { type: "ligne", libelle: LIBELLE_VARIATION_TRESORERIE, montant: pnl.variationTresorerie, niveau: "titre", tresorerie: true },
   ];
 }
 
@@ -282,9 +290,13 @@ async function pageGeneral(doc: jsPDF, page: PageGeneralPdf, teintes: ReadonlyMa
       const fort = ligne.niveau !== undefined;
       const taille = (ligne.niveau === "titre" ? 12 : ligne.niveau === "solde" ? 10.5 : 9.5) * echelle;
       const base = y + hauteur * 0.72;
-      ecrire(doc, ligne.libelle, gauche.x, base, { taille, gras: fort, couleur: fort ? NEUTRES.encre : NEUTRES.secondaire, largeurMax: xMontant - gauche.x - 90 });
-      ecrire(doc, formatMontantComptable(ligne.montant), xMontant, base, { taille, gras: fort, aDroite: true });
-      if (ligne.ratio !== undefined) {
+      const largeurLibelle = ecrire(doc, ligne.libelle, gauche.x, base, { taille, gras: fort, couleur: fort ? NEUTRES.encre : NEUTRES.secondaire, largeurMax: xMontant - gauche.x - 90 });
+      // Indicateur principal : « Marge brute TTC », la mention en petit, à la suite du nom ; les
+      // lignes de coûts restent sans mention, comme à l'écran.
+      if (fort) ecrireMentionTTC(doc, gauche.x + largeurLibelle, base, 7 * echelle, ligne.tresorerie ? MENTION_TTC : mentionDeLaBase(page.base));
+      const incomplet = ligne.indicateur !== undefined && page.incomplets.includes(ligne.indicateur);
+      ecrire(doc, incomplet ? "Incomplet" : formatMontantComptable(ligne.montant), xMontant, base, { taille, gras: fort, aDroite: true });
+      if (ligne.ratio !== undefined && !incomplet) {
         ecrire(doc, formatPourcentage(ligne.ratio), xRatio, base, { taille: 8.5 * echelle, couleur: NEUTRES.secondaire, aDroite: true });
       }
     }
@@ -346,9 +358,14 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   if (vue.kpi.categorie) {
     ecrire(doc, `· ${config.libelleDetail}`, gauche.x + largeurTitre + 6, gauche.y + 9, { taille: 8.5, couleur: NEUTRES.secondaire });
   }
-  ecrire(doc, formatMontant(vue.kpi.montant), gauche.x, gauche.y + 38, { taille: 26, gras: true });
-  if (vue.kpi.ratio !== undefined) {
-    ecrire(doc, `${formatPourcentage(vue.kpi.ratio)} du CA`, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
+  const mention = mentionDeLaBase(page.base);
+  const largeurKpi = ecrire(doc, page.estimationIncomplete ? "Estimation incomplète" : formatMontant(vue.kpi.montant), gauche.x, gauche.y + 38, {
+    taille: page.estimationIncomplete ? 18 : 26,
+    gras: true,
+  });
+  ecrireMentionTTC(doc, gauche.x + largeurKpi, gauche.y + 38, 9, mention);
+  if (vue.kpi.ratio !== undefined && !page.estimationIncomplete) {
+    ecrire(doc, `${formatPourcentage(vue.kpi.ratio)} des encaissements`, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
   } else if (vue.kpi.precision && vue.kpi.categorie === null) {
     // Cash flow : le périmètre exporté (hors financement, comme l'écran à son ouverture) est dit.
     ecrire(doc, vue.kpi.precision, gauche.x, gauche.y + 52, { taille: 9, couleur: NEUTRES.secondaire });
@@ -421,7 +438,7 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
     const entete = { taille: 6.5, gras: true, capitales: true, couleur: NEUTRES.secondaire };
     ecrire(doc, "Date", colonnes.date, y, entete);
     ecrire(doc, "Libellé", colonnes.libelle, y, entete);
-    ecrire(doc, "Montant", colonnes.montant, y, { ...entete, aDroite: true });
+    ecrire(doc, `Montant ${mention}`, colonnes.montant, y, { ...entete, aDroite: true });
     ecrire(doc, "Catégorie", colonnes.categorie, y, entete);
     y += 5;
     trait(doc, x, y, x + largeur, NEUTRES.secondaire, 0.5);
@@ -450,7 +467,9 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   if (lignes.length > 0) {
     y += 18;
     const largeurTitreAjustements = titreBloc(doc, "Ajustements de gestion", x, y);
-    ecrire(doc, "hors banque, compris dans l'indicateur", x + largeurTitreAjustements + 8, y, { taille: 6.5, couleur: NEUTRES.secondaire });
+    // Ajustements : jamais convertis — en lecture HT, ils sont repris tels que saisis.
+    const precisionAjustements = page.base === "ht" ? "montants saisis, non convertis" : `montants ${MENTION_TTC}`;
+    ecrire(doc, `hors banque, compris dans l'indicateur · ${precisionAjustements}`, x + largeurTitreAjustements + 8, y, { taille: 6.5, couleur: NEUTRES.secondaire });
     y += 6;
     let affichees = 0;
     for (const ligne of lignes) {
@@ -500,7 +519,7 @@ export async function genererPdfPasse({ organisation, periode, pages, teintes }:
 
   for (const [index, page] of pages.entries()) {
     if (index > 0) doc.addPage("a4", "landscape");
-    cadre(doc, organisation, page.titre, periode, page.type === "detail" ? page.libellesFiltres : [], index + 1, pages.length);
+    cadre(doc, organisation, page.titre, periode, page.type === "detail" ? page.libellesFiltres : [], index + 1, pages.length, pages[0]?.type === "general" ? pages[0].base : "ttc");
     if (page.type === "general") await pageGeneral(doc, page, teintes);
     else await pageDetail(doc, page, teintes);
   }

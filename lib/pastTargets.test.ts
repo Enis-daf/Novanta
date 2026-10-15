@@ -32,6 +32,12 @@ import {
   valeurCibleValide,
 } from "./pastTargets";
 import { PastTransactionStockee } from "./pastTransactions";
+import { partsEnBase } from "./pastHtEstime";
+
+// Les objectifs se comparent à des parts HT estimées. Taux de 0 % partout : HT = montants des
+// transactions, ces tests portent sur la logique des cibles, pas sur la conversion.
+const TAUX_NUL = { get: () => 0 } as unknown as ReadonlyMap<string, number | null>;
+const enHt = (parts: ReturnType<typeof partsMappees>) => partsEnBase(parts, TAUX_NUL, "ht");
 
 let compteur = 0;
 const cible = (type: TypeCible, validFrom: string, valeur: number, dimension = ""): Cible => ({ id: `c${++compteur}`, type, dimension, validFrom, valeur });
@@ -207,9 +213,9 @@ describe("écart d'une marge à sa cible pondérée", () => {
 
   test("couverture 99 % : écart en k€ gardé, couverture dite en infobulle seulement", () => {
     const ecart = ecartDeMarge(970_000 / 2_475_000, 2_475_000, { valeur: 0.522, couverture: 0.99 });
-    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 52,2 %", ecart: "-321,9 k€ vs cible", reserve: "Cible calculée sur 99 % du CA" });
+    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 52,2 %", ecart: "-321,9 k€ vs cible", reserve: "Cible calculée sur 99 % des encaissements" });
     // Jamais « 100 % » tant que la couverture n'est pas complète.
-    assert.equal(libellesEcartMarge(ecartDeMarge(0.4, 100_000, { valeur: 0.5, couverture: 0.996 })).reserve, "Cible calculée sur 99 % du CA");
+    assert.equal(libellesEcartMarge(ecartDeMarge(0.4, 100_000, { valeur: 0.5, couverture: 0.996 })).reserve, "Cible calculée sur 99 % des encaissements");
     assert.equal(libellesEcartMarge(ecartDeMarge(0.4, 100_000, { valeur: 0.5, couverture: 0.9995 })).reserve, null);
   });
 
@@ -223,7 +229,7 @@ describe("écart d'une marge à sa cible pondérée", () => {
     const ecart = ecartDeMarge(0.61, 300_000, { valeur: 0.648333, couverture: 0.82 });
     assert.equal(ecart.statut, "defavorable");
     proche(ecart.ecartEuros!, -11_499.9, 0.01);
-    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 64,8 %", ecart: "-11,5 k€ vs cible", reserve: "Cible calculée sur 82 % du CA" });
+    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 64,8 %", ecart: "-11,5 k€ vs cible", reserve: "Cible calculée sur 82 % des encaissements" });
   });
 
   test("couverture trop faible : cible gardée, aucun écart en euros, aucun verdict", () => {
@@ -231,7 +237,7 @@ describe("écart d'une marge à sa cible pondérée", () => {
     const ecart = ecartDeMarge(0.61, 300_000, { valeur: 0.648333, couverture: 0.64 });
     assert.equal(ecart.statut, "incomplet");
     assert.equal(ecart.ecartEuros, null);
-    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 64,8 %", ecart: "cible incomplète", reserve: "Cible calculée sur 64 % du CA" });
+    assert.deepEqual(libellesEcartMarge(ecart), { cible: "Cible 64,8 %", ecart: "cible incomplète", reserve: "Cible calculée sur 64 % des encaissements" });
     proche(ecart.ecartPoints, -0.038333);
     assert.equal(ecartDeMarge(0.61, 300_000, { valeur: 0.648333, couverture: 0.8 }).statut, "defavorable");
   });
@@ -283,7 +289,7 @@ describe("écarts vs cibles — Général et écrans de détail, même calcul", 
     tx("2026-03-10", 300_000, "a"), tx("2026-03-16", -90_000, "achats"), tx("2026-03-18", -30_000, "pub"), tx("2026-03-28", -80_000, "salaires"),
   ];
   const periode = { debut: "2026-02-01", fin: "2026-03-31" };
-  const parts = (liste = transactions, index = mappings) => partsMappees(liste, AXE, index);
+  const parts = (liste = transactions, index = mappings) => enHt(partsMappees(liste, AXE, index));
   const cibles = [mb("a", 70), mb("b", 99), mb("c", 50), mc("a", 60), mc("b", 80), mc("c", 40), cible("structure_cost_monthly", "2026-01-01", 85_000)];
   const sansAjustement: AjustementGestion[] = [];
 
@@ -497,7 +503,7 @@ describe("EBITDA cible — dérivé de la Marge contributive cible et des Coûts
   test("couverture partielle de la Marge contributive : propagée, écart seulement indicatif", () => {
     const ecart = ecartDEbitda(130_000, 1_000_000, { valeur: 0.4, couverture: 0.82 }, complete(250_000));
     assert.equal(ecart.statut, "incomplet");
-    assert.deepEqual(libellesEcartEbitda(ecart), { cible: "Cible 150 k€", ecart: "-20 k€ (indicatif)", reserve: "Cible EBITDA calculée sur 82 % du CA" });
+    assert.deepEqual(libellesEcartEbitda(ecart), { cible: "Cible 150 k€", ecart: "-20 k€ (indicatif)", reserve: "Cible EBITDA calculée sur 82 % des encaissements" });
   });
 
   test("cible de coûts de structure ne couvrant qu'une partie de la période : dite aussi", () => {
@@ -537,7 +543,7 @@ describe("EBITDA cible dans les écarts d'une période — même calcul pour Gé
     tx("2026-03-10", 500_000, "a"), tx("2026-03-16", -250_000, "achats"), tx("2026-03-18", -60_000, "pub"), tx("2026-03-28", -130_000, "salaires"),
   ];
   const periode = { debut: "2026-02-01", fin: "2026-03-31" };
-  const parts = partsMappees(transactions, AXE, mappings);
+  const parts = enHt(partsMappees(transactions, AXE, mappings));
   const mcA = cible("contribution_margin_pct", "2026-01-01", 40, "a");
   const mcB = cible("contribution_margin_pct", "2026-01-01", 40, "b");
   const structure = cible("structure_cost_monthly", "2026-01-01", 125_000);
@@ -587,7 +593,7 @@ describe("EBITDA cible dans les écarts d'une période — même calcul pour Gé
     const { ebitda } = ecarts([mcA, structure]);
     assert.equal(ebitda!.couvertureCa, 0.9);
     assert.equal(ebitda!.statut, "incomplet");
-    assert.equal(libellesEcartEbitda(ebitda!).reserve, "Cible EBITDA calculée sur 90 % du CA");
+    assert.equal(libellesEcartEbitda(ebitda!).reserve, "Cible EBITDA calculée sur 90 % des encaissements");
   });
 
   test("la cible de Marge brute n'entre pas dans l'EBITDA cible", () => {

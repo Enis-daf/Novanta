@@ -10,6 +10,7 @@ import {
   historiqueDesCibles,
   LONGUEUR_MAX_COMMENTAIRE,
   TypeCible,
+  UNITE_COUTS_DE_STRUCTURE,
   valeurCibleValide,
 } from "@/lib/pastTargets";
 
@@ -332,7 +333,7 @@ function LigneCategorie({
   );
 }
 
-/** Coûts de structure : un objectif global, en euros par mois, daté. */
+/** Coûts de structure : un objectif global, en euros HT par mois, daté. */
 function CoutsDeStructure({ cibles, dateParDefaut, onPoser, ...actions }: Pick<PasseObjectifsProps, "cibles" | "dateParDefaut" | "onPoser"> & Actions) {
   const [nouvelle, setNouvelle] = useState<{ saisie: string; dateEffet: string } | null>(null);
   const [historiqueOuvert, setHistoriqueOuvert] = useState(false);
@@ -343,7 +344,7 @@ function CoutsDeStructure({ cibles, dateParDefaut, onPoser, ...actions }: Pick<P
     <div className="passe-cibles__ligne">
       <div className="passe-cibles__saisie">
         <span className="passe-controle__label">Montant mensuel cible</span>
-        <ObjectifCourant historique={historique} toutes={cibles} unite="€ / mois" {...actions} />
+        <ObjectifCourant historique={historique} toutes={cibles} unite={UNITE_COUTS_DE_STRUCTURE} {...actions} />
         <button type="button" className="btn-secondaire" aria-expanded={nouvelle !== null} onClick={() => setNouvelle(nouvelle ? null : { saisie: "", dateEffet: dateParDefaut })}>
           {historique.length > 0 ? "Nouvelle cible" : "Définir"}
         </button>
@@ -372,7 +373,7 @@ function CoutsDeStructure({ cibles, dateParDefaut, onPoser, ...actions }: Pick<P
             value={nouvelle.saisie}
             onChange={(e) => setNouvelle({ ...nouvelle, saisie: e.target.value })}
           />
-          <span>€ / mois à partir du</span>
+          <span>{UNITE_COUTS_DE_STRUCTURE} à partir du</span>
           <DateField value={nouvelle.dateEffet} onChange={(dateEffet) => setNouvelle({ ...nouvelle, dateEffet })} effacable={false} />
           <button type="submit" className="btn-secondaire btn-module--actif" disabled={!valide}>
             Enregistrer
@@ -382,7 +383,7 @@ function CoutsDeStructure({ cibles, dateParDefaut, onPoser, ...actions }: Pick<P
           </button>
         </form>
       )}
-      {historiqueOuvert && <VersionsAnterieures titre="Versions antérieures" historique={historique} toutes={cibles} unite="€ / mois" {...actions} />}
+      {historiqueOuvert && <VersionsAnterieures titre="Versions antérieures" historique={historique} toutes={cibles} unite={UNITE_COUTS_DE_STRUCTURE} {...actions} />}
     </div>
   );
 }
@@ -403,19 +404,19 @@ export default function PasseObjectifs({ cibles, categoriesCa, dateParDefaut, er
       )}
 
       <section className="passe-cibles__section">
-        <h3 className="eyebrow eyebrow--encre">Objectifs de marge par catégorie de CA</h3>
+        <h3 className="eyebrow eyebrow--encre">Objectifs de marge par catégorie d&apos;encaissements</h3>
         <p className="passe-message">
-          L&apos;objectif global de marge n&apos;est pas saisi : il est calculé en pondérant ces cibles par le CA réellement
-          réalisé dans chaque catégorie sur la période. Une cible s&apos;applique à partir de sa date d&apos;effet.
+          L&apos;objectif global de marge n&apos;est pas saisi : il est calculé en pondérant ces cibles par les
+          encaissements HT estimés de chaque catégorie sur la période. Une cible s&apos;applique à partir de sa date d&apos;effet.
         </p>
         {categoriesCa.length === 0 ? (
-          <p className="passe-cibles__vide">Aucune catégorie n&apos;est rattachée à l&apos;étage CA pour le moment.</p>
+          <p className="passe-cibles__vide">Aucune catégorie n&apos;est rattachée à l&apos;étage Encaissements pour le moment.</p>
         ) : (
           <div className="table-wrapper">
             <table className="passe-table passe-cibles__table">
               <thead>
                 <tr>
-                  <th>Catégorie de CA</th>
+                  <th>Catégorie d&apos;encaissements</th>
                   <th>Marge brute cible</th>
                   <th>Marge contributive cible</th>
                   <th>
@@ -435,6 +436,7 @@ export default function PasseObjectifs({ cibles, categoriesCa, dateParDefaut, er
 
       <section className="passe-cibles__section">
         <h3 className="eyebrow eyebrow--encre">Coûts de structure</h3>
+        <p className="passe-message">Montants mensuels saisis en HT.</p>
         <CoutsDeStructure cibles={cibles} dateParDefaut={dateParDefaut} onPoser={onPoser} {...actions} />
       </section>
     </div>

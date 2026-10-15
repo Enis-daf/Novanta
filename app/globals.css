@@ -3212,3 +3212,76 @@ button.passe-cible--lien:focus-visible,
 .passe-detail__table {
   overflow-x: auto;
 }
+
+/* Mention « TTC » du module Passé : un suffixe secondaire, jamais un badge. */
+.mention-ttc {
+  margin-left: 0.35em;
+  color: var(--couleur-texte-secondaire);
+  /* Plus petite que le texte qu'elle suit, mais jamais illisible dans les lignes en petit corps. */
+  font-size: max(0.72em, 10px);
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+/* Gros chiffres : le suffixe reste à la taille d'un libellé, sur la ligne de base du montant. */
+.passe-kpi__montant .mention-ttc,
+.passe-ecarts__kpi-valeur .mention-ttc {
+  font-size: 14px;
+}
+
+/* P&L : après le nom d'un indicateur principal, à la manière des sous-lignes (Coûts directs...). */
+.passe-pnl__libelle .mention-ttc {
+  font-size: 13px;
+}
+
+/* Lecture HT estimé du module Passé (lib/pastHtEstime.ts). */
+.passe-selecteur-base {
+  margin: 0;
+}
+
+.passe-pnl__incomplet,
+.passe-kpi__montant--incomplet {
+  color: var(--couleur-texte-secondaire);
+  font-weight: 400;
+}
+
+.passe-kpi__montant--incomplet {
+  font-size: 22px;
+}
+
+.passe-pnl__frontiere {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-tva-incomplete {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: var(--space-2);
+}
+
+.passe-tva-incomplete p {
+  margin: 0;
+}
+
+.passe-tva-incomplete__couverture {
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-mapping__tva {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.passe-mapping__tva-libre {
+  width: 64px;
+}
+
+.passe-mapping__tva-sans-objet {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}

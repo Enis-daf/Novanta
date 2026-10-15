@@ -93,7 +93,7 @@ describe("waterfall — du Cash flow de A à celui de B", () => {
 
   test("chaque étage contribue en impact sur le Cash flow", () => {
     assert.deepEqual(comparaison.etages.map((e) => [e.libelle, e.contribution]), [
-      ["CA", -20_000], // un revenu qui baisse dégrade le Cash flow
+      ["Encaissements", -20_000], // un revenu qui baisse dégrade le Cash flow
       ["Coûts directs", 5_000], // une charge qui diminue l'améliore
       ["Autres coûts variables", -12_000], // une charge qui augmente le dégrade
       ["Coûts de structure", -8_000],
@@ -635,7 +635,7 @@ describe("analyse d'écarts — hors financement ou financement compris", () => 
 
   test("waterfall hors financement : cinq contributions, sans l'étage de financement, réconciliation exacte", () => {
     assert.deepEqual(hors.etages.map((e) => [e.libelle, e.contribution]), [
-      ["CA", 200],
+      ["Encaissements", 200],
       ["Coûts directs", 0],
       ["Autres coûts variables", 0],
       ["Coûts de structure", 0],
@@ -647,7 +647,7 @@ describe("analyse d'écarts — hors financement ou financement compris", () => 
 
   test("waterfall financement compris : la sixième contribution apparaît, réconciliation exacte", () => {
     assert.deepEqual(compris.etages.map((e) => [e.libelle, e.contribution]), [
-      ["CA", 200],
+      ["Encaissements", 200],
       ["Coûts directs", 0],
       ["Autres coûts variables", 0],
       ["Coûts de structure", 0],
@@ -759,7 +759,7 @@ describe("variation d'un poste — à ne pas confondre avec son impact", () => {
   test("waterfall : chaque marche porte sa variation ; contributions et réconciliation inchangées", () => {
     const comparaison = comparerPeriodes(A, B);
     assert.deepEqual(comparaison.etages.map((e) => [e.libelle, e.contribution, e.variation.sens, e.variation.ampleur]), [
-      ["CA", -20_000, "baisse", 20_000], // le CA baisse : impact négatif
+      ["Encaissements", -20_000, "baisse", 20_000], // le CA baisse : impact négatif
       ["Coûts directs", 5_000, "baisse", 5_000], // les coûts baissent : impact POSITIF
       ["Autres coûts variables", -12_000, "hausse", 12_000], // les coûts montent : impact négatif
       ["Coûts de structure", -8_000, "hausse", 8_000],

@@ -63,10 +63,14 @@ interface PasseEcartCibleProps {
   onOuvrir?: () => void;
   onDefinir?: () => void;
   libelleLien?: string;
+  // Un objectif existe mais ne se compare pas dans la lecture affichée (TVA non renseignée,
+  // objectif posé dans l'autre base) : la raison s'affiche à la place de l'écart, sans verdict.
+  motif?: string | null;
 }
 
 /** Cible et écart d'un indicateur : « Cible 44,0 % ⓘ · -27 k€ vs cible ». */
-export default function PasseEcartCible({ ecart, onOuvrir, onDefinir, libelleLien }: PasseEcartCibleProps) {
+export default function PasseEcartCible({ ecart, onOuvrir, onDefinir, libelleLien, motif = null }: PasseEcartCibleProps) {
+  if (ecart.valeur === null && motif) return <p className="passe-cible">{motif}</p>;
   if (ecart.valeur === null) {
     const incomplet = ecart.type === "ebitda" && ecart.incomplet;
     if (onDefinir) {

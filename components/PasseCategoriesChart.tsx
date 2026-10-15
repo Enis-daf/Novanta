@@ -3,11 +3,13 @@
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { decimalesAxeK, libelleBarreauK } from "./PasseEvolutionChart";
 import { graduationsAxe, NEUTRES, OPACITE_ATTENUEE, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
-import { formatMontant, formatKiloEuros } from "@/lib/format";
+import { formatMontant, formatKiloEuros, MENTION_TTC } from "@/lib/format";
 
 type BarreCategorie = { cle: string; nom: string; montant: number };
 
 interface PasseCategoriesChartProps {
+  // Mention de l\'infobulle : « TTC », ou « HT estimé » en lecture HT.
+  mention?: string;
   titre: string;
   categories: BarreCategorie[];
   messageVide: string;
@@ -15,13 +17,13 @@ interface PasseCategoriesChartProps {
   onSelect: (cle: string) => void;
 }
 
-function InfoBulle({ active, payload }: { active?: boolean; payload?: { payload: BarreCategorie }[] }) {
+function InfoBulle({ active, payload, mention }: { active?: boolean; payload?: { payload: BarreCategorie }[]; mention: string }) {
   if (!active || !payload?.length) return null;
   const { nom, montant } = payload[0].payload;
   return (
     <div className="passe-structure__infobulle">
       <strong>{nom}</strong>
-      <span>{formatMontant(montant)}</span>
+      <span>{`${formatMontant(montant)} ${mention}`}</span>
     </div>
   );
 }
@@ -32,7 +34,7 @@ const HAUTEUR_PAR_CATEGORIE = 36;
 // camembert ne sait pas représenter : un barreau horizontal par catégorie, à gauche de zéro pour
 // un décaissement, à droite pour un encaissement. Horizontal pour que les noms de catégories
 // restent lisibles quel que soit leur nombre. Cliquer sur une catégorie la sélectionne comme filtre.
-export default function PasseCategoriesChart({ titre, categories, messageVide, selection, onSelect }: PasseCategoriesChartProps) {
+export default function PasseCategoriesChart({ titre, categories, messageVide, selection, onSelect, mention = MENTION_TTC }: PasseCategoriesChartProps) {
   const graduations = graduationsAxe(categories.map((c) => c.montant));
   const decimales = decimalesAxeK(Math.max(...graduations.map(Math.abs)));
 
@@ -73,7 +75,7 @@ export default function PasseCategoriesChart({ titre, categories, messageVide, s
                 axisLine={false}
                 tickLine={false}
               />
-              <Tooltip content={<InfoBulle />} cursor={{ fill: NEUTRES.bordure, fillOpacity: 0.5 }} />
+              <Tooltip content={<InfoBulle mention={mention} />} cursor={{ fill: NEUTRES.bordure, fillOpacity: 0.5 }} />
               <ReferenceLine x={0} stroke={NEUTRES.secondaire} />
               <Bar dataKey="montant" radius={[0, 4, 4, 0]} maxBarSize={20} isAnimationActive={false}>
                 {categories.map((c) => (

@@ -1,3 +1,24 @@
+/**
+ * Mention fiscale des montants du module Passé : ce sont des transactions bancaires, donc TTC.
+ * Seul endroit où le mot est écrit. Les formatters monétaires ne l'ajoutent jamais d'eux-mêmes :
+ * c'est l'écran qui décide où elle se place (voir components/MentionTTC.tsx).
+ */
+export const MENTION_TTC = "TTC";
+
+/**
+ * Mention de la lecture « HT estimé » du module Passé (lib/pastHtEstime.ts) : des montants
+ * recalculés à partir de taux de TVA saisis, jamais des données comptables.
+ */
+export const MENTION_HT_ESTIME = "HT estimé";
+
+/**
+ * Montant suivi de la mention (« 12 400 € TTC »), pour un texte brut (infobulle, PDF). Toujours
+ * APRÈS le montant, jamais deux fois.
+ */
+export function suffixeTTC(montantFormate: string): string {
+  return montantFormate.endsWith(` ${MENTION_TTC}`) ? montantFormate : `${montantFormate} ${MENTION_TTC}`;
+}
+
 export function formatMontant(montant: number): string {
   return new Intl.NumberFormat("fr-FR", {
     style: "currency",
