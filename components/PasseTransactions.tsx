@@ -490,9 +490,10 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     () => partsEnBase(partsDetail, tauxParCategorie(mappingsIndexes), base),
     [partsDetail, mappingsIndexes, base]
   );
-  // Réalisé de la période face aux cibles en vigueur, dans la lecture affichée : lu dans Général.
+  // Réalisé de la période face aux cibles en vigueur : lu dans Général. Les objectifs sont
+  // exclusivement HT — en lecture TTC, aucune cible ni aucun écart n'est calculé (null).
   const ecartsCibles = useMemo(
-    () => ecartsVsCibles(cibles, partsDetailAffichees, ajustements, periode, null, base),
+    () => (base === "ht" ? ecartsVsCibles(cibles, partsDetailAffichees, ajustements, periode) : null),
     [cibles, partsDetailAffichees, ajustements, periode, base]
   );
 
@@ -612,10 +613,10 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     for (const operation of operations) {
       if (operation.type === "insert") {
         const { cible } = operation;
-        const enregistree = await enregistrerCible(supabase!, organizationId, cible.type, cible.dimension, cible.validFrom, cible.valeur, cible.base ?? null);
+        const enregistree = await enregistrerCible(supabase!, organizationId, cible.type, cible.dimension, cible.validFrom, cible.valeur);
         setCibles((actuelles) => actuelles.map((c) => (c.id === cible.id ? enregistree : c)));
       } else if (operation.type === "update") {
-        await modifierCible(supabase!, organizationId, operation.id, { valeur: operation.valeur, validFrom: operation.validFrom, base: operation.base });
+        await modifierCible(supabase!, organizationId, operation.id, { valeur: operation.valeur, validFrom: operation.validFrom });
       } else if (operation.type === "comment") {
         await commenterCibleEnBase(supabase!, organizationId, operation.id, operation.commentaire);
       } else {
@@ -639,10 +640,9 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   };
   // `dimension` : la catégorie de CA d'un objectif de marge ; vide pour les coûts de structure.
   // Posée à une date d'effet déjà utilisée pour la même cible, la valeur la met à jour.
-  // `baseObjectif` : base du montant d'un objectif de coûts de structure (HT par défaut).
-  const poserUneCible = (type: TypeCible, dimension: string, validFrom: string, valeur: number, baseObjectif?: BaseMontants) =>
+  const poserUneCible = (type: TypeCible, dimension: string, validFrom: string, valeur: number) =>
     enregistrerCibles(
-      poserCible(cibles, { type, dimension, validFrom }, valeur, `provisoire:${type}:${dimension}:${validFrom}`, baseObjectif),
+      poserCible(cibles, { type, dimension, validFrom }, valeur, `provisoire:${type}:${dimension}:${validFrom}`),
       "save",
       "La cible n'a pas pu être enregistrée. Réessayez."
     );
@@ -1232,8 +1232,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               ajustements={ajustements}
               teintes={teintesCategories}
               onFiltresChange={retenirFiltresOnglet}
-              // Comparés dans la lecture affichée (lib/pastTargets.ts::ecartsVsCibles).
-              cibles={cibles}
+              // Objectifs exclusivement HT : aucune cible en lecture TTC, ni sur le Cash flow.
+              cibles={base === "ht" && vue !== "cash_flow" ? cibles : undefined}
             />
           ) : vue === "ecarts" ? (
             <>

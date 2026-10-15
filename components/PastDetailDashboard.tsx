@@ -9,7 +9,7 @@ import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import { formatDateCourte } from "@/lib/dates";
 import { formatMontant, formatKiloEuros, formatPourcentage, MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
-import { BaseMontants } from "@/lib/pastHtEstime";
+import { BaseMontants, LIBELLE_CASH_FLOW_TTC } from "@/lib/pastHtEstime";
 import PasseTvaIncomplete from "./PasseTvaIncomplete";
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import {
@@ -42,11 +42,12 @@ interface PastDetailDashboardProps {
   // Informe le parent des filtres locaux en cours (pour l'export PDF, qui reprend ceux de l'écran
   // affiché). Lecture seule : les filtres restent décidés ici.
   onFiltresChange?: (filtres: FiltresDetail) => void;
-  // Cibles de performance de l'organisation. L'écran compare son indicateur à la cible avec la
-  // même fonction que l'onglet Général (lib/pastTargets.ts), sur son mois filtré le cas échéant.
+  // Cibles de performance de l'organisation, en lecture HT seulement (absentes en TTC : ni cible ni
+  // écart). L'écran compare son indicateur à la cible avec la même fonction que l'onglet Général
+  // (lib/pastTargets.ts), sur son mois filtré le cas échéant.
   cibles?: Cible[];
-  // Lecture des montants : les parts reçues sont déjà dans cette base (lib/pastHtEstime.ts). Les
-  // cibles sont comparées dans la même base.
+  // Lecture des montants : les parts reçues sont déjà dans cette base (lib/pastHtEstime.ts). Des
+  // cibles ne sont fournies qu'en lecture HT : les objectifs sont exclusivement HT.
   base?: BaseMontants;
   onConfigurerTva?: () => void;
 }
@@ -134,9 +135,9 @@ export default function PastDetailDashboard({
   const ecartCible = useMemo(
     () =>
       cibles && ECRANS_AVEC_CIBLE.includes(metrique) && filtres.categorie === null
-        ? ecartsVsCibles(cibles, parts, ajustements, periode, filtres.mois, base)
+        ? ecartsVsCibles(cibles, parts, ajustements, periode, filtres.mois)
         : null,
-    [cibles, metrique, parts, ajustements, periode, filtres.categorie, filtres.mois, base]
+    [cibles, metrique, parts, ajustements, periode, filtres.categorie, filtres.mois]
   );
   // Tri sur TOUTES les transactions qui correspondent aux filtres, puis découpage en lots.
   const transactionsTriees = useMemo(() => trierTransactions(vue.transactions, tri), [vue.transactions, tri]);
@@ -181,6 +182,7 @@ export default function PastDetailDashboard({
           )}
           {/* Cash flow : la lecture choisie est toujours rappelée sous l'indicateur. */}
           {vue.kpi.precision && vue.kpi.categorie === null && <p className="passe-kpi__ratio">{vue.kpi.precision}</p>}
+          {metrique === "cash_flow" && <p className="passe-kpi__ratio">{LIBELLE_CASH_FLOW_TTC}</p>}
 
           {/* Cible de l'indicateur, recalculée sur le mois sélectionné. Une catégorie sélectionnée la
               masque : la cible est celle de tout le mix de CA, pas d'une catégorie. */}

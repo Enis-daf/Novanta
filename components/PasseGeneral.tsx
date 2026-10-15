@@ -9,7 +9,7 @@ import PasseTvaIncomplete from "./PasseTvaIncomplete";
 import { formatMontantComptable, formatPourcentage, MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
 import { CouvertureTva, IndicateurEconomique, LIBELLE_FRONTIERE_TRESORERIE, PnlEnBase } from "@/lib/pastHtEstime";
 import { LigneAjustement } from "@/lib/pastAdjustments";
-import { EcartsVsCibles } from "@/lib/pastTargets";
+import { EcartsVsCibles, LIBELLE_OBJECTIFS_HT_UNIQUEMENT } from "@/lib/pastTargets";
 import { LIBELLE_ENCAISSEMENTS, libelleEtagePnl } from "@/lib/pastCategoryMapping";
 import {
   ETAGES_COUTS,
@@ -23,9 +23,10 @@ import {
 interface PasseGeneralProps {
   // P&L dans la lecture choisie (TTC ou HT estimé) : la trésorerie y est toujours TTC.
   pnl: PnlEnBase;
-  // Écarts aux cibles de performance de la période, dans la MÊME lecture que `pnl` (null par
-  // indicateur = aucune cible applicable ; `indisponibles` dit pourquoi un objectif ne se compare pas).
-  cibles: EcartsVsCibles;
+  // Écarts aux cibles de performance de la période, calculés en HT (null par indicateur = aucune
+  // cible applicable ; `indisponibles` dit pourquoi un objectif ne se compare pas). null en lecture
+  // TTC : les objectifs sont exclusivement HT, aucune cible ni aucun écart n'y est affiché.
+  cibles: EcartsVsCibles | null;
   // Ouvre l'écran de diagnostic d'un indicateur, ou la configuration des cibles.
   onOuvrir: (ecran: "marge_brute" | "marge_contributive" | "ebitda") => void;
   onDefinirCible: () => void;
@@ -100,13 +101,15 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
           <Ligne libelle="Coûts directs" montant={pnl.coutsDirects} />
           <LignesAjustements lignes={pnl.ajustements.gross_margin} />
           <Ligne libelle="Marge brute" montant={pnl.margeBrute} ratio={pnl.ratios.margeBrute} niveau="solde" mention={mention} incomplet={incomplet("margeBrute")} />
-          <PasseEcartCible
-            ecart={{ type: "marge", valeur: cibles.margeBrute }}
-            motif={cibles.indisponibles.margeBrute}
-            onOuvrir={() => onOuvrir("marge_brute")}
-            onDefinir={onDefinirCible}
-            libelleLien="Ouvrir l'écran Marge brute"
-          />
+          {cibles && (
+            <PasseEcartCible
+              ecart={{ type: "marge", valeur: cibles.margeBrute }}
+              motif={cibles.indisponibles.margeBrute}
+              onOuvrir={() => onOuvrir("marge_brute")}
+              onDefinir={onDefinirCible}
+              libelleLien="Ouvrir l'écran Marge brute"
+            />
+          )}
         </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle={libelleEtagePnl("contribution_margin")} montant={pnl.coutsCommerciaux} />
@@ -119,13 +122,15 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
             mention={mention}
             incomplet={incomplet("margeContributive")}
           />
-          <PasseEcartCible
-            ecart={{ type: "marge", valeur: cibles.margeContributive }}
-            motif={cibles.indisponibles.margeContributive}
-            onOuvrir={() => onOuvrir("marge_contributive")}
-            onDefinir={onDefinirCible}
-            libelleLien="Ouvrir l'écran Marge contributive"
-          />
+          {cibles && (
+            <PasseEcartCible
+              ecart={{ type: "marge", valeur: cibles.margeContributive }}
+              motif={cibles.indisponibles.margeContributive}
+              onOuvrir={() => onOuvrir("marge_contributive")}
+              onDefinir={onDefinirCible}
+              libelleLien="Ouvrir l'écran Marge contributive"
+            />
+          )}
         </div>
         <div className="passe-pnl__bloc">
           <Ligne libelle="Coûts de structure" montant={pnl.coutsStructure} />
@@ -133,13 +138,15 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
           <Ligne libelle="EBITDA" montant={pnl.ebitda} ratio={pnl.ratios.ebitda} niveau="solde" mention={mention} incomplet={incomplet("ebitda")} />
           {/* Même lecture que les deux marges : l'EBITDA face à SA cible, dérivée des objectifs de
               Marge contributive et de Coûts de structure — pas une cible de coûts posée là. */}
-          <PasseEcartCible
-            ecart={{ type: "ebitda", valeur: cibles.ebitda, incomplet: cibles.ebitdaIncomplet }}
-            motif={cibles.indisponibles.ebitda}
-            onOuvrir={() => onOuvrir("ebitda")}
-            onDefinir={onDefinirCible}
-            libelleLien="Ouvrir l'écran EBITDA"
-          />
+          {cibles && (
+            <PasseEcartCible
+              ecart={{ type: "ebitda", valeur: cibles.ebitda, incomplet: cibles.ebitdaIncomplet }}
+              motif={cibles.indisponibles.ebitda}
+              onOuvrir={() => onOuvrir("ebitda")}
+              onDefinir={onDefinirCible}
+              libelleLien="Ouvrir l'écran EBITDA"
+            />
+          )}
         </div>
         {ht && pnl.couvertures && !pnl.couvertures.ebitda.complete && (
           <PasseTvaIncomplete couverture={pnl.couvertures.ebitda} onConfigurer={onConfigurerTva} />
@@ -147,6 +154,8 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
         {/* Frontière explicite en lecture HT : au-dessous, des flux bancaires réels, toujours TTC.
             Le Cash flow n'est jamais déduit de l'EBITDA HT. */}
         {ht && <p className="passe-pnl__frontiere">{LIBELLE_FRONTIERE_TRESORERIE}</p>}
+        {/* Lecture TTC : ni cible ni écart — une seule mention discrète, pas une par indicateur. */}
+        {!cibles && <p className="passe-message">{LIBELLE_OBJECTIFS_HT_UNIQUEMENT}</p>}
         {/* Trésorerie, à part du P&L opérationnel et sans ratio : ce que l'activité génère après
             l'Extra P&L (sous-total, au rang des marges), puis l'effet des virements internes et du
             financement, jusqu'au total final. */}

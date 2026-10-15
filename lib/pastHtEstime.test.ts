@@ -212,7 +212,7 @@ describe("écran Général : HT estimé jusqu'à l'EBITDA, trésorerie en TTC, o
   const mappings = indexerMappings([mapping("ventes", "revenue", 20), mapping("achats", "gross_margin", 20), mapping("tva", "extra_pnl", null)]);
   const transactions = [tx(12_000, [["ventes", 1]]), tx(-6_000, [["achats", 1]]), tx(-800, [["tva", 1]])];
   const cibles = ecartsVsCibles([], [], [], PERIODE);
-  const rendre = (pnl: ReturnType<typeof calculerPnlEnBase>, c: EcartsVsCibles = cibles) =>
+  const rendre = (pnl: ReturnType<typeof calculerPnlEnBase>, c: EcartsVsCibles | null = cibles) =>
     texte(renderToStaticMarkup(React.createElement(PasseGeneral, { pnl, cibles: c, onOuvrir: () => {}, onDefinirCible: () => {}, onConfigurerTva: () => {}, teintes: new Map() })));
 
   test("lecture HT : « Encaissements HT estimé », « Cash flow opérationnel TTC », frontière explicite", () => {
@@ -227,16 +227,20 @@ describe("écran Général : HT estimé jusqu'à l'EBITDA, trésorerie en TTC, o
     assert.ok(lignes.includes("5 200 €"), "cash flow : 12 000 − 6 000 − 800, en TTC");
   });
 
-  test("objectifs : comparés en lecture HT, cible et écart en HT estimé", () => {
+  test("objectifs : en HT, cible et écart HT ; en TTC, aucun objectif et une seule mention", () => {
     const objectifs = [{ id: "mb", type: "gross_margin_pct" as const, dimension: "ventes", validFrom: "2026-01-01", valeur: 40 }];
     const parts = (base: "ht" | "ttc") => partsEnBase(partsMappees(transactions, AXE, mappings), tauxParCategorie(mappings), base);
-    const ht = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ht"), ecartsVsCibles(objectifs, parts("ht"), [], PERIODE, null, "ht"));
+    const ht = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ht"), ecartsVsCibles(objectifs, parts("ht"), [], PERIODE));
     // HT : CA 10 000, marge 5 000 (50 %), cible 40 % → 4 000 ; écart +1 000.
     assert.ok(ht.includes("Cible 40,0 %"));
     assert.ok(ht.some((t) => t.includes("+1 k€ vs cible")), ht.join(" | "));
-    const ttc = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ttc"), ecartsVsCibles(objectifs, parts("ttc"), [], PERIODE, null, "ttc"));
-    // TTC : CA 12 000, marge 6 000, cible 4 800 ; écart +1 200.
-    assert.ok(ttc.some((t) => t.includes("+1,2 k€ vs cible")), ttc.join(" | "));
+    assert.equal(ht.includes("Les objectifs sont suivis uniquement en HT estimé."), false);
+    // TTC : ni cible, ni écart, ni « Définir une cible » — une seule mention, réalisé inchangé.
+    const ttc = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ttc"), null);
+    assert.equal(ttc.some((t) => /Cible|vs cible|Définir une cible|Objectif EBITDA/.test(t)), false, ttc.join(" | "));
+    assert.equal(ttc.filter((t) => t === "Les objectifs sont suivis uniquement en HT estimé.").length, 1);
+    assert.ok(ttc.includes("12 000 €"));
+    assert.throws(() => ecartsVsCibles(objectifs, parts("ttc"), [], PERIODE), /HT estimées uniquement/);
   });
 
   test("TVA manquante : « Incomplet » à la place du montant, catégorie nommée, pas de répartition HT", () => {

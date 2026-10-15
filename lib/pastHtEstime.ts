@@ -35,6 +35,7 @@ import { MENTION_TTC } from "./format";
 // Textes de la lecture HT estimé : la trésorerie reste sur la base TTC.
 export const LIBELLE_FRONTIERE_TRESORERIE = `Trésorerie : flux bancaires réels, toujours en ${MENTION_TTC}`;
 export const LIBELLE_ECARTS_EN_TTC = `L'analyse d'écarts porte sur le Cash flow : des flux bancaires réels, toujours en ${MENTION_TTC}.`;
+export const LIBELLE_CASH_FLOW_TTC = `Le cash flow est toujours présenté en ${MENTION_TTC}, quel que soit le mode de reporting sélectionné.`;
 export const LIBELLE_TVA_SANS_OBJET = `Flux de trésorerie : toujours lu en ${MENTION_TTC}`;
 
 export type BaseMontants = "ttc" | "ht";

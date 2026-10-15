@@ -101,9 +101,9 @@ describe("HT estimé par défaut, choix conservé", () => {
     assert.match(source, /useState<BaseMontants>\(\(\) => \{\s*try \{\s*return baseEnregistree\(window\.localStorage\.getItem\(cleStockageBase\(organizationId\)\)\)/);
     assert.equal(source.match(/setItem\(cleStockageBase/g)?.length, 1);
     assert.match(source, /<PasseSelecteurBase base=\{base\} onChange=\{choisirBase\} \/>/);
-    // Général et détails reçoivent les cibles dans la lecture active : plus aucun masquage HT.
-    assert.equal(source.includes("ciblesMasquees"), false);
-    assert.match(source, /ecartsVsCibles\(cibles, partsDetailAffichees, ajustements, periode, null, base\)/);
+    // Objectifs exclusivement HT : calculés en lecture HT seulement, jamais pour le Cash flow.
+    assert.match(source, /base === "ht" \? ecartsVsCibles\(cibles, partsDetailAffichees, ajustements, periode\) : null/);
+    assert.match(source, /cibles=\{base === "ht" && vue !== "cash_flow" \? cibles : undefined\}/);
   });
 
 });

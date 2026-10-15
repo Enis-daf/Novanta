@@ -32,6 +32,12 @@ import {
   valeurCibleValide,
 } from "./pastTargets";
 import { PastTransactionStockee } from "./pastTransactions";
+import { partsEnBase } from "./pastHtEstime";
+
+// Les objectifs se comparent à des parts HT estimées. Taux de 0 % partout : HT = montants des
+// transactions, ces tests portent sur la logique des cibles, pas sur la conversion.
+const TAUX_NUL = { get: () => 0 } as unknown as ReadonlyMap<string, number | null>;
+const enHt = (parts: ReturnType<typeof partsMappees>) => partsEnBase(parts, TAUX_NUL, "ht");
 
 let compteur = 0;
 const cible = (type: TypeCible, validFrom: string, valeur: number, dimension = ""): Cible => ({ id: `c${++compteur}`, type, dimension, validFrom, valeur });
@@ -283,7 +289,7 @@ describe("écarts vs cibles — Général et écrans de détail, même calcul", 
     tx("2026-03-10", 300_000, "a"), tx("2026-03-16", -90_000, "achats"), tx("2026-03-18", -30_000, "pub"), tx("2026-03-28", -80_000, "salaires"),
   ];
   const periode = { debut: "2026-02-01", fin: "2026-03-31" };
-  const parts = (liste = transactions, index = mappings) => partsMappees(liste, AXE, index);
+  const parts = (liste = transactions, index = mappings) => enHt(partsMappees(liste, AXE, index));
   const cibles = [mb("a", 70), mb("b", 99), mb("c", 50), mc("a", 60), mc("b", 80), mc("c", 40), cible("structure_cost_monthly", "2026-01-01", 85_000)];
   const sansAjustement: AjustementGestion[] = [];
 
@@ -445,7 +451,7 @@ describe("enregistrer une cible — l'utilisateur ne choisit pas entre créer et
     assert.equal(services.operations[0].type, "insert");
     const structure = poserCible(depart, { type: "structure_cost_monthly", dimension: "", validFrom: "2026-07-01" }, 100_000, "n2");
     assert.deepEqual(historiqueDesCibles(structure.cibles, "structure_cost_monthly").map((c) => c.valeur), [85_000, 100_000]);
-    const memeDate = poserCible(depart, { type: "structure_cost_monthly", dimension: "", validFrom: "2026-01-01" }, 90_000, "n3", "ttc");
+    const memeDate = poserCible(depart, { type: "structure_cost_monthly", dimension: "", validFrom: "2026-01-01" }, 90_000, "n3");
     assert.deepEqual(memeDate.operations, [{ type: "update", id: "structure", valeur: 90_000, validFrom: "2026-01-01" }]);
   });
 
@@ -537,7 +543,7 @@ describe("EBITDA cible dans les écarts d'une période — même calcul pour Gé
     tx("2026-03-10", 500_000, "a"), tx("2026-03-16", -250_000, "achats"), tx("2026-03-18", -60_000, "pub"), tx("2026-03-28", -130_000, "salaires"),
   ];
   const periode = { debut: "2026-02-01", fin: "2026-03-31" };
-  const parts = partsMappees(transactions, AXE, mappings);
+  const parts = enHt(partsMappees(transactions, AXE, mappings));
   const mcA = cible("contribution_margin_pct", "2026-01-01", 40, "a");
   const mcB = cible("contribution_margin_pct", "2026-01-01", 40, "b");
   const structure = cible("structure_cost_monthly", "2026-01-01", 125_000);

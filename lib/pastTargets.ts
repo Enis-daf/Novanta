@@ -1,10 +1,9 @@
 import { estDateValide, parseDateISO, toISODate } from "./dates";
-import { formatKiloEuros, formatPourcentage, MENTION_TTC } from "./format";
+import { formatKiloEuros, formatPourcentage } from "./format";
 import { AjustementGestion } from "./pastAdjustments";
 import type { EtagePnl } from "./pastCategoryMapping";
 import { couvertureTva } from "./pastCouvertureTva";
 import { calculerDetail, MetriqueDetail, PartMappee } from "./pastDetail";
-import type { BaseMontants } from "./pastHtEstime";
 import { Periode } from "./pastTransactions";
 
 /**
@@ -23,11 +22,10 @@ import { Periode } from "./pastTransactions";
  * Les cibles sont DATÉES : une valeur s'applique à partir de sa date d'effet, jusqu'à la date
  * d'effet de la suivante. Changer une cible aujourd'hui ne réécrit donc pas la lecture du passé.
  *
- * Lecture TTC ou HT estimé : tout se calcule dans la base active, à partir de parts déjà
- * exprimées dans cette base (lib/pastHtEstime.ts). Un pourcentage de marge vaut dans les deux
- * lectures ; seule sa pondération suit les encaissements de la base. Un objectif de coûts de
- * structure est un MONTANT : il porte sa propre base (HT ou TTC) et n'est jamais converti. Il ne
- * se compare qu'à des coûts de la même base.
+ * Les objectifs sont EXCLUSIVEMENT HT : ils se définissent et s'évaluent sur les montants HT estimés
+ * (lib/pastHtEstime.ts). Les marges cibles sont pondérées par les encaissements HT, les coûts de
+ * structure cibles sont des montants mensuels HT, l'EBITDA cible s'en déduit. Il n'existe ni
+ * objectif, ni cible, ni écart TTC, et aucun objectif n'est converti en TTC.
  */
 
 export const TYPES_CIBLE = [
@@ -46,6 +44,9 @@ export function estTypeCible(valeur: unknown): valeur is TypeCible {
 // cible de marge ; vide pour les coûts de structure, qui sont globaux.
 export const DIMENSION_GLOBALE = "";
 
+// Unité des objectifs de coûts de structure : des montants mensuels saisis en HT.
+export const UNITE_COUTS_DE_STRUCTURE = "€ HT / mois";
+
 export function estCibleDeMarge(type: TypeCible): boolean {
   return type !== "structure_cost_monthly";
 }
@@ -61,29 +62,6 @@ export interface Cible {
   // Propre à la version datée : jamais partagée avec la catégorie, ni recopiée sur une nouvelle
   // version. Absente ou null : pas de commentaire.
   commentaire?: string | null;
-  // Base du montant d'un objectif de coûts de structure. Absente ou null : objectif historique,
-  // posé sur des montants TTC — il est lu comme TTC, jamais converti. Sans objet pour une marge.
-  base?: BaseMontants | null;
-}
-
-/** Base d'un objectif de coûts de structure : celle enregistrée, TTC pour un objectif historique. */
-export function baseDeLaCible(cible: Cible): BaseMontants {
-  return cible.base ?? "ttc";
-}
-
-// Base d'un nouvel objectif de coûts de structure, tant que l'utilisateur n'en choisit pas une autre.
-export const BASE_PAR_DEFAUT_OBJECTIF: BaseMontants = "ht";
-
-const MENTION_DE_LA_BASE: Record<BaseMontants, string> = { ht: "HT", ttc: MENTION_TTC };
-
-/** « Objectif défini en TTC » : objectif de coûts de structure posé dans l'autre base. */
-export function libelleObjectifDefiniEn(base: BaseMontants): string {
-  return `Objectif défini en ${MENTION_DE_LA_BASE[base]}`;
-}
-
-/** Unité d'un objectif de coûts de structure : « € HT / mois ». */
-export function uniteCoutsDeStructure(base: BaseMontants): string {
-  return `€ ${MENTION_DE_LA_BASE[base]} / mois`;
 }
 
 export const LONGUEUR_MAX_COMMENTAIRE = 2000;
@@ -120,8 +98,7 @@ export function historiqueDesCibles(cibles: Cible[], type: TypeCible, dimension:
  */
 export type OperationCible =
   | { type: "insert"; cible: Cible }
-  // `base` : seulement quand la base d'un objectif de coûts de structure change.
-  | { type: "update"; id: string; valeur: number; validFrom: string; base?: BaseMontants }
+  | { type: "update"; id: string; valeur: number; validFrom: string }
   | { type: "comment"; id: string; commentaire: string | null }
   | { type: "delete"; id: string };
 
@@ -142,29 +119,17 @@ export interface ResultatCible {
  * cette date, c'est elle qui est mise à jour — pas d'erreur, pas de doublon ; sinon une nouvelle
  * version est ajoutée, sous `nouvelId` en attendant l'identifiant de la base.
  */
-export function poserCible(
-  cibles: Cible[],
-  cle: { type: TypeCible; dimension: string; validFrom: string },
-  valeur: number,
-  nouvelId: string,
-  base: BaseMontants = BASE_PAR_DEFAUT_OBJECTIF
-): ResultatCible {
-  // Base : celle choisie pour un objectif de coûts de structure, aucune pour une marge.
-  const baseCible = estCibleDeMarge(cle.type) ? null : base;
+export function poserCible(cibles: Cible[], cle: { type: TypeCible; dimension: string; validFrom: string }, valeur: number, nouvelId: string): ResultatCible {
   const existante = cibleEnConflit(cibles, cle.type, cle.dimension, cle.validFrom);
   if (existante) {
-    const changeDeBase = baseCible !== null && baseDeLaCible(existante) !== baseCible;
     return {
-      cibles: cibles.map((c) => (c.id === existante.id ? { ...c, valeur, ...(changeDeBase ? { base: baseCible } : {}) } : c)),
-      operations:
-        existante.valeur === valeur && !changeDeBase
-          ? []
-          : [{ type: "update", id: existante.id, valeur, validFrom: existante.validFrom, ...(changeDeBase ? { base: baseCible } : {}) }],
+      cibles: cibles.map((c) => (c.id === existante.id ? { ...c, valeur } : c)),
+      operations: existante.valeur === valeur ? [] : [{ type: "update", id: existante.id, valeur, validFrom: existante.validFrom }],
     };
   }
   // Une nouvelle version part sans commentaire : les hypothèses de la précédente ne lui sont pas
   // prêtées.
-  const cible: Cible = { id: nouvelId, ...cle, valeur, commentaire: null, ...(baseCible !== null ? { base: baseCible } : {}) };
+  const cible: Cible = { id: nouvelId, ...cle, valeur, commentaire: null };
   return { cibles: [...cibles, cible], operations: [{ type: "insert", cible }] };
 }
 
@@ -209,38 +174,29 @@ export function corrigerCible(
 /**
  * Remplacement confirmé : la cible corrigée prend la place de celle qui occupe déjà la date
  * demandée. La cible en place reçoit la nouvelle valeur, et la ligne corrigée disparaît — une seule
- * cible à cette date, jamais deux. Sans conflit, c'est une simple correction. Un montant de coûts
- * de structure garde la base dans laquelle il a été saisi : la cible en place la reçoit avec lui.
+ * cible à cette date, jamais deux. Sans conflit, c'est une simple correction.
  */
 export function remplacerCible(cibles: Cible[], id: string, correction: { valeur: number; validFrom: string }): ResultatCible {
   const resultat = corrigerCible(cibles, id, correction);
   if (resultat.conflit === null) return { cibles: resultat.cibles, operations: resultat.operations };
   const enPlace = resultat.conflit;
-  const corrigee = cibles.find((c) => c.id === id)!;
-  const changeDeBase = !estCibleDeMarge(corrigee.type) && baseDeLaCible(corrigee) !== baseDeLaCible(enPlace);
-  const base = changeDeBase ? { base: baseDeLaCible(corrigee) } : {};
   return {
-    cibles: cibles.filter((c) => c.id !== id).map((c) => (c.id === enPlace.id ? { ...c, valeur: correction.valeur, ...base } : c)),
+    cibles: cibles.filter((c) => c.id !== id).map((c) => (c.id === enPlace.id ? { ...c, valeur: correction.valeur } : c)),
     operations: [
-      { type: "update", id: enPlace.id, valeur: correction.valeur, validFrom: enPlace.validFrom, ...base },
+      { type: "update", id: enPlace.id, valeur: correction.valeur, validFrom: enPlace.validFrom },
       { type: "delete", id },
     ],
   };
 }
 
-/** Version en vigueur à une date : la dernière dont la date d'effet est atteinte. null avant la première. */
-export function versionEnVigueur(cibles: Cible[], type: TypeCible, date: string, dimension: string = DIMENSION_GLOBALE): Cible | null {
-  let version: Cible | null = null;
-  for (const cible of historiqueDesCibles(cibles, type, dimension)) {
-    if (cible.validFrom > date) break;
-    version = cible;
-  }
-  return version;
-}
-
 /** Cible en vigueur à une date : la dernière dont la date d'effet est atteinte. null avant la première. */
 export function cibleEnVigueur(cibles: Cible[], type: TypeCible, date: string, dimension: string = DIMENSION_GLOBALE): number | null {
-  return versionEnVigueur(cibles, type, date, dimension)?.valeur ?? null;
+  let valeur: number | null = null;
+  for (const cible of historiqueDesCibles(cibles, type, dimension)) {
+    if (cible.validFrom > date) break;
+    valeur = cible.valeur;
+  }
+  return valeur;
 }
 
 export interface CiblePeriode {
@@ -291,46 +247,25 @@ export function cibleDeMarge(cibles: Cible[], type: TypeCible, revenus: RevenuCi
   return { valeur: margeCible / caCouvert, couverture: caTotal <= 0 ? 1 : Math.min(1, Math.max(0, caCouvert / caTotal)) };
 }
 
-/** Chaque jour de la période et l'objectif de coûts de structure en vigueur ce jour-là. */
-function versionsDeStructureParJour(cibles: Cible[], periode: Periode): { jour: Date; version: Cible | null }[] | null {
-  if (!estDateValide(periode.debut) || !estDateValide(periode.fin) || periode.debut > periode.fin) return null;
-  const jours: { jour: Date; version: Cible | null }[] = [];
-  const fin = parseDateISO(periode.fin);
-  for (const jour = parseDateISO(periode.debut); jour <= fin; jour.setDate(jour.getDate() + 1)) {
-    jours.push({ jour: new Date(jour), version: versionEnVigueur(cibles, "structure_cost_monthly", toISODate(jour)) });
-  }
-  return jours;
-}
-
 /**
- * Cible de coûts de structure d'une période, dans la base demandée : la cible mensuelle en
- * vigueur, jour par jour, au prorata des jours de chaque mois. Trois mois entiers à 85 k€ donnent
- * 255 k€ ; un changement de cible en cours de période est pris à sa date. Un jour dont l'objectif
- * est posé dans l'autre base n'est pas couvert : rien n'est converti. null quand aucun jour n'est
- * couvert.
+ * Cible de coûts de structure d'une période : la cible mensuelle en vigueur, jour par jour, au
+ * prorata des jours de chaque mois. Trois mois entiers à 85 k€ donnent 255 k€ ; un changement de
+ * cible en cours de période est pris à sa date. null quand aucun jour n'est couvert.
  */
-export function cibleDeCoutsDeStructure(cibles: Cible[], periode: Periode, base: BaseMontants = "ttc"): CiblePeriode | null {
-  const jours = versionsDeStructureParJour(cibles, periode);
-  if (jours === null) return null;
+export function cibleDeCoutsDeStructure(cibles: Cible[], periode: Periode): CiblePeriode | null {
+  if (!estDateValide(periode.debut) || !estDateValide(periode.fin) || periode.debut > periode.fin) return null;
   let total = 0;
   let joursCouverts = 0;
-  for (const { jour, version } of jours) {
-    if (version === null || baseDeLaCible(version) !== base) continue;
+  let jours = 0;
+  const fin = parseDateISO(periode.fin);
+  for (const jour = parseDateISO(periode.debut); jour <= fin; jour.setDate(jour.getDate() + 1)) {
+    jours++;
+    const mensuelle = cibleEnVigueur(cibles, "structure_cost_monthly", toISODate(jour));
+    if (mensuelle === null) continue;
     joursCouverts++;
-    total += version.valeur / new Date(jour.getFullYear(), jour.getMonth() + 1, 0).getDate();
+    total += mensuelle / new Date(jour.getFullYear(), jour.getMonth() + 1, 0).getDate();
   }
-  return joursCouverts === 0 ? null : { valeur: total, couverture: joursCouverts / jours.length };
-}
-
-/**
- * Base d'un objectif de coûts de structure en vigueur sur la période et DIFFÉRENTE de la base
- * demandée, sinon null. Non null : l'objectif ne se compare pas dans cette lecture.
- */
-export function baseDivergenteDesCoutsDeStructure(cibles: Cible[], periode: Periode, base: BaseMontants): BaseMontants | null {
-  for (const { version } of versionsDeStructureParJour(cibles, periode) ?? []) {
-    if (version !== null && baseDeLaCible(version) !== base) return baseDeLaCible(version);
-  }
-  return null;
+  return joursCouverts === 0 ? null : { valeur: total, couverture: joursCouverts / jours };
 }
 
 /**
@@ -449,18 +384,18 @@ export function ecartDEbitda(ebitdaRealise: number, ca: number, cibleMargeContri
 
 export type IndicateurCible = "margeBrute" | "margeContributive" | "ebitda" | "coutsStructure";
 
-// Lecture HT estimé : la TVA n'est pas renseignée sur une partie des montants de l'indicateur. Le
-// réalisé n'est pas fiable : aucun écart n'est calculé. Distinct de la couverture des OBJECTIFS
-// (« Cible calculée sur 80 % des encaissements »), qui dit sur quoi porte la cible.
+// La TVA n'est pas renseignée sur une partie des montants de l'indicateur : son réalisé HT n'est pas
+// fiable, aucun écart n'est calculé. Distinct de la couverture des OBJECTIFS (« Cible calculée sur
+// 80 % des encaissements »), qui dit sur quoi porte la cible.
 export const LIBELLE_ECART_TVA_INCOMPLETE = "Écart indisponible : TVA non renseignée sur une partie des montants";
-export const LIBELLE_EBITDA_INDISPONIBLE = "Objectif EBITDA indisponible";
+export const LIBELLE_EBITDA_TVA_INCOMPLETE = "Objectif EBITDA indisponible : TVA non renseignée sur une partie des montants";
+// Lecture TTC : une seule mention, discrète — aucune cible, aucun écart n'y est affiché.
+export const LIBELLE_OBJECTIFS_HT_UNIQUEMENT = "Les objectifs sont suivis uniquement en HT estimé.";
 
 /** Ce que les écrans affichent : null = aucune cible applicable (ou pas de CA), jamais un 0 inventé. */
 export interface EcartsVsCibles {
-  // Base dans laquelle réalisé, cibles monétaires et écarts sont exprimés.
-  base: BaseMontants;
-  // Pourquoi un objectif qui existe n'est pas comparé dans cette base (TVA non renseignée, objectif
-  // posé dans l'autre base) ; null quand rien ne l'empêche. L'écart correspondant est alors null.
+  // Pourquoi un objectif qui existe n'est pas comparé (TVA non renseignée sur son périmètre) ; null
+  // quand rien ne l'empêche. L'écart correspondant est alors null.
   indisponibles: Record<IndicateurCible, string | null>;
   margeBrute: EcartMarge | null;
   margeContributive: EcartMarge | null;
@@ -485,15 +420,17 @@ const SANS_CATEGORIE = { categorie: null } as const;
  *    mois-là, le réalisé, et la cible de coûts de structure (un mois de cible).
  *  - Seul le CA des catégories actuellement rattachées à l'étage CA pondère la cible : une
  *    catégorie remappée ailleurs n'y compte plus, même si une cible lui reste enregistrée.
+ *  - `parts` : parts HT estimées (partsEnBase(…, "ht")). Des parts TTC sont refusées : un objectif
+ *    ne se compare jamais à des montants TTC.
  */
 export function ecartsVsCibles(
   cibles: Cible[],
   parts: PartMappee[],
   ajustements: AjustementGestion[],
   periode: Periode,
-  mois: string | null = null,
-  base: BaseMontants = "ttc"
+  mois: string | null = null
 ): EcartsVsCibles {
+  if (parts.some((p) => p.montantTtc === undefined)) throw new Error("Objectifs : comparaison sur des parts HT estimées uniquement.");
   const filtres = { ...SANS_CATEGORIE, mois };
   const kpi = (metrique: MetriqueDetail) => calculerDetail(parts, metrique, filtres, periode, ajustements).kpi;
   const duMois = (date: string) => mois === null || date.slice(0, 7) === mois;
@@ -504,11 +441,10 @@ export function ecartsVsCibles(
   ];
   const ca = revenus.reduce((somme, revenu) => somme + revenu.montant, 0);
 
-  // Lecture HT : la TVA doit être renseignée sur TOUS les montants du périmètre de l'indicateur
-  // (sur le mois filtré le cas échéant). Sinon, réalisé et pondération mêlent HT et TTC.
+  // La TVA doit être renseignée sur TOUS les montants du périmètre de l'indicateur (sur le mois
+  // filtré le cas échéant). Sinon, réalisé et pondération mêleraient HT et TTC : pas d'écart.
   const partsDuPerimetre = parts.filter((p) => duMois(p.transactionDate));
-  const tvaComplete = (etages: readonly EtagePnl[]) =>
-    base === "ttc" || couvertureTva(partsDuPerimetre.filter((p) => etages.includes(p.etage))).complete;
+  const tvaComplete = (etages: readonly EtagePnl[]) => couvertureTva(partsDuPerimetre.filter((p) => etages.includes(p.etage))).complete;
   const tvaMargeBrute = tvaComplete(["revenue", "gross_margin"]);
   const tvaMargeContributive = tvaComplete(["revenue", "gross_margin", "contribution_margin"]);
   const tvaEbitda = tvaComplete(["revenue", "gross_margin", "contribution_margin", "ebitda"]);
@@ -522,40 +458,25 @@ export function ecartsVsCibles(
   const cibleBrute = cibleDe("gross_margin_pct");
   const cibleContributive = cibleDe("contribution_margin_pct");
 
-  // Coûts de structure : ce qui sépare la Marge contributive de l'EBITDA. Leur objectif ne vaut que
-  // dans sa propre base : posé en TTC, il ne se compare pas à des coûts HT, et inversement.
+  // Coûts de structure : ce qui sépare la Marge contributive de l'EBITDA.
   const ebitda = kpi("ebitda").montant;
   const montantCoutsStructure = ebitda - kpi("marge_contributive").montant;
-  const periodeCouts = mois === null ? periode : periodeDuMois(mois, periode);
-  const baseDivergente = baseDivergenteDesCoutsDeStructure(cibles, periodeCouts, base);
-  const cibleCouts = baseDivergente === null ? cibleDeCoutsDeStructure(cibles, periodeCouts, base) : null;
+  const cibleCouts = cibleDeCoutsDeStructure(cibles, mois === null ? periode : periodeDuMois(mois, periode));
   const deuxBriques = cibleContributive !== null && cibleCouts !== null;
-
-  // Motifs : un objectif existe, mais ne se compare pas dans cette lecture.
-  const motifMarge = (cible: CiblePeriode | null, tva: boolean) => (cible !== null && !tva ? LIBELLE_ECART_TVA_INCOMPLETE : null);
-  const motifCouts =
-    baseDivergente !== null ? libelleObjectifDefiniEn(baseDivergente) : cibleCouts !== null && !tvaCoutsStructure ? LIBELLE_ECART_TVA_INCOMPLETE : null;
-  const motifEbitda =
-    baseDivergente !== null
-      ? `${LIBELLE_EBITDA_INDISPONIBLE} : coûts de structure cibles définis en ${MENTION_DE_LA_BASE[baseDivergente]}`
-      : deuxBriques && !tvaEbitda
-        ? `${LIBELLE_EBITDA_INDISPONIBLE} : TVA non renseignée sur une partie des montants`
-        : null;
+  const motifTva = (cible: unknown, tva: boolean) => (cible !== null && !tva ? LIBELLE_ECART_TVA_INCOMPLETE : null);
   return {
-    base,
     margeBrute: marge(cibleBrute, "marge_brute", tvaMargeBrute),
     margeContributive: marge(cibleContributive, "marge_contributive", tvaMargeContributive),
-    // EBITDA cible = cible contributive × encaissements de la base − coûts de structure cibles de
-    // la même base. Une composante absente, incompatible ou non fiable : pas de cible.
+    // EBITDA cible HT = encaissements HT × marge contributive cible − coûts de structure cibles HT.
     ebitda: deuxBriques && tvaEbitda ? ecartDEbitda(ebitda, ca, cibleContributive, cibleCouts) : null,
-    ebitdaIncomplet: !deuxBriques && baseDivergente === null && (cibleContributive !== null || cibleCouts !== null),
+    ebitdaIncomplet: !deuxBriques && (cibleContributive !== null || cibleCouts !== null),
     coutsStructure: cibleCouts === null || !tvaCoutsStructure ? null : ecartDeCouts(montantCoutsStructure, cibleCouts),
     montantCoutsStructure,
     indisponibles: {
-      margeBrute: motifMarge(cibleBrute, tvaMargeBrute),
-      margeContributive: motifMarge(cibleContributive, tvaMargeContributive),
-      ebitda: motifEbitda,
-      coutsStructure: motifCouts,
+      margeBrute: motifTva(cibleBrute, tvaMargeBrute),
+      margeContributive: motifTva(cibleContributive, tvaMargeContributive),
+      ebitda: deuxBriques && !tvaEbitda ? LIBELLE_EBITDA_TVA_INCOMPLETE : null,
+      coutsStructure: motifTva(cibleCouts, tvaCoutsStructure),
     },
   };
 }
