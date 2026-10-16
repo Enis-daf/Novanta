@@ -116,6 +116,12 @@ export interface PennylaneCustomerInvoiceListItem {
   // date d'archivage : lus par pennylaneInvoiceAdapter.ts pour ne pas dépendre du seul booléen paid.
   status?: string | null;
   archived_at?: string | null;
+  // Reste à encaisser, TTC, POSITIF tant qu'il reste dû (observé sur l'API réelle : "109088.1" pour
+  // une facture ouverte de 109 088,10 €, "0.0" une fois réglée) — voir montantRestantDu.
+  remaining_amount_with_tax?: string | null;
+  // Devise de la facture (« EUR », « USD »...). `amount` est exprimé en euros ; le reste à payer
+  // n'est retenu que pour une facture en euros (voir montantRestantDu).
+  currency?: string | null;
 }
 
 // --- Factures fournisseurs (supplier_invoices) ---
@@ -142,6 +148,8 @@ export interface PennylaneSupplierInvoiceListItem {
   // Montant restant à régler. Sur une facture fournisseur il est NÉGATIF tant qu'il reste dû
   // (-montant = rien de réglé), et vaut "0.0" une fois la facture entièrement couverte.
   remaining_amount_with_tax?: string | null;
+  // Voir PennylaneCustomerInvoiceListItem.currency.
+  currency?: string | null;
   supplier?: { id: number | string } | null;
 }
 

@@ -81,6 +81,7 @@ import {
   importerFacturesFournisseurs,
   marquerFacturesClientsPayees,
   marquerFacturesFournisseursPayees,
+  mettreAJourMontantsFactures,
   sauvegarderDateReleve,
   sauvegarderFactureClient,
   sauvegarderFactureFournisseur,
@@ -572,6 +573,19 @@ export default function Home() {
   // factures. Les mises à jour "Payée" ne touchent JAMAIS que payee/paidAt (voir
   // marquerFacturesClientsPayees/Fournisseurs), jamais dateEcheance/litigieuse/autres réglages
   // utilisateur.
+  // Règlement partiel dans Pennylane : le montant d'une facture déjà importée est ramené au reste à
+  // payer / à encaisser. Seul le montant change (Payée, date prévue, Litigieuse intacts).
+  const appliquerMontantsRestants = (sens: "client" | "fournisseur", montants: { id: string; montant: number }[]) => {
+    if (montants.length === 0) return;
+    const parId = new Map(montants.map((m) => [m.id, m.montant]));
+    if (sens === "client") {
+      setFacturesClients((prev) => prev.map((f) => (parId.has(f.id) ? { ...f, montant: parId.get(f.id)! } : f)));
+    } else {
+      setFacturesFournisseurs((prev) => prev.map((f) => (parId.has(f.id) ? { ...f, montant: parId.get(f.id)! } : f)));
+    }
+    persist(() => mettreAJourMontantsFactures(sens === "client" ? "customer_invoices" : "supplier_invoices", montants));
+  };
+
   const handleSynchroniserPennylaneFactures = (
     nouvellesFacturesClients: FactureClient[],
     nouvellesFacturesFournisseurs: FactureFournisseur[],
@@ -637,12 +651,15 @@ export default function Home() {
         id: f.id,
         pennylaneId: f.pennylaneId,
         payee: f.payee,
+        montant: f.montant,
       }));
       const facturesFournisseursExistantesPourSync = facturesFournisseurs.map((f) => ({
         id: f.id,
         pennylaneId: f.pennylaneId,
         payee: f.payee,
+        montant: f.montant,
       }));
+      let nombreMontantsActualises = 0;
 
       let nombreClientsAjoutes = 0;
       let nombreFournisseursAjoutes = 0;
@@ -653,20 +670,24 @@ export default function Home() {
       let nouvellesFacturesFournisseurs: FactureFournisseur[] = [];
 
       if (data.clientCandidates) {
-        const { aInserer, idsAMettreAJourPayee } = calculerSynchronisation(
+        const { aInserer, idsAMettreAJourPayee, montantsAMettreAJour } = calculerSynchronisation(
           data.clientCandidates,
           facturesClientsExistantesPourSync
         );
+        appliquerMontantsRestants("client", montantsAMettreAJour);
+        nombreMontantsActualises += montantsAMettreAJour.length;
         nouvellesFacturesClients = aInserer.map(candidatVersFactureClient);
         idsClientsAMettreAJourPayee = idsAMettreAJourPayee;
         nombreClientsAjoutes = nouvellesFacturesClients.length;
       }
 
       if (data.fournisseurCandidates) {
-        const { aInserer, idsAMettreAJourPayee, idsASupprimer } = calculerSynchronisation(
+        const { aInserer, idsAMettreAJourPayee, idsASupprimer, montantsAMettreAJour } = calculerSynchronisation(
           data.fournisseurCandidates,
           facturesFournisseursExistantesPourSync
         );
+        appliquerMontantsRestants("fournisseur", montantsAMettreAJour);
+        nombreMontantsActualises += montantsAMettreAJour.length;
         nouvellesFacturesFournisseurs = aInserer.map(candidatVersFactureFournisseur);
         idsFournisseursAMettreAJourPayee = idsAMettreAJourPayee;
         idsFournisseursASupprimer = idsASupprimer;
@@ -688,6 +709,7 @@ export default function Home() {
         nombreFournisseursAjoutes,
         nombreMarquesPayees: idsClientsAMettreAJourPayee.length + idsFournisseursAMettreAJourPayee.length,
         nombreArchiveesRetirees: idsFournisseursASupprimer.length,
+        nombreMontantsActualises,
         erreurClients: data.erreurClients ?? null,
         erreurFournisseurs: data.erreurFournisseurs ?? null,
       });
