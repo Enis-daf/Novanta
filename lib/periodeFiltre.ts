@@ -2,6 +2,7 @@ import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO, toISODate } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
+import { estOccurrenceRemplacee, Remplacements } from "./remplacementsOccurrences";
 import {
   AutreDepense,
   ChargeFixe,
@@ -87,7 +88,8 @@ function itemRecurrent<T extends { id: string }>(
   signe: 1 | -1,
   debut: Date,
   fin: Date,
-  exclu: (item: T) => boolean = () => false
+  exclu: (item: T) => boolean = () => false,
+  occurrenceExclue: (item: T, dateOccurrence: Date) => boolean = () => false
 ): ResultatCategorie {
   const parId: OccurrencesParId = new Map();
   let totalSigne = 0;
@@ -97,6 +99,7 @@ function itemRecurrent<T extends { id: string }>(
     const occurrencesPeriode: Date[] = [];
     toutesOccurrences.forEach((date, index) => {
       if (!dansPeriode(date, debut, fin)) return;
+      if (occurrenceExclue(item, date)) return;
       occurrencesPeriode.push(date);
       const precedente = index > 0 ? toutesOccurrences[index - 1] : null;
       const montant = montantOccurrenceDe(item, date, precedente);
@@ -134,6 +137,9 @@ export interface ParametresFluxPeriode {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
+  // elles ne génèrent aucun flux, la facture portant seule la dépense. Absent = aucun remplacement.
+  remplacements?: Remplacements;
 }
 
 /**
@@ -184,11 +190,20 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
     (c) => c.recurrence,
     (c) => c.dateFin,
     (c, dateOccurrence, dateOccurrencePrecedente) =>
-      montantOccurrenceChargeFixe(c, dateOccurrence, dateOccurrencePrecedente, params.chargesFixes, params.rentreesRegulieres, fin),
+      montantOccurrenceChargeFixe(
+        c,
+        dateOccurrence,
+        dateOccurrencePrecedente,
+        params.chargesFixes,
+        params.rentreesRegulieres,
+        fin,
+        params.remplacements
+      ),
     -1,
     debut,
     fin,
-    (c) => c.aCouper
+    (c) => c.aCouper,
+    (c, dateOccurrence) => estOccurrenceRemplacee(params.remplacements, c.id, dateOccurrence)
   );
   const rentreesRegulieresRes = itemRecurrent(
     params.rentreesRegulieres,

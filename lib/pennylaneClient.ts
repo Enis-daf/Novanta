@@ -1,4 +1,5 @@
 import { PennylaneCredentialProvider } from "./pennylaneCredentialProvider";
+import { estModeStaging } from "./environnementGuard";
 
 /**
  * Client HTTP minimal pour l'API Pennylane V2 — SERVEUR UNIQUEMENT (le token ne doit jamais
@@ -46,6 +47,41 @@ import { PennylaneCredentialProvider } from "./pennylaneCredentialProvider";
  */
 
 const BASE_URL = "https://app.pennylane.com";
+
+/**
+ * Adresse du serveur mock local, si le mode mock est demandé ET autorisé ; null sinon.
+ *
+ * Deux modes, jamais mélangés :
+ *  - RÉEL (par défaut, partout) : PENNYLANE_API_BASE_URL vide ou absente -> API officielle Pennylane ;
+ *  - MOCK (staging uniquement) : PENNYLANE_API_BASE_URL désigne le serveur mock local
+ *    (scripts/staging/pennylane-mock.ts), pour rejouer des scénarios déterministes.
+ *
+ * Hors mode staging la variable est ignorée, et seule une adresse locale est acceptée : un token
+ * ne peut donc jamais être envoyé ailleurs qu'à Pennylane ou à cette machine.
+ */
+function adresseMockPennylane(): string | null {
+  const surcharge = (process.env.PENNYLANE_API_BASE_URL ?? "").trim();
+  if (!surcharge || !estModeStaging()) return null;
+  let hote: string;
+  try {
+    hote = new URL(surcharge).hostname;
+  } catch {
+    return null;
+  }
+  return hote === "localhost" || hote === "127.0.0.1" ? surcharge.replace(/\/+$/, "") : null;
+}
+
+export type ModePennylane = "reel" | "mock";
+
+/** Mode Pennylane effectif de ce serveur. "mock" n'est possible qu'en staging. */
+export function modePennylane(): ModePennylane {
+  return adresseMockPennylane() ? "mock" : "reel";
+}
+
+export function baseUrlPennylane(): string {
+  return adresseMockPennylane() ?? BASE_URL;
+}
+
 const ENDPOINT_ME = "/api/external/v2/me";
 const ENDPOINT_TRANSACTIONS = "/api/external/v2/transactions";
 const ENDPOINT_CATEGORY_GROUPS = "/api/external/v2/category_groups";
@@ -56,18 +92,57 @@ const MAX_PAGES = 50; // garde-fou : borne la pagination même en cas de répons
 const MAX_TENTATIVES_RATE_LIMIT = 3;
 const TIMEOUT_MS = 15_000;
 
-export type PennylaneErrorReason = "invalid_token" | "insufficient_scope" | "rate_limited" | "unavailable" | "unknown";
+/**
+ * Cause d'un échec, telle que Pennylane l'a réellement signalée — jamais devinée, jamais
+ * regroupée sous une cause voisine :
+ *  - invalid_token : 401 ;
+ *  - insufficient_scope : 403, le token n'a pas l'autorisation de CET endpoint ;
+ *  - not_found : 404, chemin inconnu de Pennylane (erreur Novanta, pas du token) ;
+ *  - rate_limited : 429 persistant ;
+ *  - unavailable : 5xx, Pennylane en erreur ;
+ *  - network : aucune réponse (réseau, délai dépassé, serveur mock arrêté) ;
+ *  - unknown : tout autre statut.
+ */
+export type PennylaneErrorReason =
+  | "invalid_token"
+  | "insufficient_scope"
+  | "not_found"
+  | "rate_limited"
+  | "unavailable"
+  | "network"
+  | "unknown";
 
 /** Erreur typée, jamais un message brut de l'API ou un token exposés à l'appelant. */
 export class PennylaneApiError extends Error {
   readonly reason: PennylaneErrorReason;
   readonly httpStatus: number | null;
-  constructor(reason: PennylaneErrorReason, message: string, httpStatus: number | null = null) {
+  // Endpoint appelé (« /api/external/v2/supplier_invoices ») : sert à dire QUELLE autorisation manque.
+  readonly endpoint: string | null;
+  constructor(reason: PennylaneErrorReason, message: string, httpStatus: number | null = null, endpoint: string | null = null) {
     super(message);
     this.name = "PennylaneApiError";
     this.reason = reason;
     this.httpStatus = httpStatus;
+    this.endpoint = endpoint;
   }
+}
+
+/**
+ * Trace d'un appel Pennylane en échec : endpoint, statut HTTP et cause. Hors Production, l'extrait
+ * du corps de l'erreur renvoyée par Pennylane est ajouté pour le diagnostic. Jamais le token, jamais
+ * les en-têtes, jamais les paramètres de la requête.
+ */
+async function journaliserEchec(endpoint: string, reponse: Response | null, reason: PennylaneErrorReason): Promise<void> {
+  let detail = "";
+  if (reponse && process.env.VERCEL_ENV !== "production") {
+    try {
+      const corps = (await reponse.text()).replace(/\s+/g, " ").trim();
+      if (corps) detail = ` corps=${corps.slice(0, 300)}`;
+    } catch {
+      // Corps illisible : le statut suffit.
+    }
+  }
+  console.warn(`[pennylane] GET ${endpoint} -> ${reponse ? `HTTP ${reponse.status}` : "aucune réponse"} reason=${reason}${detail}`);
 }
 
 /** Catégorie analytique rattachée à une transaction (champ `categories` de la liste). */
@@ -180,7 +255,7 @@ async function appelerPennylane(bearer: string, endpoint: string, params: URLSea
     const minuteur = setTimeout(() => controller.abort(), TIMEOUT_MS);
     let reponse: Response;
     try {
-      reponse = await fetch(`${BASE_URL}${endpoint}?${params.toString()}`, {
+      reponse = await fetch(`${baseUrlPennylane()}${endpoint}?${params.toString()}`, {
         method: "GET",
         headers: { Authorization: `Bearer ${bearer}`, Accept: "application/json" },
         signal: controller.signal,
@@ -188,43 +263,52 @@ async function appelerPennylane(bearer: string, endpoint: string, params: URLSea
     } catch (erreur) {
       clearTimeout(minuteur);
       const estAbort = erreur instanceof Error && erreur.name === "AbortError";
+      await journaliserEchec(endpoint, null, "network");
       throw new PennylaneApiError(
-        "unavailable",
-        estAbort ? "Délai d'attente dépassé en contactant Pennylane." : "Impossible de contacter Pennylane."
+        "network",
+        estAbort ? "Délai d'attente dépassé en contactant Pennylane." : "Impossible de contacter Pennylane.",
+        null,
+        endpoint
       );
     }
     clearTimeout(minuteur);
 
     if (reponse.status === 401) {
-      throw new PennylaneApiError("invalid_token", "Token Pennylane invalide ou expiré.", 401);
+      await journaliserEchec(endpoint, reponse, "invalid_token");
+      throw new PennylaneApiError("invalid_token", "Token Pennylane invalide ou expiré.", 401, endpoint);
     }
     if (reponse.status === 403) {
-      throw new PennylaneApiError("insufficient_scope", "Le token Pennylane n'a pas les autorisations requises.", 403);
+      await journaliserEchec(endpoint, reponse, "insufficient_scope");
+      throw new PennylaneApiError("insufficient_scope", "Le token Pennylane n'a pas les autorisations requises.", 403, endpoint);
     }
     if (reponse.status === 404) {
       // Erreur côté Novanta (mauvais chemin/base URL), jamais imputable au token de l'utilisateur.
-      throw new PennylaneApiError("unknown", `Endpoint Pennylane introuvable : ${endpoint} (404).`, 404);
+      await journaliserEchec(endpoint, reponse, "not_found");
+      throw new PennylaneApiError("not_found", `Endpoint Pennylane introuvable : ${endpoint} (404).`, 404, endpoint);
     }
     if (reponse.status === 429) {
       if (tentative === MAX_TENTATIVES_RATE_LIMIT) {
-        throw new PennylaneApiError("rate_limited", "Limite de requêtes Pennylane atteinte.", 429);
+        await journaliserEchec(endpoint, reponse, "rate_limited");
+        throw new PennylaneApiError("rate_limited", "Limite de requêtes Pennylane atteinte.", 429, endpoint);
       }
       const retryAfter = Number(reponse.headers.get("retry-after"));
       await attendre((Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 2) * 1000);
       continue;
     }
     if (reponse.status >= 500) {
-      throw new PennylaneApiError("unavailable", `Pennylane a répondu une erreur serveur (${reponse.status}).`, reponse.status);
+      await journaliserEchec(endpoint, reponse, "unavailable");
+      throw new PennylaneApiError("unavailable", `Pennylane a répondu une erreur serveur (${reponse.status}).`, reponse.status, endpoint);
     }
     if (!reponse.ok) {
-      throw new PennylaneApiError("unknown", `Pennylane a répondu une erreur inattendue (${reponse.status}).`, reponse.status);
+      await journaliserEchec(endpoint, reponse, "unknown");
+      throw new PennylaneApiError("unknown", `Pennylane a répondu une erreur inattendue (${reponse.status}).`, reponse.status, endpoint);
     }
 
     return reponse.json();
   }
 
   // Inatteignable (la boucle retourne ou lève à chaque itération) — satisfait le typage.
-  throw new PennylaneApiError("rate_limited", "Limite de requêtes Pennylane atteinte.");
+  throw new PennylaneApiError("rate_limited", "Limite de requêtes Pennylane atteinte.", 429, endpoint);
 }
 
 /**

@@ -2,6 +2,7 @@ import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, ajouterMois, estDateValide, parseDateISO } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
+import { estOccurrenceRemplacee, Remplacements } from "./remplacementsOccurrences";
 import {
   AutreDepense,
   ChargeFixe,
@@ -34,6 +35,9 @@ export interface ParametresControleMensuel {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
+  // elles ne génèrent aucun flux, la facture portant seule la dépense. Absent = aucun remplacement.
+  remplacements?: Remplacements;
 }
 
 const NOMS_MOIS = [
@@ -144,8 +148,9 @@ export function calculerControleMensuel(
     const occurrencesCharge = genererOccurrencesRecurrentes(c.datePrevue, c.recurrence, c.dateFin, fin);
     occurrencesCharge.forEach((occ, index) => {
       if (!dansPeriode(occ, debut, fin)) return;
+      if (estOccurrenceRemplacee(params.remplacements, c.id, occ)) return; // la facture porte seule la dépense
       const precedente = index > 0 ? occurrencesCharge[index - 1] : null;
-      const montant = montantOccurrenceChargeFixe(c, occ, precedente, params.chargesFixes, params.rentreesRegulieres, fin);
+      const montant = montantOccurrenceChargeFixe(c, occ, precedente, params.chargesFixes, params.rentreesRegulieres, fin, params.remplacements);
       if (montant === null) return; // source indisponible : occurrence exclue
       ajouterAuMois(totaux, occ, montant, "sortie");
     });

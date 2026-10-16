@@ -2,6 +2,7 @@ import { genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
+import { estOccurrenceRemplacee, Remplacements } from "./remplacementsOccurrences";
 import {
   AutreDepense,
   ChargeFixe,
@@ -36,6 +37,9 @@ export interface ParametresSyntheseMensuelle {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
+  // elles ne génèrent aucun flux, la facture portant seule la dépense. Absent = aucun remplacement.
+  remplacements?: Remplacements;
 }
 
 const NOMS_MOIS_COURTS = [
@@ -158,7 +162,8 @@ function occurrencesChargesFixes(
   charges: ChargeFixe[],
   rentreesRegulieres: RentreeReguliere[],
   debut: Date,
-  fin: Date
+  fin: Date,
+  remplacements?: Remplacements
 ): Occurrence[] {
   const res: Occurrence[] = [];
   for (const c of charges) {
@@ -166,8 +171,9 @@ function occurrencesChargesFixes(
     const occurrencesCharge = genererOccurrencesRecurrentes(c.datePrevue, c.recurrence, c.dateFin, fin);
     occurrencesCharge.forEach((occ, index) => {
       if (!dansHorizon(occ, debut, fin)) return;
+      if (estOccurrenceRemplacee(remplacements, c.id, occ)) return; // la facture porte seule la dépense
       const precedente = index > 0 ? occurrencesCharge[index - 1] : null;
-      const montant = montantOccurrenceChargeFixe(c, occ, precedente, charges, rentreesRegulieres, fin);
+      const montant = montantOccurrenceChargeFixe(c, occ, precedente, charges, rentreesRegulieres, fin, remplacements);
       if (montant === null) return; // source indisponible : occurrence exclue
       res.push({ date: occ, montant: -montant });
     });
@@ -190,6 +196,7 @@ export function calculerSyntheseMensuelle(params: ParametresSyntheseMensuelle): 
     autresDepenses,
     financements,
     rentreesRegulieres,
+    remplacements,
   } = params;
 
   if (!estDateValide(dateReleve)) {
@@ -205,7 +212,7 @@ export function calculerSyntheseMensuelle(params: ParametresSyntheseMensuelle): 
     ligne("Rentrées régulières", occurrencesRentreesRegulieres(rentreesRegulieres, debut, fin), mois),
     ligne("Financements", occurrencesFinancements(financements, debut, fin), mois),
     ligne("Factures fournisseurs", occurrencesFacturesFournisseurs(facturesFournisseurs, debut, fin), mois),
-    ligne("Charges fixes", occurrencesChargesFixes(chargesFixes, rentreesRegulieres, debut, fin), mois),
+    ligne("Charges fixes", occurrencesChargesFixes(chargesFixes, rentreesRegulieres, debut, fin, remplacements), mois),
     ligne("Autres dépenses", occurrencesAutresDepenses(autresDepenses, debut, fin), mois),
   ];
 

@@ -16,6 +16,8 @@ import {
   FactureFournisseur,
   Financement,
   HorizonJours,
+  LienRapprochement,
+  MappingFournisseurCharge,
   RentreeReguliere,
 } from "./types";
 
@@ -29,6 +31,8 @@ export interface DonneesEntreprise {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  liensRapprochement: LienRapprochement[];
+  mappingsFournisseurs: MappingFournisseurCharge[];
 }
 
 type Row = Record<string, unknown>;
@@ -49,6 +53,20 @@ function client() {
 async function selectAll(table: string, companyId: string): Promise<Row[]> {
   const { data, error } = await client().from(table).select("*").eq("company_id", companyId);
   if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * Lecture d'une table du rapprochement Charges fixes / factures. Si la migration
+ * 20261018_fixed_charge_invoice_matching.sql n'est pas encore appliquée sur cette base (table
+ * inexistante), le cockpit doit continuer de se charger normalement : aucun rapprochement.
+ */
+async function selectAllSiTableExiste(table: string, companyId: string): Promise<Row[]> {
+  const { data, error } = await client().from(table).select("*").eq("company_id", companyId);
+  if (error) {
+    if (error.code === "42P01" || error.code === "PGRST205") return [];
+    throw error;
+  }
   return data ?? [];
 }
 
@@ -112,6 +130,7 @@ function factureFournisseurToRow(companyId: string, f: FactureFournisseur): Row 
     paid: f.payee,
     paid_at: f.paidAt,
     pennylane_id: f.pennylaneId ?? null,
+    pennylane_supplier_id: f.pennylaneSupplierId ?? null,
   };
 }
 
@@ -127,6 +146,7 @@ function rowToFactureFournisseur(row: Row): FactureFournisseur {
     payee: Boolean(row.paid),
     paidAt: (row.paid_at as string | null) ?? null,
     pennylaneId: (row.pennylane_id as string | null) ?? null,
+    pennylaneSupplierId: (row.pennylane_supplier_id as string | null | undefined) ?? null,
   };
 }
 
@@ -240,6 +260,63 @@ function rowToRentreeReguliere(row: Row): RentreeReguliere {
   };
 }
 
+function lienRapprochementToRow(companyId: string, l: LienRapprochement): Row {
+  return {
+    id: l.id,
+    company_id: companyId,
+    fixed_charge_id: l.chargeFixeId,
+    supplier_invoice_id: l.factureFournisseurId,
+    occurrence_date: l.dateOccurrence,
+    status: l.statut === "confirme" ? "confirmed" : "rejected",
+    invoice_label: l.factureLibelle,
+    supplier_label: l.fournisseurLibelle,
+    invoice_amount: l.montantFacture,
+    invoice_cash_date: l.dateCashFacture,
+    invoice_pennylane_id: l.facturePennylaneId,
+    supplier_pennylane_id: l.fournisseurPennylaneId,
+    review_dismissed_at: l.revueEcarteeLe,
+    // Pas de trigger en base : posé ici à chaque écriture.
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function rowToLienRapprochement(row: Row): LienRapprochement {
+  return {
+    id: row.id as string,
+    chargeFixeId: row.fixed_charge_id as string,
+    factureFournisseurId: (row.supplier_invoice_id as string | null) ?? null,
+    dateOccurrence: row.occurrence_date as string,
+    statut: row.status === "confirmed" ? "confirme" : "refuse",
+    factureLibelle: (row.invoice_label as string | null) ?? null,
+    fournisseurLibelle: (row.supplier_label as string | null) ?? null,
+    montantFacture: row.invoice_amount === null || row.invoice_amount === undefined ? null : Number(row.invoice_amount),
+    dateCashFacture: (row.invoice_cash_date as string | null) ?? null,
+    facturePennylaneId: (row.invoice_pennylane_id as string | null) ?? null,
+    fournisseurPennylaneId: (row.supplier_pennylane_id as string | null) ?? null,
+    revueEcarteeLe: (row.review_dismissed_at as string | null) ?? null,
+  };
+}
+
+function mappingFournisseurToRow(companyId: string, m: MappingFournisseurCharge): Row {
+  return {
+    id: m.id,
+    company_id: companyId,
+    fixed_charge_id: m.chargeFixeId,
+    pennylane_supplier_id: m.pennylaneSupplierId,
+    supplier_name_key: m.cleNom,
+    supplier_label: m.libelle,
+  };
+}
+
+function rowToMappingFournisseur(row: Row): MappingFournisseurCharge {
+  return {
+    id: row.id as string,
+    chargeFixeId: row.fixed_charge_id as string,
+    pennylaneSupplierId: (row.pennylane_supplier_id as string | null) ?? null,
+    cleNom: row.supplier_name_key as string,
+    libelle: row.supplier_label as string,
+  };
+}
 
 interface CashSettings {
   soldeInitial: number;
@@ -315,6 +392,8 @@ async function initialiserAvecDonneesMock(companyId: string): Promise<DonneesEnt
     autresDepenses,
     financements,
     rentreesRegulieres,
+    liensRapprochement: [],
+    mappingsFournisseurs: [],
   };
 }
 
@@ -330,7 +409,7 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
     return initialiserAvecDonneesMock(companyId);
   }
 
-  const [clientsRows, fournisseursRows, chargesRows, depensesRows, financementsRows, rentreesRows] =
+  const [clientsRows, fournisseursRows, chargesRows, depensesRows, financementsRows, rentreesRows, liensRows, mappingsRows] =
     await Promise.all([
       selectAll("customer_invoices", companyId),
       selectAll("supplier_invoices", companyId),
@@ -338,6 +417,8 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
       selectAll("other_expenses", companyId),
       selectAll("financings", companyId),
       selectAll("recurring_income", companyId),
+      selectAllSiTableExiste("fixed_charge_invoice_links", companyId),
+      selectAllSiTableExiste("fixed_charge_supplier_mappings", companyId),
     ]);
 
   return {
@@ -350,6 +431,8 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
     autresDepenses: depensesRows.map(rowToAutreDepense),
     financements: financementsRows.map(rowToFinancement),
     rentreesRegulieres: rentreesRows.map(rowToRentreeReguliere),
+    liensRapprochement: liensRows.map(rowToLienRapprochement),
+    mappingsFournisseurs: mappingsRows.map(rowToMappingFournisseur),
   };
 }
 
@@ -482,4 +565,47 @@ export async function sauvegarderRentreeReguliere(companyId: string, rentree: Re
 
 export async function supprimerRentreeReguliere(id: string): Promise<void> {
   await deleteOne("recurring_income", id);
+}
+
+// --- Rapprochement Charges fixes / factures fournisseurs (voir lib/rapprochementChargesFixes.ts) ---
+
+// Synchronisation Pennylane : renseigne l'identifiant fournisseur d'une facture déjà importée.
+// Ne touche que cette colonne, et seulement si elle est encore vide (jamais d'écrasement).
+export async function renseignerFournisseursPennylane(
+  renseignements: { id: string; pennylaneSupplierId: string }[]
+): Promise<void> {
+  for (const { id, pennylaneSupplierId } of renseignements) {
+    const { error } = await client()
+      .from("supplier_invoices")
+      .update({ pennylane_supplier_id: pennylaneSupplierId })
+      .eq("id", id)
+      .is("pennylane_supplier_id", null);
+    if (error) throw error;
+  }
+}
+
+/** Crée ou met à jour une décision de rapprochement (confirmée ou refusée). */
+export async function sauvegarderLienRapprochement(companyId: string, lien: LienRapprochement): Promise<void> {
+  await upsertOne("fixed_charge_invoice_links", lienRapprochementToRow(companyId, lien));
+}
+
+export async function supprimerLienRapprochement(id: string): Promise<void> {
+  await deleteOne("fixed_charge_invoice_links", id);
+}
+
+// Refus portés par une facture sans identifiant Pennylane : ils ne pourront plus jamais être
+// reconnus une fois la facture supprimée, autant ne pas les conserver.
+export async function supprimerRefusSansIdentitePennylane(factureFournisseurIds: string[]): Promise<void> {
+  if (factureFournisseurIds.length === 0) return;
+  const { error } = await client()
+    .from("fixed_charge_invoice_links")
+    .delete()
+    .in("supplier_invoice_id", factureFournisseurIds)
+    .eq("status", "rejected")
+    .is("invoice_pennylane_id", null);
+  if (error) throw error;
+}
+
+export async function sauvegarderMappingFournisseur(companyId: string, mapping: MappingFournisseurCharge): Promise<void> {
+  await upsertOne("fixed_charge_supplier_mappings", mappingFournisseurToRow(companyId, mapping));
 }

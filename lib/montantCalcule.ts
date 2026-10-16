@@ -8,6 +8,7 @@ import {
   toISODate,
 } from "./dates";
 import { montantMoisSaisonnalise, montantOccurrenceRentreeReguliere, repartirMontantMensuel } from "./saisonnalite";
+import { montantReelOccurrence, Remplacements } from "./remplacementsOccurrences";
 
 function arrondirCentimes(montant: number): number {
   return Math.round(montant * 100) / 100;
@@ -70,7 +71,8 @@ interface SourceResolue {
 function resoudreSourceCalcul(
   charge: ChargeFixe,
   chargesFixes: ChargeFixe[],
-  rentreesRegulieres: RentreeReguliere[]
+  rentreesRegulieres: RentreeReguliere[],
+  remplacements?: Remplacements
 ): SourceResolue | null {
   const { sourceCalculId, sourceCalculType } = charge;
   if (!sourceCalculId || !sourceCalculType) return null;
@@ -85,7 +87,11 @@ function resoudreSourceCalcul(
       frequence: source.recurrence,
       dateDebut: source.datePrevue,
       dateFin: source.dateFin,
-      montantOccurrence: () => source.montant,
+      // Le réel remplace le prévisionnel : une occurrence de la source remplacée par une facture
+      // fournisseur (rapprochement confirmé) entre dans la base pour le montant de cette facture.
+      // Seul le montant change — l'occurrence reste rattachée à sa date théorique, donc à la même
+      // période de la charge calculée.
+      montantOccurrence: (dateOccurrence) => montantReelOccurrence(remplacements, source.id, dateOccurrence) ?? source.montant,
       exclue: source.aCouper,
     };
   }
@@ -178,7 +184,8 @@ function detailOccurrenceChargeFixe(
   dateOccurrencePrecedente: Date | null,
   chargesFixes: ChargeFixe[],
   rentreesRegulieres: RentreeReguliere[],
-  finHorizon: Date
+  finHorizon: Date,
+  remplacements?: Remplacements
 ): DetailOccurrenceChargeFixe | null {
   if (charge.tauxCalcul === null || !Number.isFinite(charge.tauxCalcul)) return null;
 
@@ -201,7 +208,7 @@ function detailOccurrenceChargeFixe(
     }
   }
 
-  const source = resoudreSourceCalcul(charge, chargesFixes, rentreesRegulieres);
+  const source = resoudreSourceCalcul(charge, chargesFixes, rentreesRegulieres, remplacements);
   if (!source) return null;
 
   // Source exclue des projections (À couper) : base de calcul nulle, mais un résultat CONNU
@@ -241,7 +248,8 @@ export function montantOccurrenceChargeFixe(
   dateOccurrencePrecedente: Date | null,
   chargesFixes: ChargeFixe[],
   rentreesRegulieres: RentreeReguliere[],
-  finHorizon: Date
+  finHorizon: Date,
+  remplacements?: Remplacements
 ): number | null {
   if (charge.modeMontant === "fixe") return charge.montant;
   const detail = detailOccurrenceChargeFixe(
@@ -250,7 +258,8 @@ export function montantOccurrenceChargeFixe(
     dateOccurrencePrecedente,
     chargesFixes,
     rentreesRegulieres,
-    finHorizon
+    finHorizon,
+    remplacements
   );
   return detail ? detail.montantCharge : null;
 }
@@ -273,7 +282,8 @@ export function detailChargeFixeSurPeriode(
   datesOccurrences: string[],
   chargesFixes: ChargeFixe[],
   rentreesRegulieres: RentreeReguliere[],
-  finHorizon: Date
+  finHorizon: Date,
+  remplacements?: Remplacements
 ): DetailOccurrenceChargeFixe | null {
   if (charge.modeMontant === "fixe") return null;
   if (datesOccurrences.length === 0) return { montantSource: 0, montantCharge: 0 };
@@ -293,7 +303,8 @@ export function detailChargeFixeSurPeriode(
       precedente,
       chargesFixes,
       rentreesRegulieres,
-      finHorizon
+      finHorizon,
+      remplacements
     );
     if (!detail) return null;
     montantSource += detail.montantSource;

@@ -66,9 +66,24 @@ import {
   FactureFournisseur,
   Financement,
   HorizonJours,
+  LienRapprochement,
+  MappingFournisseurCharge,
   RentreeReguliere,
   TriMode,
 } from "@/lib/types";
+import {
+  CandidatRapprochement,
+  construireLien,
+  construireMapping,
+  detacherFactures,
+  liensARattacher,
+  occurrencesRapprochables,
+  proposerRapprochements,
+  resoudreRemplacements,
+} from "@/lib/rapprochementChargesFixes";
+import RapprochementChargesFixes, { CibleRapprochement } from "@/components/RapprochementChargesFixes";
+import { RapprochementFacture } from "@/components/FacturesFournisseursTable";
+import { ajouterJours, parseDateISO } from "@/lib/dates";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { moduleActifPourOrganisation } from "@/lib/organizationModules";
@@ -96,12 +111,36 @@ import {
   supprimerFacturesFournisseurs,
   supprimerFinancement,
   supprimerRentreeReguliere,
+  renseignerFournisseursPennylane,
+  sauvegarderLienRapprochement,
+  sauvegarderMappingFournisseur,
+  supprimerLienRapprochement,
+  supprimerRefusSansIdentitePennylane,
 } from "@/lib/supabaseRepository";
 
 const DELAI_DEBOUNCE_MS = 600;
 
 function persist(action: () => Promise<void>) {
   action().catch((error) => console.error("Échec de la sauvegarde Supabase :", error));
+}
+
+// Rattache aux factures présentes les décisions de rapprochement dont la facture avait disparu
+// (même facture Pennylane, nouvel identifiant interne). Renvoie aussi les liens à réenregistrer.
+function rattacherLiens(
+  liens: LienRapprochement[],
+  factures: FactureFournisseur[]
+): { liens: LienRapprochement[]; modifies: LienRapprochement[] } {
+  const parLien = new Map(liensARattacher(liens, factures).map((r) => [r.lienId, r.factureFournisseurId]));
+  if (parLien.size === 0) return { liens, modifies: [] };
+  const modifies: LienRapprochement[] = [];
+  const resultat = liens.map((lien) => {
+    const factureFournisseurId = parLien.get(lien.id);
+    if (!factureFournisseurId) return lien;
+    const rattache = { ...lien, factureFournisseurId };
+    modifies.push(rattache);
+    return rattache;
+  });
+  return { liens: resultat, modifies };
 }
 
 // Détecte la violation de clé étrangère companies_owner_id_fkey (le compte de
@@ -158,6 +197,13 @@ export default function Home() {
   const [autresDepenses, setAutresDepenses] = useState<AutreDepense[]>(mockAutresDepenses);
   const [financements, setFinancements] = useState<Financement[]>(mockFinancements);
   const [rentreesRegulieres, setRentreesRegulieres] = useState<RentreeReguliere[]>(mockRentreesRegulieres);
+  // Rapprochement Factures fournisseurs <-> Charges fixes (voir lib/rapprochementChargesFixes.ts).
+  const [liensRapprochement, setLiensRapprochement] = useState<LienRapprochement[]>([]);
+  const [mappingsFournisseurs, setMappingsFournisseurs] = useState<MappingFournisseurCharge[]>([]);
+  // Nombre de synchronisations Pennylane réussies depuis le chargement : la recherche de doublons
+  // n'est proposée qu'après une synchronisation, jamais spontanément.
+  const [syncsPennylaneReussies, setSyncsPennylaneReussies] = useState(0);
+  const [factureManuelleId, setFactureManuelleId] = useState<string | null>(null);
   const [recherche, setRecherche] = useState("");
   const [tri, setTri] = useState<TriMode>("date");
   const [dateClicCourbe, setDateClicCourbe] = useState<string | null>(null);
@@ -305,6 +351,13 @@ export default function Home() {
       setAutresDepenses(donnees.autresDepenses);
       setFinancements(donnees.financements);
       setRentreesRegulieres(donnees.rentreesRegulieres);
+      setMappingsFournisseurs(donnees.mappingsFournisseurs);
+      // Une facture Pennylane supprimée puis réimportée retrouve ses décisions de rapprochement.
+      const rattaches = rattacherLiens(donnees.liensRapprochement, donnees.facturesFournisseurs);
+      setLiensRapprochement(rattaches.liens);
+      persist(async () => {
+        for (const lien of rattaches.modifies) await sauvegarderLienRapprochement(company.id, lien);
+      });
       setDonneesChargees(true);
     })().catch((error) => {
       if (annule) return;
@@ -324,6 +377,20 @@ export default function Home() {
     };
   }, [userId, router, tentativeVerification]);
 
+  // Occurrences de Charges fixes remplacées par une facture (rapprochements confirmés) et liens
+  // « à revoir ». Dérivé de l'état courant, jamais stocké : lu par tous les calculs ci-dessous.
+  const resolutionRapprochement = useMemo(
+    () =>
+      resoudreRemplacements(
+        liensRapprochement,
+        chargesFixes,
+        facturesFournisseurs,
+        ajouterJours(parseDateISO(dateDepart), horizonJours)
+      ),
+    [liensRapprochement, chargesFixes, facturesFournisseurs, dateDepart, horizonJours]
+  );
+  const remplacements = resolutionRapprochement.remplacements;
+
   const resultat = useMemo(
     () =>
       calculerProjectionCash({
@@ -336,6 +403,7 @@ export default function Home() {
         rentreesRegulieres,
         dateDepart,
         horizonJours,
+        remplacements,
       }),
     [
       soldeInitial,
@@ -347,6 +415,7 @@ export default function Home() {
       rentreesRegulieres,
       dateDepart,
       horizonJours,
+      remplacements,
     ]
   );
 
@@ -363,6 +432,7 @@ export default function Home() {
         autresDepenses,
         financements,
         rentreesRegulieres,
+        remplacements,
       }),
     [
       dateReleve,
@@ -373,6 +443,7 @@ export default function Home() {
       autresDepenses,
       financements,
       rentreesRegulieres,
+      remplacements,
     ]
   );
 
@@ -396,6 +467,7 @@ export default function Home() {
             autresDepenses,
             financements,
             rentreesRegulieres,
+            remplacements,
           })
         : null,
     [
@@ -406,6 +478,7 @@ export default function Home() {
       autresDepenses,
       financements,
       rentreesRegulieres,
+      remplacements,
     ]
   );
 
@@ -469,9 +542,105 @@ export default function Home() {
         autresDepenses,
         financements,
         rentreesRegulieres,
+        remplacements,
       }),
-    [facturesClients, facturesFournisseurs, chargesFixes, autresDepenses, financements, rentreesRegulieres]
+    [facturesClients, facturesFournisseurs, chargesFixes, autresDepenses, financements, rentreesRegulieres, remplacements]
   );
+
+  // Doublons potentiels facture fournisseur <-> Charge fixe : recherchés automatiquement après
+  // chaque synchronisation Pennylane réussie, à partir de l'état synchronisé. Rien n'est
+  // neutralisé ici : ce ne sont que des propositions, soumises à l'utilisateur.
+  const parametresRapprochement = useMemo(
+    () => ({
+      facturesFournisseurs,
+      chargesFixes,
+      rentreesRegulieres,
+      liens: liensRapprochement,
+      mappings: mappingsFournisseurs,
+      dateReleve,
+      horizonJours,
+    }),
+    [facturesFournisseurs, chargesFixes, rentreesRegulieres, liensRapprochement, mappingsFournisseurs, dateReleve, horizonJours]
+  );
+  const propositionsRapprochement = useMemo(
+    () => (syncsPennylaneReussies > 0 ? proposerRapprochements(parametresRapprochement) : []),
+    [syncsPennylaneReussies, parametresRapprochement]
+  );
+  const nombrePropositions = propositionsRapprochement.length;
+  // Après une synchronisation qui révèle des doublons potentiels, le bloc de validation est amené
+  // à l'écran : l'utilisateur n'a pas à le chercher ni à cliquer une seconde fois.
+  useEffect(() => {
+    if (syncsPennylaneReussies === 0 || nombrePropositions === 0) return;
+    document.getElementById("rapprochement-charges-fixes")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Uniquement à la fin d'une synchronisation, pas à chaque décision prise ensuite.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncsPennylaneReussies]);
+
+  const rapprochementsParFacture = useMemo(() => {
+    const parFacture = new Map<string, RapprochementFacture>();
+    for (const lien of liensRapprochement) {
+      if (lien.statut !== "confirme" || !lien.factureFournisseurId) continue;
+      parFacture.set(lien.factureFournisseurId, {
+        lienId: lien.id,
+        libelleCharge: chargesFixes.find((c) => c.id === lien.chargeFixeId)?.libelle ?? "",
+        dateOccurrence: resolutionRapprochement.occurrenceParLien.get(lien.id) ?? lien.dateOccurrence,
+      });
+    }
+    return parFacture;
+  }, [liensRapprochement, chargesFixes, resolutionRapprochement]);
+
+  const handleConfirmerRapprochement = (factureId: string, cible: CibleRapprochement) => {
+    const facture = facturesFournisseurs.find((f) => f.id === factureId);
+    if (!facture) return;
+    const memeCouple = (l: LienRapprochement) =>
+      l.chargeFixeId === cible.chargeFixeId &&
+      (l.factureFournisseurId === facture.id || (Boolean(facture.pennylaneId) && l.facturePennylaneId === facture.pennylaneId));
+    // Lien réutilisé plutôt que dupliqué : celui qui tient déjà l'occurrence (sa facture a disparu),
+    // sinon une décision antérieure sur ce même couple (un refus, annulé par ce choix explicite).
+    const reutilise =
+      liensRapprochement.find((l) => l.id === cible.lienARemplacerId) ?? liensRapprochement.find(memeCouple) ?? null;
+    const lien = construireLien(facture, cible.chargeFixeId, cible.dateOccurrence, "confirme", reutilise?.id);
+    const obsoletes = liensRapprochement.filter((l) => l.id !== lien.id && memeCouple(l));
+    const mapping = construireMapping(facture, cible.chargeFixeId, mappingsFournisseurs);
+
+    setLiensRapprochement((prev) => [...prev.filter((l) => l.id !== lien.id && !obsoletes.includes(l)), lien]);
+    if (mapping) setMappingsFournisseurs((prev) => [...prev, mapping]);
+    setFactureManuelleId(null);
+    if (companyId) {
+      persist(async () => {
+        for (const obsolete of obsoletes) await supprimerLienRapprochement(obsolete.id);
+        await sauvegarderLienRapprochement(companyId, lien);
+        if (mapping) await sauvegarderMappingFournisseur(companyId, mapping);
+      });
+    }
+  };
+
+  // « Ce n'est pas la même dépense » : aucun effet sur la projection, le couple n'est plus reproposé.
+  const handleRefuserRapprochement = (factureId: string, candidats: CandidatRapprochement[]) => {
+    const facture = facturesFournisseurs.find((f) => f.id === factureId);
+    if (!facture) return;
+    const refus = candidats.map((c) => construireLien(facture, c.chargeFixeId, c.dateOccurrence, "refuse"));
+    setLiensRapprochement((prev) => [...prev, ...refus]);
+    if (companyId) {
+      persist(async () => {
+        for (const lien of refus) await sauvegarderLienRapprochement(companyId, lien);
+      });
+    }
+  };
+
+  // Décision explicite de l'utilisateur : le rapprochement est supprimé, l'occurrence prévue revient.
+  const handleDissocierRapprochement = (lienId: string) => {
+    setLiensRapprochement((prev) => prev.filter((l) => l.id !== lienId));
+    if (companyId) persist(() => supprimerLienRapprochement(lienId));
+  };
+
+  const handleLaisserRemplacee = (lienId: string) => {
+    const lien = liensRapprochement.find((l) => l.id === lienId);
+    if (!lien) return;
+    const ecarte = { ...lien, revueEcarteeLe: new Date().toISOString() };
+    setLiensRapprochement((prev) => prev.map((l) => (l.id === lienId ? ecarte : l)));
+    if (companyId) persist(() => sauvegarderLienRapprochement(companyId, ecarte));
+  };
 
   const handleChangeSoldeInitial = (valeur: number) => {
     setSoldeInitial(valeur);
@@ -550,7 +719,14 @@ export default function Home() {
 
   const handleRemoveFactureFournisseur = (id: string) => {
     setFacturesFournisseurs((prev) => prev.filter((f) => f.id !== id));
-    if (companyId) persist(() => supprimerFactureFournisseur(id));
+    // Un rapprochement confirmé survit à sa facture : l'occurrence reste remplacée, à revoir.
+    setLiensRapprochement((prev) => detacherFactures(prev, [id]));
+    if (companyId) {
+      persist(async () => {
+        await supprimerRefusSansIdentitePennylane([id]);
+        await supprimerFactureFournisseur(id);
+      });
+    }
   };
 
   const handleImporterFactures = (
@@ -591,15 +767,34 @@ export default function Home() {
     nouvellesFacturesFournisseurs: FactureFournisseur[],
     idsClientsAMettreAJourPayee: string[],
     idsFournisseursAMettreAJourPayee: string[],
-    idsFournisseursASupprimer: string[]
+    idsFournisseursASupprimer: string[],
+    fournisseursARenseigner: { id: string; pennylaneSupplierId: string }[] = []
   ) => {
     if (nouvellesFacturesClients.length > 0) {
       setFacturesClients((prev) => [...prev, ...nouvellesFacturesClients]);
       if (companyId) persist(() => importerFacturesClients(companyId, nouvellesFacturesClients));
     }
-    if (nouvellesFacturesFournisseurs.length > 0) {
-      setFacturesFournisseurs((prev) => [...prev, ...nouvellesFacturesFournisseurs]);
-      if (companyId) persist(() => importerFacturesFournisseurs(companyId, nouvellesFacturesFournisseurs));
+    // Identifiant fournisseur Pennylane des factures déjà importées : seul ce champ est renseigné.
+    const fournisseurParFacture = new Map(fournisseursARenseigner.map((r) => [r.id, r.pennylaneSupplierId]));
+    if (nouvellesFacturesFournisseurs.length > 0 || fournisseurParFacture.size > 0) {
+      setFacturesFournisseurs((prev) => [
+        ...prev.map((f) => (fournisseurParFacture.has(f.id) ? { ...f, pennylaneSupplierId: fournisseurParFacture.get(f.id) } : f)),
+        ...nouvellesFacturesFournisseurs,
+      ]);
+    }
+    // Décisions de rapprochement : détachées des factures retirées, rattachées aux factures
+    // réimportées (même facture Pennylane, nouvel identifiant interne).
+    const idsRetires = new Set(idsFournisseursASupprimer);
+    const facturesApres = [...facturesFournisseurs.filter((f) => !idsRetires.has(f.id)), ...nouvellesFacturesFournisseurs];
+    const rattaches = rattacherLiens(detacherFactures(liensRapprochement, idsFournisseursASupprimer), facturesApres);
+    setLiensRapprochement(rattaches.liens);
+    if (companyId) {
+      // Une seule chaîne ordonnée : un lien ne peut référencer une facture qu'une fois celle-ci insérée.
+      persist(async () => {
+        await importerFacturesFournisseurs(companyId, nouvellesFacturesFournisseurs);
+        await renseignerFournisseursPennylane(fournisseursARenseigner);
+        for (const lien of rattaches.modifies) await sauvegarderLienRapprochement(companyId, lien);
+      });
     }
 
     if (idsClientsAMettreAJourPayee.length > 0) {
@@ -622,7 +817,10 @@ export default function Home() {
     if (idsFournisseursASupprimer.length > 0) {
       const idsASupprimer = new Set(idsFournisseursASupprimer);
       setFacturesFournisseurs((prev) => prev.filter((f) => !idsASupprimer.has(f.id)));
-      persist(() => supprimerFacturesFournisseurs(idsFournisseursASupprimer));
+      persist(async () => {
+        await supprimerRefusSansIdentitePennylane(idsFournisseursASupprimer);
+        await supprimerFacturesFournisseurs(idsFournisseursASupprimer);
+      });
     }
   };
 
@@ -658,6 +856,7 @@ export default function Home() {
         pennylaneId: f.pennylaneId,
         payee: f.payee,
         montant: f.montant,
+        pennylaneSupplierId: f.pennylaneSupplierId,
       }));
       let nombreMontantsActualises = 0;
 
@@ -666,6 +865,8 @@ export default function Home() {
       let idsClientsAMettreAJourPayee: string[] = [];
       let idsFournisseursAMettreAJourPayee: string[] = [];
       let idsFournisseursASupprimer: string[] = [];
+      let fournisseursARenseigner: { id: string; pennylaneSupplierId: string }[] = [];
+      let nombreIncoherencesFournisseur = 0;
       let nouvellesFacturesClients: FactureClient[] = [];
       let nouvellesFacturesFournisseurs: FactureFournisseur[] = [];
 
@@ -682,10 +883,16 @@ export default function Home() {
       }
 
       if (data.fournisseurCandidates) {
-        const { aInserer, idsAMettreAJourPayee, idsASupprimer, montantsAMettreAJour } = calculerSynchronisation(
-          data.fournisseurCandidates,
-          facturesFournisseursExistantesPourSync
-        );
+        const {
+          aInserer,
+          idsAMettreAJourPayee,
+          idsASupprimer,
+          fournisseursARenseigner: aRenseigner,
+          idsIncoherenceFournisseur,
+          montantsAMettreAJour,
+        } = calculerSynchronisation(data.fournisseurCandidates, facturesFournisseursExistantesPourSync);
+        fournisseursARenseigner = aRenseigner;
+        nombreIncoherencesFournisseur = idsIncoherenceFournisseur.length;
         appliquerMontantsRestants("fournisseur", montantsAMettreAJour);
         nombreMontantsActualises += montantsAMettreAJour.length;
         nouvellesFacturesFournisseurs = aInserer.map(candidatVersFactureFournisseur);
@@ -699,7 +906,8 @@ export default function Home() {
         nouvellesFacturesFournisseurs,
         idsClientsAMettreAJourPayee,
         idsFournisseursAMettreAJourPayee,
-        idsFournisseursASupprimer
+        idsFournisseursASupprimer,
+        fournisseursARenseigner
       );
 
       setSyncPennylaneResultat({
@@ -710,9 +918,13 @@ export default function Home() {
         nombreMarquesPayees: idsClientsAMettreAJourPayee.length + idsFournisseursAMettreAJourPayee.length,
         nombreArchiveesRetirees: idsFournisseursASupprimer.length,
         nombreMontantsActualises,
+        nombreIncoherencesFournisseur,
         erreurClients: data.erreurClients ?? null,
         erreurFournisseurs: data.erreurFournisseurs ?? null,
       });
+      // Synchronisation des factures fournisseurs réussie : la recherche de doublons avec les
+      // Charges fixes se lance d'elle-même (voir propositionsRapprochement).
+      if (data.fournisseurCandidates) setSyncsPennylaneReussies((n) => n + 1);
     } catch {
       setSyncPennylaneErreur("Pennylane est temporairement indisponible. Réessayez.");
     } finally {
@@ -789,6 +1001,9 @@ export default function Home() {
       return;
     }
     setChargesFixes((prev) => prev.filter((c) => c.id !== id));
+    // Les rapprochements et la mémoire fournisseur d'une charge disparaissent avec elle (cascade en base).
+    setLiensRapprochement((prev) => prev.filter((l) => l.chargeFixeId !== id));
+    setMappingsFournisseurs((prev) => prev.filter((m) => m.chargeFixeId !== id));
     if (companyId) persist(() => supprimerChargeFixe(id));
   };
 
@@ -1074,6 +1289,23 @@ export default function Home() {
         </SectionRepliable>
 
         <SectionRepliable titre="Sorties" ouvertParDefaut>
+          <RapprochementChargesFixes
+            propositions={propositionsRapprochement}
+            aRevoir={resolutionRapprochement.aRevoir}
+            factures={facturesFournisseurs}
+            charges={chargesFixes}
+            onConfirmer={handleConfirmerRapprochement}
+            onRefuser={handleRefuserRapprochement}
+            onDissocier={handleDissocierRapprochement}
+            onLaisserRemplacee={handleLaisserRemplacee}
+            factureManuelle={facturesFournisseurs.find((f) => f.id === factureManuelleId) ?? null}
+            occurrencesManuelles={(chargeFixeId) => {
+              const facture = facturesFournisseurs.find((f) => f.id === factureManuelleId);
+              const charge = chargesFixes.find((c) => c.id === chargeFixeId);
+              return facture && charge ? occurrencesRapprochables(facture, charge, parametresRapprochement) : [];
+            }}
+            onAnnulerManuel={() => setFactureManuelleId(null)}
+          />
           <FacturesFournisseursTable
             factures={facturesFournisseurs}
             onChange={handleChangeFactureFournisseur}
@@ -1087,6 +1319,13 @@ export default function Home() {
             syncPennylaneEnCours={syncPennylaneEnCours}
             syncPennylaneResultat={syncPennylaneResultat}
             syncPennylaneErreur={syncPennylaneErreur}
+            rapprochements={rapprochementsParFacture}
+            onRapprocher={(id) => {
+              setFactureManuelleId(id);
+              // Le bloc de rapprochement manuel s'affiche au-dessus du tableau : on l'amène à l'écran.
+              setTimeout(() => document.getElementById("rapprochement-charges-fixes")?.scrollIntoView({ behavior: "smooth", block: "center" }), 0);
+            }}
+            onDissocier={handleDissocierRapprochement}
           />
           <ChargesFixesTable
             charges={chargesFixes}

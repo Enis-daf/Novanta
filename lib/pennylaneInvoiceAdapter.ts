@@ -30,6 +30,9 @@ export interface ResultatSyncPennylane {
   nombreArchiveesRetirees: number;
   // Factures déjà importées dont le montant a été ramené au reste à payer Pennylane (règlement partiel).
   nombreMontantsActualises?: number;
+  // Factures déjà importées dont le fournisseur Pennylane diffère de celui enregistré : jamais
+  // écrasé en silence, seulement signalé (voir calculerSynchronisation).
+  nombreIncoherencesFournisseur?: number;
   erreurClients: string | null;
   erreurFournisseurs: string | null;
 }
@@ -71,7 +74,11 @@ export function messageSyncPennylane(r: ResultatSyncPennylane): string {
     actualises > 0
       ? ` ${actualises} ${pluriel(actualises, "montant")} ${actualises > 1 ? "ramenés" : "ramené"} au reste à payer Pennylane.`
       : "";
-  return `Pennylane synchronisé — Fournisseurs : ${fournisseurs}. Clients : ${clients}. ${payees} au total.${retirees}${montants}`;
+  const incoherences =
+    (r.nombreIncoherencesFournisseur ?? 0) > 0
+      ? ` ${r.nombreIncoherencesFournisseur} ${pluriel(r.nombreIncoherencesFournisseur ?? 0, "facture")} dont le fournisseur Pennylane a changé : à vérifier.`
+      : "";
+  return `Pennylane synchronisé — Fournisseurs : ${fournisseurs}. Clients : ${clients}. ${payees} au total.${retirees}${montants}${incoherences}`;
 }
 
 /**
@@ -109,6 +116,9 @@ export interface CandidatFacturePennylane {
   // Facture fournisseur archivée dans Pennylane : jamais importée, et retirée de Novanta si elle y
   // est déjà (voir calculerSynchronisation). Ce n'est pas une facture de trésorerie active.
   aRetirer?: boolean;
+  // Identifiant du fournisseur côté Pennylane (supplier.id) — factures fournisseurs uniquement,
+  // null si Pennylane n'en fournit pas.
+  pennylaneSupplierId?: string | null;
 }
 
 // --- Statut de paiement : SEUL endroit où il se décide ---
@@ -340,7 +350,13 @@ export function candidatFactureClient(item: PennylaneCustomerInvoiceListItem): C
 /** Pas de notion de brouillon côté factures fournisseurs (jamais observée dans l'API). */
 export function candidatFactureFournisseur(item: PennylaneSupplierInvoiceListItem): CandidatFacturePennylane | null {
   const candidat = candidatDepuisFactureBrute(item, "Fournisseur Pennylane", decisionPaiementFournisseur(item), "fournisseur");
-  return candidat && estArchiveeFournisseur(item) ? { ...candidat, aRetirer: true } : candidat;
+  if (!candidat) return null;
+  const idFournisseur = item.supplier?.id;
+  const avecFournisseur = {
+    ...candidat,
+    pennylaneSupplierId: idFournisseur === undefined || idFournisseur === null || idFournisseur === "" ? null : String(idFournisseur),
+  };
+  return estArchiveeFournisseur(item) ? { ...avecFournisseur, aRetirer: true } : avecFournisseur;
 }
 
 export interface CandidatsPennylane {
@@ -383,6 +399,7 @@ export interface FactureExistantePourSync {
   payee: boolean;
   // Montant de trésorerie actuel de la ligne : comparé au reste dû Pennylane à chaque synchronisation.
   montant?: number;
+  pennylaneSupplierId?: string | null;
 }
 
 export interface ResultatCalculSynchronisation {
@@ -392,6 +409,10 @@ export interface ResultatCalculSynchronisation {
   // Factures déjà connues, encore ouvertes, dont le reste dû Pennylane a changé : seul leur montant
   // est actualisé (date prévue, Litigieuse et autres réglages Novanta intacts).
   montantsAMettreAJour: { id: string; montant: number }[];
+  // Factures déjà connues dont l'identifiant fournisseur Pennylane n'était pas encore enregistré.
+  fournisseursARenseigner: { id: string; pennylaneSupplierId: string }[];
+  // ids NOVANTA dont l'identifiant fournisseur enregistré diffère de celui de Pennylane.
+  idsIncoherenceFournisseur: string[];
 }
 
 /**
@@ -406,6 +427,9 @@ export interface ResultatCalculSynchronisation {
  *   - candidat déjà connu, encore ouvert des deux côtés, PARTIELLEMENT réglé chez Pennylane, dont
  *     le reste dû diffère du montant Novanta -> MONTANT ramené au reste dû ;
  *   - tout le reste -> NO-OP.
+ * Identifiant fournisseur Pennylane d'une facture déjà connue — l'association est certaine, elle
+ * passe par l'identifiant de facture Pennylane, jamais par le nom : champ vide -> à renseigner ;
+ * valeur identique -> NO-OP ; valeur différente -> jamais écrasée, seulement signalée.
  * Ne renvoie JAMAIS un id à repasser à false : cette fonction ne lit `existante.payee` que pour
  * décider si une MISE À JOUR vers true est nécessaire, jamais pour en proposer une vers false —
  * la règle absolue "jamais Payée true -> false" est donc garantie par construction, pas seulement
@@ -426,6 +450,8 @@ export function calculerSynchronisation(
   const idsAMettreAJourPayee: string[] = [];
   const idsASupprimer: string[] = [];
   const montantsAMettreAJour: { id: string; montant: number }[] = [];
+  const fournisseursARenseigner: { id: string; pennylaneSupplierId: string }[] = [];
+  const idsIncoherenceFournisseur: string[] = [];
 
   for (const candidat of candidats) {
     const existante = existanteParPennylaneId.get(candidat.pennylaneId);
@@ -444,6 +470,14 @@ export function calculerSynchronisation(
       idsAMettreAJourPayee.push(existante.id);
     }
 
+    if (candidat.pennylaneSupplierId) {
+      if (!existante.pennylaneSupplierId) {
+        fournisseursARenseigner.push({ id: existante.id, pennylaneSupplierId: candidat.pennylaneSupplierId });
+      } else if (existante.pennylaneSupplierId !== candidat.pennylaneSupplierId) {
+        idsIncoherenceFournisseur.push(existante.id);
+      }
+    }
+
     // Le reste dû évolue au fil des règlements : pour une facture en partie réglée chez Pennylane,
     // Pennylane fait foi pour le montant encore ouvert. Une facture sans règlement garde le montant
     // de la ligne Novanta (comportement inchangé). Une facture réglée (d'un côté ou de l'autre) ne
@@ -460,7 +494,7 @@ export function calculerSynchronisation(
     }
   }
 
-  return { aInserer, idsAMettreAJourPayee, idsASupprimer, montantsAMettreAJour };
+  return { aInserer, idsAMettreAJourPayee, idsASupprimer, fournisseursARenseigner, idsIncoherenceFournisseur, montantsAMettreAJour };
 }
 
 /**
@@ -500,5 +534,6 @@ export function candidatVersFactureFournisseur(candidat: CandidatFacturePennylan
     payee: false,
     paidAt: null,
     pennylaneId: candidat.pennylaneId,
+    pennylaneSupplierId: candidat.pennylaneSupplierId ?? null,
   };
 }
