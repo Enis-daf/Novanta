@@ -94,12 +94,16 @@ describe("reste à payer Pennylane : cas limites", () => {
     assert.deepEqual([resultat.aInserer, resultat.idsAMettreAJourPayee, resultat.idsASupprimer], [[], [], []]);
   });
 
-  test("C bis. reste 6 944,80 € (82,6 % réglés) : la règle existante des 80 % la tient pour réglée — à arbitrer", () => {
-    // Règle en place (estPayeeFournisseur, SEUIL_COUVERTURE_REGLEMENT = 0,8), non modifiée par ce
-    // correctif : au-delà de 80 % réglés, le reliquat n'est pas projeté.
+  test("C bis. second règlement de 5 000 € : reste 6 944,80 € (82,6 % réglés) projeté", () => {
     const resultat = sync(fournisseur({ remaining_amount_with_tax: "-6944.8" }), [existante(11_944.8)]);
-    assert.deepEqual(resultat.idsAMettreAJourPayee, ["novanta-1"]);
-    assert.deepEqual(resultat.montantsAMettreAJour, []);
+    assert.deepEqual(resultat.montantsAMettreAJour, [{ id: "novanta-1", montant: 6_944.8 }]);
+    assert.deepEqual(resultat.idsAMettreAJourPayee, []);
+  });
+
+  test("seuil de 98 % : un écart de change résiduel vaut règlement complet", () => {
+    // 39 816 € dont 39 100 € réglés : 98,2 % couverts.
+    const resultat = sync(fournisseur({ remaining_amount_with_tax: "-716.0" }), [existante(6_944.8)]);
+    assert.deepEqual([resultat.idsAMettreAJourPayee, resultat.montantsAMettreAJour], [["novanta-1"], []]);
   });
 
   test("première synchronisation après correctif : une ligne importée au total est ramenée au reste dû", () => {

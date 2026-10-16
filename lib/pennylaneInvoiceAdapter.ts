@@ -152,8 +152,9 @@ export interface DecisionPaiement {
 
 // Part du montant qu'un règlement rapproché doit couvrir pour que la facture soit tenue pour réglée.
 // Choix de Novanta, pas une donnée Pennylane : les règlements observés à montant différent de la
-// facture (change, frais, prélèvement forfaitaire) couvrent au moins 85 % ; un acompte reste en dessous.
-export const SEUIL_COUVERTURE_REGLEMENT = 0.8;
+// facture par un écart de change couvrent l'essentiel du montant. Au-dessous de 98 % (choix produit
+// du 16/10/2026), le reliquat est un reste à payer réel, projeté en trésorerie (voir montantRestantDu).
+export const SEUIL_COUVERTURE_REGLEMENT = 0.98;
 
 /**
  * Facture fournisseur ACTIVE réglée ? Quatre signaux, chacun suffisant, tous constatés sur la
