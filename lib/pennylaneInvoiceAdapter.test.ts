@@ -451,14 +451,21 @@ describe("statut de paiement fournisseur — decisionPaiementFournisseur", () =>
     const existantes: FactureExistantePourSync[] = [{ id: "novanta-91", pennylaneId: "91", payee: false, montant: 514.61 }];
     const reglee = supplierItemFactice({ id: 91, amount: "514.61", payment_status: "to_be_paid", accounting_status: "validation_needed", paid: false, remaining_amount_with_tax: "-5.0" });
     const resultat = calculerSynchronisation(candidatsFournisseursPennylane([reglee]).candidats, existantes);
-    assert.deepEqual(resultat, { aInserer: [], idsAMettreAJourPayee: ["novanta-91"], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], idsASupprimer: [], montantsAMettreAJour: [] });
+    assert.deepEqual(resultat, { aInserer: [], idsAMettreAJourPayee: ["novanta-91"], idsASupprimer: [], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], aRattacher: [], misesAJourDocument: [] });
   });
 
   test("facture importée impayée, puis réglée à 97 % -> reste ouverte, montant ramené au reliquat", () => {
-    const existantes: FactureExistantePourSync[] = [{ id: "novanta-91", pennylaneId: "91", payee: false, montant: 514.61 }];
     const reglee = supplierItemFactice({ id: 91, amount: "514.61", payment_status: "to_be_paid", accounting_status: "validation_needed", paid: false, remaining_amount_with_tax: "-14.61" });
-    const resultat = calculerSynchronisation(candidatsFournisseursPennylane([reglee]).candidats, existantes);
-    assert.deepEqual(resultat, { aInserer: [], idsAMettreAJourPayee: [], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], idsASupprimer: [], montantsAMettreAJour: [{ id: "novanta-91", montant: 14.61 }] });
+    const [candidat] = candidatsFournisseursPennylane([reglee]).candidats;
+    // Ligne telle qu'importée avant le règlement : même document, montant total.
+    const existantes: FactureExistantePourSync[] = [
+      { id: "novanta-91", pennylaneId: "91", payee: false, facture: candidat.facture, tiers: candidat.tiers, montant: 514.61, dateEcheance: candidat.dateEcheance, datePrevue: candidat.dateEcheance },
+    ];
+    const resultat = calculerSynchronisation([candidat], existantes);
+    assert.deepEqual(resultat.idsAMettreAJourPayee, []);
+    assert.deepEqual(resultat.misesAJourDocument, [
+      { id: "novanta-91", facture: candidat.facture, tiers: candidat.tiers, montant: 14.61, dateEcheance: candidat.dateEcheance, datePrevue: null },
+    ]);
   });
 
   test("reste à payer absent, null ou illisible -> ignoré, `paid` et le statut décident", () => {
@@ -473,7 +480,7 @@ describe("statut de paiement fournisseur — decisionPaiementFournisseur", () =>
     const existantes: FactureExistantePourSync[] = [{ id: "novanta-90", pennylaneId: "90", payee: false }];
     const soldee = supplierItemFactice({ id: 90, payment_status: "to_be_paid", accounting_status: "validation_needed", paid: false, remaining_amount_with_tax: "0.0" });
     const resultat = calculerSynchronisation(candidatsFournisseursPennylane([soldee]).candidats, existantes);
-    assert.deepEqual(resultat, { aInserer: [], idsAMettreAJourPayee: ["novanta-90"], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], idsASupprimer: [], montantsAMettreAJour: [] });
+    assert.deepEqual(resultat, { aInserer: [], idsAMettreAJourPayee: ["novanta-90"], idsASupprimer: [], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], aRattacher: [], misesAJourDocument: [] });
   });
 
   test("archivée à reste à payer nul -> toujours retirée, jamais conservée comme payée", () => {
@@ -531,7 +538,7 @@ describe("factures fournisseurs archivées", () => {
   test("archivée absente de Novanta -> jamais importée, payée ou non", () => {
     for (const paid of [true, false]) {
       const { candidats } = candidatsFournisseursPennylane([supplierItemFactice({ id: 70, payment_status: "to_be_processed", accounting_status: "archived", paid })]);
-      assert.deepEqual(calculerSynchronisation(candidats, []), { aInserer: [], idsAMettreAJourPayee: [], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], idsASupprimer: [], montantsAMettreAJour: [] });
+      assert.deepEqual(calculerSynchronisation(candidats, []), { aInserer: [], idsAMettreAJourPayee: [], idsASupprimer: [], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], aRattacher: [], misesAJourDocument: [] });
     }
   });
 
@@ -544,7 +551,7 @@ describe("factures fournisseurs archivées", () => {
     for (const payee of [false, true]) {
       const existantes: FactureExistantePourSync[] = [{ id: "novanta-71", pennylaneId: "71", payee }];
       const seconde = calculerSynchronisation(candidatsFournisseursPennylane([archivee]).candidats, existantes);
-      assert.deepEqual(seconde, { aInserer: [], idsAMettreAJourPayee: [], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], idsASupprimer: ["novanta-71"], montantsAMettreAJour: [] });
+      assert.deepEqual(seconde, { aInserer: [], idsAMettreAJourPayee: [], idsASupprimer: ["novanta-71"], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], aRattacher: [], misesAJourDocument: [] });
     }
   });
 
@@ -562,7 +569,7 @@ describe("factures fournisseurs archivées", () => {
   test("facture client archivée -> jamais retirée (comportement client inchangé)", () => {
     const { candidats } = candidatsClientsPennylane([customerItemFactice({ id: 80, status: "cancelled" })]);
     const resultat = calculerSynchronisation(candidats, [{ id: "novanta-80", pennylaneId: "80", payee: false }]);
-    assert.deepEqual(resultat, { aInserer: [], idsAMettreAJourPayee: ["novanta-80"], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], idsASupprimer: [], montantsAMettreAJour: [] });
+    assert.deepEqual(resultat, { aInserer: [], idsAMettreAJourPayee: ["novanta-80"], idsASupprimer: [], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], aRattacher: [], misesAJourDocument: [] });
   });
 });
 
@@ -578,13 +585,13 @@ describe("synchronisations successives — création puis mise à jour", () => {
       supplierItemFactice({ id: 60, payment_status: "paid_offline", accounting_status: "complete", paid: false }),
     ]) {
       const seconde = calculerSynchronisation(candidatsFournisseursPennylane([reglee]).candidats, existantes);
-      assert.deepEqual(seconde, { aInserer: [], idsAMettreAJourPayee: ["novanta-60"], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], idsASupprimer: [], montantsAMettreAJour: [] });
+      assert.deepEqual(seconde, { aInserer: [], idsAMettreAJourPayee: ["novanta-60"], idsASupprimer: [], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], aRattacher: [], misesAJourDocument: [] });
     }
   });
 
   test("facture payée dès la première synchronisation -> jamais créée", () => {
     const payee = supplierItemFactice({ id: 61, payment_status: "to_be_processed", accounting_status: "complete", paid: true });
-    assert.deepEqual(calculerSynchronisation(candidatsFournisseursPennylane([payee]).candidats, []), { aInserer: [], idsAMettreAJourPayee: [], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], idsASupprimer: [], montantsAMettreAJour: [] });
+    assert.deepEqual(calculerSynchronisation(candidatsFournisseursPennylane([payee]).candidats, []), { aInserer: [], idsAMettreAJourPayee: [], idsASupprimer: [], fournisseursARenseigner: [], idsIncoherenceFournisseur: [], aRattacher: [], misesAJourDocument: [] });
   });
 });
 

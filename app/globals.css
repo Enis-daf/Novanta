@@ -3416,3 +3416,151 @@ button.passe-cible--lien:focus-visible,
   font-size: 12px;
   color: var(--couleur-texte-secondaire);
 }
+
+/* Doublons de factures : suggestions à confirmer (components/DoublonsFactures.tsx). */
+.doublons {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-md);
+  background: var(--couleur-fond-alt-vert);
+  font-size: 13px;
+}
+
+.doublons h3 {
+  margin: 0 0 6px;
+}
+
+.doublons__intro {
+  margin: 0 0 var(--space-2);
+  color: var(--couleur-texte-secondaire);
+}
+
+.doublons__liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.doublons-carte {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-md);
+  background: var(--couleur-fond);
+}
+
+.doublons-carte p {
+  margin: 0 0 var(--space-1);
+}
+
+.doublons-carte__diagnostic {
+  font-weight: 600;
+}
+
+.doublons-carte__paire {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.doublons-cote {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.doublons-cote__titre {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--couleur-texte-secondaire);
+}
+
+.doublons-cote__detail {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--couleur-texte-secondaire);
+}
+
+.doublons-carte__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: var(--space-2);
+}
+
+.doublons-carte__actions .btn-add {
+  margin-top: 0;
+}
+
+.doublons__confirmation {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+
+/* Résolution d'un doublon : les deux lignes côte à côte, puis les choix. */
+.doublons-fusion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.doublons-fusion__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.doublons-fusion__table th,
+.doublons-fusion__table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--couleur-bordure);
+  text-align: left;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.doublons-fusion__table thead th,
+.doublons-fusion__table tbody th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Valeurs différentes entre les deux lignes : repérées, sans couleur de verdict. */
+.doublons-fusion__difference td {
+  background: var(--couleur-fond-alt-vert);
+}
+
+.doublons-fusion__choix {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--space-3);
+  margin: 0;
+  padding: var(--space-1) 0 0;
+  border: 0;
+}
+
+.doublons-fusion__choix legend {
+  width: 100%;
+  padding: 0;
+  font-weight: 600;
+}
+
+.doublons-fusion__choix label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+@media (max-width: 700px) {
+  .doublons-carte__paire {
+    grid-template-columns: 1fr;
+  }
+}

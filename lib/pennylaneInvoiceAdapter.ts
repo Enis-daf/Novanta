@@ -9,6 +9,7 @@
  */
 import { PennylaneCustomerInvoiceListItem, PennylaneSupplierInvoiceListItem } from "./pennylaneClient";
 import { FactureClient, FactureFournisseur } from "./types";
+import { comparerDetections, comparerFactures, DetectionDoublon, Sens } from "./doublonsFactures";
 
 /**
  * Résultat affiché après un clic sur "Synchroniser Pennylane" — déclenchable depuis
@@ -28,11 +29,11 @@ export interface ResultatSyncPennylane {
   nombreMarquesPayees: number;
   // Factures fournisseurs déjà importées dont la version Pennylane est désormais archivée : retirées.
   nombreArchiveesRetirees: number;
-  // Factures déjà importées dont le montant a été ramené au reste à payer Pennylane (règlement partiel).
-  nombreMontantsActualises?: number;
   // Factures déjà importées dont le fournisseur Pennylane diffère de celui enregistré : jamais
   // écrasé en silence, seulement signalé (voir calculerSynchronisation).
   nombreIncoherencesFournisseur?: number;
+  // Factures déjà importées actualisées depuis Pennylane (n°, fournisseur, échéance, reste à payer).
+  nombreFacturesActualisees?: number;
   erreurClients: string | null;
   erreurFournisseurs: string | null;
 }
@@ -69,16 +70,16 @@ export function messageSyncPennylane(r: ResultatSyncPennylane): string {
           r.nombreArchiveesRetirees > 1 ? "s" : ""
         } dans Pennylane retirée${r.nombreArchiveesRetirees > 1 ? "s" : ""}.`
       : "";
-  const actualises = r.nombreMontantsActualises ?? 0;
-  const montants =
-    actualises > 0
-      ? ` ${actualises} ${pluriel(actualises, "montant")} ${actualises > 1 ? "ramenés" : "ramené"} au reste à payer Pennylane.`
-      : "";
   const incoherences =
     (r.nombreIncoherencesFournisseur ?? 0) > 0
       ? ` ${r.nombreIncoherencesFournisseur} ${pluriel(r.nombreIncoherencesFournisseur ?? 0, "facture")} dont le fournisseur Pennylane a changé : à vérifier.`
       : "";
-  return `Pennylane synchronisé — Fournisseurs : ${fournisseurs}. Clients : ${clients}. ${payees} au total.${retirees}${montants}${incoherences}`;
+  const actualisees = r.nombreFacturesActualisees ?? 0;
+  const documents =
+    actualisees > 0
+      ? ` ${actualisees} ${pluriel(actualisees, "facture")} ${actualisees > 1 ? "actualisées" : "actualisée"} depuis Pennylane (n°, fournisseur, échéance, reste à payer).`
+      : "";
+  return `Pennylane synchronisé — Fournisseurs : ${fournisseurs}. Clients : ${clients}. ${payees} au total.${retirees}${documents}${incoherences}`;
 }
 
 /**
@@ -397,22 +398,52 @@ export interface FactureExistantePourSync {
   id: string; // id Novanta (jamais l'id Pennylane)
   pennylaneId?: string | null;
   payee: boolean;
-  // Montant de trésorerie actuel de la ligne : comparé au reste dû Pennylane à chaque synchronisation.
-  montant?: number;
   pennylaneSupplierId?: string | null;
+  // Le document tel que saisi dans Novanta : sert à reconnaître une facture déjà présente sans
+  // identifiant Pennylane (saisie à la main, import par fichier) — voir calculerSynchronisation.
+  facture?: string;
+  tiers?: string;
+  montant?: number;
+  dateEcheance?: string;
+  // Date de paiement / d'encaissement prévue (réglage Novanta) : jamais écrasée quand elle est
+  // explicite, c'est-à-dire différente de l'échéance.
+  datePrevue?: string;
+}
+
+/**
+ * Document d'une facture déjà liée à Pennylane, à actualiser : Pennylane est la source de vérité
+ * du n°, du tiers, du montant et de l'échéance. `datePrevue` : nouvelle date prévue quand elle
+ * suivait l'échéance (pas de date explicite), sinon null — le réglage Novanta est conservé.
+ */
+export interface MiseAJourDocument {
+  id: string;
+  facture: string;
+  tiers: string;
+  montant: number;
+  dateEcheance: string;
+  datePrevue: string | null;
+}
+
+/** Facture Pennylane qui correspond probablement à une ligne Novanta existante sans identifiant. */
+export interface RattachementPropose {
+  candidat: CandidatFacturePennylane;
+  existanteId: string; // id NOVANTA de la ligne qui représente déjà ce document
+  detection: DetectionDoublon;
 }
 
 export interface ResultatCalculSynchronisation {
   aInserer: CandidatFacturePennylane[];
   idsAMettreAJourPayee: string[]; // ids NOVANTA (pas pennylaneId) à patcher payee=true
   idsASupprimer: string[]; // ids NOVANTA dont la version Pennylane est archivée
-  // Factures déjà connues, encore ouvertes, dont le reste dû Pennylane a changé : seul leur montant
-  // est actualisé (date prévue, Litigieuse et autres réglages Novanta intacts).
-  montantsAMettreAJour: { id: string; montant: number }[];
   // Factures déjà connues dont l'identifiant fournisseur Pennylane n'était pas encore enregistré.
   fournisseursARenseigner: { id: string; pennylaneSupplierId: string }[];
   // ids NOVANTA dont l'identifiant fournisseur enregistré diffère de celui de Pennylane.
   idsIncoherenceFournisseur: string[];
+  // Jamais insérées : elles représentent probablement un document déjà présent dans Novanta.
+  // L'utilisateur choisit de les rattacher à la ligne existante ou de les importer à part.
+  aRattacher: RattachementPropose[];
+  // Factures déjà liées dont Pennylane a modifié le document (voir MiseAJourDocument).
+  misesAJourDocument: MiseAJourDocument[];
 }
 
 /**
@@ -424,8 +455,10 @@ export interface ResultatCalculSynchronisation {
  *     que les factures ouvertes) ;
  *   - candidat déjà connu (même pennylaneId), Pennylane payée ET Novanta encore non payée ->
  *     marquer Payée=true ;
- *   - candidat déjà connu, encore ouvert des deux côtés, PARTIELLEMENT réglé chez Pennylane, dont
- *     le reste dû diffère du montant Novanta -> MONTANT ramené au reste dû ;
+ *   - candidat déjà connu : Pennylane est la source de vérité DOCUMENTAIRE. N°, tiers et
+ *     échéance sont repris dès qu'ils diffèrent ; le montant, pour une facture ouverte des deux
+ *     côtés, devient le reste à payer Pennylane (misesAJourDocument). Les réglages propres à Novanta
+ *     (Litigieuse, date prévue explicite, rapprochements) ne sont jamais touchés ;
  *   - tout le reste -> NO-OP.
  * Identifiant fournisseur Pennylane d'une facture déjà connue — l'association est certaine, elle
  * passe par l'identifiant de facture Pennylane, jamais par le nom : champ vide -> à renseigner ;
@@ -436,10 +469,23 @@ export interface ResultatCalculSynchronisation {
  * par convention d'appel.
  * Idempotente par construction : ré-appliquer avec les mêmes candidats sur un état Novanta déjà
  * synchronisé renvoie des listes vides.
+ *
+ * Document déjà présent sans identifiant Pennylane : avant d'insérer une facture inconnue, elle est
+ * comparée aux lignes Novanta qui n'ont pas encore d'identifiant Pennylane (lib/doublonsFactures.ts).
+ * Au moindre signal documentaire sérieux (même n° de facture fiable), elle n'est PAS insérée : elle
+ * est proposée au rattachement (aRattacher). Sans cette règle, une facture saisie dans Novanta puis
+ * synchronisée existait deux fois — c'était la cause des doublons. Rien n'est rattaché sans
+ * l'utilisateur : la proposition se renouvelle à chaque synchronisation tant qu'il n'a pas choisi.
+ *
+ * `pennylaneIdsFusionnes` : identifiants Pennylane des lignes retirées par une fusion de doublons
+ * confirmée. Ces factures sont déjà représentées par la ligne conservée : elles ne sont ni
+ * réimportées, ni reproposées.
  */
 export function calculerSynchronisation(
   candidats: CandidatFacturePennylane[],
-  facturesExistantes: FactureExistantePourSync[]
+  facturesExistantes: FactureExistantePourSync[],
+  sens: Sens = "fournisseur",
+  pennylaneIdsFusionnes: ReadonlySet<string> = new Set()
 ): ResultatCalculSynchronisation {
   const existanteParPennylaneId = new Map<string, FactureExistantePourSync>();
   for (const facture of facturesExistantes) {
@@ -449,12 +495,17 @@ export function calculerSynchronisation(
   const aInserer: CandidatFacturePennylane[] = [];
   const idsAMettreAJourPayee: string[] = [];
   const idsASupprimer: string[] = [];
-  const montantsAMettreAJour: { id: string; montant: number }[] = [];
   const fournisseursARenseigner: { id: string; pennylaneSupplierId: string }[] = [];
   const idsIncoherenceFournisseur: string[] = [];
+  const aRattacher: RattachementPropose[] = [];
+  const misesAJourDocument: MiseAJourDocument[] = [];
+  const dejaInseres = new Set<string>();
+  // Lignes Novanta sans identifiant Pennylane, décrites par leur document : seules candidates à un rattachement.
+  const sansIdentiteSource = facturesExistantes.filter((f) => !f.pennylaneId && f.facture !== undefined);
 
   for (const candidat of candidats) {
     const existante = existanteParPennylaneId.get(candidat.pennylaneId);
+    if (!existante && pennylaneIdsFusionnes.has(candidat.pennylaneId)) continue;
 
     if (candidat.aRetirer) {
       if (existante) idsASupprimer.push(existante.id);
@@ -462,7 +513,24 @@ export function calculerSynchronisation(
     }
 
     if (!existante) {
-      if (!candidat.payee) aInserer.push(candidat);
+      if (candidat.payee || dejaInseres.has(candidat.pennylaneId)) continue;
+      const correspondances = sansIdentiteSource
+        .map((f) => ({
+          existanteId: f.id,
+          detection: comparerFactures(
+            { id: candidat.pennylaneId, facture: candidat.facture, tiers: candidat.tiers, montant: candidat.montant, dateEcheance: candidat.dateEcheance, pennylaneId: candidat.pennylaneId },
+            { id: f.id, facture: f.facture ?? "", tiers: f.tiers ?? "", montant: f.montant ?? Number.NaN, dateEcheance: f.dateEcheance ?? "" },
+            sens
+          ),
+        }))
+        .filter((c) => c.detection.statut !== "DISTINCT")
+        .sort((x, y) => comparerDetections(x.detection, y.detection));
+      if (correspondances.length > 0) {
+        aRattacher.push({ candidat, ...correspondances[0] });
+        continue;
+      }
+      dejaInseres.add(candidat.pennylaneId);
+      aInserer.push(candidat);
       continue;
     }
 
@@ -478,23 +546,34 @@ export function calculerSynchronisation(
       }
     }
 
-    // Le reste dû évolue au fil des règlements : pour une facture en partie réglée chez Pennylane,
-    // Pennylane fait foi pour le montant encore ouvert. Une facture sans règlement garde le montant
-    // de la ligne Novanta (comportement inchangé). Une facture réglée (d'un côté ou de l'autre) ne
-    // pèse plus sur la trésorerie : rien à changer.
-    const partiellementReglee = candidat.montantFacture !== undefined && candidat.montant < candidat.montantFacture - 0.005;
-    if (
-      partiellementReglee &&
-      !candidat.payee &&
-      !existante.payee &&
-      existante.montant !== undefined &&
-      Math.abs(existante.montant - candidat.montant) >= 0.005
-    ) {
-      montantsAMettreAJour.push({ id: existante.id, montant: candidat.montant });
+    // Document modifié dans Pennylane : il prime sur la ligne Novanta. Seules les lignes décrites
+    // (facture renseignée) sont comparées ; jamais d'actualisation sur une valeur inconnue.
+    if (existante.facture !== undefined) {
+      // Montant : le reste à payer Pennylane d'une facture ouverte des deux côtés. Une facture réglée
+      // (d'un côté ou de l'autre) ne pèse plus sur la trésorerie : son montant n'est pas touché.
+      const ouverte = !candidat.payee && !existante.payee;
+      const montant = ouverte ? candidat.montant : (existante.montant ?? candidat.montant);
+      const change =
+        existante.facture !== candidat.facture ||
+        existante.tiers !== candidat.tiers ||
+        Number.isNaN(existante.montant ?? Number.NaN) ||
+        Math.abs((existante.montant ?? Number.NaN) - montant) >= 0.005 ||
+        existante.dateEcheance !== candidat.dateEcheance;
+      if (change) {
+        const suitEcheance = existante.datePrevue === undefined || existante.datePrevue === "" || existante.datePrevue === existante.dateEcheance;
+        misesAJourDocument.push({
+          id: existante.id,
+          facture: candidat.facture,
+          tiers: candidat.tiers,
+          montant,
+          dateEcheance: candidat.dateEcheance,
+          datePrevue: suitEcheance && existante.datePrevue !== candidat.dateEcheance ? candidat.dateEcheance : null,
+        });
+      }
     }
   }
 
-  return { aInserer, idsAMettreAJourPayee, idsASupprimer, fournisseursARenseigner, idsIncoherenceFournisseur, montantsAMettreAJour };
+  return { aInserer, idsAMettreAJourPayee, idsASupprimer, fournisseursARenseigner, idsIncoherenceFournisseur, aRattacher, misesAJourDocument };
 }
 
 /**

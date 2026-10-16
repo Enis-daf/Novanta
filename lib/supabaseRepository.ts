@@ -507,19 +507,6 @@ export async function marquerFacturesFournisseursPayees(ids: string[]): Promise<
   if (error) throw error;
 }
 
-// Synchronisation Pennylane : ramène le montant de factures déjà importées au reste à payer
-// Pennylane (voir lib/pennylaneInvoiceAdapter.ts::calculerSynchronisation). Seule la colonne montant
-// est écrite : Payée, date prévue et Litigieuse ne sont jamais touchées ici.
-export async function mettreAJourMontantsFactures(
-  table: "customer_invoices" | "supplier_invoices",
-  montants: { id: string; montant: number }[]
-): Promise<void> {
-  for (const { id, montant } of montants) {
-    const { error } = await client().from(table).update({ montant }).eq("id", id);
-    if (error) throw error;
-  }
-}
-
 // Synchronisation Pennylane : retire les factures fournisseurs dont la version Pennylane a été
 // archivée (voir lib/pennylaneInvoiceAdapter.ts::calculerSynchronisation).
 export async function supprimerFacturesFournisseurs(ids: string[]): Promise<void> {
@@ -608,4 +595,114 @@ export async function supprimerRefusSansIdentitePennylane(factureFournisseurIds:
 
 export async function sauvegarderMappingFournisseur(companyId: string, mapping: MappingFournisseurCharge): Promise<void> {
   await upsertOne("fixed_charge_supplier_mappings", mappingFournisseurToRow(companyId, mapping));
+}
+
+// --- Doublons de factures : décisions de l'utilisateur (20261021_invoice_duplicate_merges.sql) ---
+
+export type SensFacture = "client" | "fournisseur";
+const DIRECTION: Record<SensFacture, string> = { client: "customer", fournisseur: "supplier" };
+
+export interface DecisionDoublon {
+  sens: SensFacture;
+  cle: string; // clePaire des deux lignes (lib/doublonsFactures.ts)
+  decision: "fusion" | "distinct";
+  // Fusion : identifiant Pennylane de la ligne retirée, que la synchronisation ne réimporte plus.
+  pennylaneIdRetire: string | null;
+}
+
+// Table absente (base pas encore migrée) : aucune décision, l'application reste utilisable.
+const tableAbsente = (error: { code?: string } | null) => error?.code === "42P01" || error?.code === "PGRST205";
+
+/** Décisions sur les doublons : paires écartées (« Ce ne sont pas des doublons ») et fusions. */
+export async function chargerDecisionsDoublons(companyId: string): Promise<DecisionDoublon[]> {
+  const { data, error } = await client()
+    .from("invoice_duplicate_decisions")
+    .select("direction, first_invoice_id, second_invoice_id, decision, removed_pennylane_id")
+    .eq("company_id", companyId);
+  if (tableAbsente(error)) return [];
+  if (error) throw error;
+  return ((data ?? []) as Row[]).map((row) => ({
+    sens: row.direction === "customer" ? "client" : "fournisseur",
+    cle: [row.first_invoice_id as string, row.second_invoice_id as string].sort().join("|"),
+    decision: row.decision === "merged" ? "fusion" : "distinct",
+    pennylaneIdRetire: (row.removed_pennylane_id as string | null) ?? null,
+  }));
+}
+
+const pairePourRow = (idA: string, idB: string) => {
+  const [premier, second] = [idA, idB].sort();
+  return { first_invoice_id: premier, second_invoice_id: second };
+};
+const CONFLIT_PAIRE = "company_id,direction,first_invoice_id,second_invoice_id";
+
+/** « Ce ne sont pas des doublons » : la paire n'est plus jamais proposée, même après rechargement. */
+export async function enregistrerPaireDistincte(companyId: string, sens: SensFacture, idA: string, idB: string): Promise<void> {
+  const { error } = await client()
+    .from("invoice_duplicate_decisions")
+    .upsert({ company_id: companyId, direction: DIRECTION[sens], ...pairePourRow(idA, idB), decision: "distinct" }, { onConflict: CONFLIT_PAIRE });
+  if (error) throw error;
+}
+
+/**
+ * Fusion confirmée, dans un ordre qui ne perd rien en cas d'échec et qu'on peut rejouer :
+ *  1. la décision est enregistrée avec l'état des deux lignes AVANT fusion et les choix faits
+ *     (historique : qui, quand, quoi — rejouer la même fusion la met simplement à jour) ;
+ *  2. la ligne de référence reçoit les valeurs retenues ;
+ *  3. `avantRetrait` (rattachements à déplacer, propre à l'appelant) ;
+ *  4. la ligne retirée est supprimée — son contenu reste dans l'historique de la décision.
+ */
+export async function enregistrerFusion<T extends FactureClient | FactureFournisseur>(
+  companyId: string,
+  sens: SensFacture,
+  fusion: { avant: [T, T]; reference: T; retiree: T; pennylaneIdRetire: string | null; choix: Record<string, string> },
+  avantRetrait: () => Promise<void> = async () => {}
+): Promise<void> {
+  const versRow = (f: T) => (sens === "client" ? factureClientToRow(companyId, f as FactureClient) : factureFournisseurToRow(companyId, f as FactureFournisseur));
+  const table = sens === "client" ? "customer_invoices" : "supplier_invoices";
+  const { error } = await client()
+    .from("invoice_duplicate_decisions")
+    .upsert(
+      {
+        company_id: companyId,
+        direction: DIRECTION[sens],
+        ...pairePourRow(fusion.avant[0].id, fusion.avant[1].id),
+        decision: "merged",
+        kept_invoice_id: fusion.reference.id,
+        removed_invoice_id: fusion.retiree.id,
+        removed_pennylane_id: fusion.pennylaneIdRetire,
+        snapshot: { avant: fusion.avant.map(versRow), apres: versRow(fusion.reference), choix: fusion.choix },
+        decided_at: new Date().toISOString(),
+      },
+      { onConflict: CONFLIT_PAIRE }
+    );
+  if (error) throw error;
+  await upsertOne(table, versRow(fusion.reference));
+  await avantRetrait();
+  await deleteOne(table, fusion.retiree.id);
+}
+
+/**
+ * Document d'une facture liée à Pennylane, actualisé à la synchronisation : seules ces colonnes
+ * sont écrites (jamais Payée ni les autres réglages, mis à jour séparément).
+ */
+export async function actualiserDocumentsFactures(
+  sens: SensFacture,
+  misesAJour: { id: string; facture: string; tiers: string; montant: number; dateEcheance: string; datePrevue: string | null }[]
+): Promise<void> {
+  const table = sens === "client" ? "customer_invoices" : "supplier_invoices";
+  const colonneTiers = sens === "client" ? "client" : "fournisseur";
+  const colonneDatePrevue = sens === "client" ? "date_encaissement_anticipee" : "date_paiement_prevue";
+  for (const m of misesAJour) {
+    const { error } = await client()
+      .from(table)
+      .update({
+        facture: m.facture,
+        [colonneTiers]: m.tiers,
+        montant: m.montant,
+        date_echeance: dateOuNull(m.dateEcheance),
+        ...(m.datePrevue !== null ? { [colonneDatePrevue]: dateOuNull(m.datePrevue) } : {}),
+      })
+      .eq("id", m.id);
+    if (error) throw error;
+  }
 }
