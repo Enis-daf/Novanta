@@ -3,7 +3,7 @@
 import MentionTTC from "./MentionTTC";
 import { useState } from "react";
 import { formatMontant } from "@/lib/format";
-import { estEtageEconomique, estTauxTvaValide, LIBELLE_TVA_SANS_OBJET, TAUX_TVA_PROPOSES } from "@/lib/pastHtEstime";
+import { estEtageEconomique, estTauxTvaValide, LIBELLE_TVA_NON_APPLICABLE, LIBELLE_TVA_SANS_OBJET, TAUX_TVA_PROPOSES } from "@/lib/pastHtEstime";
 import {
   EtagePnl,
   ETAGES_PNL,
@@ -34,6 +34,15 @@ function SelecteurTva({ ligne, onChange }: { ligne: LigneMapping; onChange: (tau
   const [saisieLibre, setSaisieLibre] = useState(taux !== null && !tauxPropose);
   const [brouillon, setBrouillon] = useState(taux !== null && !tauxPropose ? String(taux).replace(".", ",") : "");
 
+  // Étage TVA : le mouvement EST de la TVA — exclu du HT, repris tel quel en TTC. Aucun taux à
+  // saisir, et jamais « 0 % » pour contourner.
+  if (ligne.pnlStage === "vat") {
+    return (
+      <span className="passe-mapping__tva-sans-objet" title={LIBELLE_TVA_NON_APPLICABLE}>
+        — <span className="passe-visuellement-cache">{LIBELLE_TVA_NON_APPLICABLE}</span>
+      </span>
+    );
+  }
   if (ligne.pnlStage !== null && !estEtageEconomique(ligne.pnlStage)) {
     return <span className="passe-mapping__tva-sans-objet" title={LIBELLE_TVA_SANS_OBJET}>Sans objet</span>;
   }

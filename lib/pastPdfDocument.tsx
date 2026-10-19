@@ -255,6 +255,8 @@ function lignesPnl(page: PageGeneralPdf): LignePnl[] {
     { type: "bloc", cash: true },
     { type: "ligne", libelle: libelleEtagePnl("extra_pnl"), montant: pnl.extraPnl },
     ...ajustements(pnl.ajustements.extra_pnl),
+    // Comme à l'écran : ligne TVA en lecture TTC seulement ; la trésorerie la compte toujours.
+    ...(page.base === "ht" ? [] : [{ type: "ligne", libelle: libelleEtagePnl("vat"), montant: pnl.tva } as LignePnl, ...ajustements(pnl.ajustements.vat)]),
     { type: "ligne", libelle: LIBELLE_CASH_FLOW_OPERATIONNEL, montant: pnl.cashFlowOperationnel, niveau: "solde", tresorerie: true },
     { type: "bloc" },
     { type: "ligne", libelle: libelleEtagePnl("financing"), montant: pnl.financements },

@@ -157,6 +157,14 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
         <div className="passe-pnl__bloc passe-pnl__bloc--cash">
           <Ligne libelle={libelleEtagePnl("extra_pnl")} montant={pnl.extraPnl} />
           <LignesAjustements lignes={pnl.ajustements.extra_pnl} />
+          {/* TVA payée ou remboursée : présentée en lecture TTC seulement. En HT estimé elle sort de
+              la lecture, mais le Cash flow opérationnel (toujours TTC) la compte dans les deux. */}
+          {!ht && (
+            <>
+              <Ligne libelle={libelleEtagePnl("vat")} montant={pnl.tva} />
+              <LignesAjustements lignes={pnl.ajustements.vat} />
+            </>
+          )}
           <Ligne libelle={LIBELLE_CASH_FLOW_OPERATIONNEL} montant={pnl.cashFlowOperationnel} niveau="solde" />
         </div>
         <div className="passe-pnl__bloc">

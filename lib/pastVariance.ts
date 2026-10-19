@@ -94,6 +94,7 @@ const NATURE_ETAGE: Record<EtagePnl, "revenus" | "couts" | "mixte"> = {
   contribution_margin: "couts",
   ebitda: "couts",
   extra_pnl: "mixte",
+  vat: "mixte",
   financing: "mixte",
 };
 
@@ -149,30 +150,37 @@ export interface Comparaison {
   ecartRelatif: number | null;
   // Leur somme est exactement l'écart : la waterfall réconcilie toujours A et B.
   etages: ContributionEtage[];
-  // L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L et, en lecture « financement
-  // compris », l'étage Virements internes & Financement expliquent ce qui vient après. Ils ne se
-  // mélangent pas : variationEbitda + variationExtraPnl + variationFinancements = ecart
-  // (variationFinancements vaut 0 hors financement).
+  // L'EBITDA s'explique par les quatre premiers étages ; l'Extra P&L, la TVA et, en lecture
+  // « financement compris », l'étage Virements internes & Financement expliquent ce qui vient après.
+  // Ils ne se mélangent pas : variationEbitda + variationExtraPnl + variationTva +
+  // variationFinancements = ecart (variationFinancements vaut 0 hors financement).
   variationEbitda: number;
   variationExtraPnl: number;
+  // TVA payée ou remboursée : un flux de trésorerie, toujours compris dans le résultat comparé.
+  variationTva: number;
   variationFinancements: number;
 }
 
 export function comparerPeriodes(a: DonneesPeriode, b: DonneesPeriode, options: OptionsComparaison = {}): Comparaison {
   const financementCompris = options.financementCompris === true;
-  const etages = etagesCompares(options).map(({ etage, libelle }) => {
-    const montantA = totalEtage(a, [etage]);
-    const montantB = totalEtage(b, [etage]);
-    return { etage, libelle, montantA, montantB, contribution: montantB - montantA, variation: variationDuPoste(etage, montantA, montantB) };
-  });
+  const etages = etagesCompares(options)
+    .map(({ etage, libelle }) => {
+      const montantA = totalEtage(a, [etage]);
+      const montantB = totalEtage(b, [etage]);
+      return { etage, libelle, montantA, montantB, contribution: montantB - montantA, variation: variationDuPoste(etage, montantA, montantB) };
+    })
+    // La TVA n'est une marche que si elle a des mouvements sur l'une des deux périodes : sans
+    // catégorie rattachée, pas de « TVA : 0 » dans la waterfall.
+    .filter((e) => e.etage !== "vat" || e.montantA !== 0 || e.montantB !== 0);
   const cashFlow = (donnees: DonneesPeriode) => {
-    const operationnel = calculerCashFlowOperationnel(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"]));
+    const operationnel = calculerCashFlowOperationnel(totalEtage(donnees, ETAGES_EBITDA), totalEtage(donnees, ["extra_pnl"]), totalEtage(donnees, ["vat"]));
     return financementCompris ? calculerVariationTresorerie(operationnel, totalEtage(donnees, ["financing"])) : operationnel;
   };
   const cashFlowA = cashFlow(a);
   const cashFlowB = cashFlow(b);
   const ecart = cashFlowB - cashFlowA;
   const variationExtraPnl = etages.find((e) => e.etage === "extra_pnl")!.contribution;
+  const variationTva = etages.find((e) => e.etage === "vat")?.contribution ?? 0;
   const variationFinancements = etages.find((e) => e.etage === "financing")?.contribution ?? 0;
   return {
     metrique: financementCompris ? LIBELLE_VARIATION_TRESORERIE : LIBELLE_CASH_FLOW_OPERATIONNEL,
@@ -182,8 +190,9 @@ export function comparerPeriodes(a: DonneesPeriode, b: DonneesPeriode, options: 
     ecart,
     ecartRelatif: cashFlowA === 0 ? null : ecart / Math.abs(cashFlowA),
     etages,
-    variationEbitda: ecart - variationExtraPnl - variationFinancements,
+    variationEbitda: ecart - variationExtraPnl - variationTva - variationFinancements,
     variationExtraPnl,
+    variationTva,
     variationFinancements,
   };
 }

@@ -10,6 +10,9 @@
  *    Coûts de structure) : convertie au taux de SA catégorie, sur son montant attribué, AVANT toute
  *    agrégation. Taux non défini : la part n'est pas convertie et elle est signalée (tvaManquante) ;
  *    elle n'est jamais assimilée à 0 % ;
+ *  - part de l'étage TVA (paiements et remboursements de TVA) : EXCLUE de la lecture HT, dans les
+ *    deux sens — ni convertie, ni divisée par un taux. Elle reste dans la lecture TTC et dans toute
+ *    la trésorerie (Cash flow opérationnel, Variation de trésorerie), toujours calculée en TTC ;
  *  - part d'un étage de TRÉSORERIE (Extra P&L, Virements internes & Financement) : jamais convertie.
  *    Le Cash flow opérationnel et la Variation de trésorerie sont des flux bancaires réels : ils
  *    restent TTC et sont toujours calculés sur leur propre base TTC, jamais à partir d'un EBITDA HT ;
@@ -36,6 +39,7 @@ import { MENTION_TTC } from "./format";
 export const LIBELLE_ECARTS_EN_TTC = `L'analyse d'écarts porte sur le Cash flow : des flux bancaires réels, toujours en ${MENTION_TTC}.`;
 export const LIBELLE_CASH_FLOW_TTC = `Le cash flow est toujours présenté en ${MENTION_TTC}, quel que soit le mode de reporting sélectionné.`;
 export const LIBELLE_TVA_SANS_OBJET = `Flux de trésorerie : toujours lu en ${MENTION_TTC}`;
+export const LIBELLE_TVA_NON_APPLICABLE = "Non applicable à ce type de mouvement.";
 
 export type BaseMontants = "ttc" | "ht";
 
@@ -78,14 +82,18 @@ export function tauxParCategorie(mappings: ReadonlyMap<string, MappingCategorie>
   return new Map(liste.map((m) => [m.sourceCategoryId, estTauxTvaValide(m.vatRate) ? m.vatRate : null]));
 }
 
+/** Étage exclu de la lecture HT estimé : la TVA payée ou remboursée n'est pas une donnée HT. */
+export const ETAGE_EXCLU_DU_HT: EtagePnl = "vat";
+
 /**
  * Parts exprimées dans la base demandée. TTC : les parts telles quelles (même tableau). HT : une
- * copie, parts économiques converties au taux de leur catégorie ; montantTtc garde toujours le
- * montant d'origine. Une part n'est jamais convertie deux fois : seules des parts TTC entrent ici.
+ * copie, sans les parts de l'étage TVA, parts économiques converties au taux de leur catégorie ;
+ * montantTtc garde toujours le montant d'origine. Une part n'est jamais convertie deux fois :
+ * seules des parts TTC entrent ici.
  */
 export function partsEnBase(parts: PartMappee[], taux: ReadonlyMap<string, number | null>, base: BaseMontants): PartMappee[] {
   if (base === "ttc") return parts;
-  return parts.map((part) => {
+  return parts.filter((part) => part.etage !== ETAGE_EXCLU_DU_HT).map((part) => {
     if (part.montantTtc !== undefined) throw new Error("Part déjà convertie : une seule conversion par part.");
     if (!estEtageEconomique(part.etage)) return { ...part, montantTtc: part.montant };
     const tauxCategorie = taux.get(part.sourceCategoryId) ?? null;
@@ -116,8 +124,9 @@ export interface PnlEnBase extends Pnl {
  *  - Marge brute, Marge contributive, EBITDA : recalculés à partir de ces composantes (ajustements
  *    de gestion compris, non convertis) ;
  *  - ratios : HT sur HT ;
- *  - Extra P&L, Financement, Cash flow opérationnel, Variation de trésorerie : ceux du P&L TTC,
- *    à l'identique.
+ *  - Extra P&L, TVA, Financement, Cash flow opérationnel, Variation de trésorerie : ceux du P&L TTC,
+ *    à l'identique (la ligne TVA n'est pas présentée en lecture HT, mais la trésorerie la compte) ;
+ *  - catégories (répartitions) : sans la TVA.
  */
 export function calculerPnlEnBase(
   transactions: PastTransactionStockee[],
@@ -165,6 +174,7 @@ export function calculerPnlEnBase(
     ebitda,
     // Trésorerie : TTC, toujours. Jamais EBITDA HT + flux TTC.
     extraPnl: pnlTtc.extraPnl,
+    tva: pnlTtc.tva,
     financements: pnlTtc.financements,
     cashFlowOperationnel: pnlTtc.cashFlowOperationnel,
     variationTresorerie: pnlTtc.variationTresorerie,

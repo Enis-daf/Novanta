@@ -253,3 +253,88 @@ describe("écran Général : HT estimé jusqu'à l'EBITDA, trésorerie en TTC, o
     assert.ok(lignes.some((t) => t.includes("Répartition HT non affichée")));
   });
 });
+
+describe("étage TVA — exclu du HT estimé, conservé en TTC et dans la trésorerie", () => {
+  // Activité : 12 000 € TTC encaissés (20 %), 2 400 € TTC de loyer (20 %), et des mouvements de TVA :
+  // un paiement de -12 000 € et un remboursement de +3 000 €, sans taux (aucun n'est requis).
+  const mappings = indexerMappings([mapping("ventes", "revenue", 20), mapping("loyer", "ebitda", 20), mapping("tva", "vat", null), mapping("divers", "extra_pnl", null)]);
+  const activite = [tx(12_000, [["ventes", 1]]), tx(-2_400, [["loyer", 1]])];
+  const mouvementsTva = [tx(-12_000, [["tva", 1]]), tx(3_000, [["tva", 1]])];
+  const transactions = [...activite, ...mouvementsTva];
+
+  test("HT estimé : paiement et remboursement exclus des montants, des soldes et des répartitions", () => {
+    const ht = calculerPnlEnBase(transactions, AXE, mappings, [], "ht");
+    const htSansTva = calculerPnlEnBase(activite, AXE, mappings, [], "ht");
+    proche(ht.ca, 10_000);
+    proche(ht.ebitda, 8_000);
+    assert.deepEqual([ht.ca, ht.margeBrute, ht.ebitda], [htSansTva.ca, htSansTva.margeBrute, htSansTva.ebitda]);
+    assert.equal(ht.categories.some((c) => c.etage === "vat"), false);
+    // Jamais divisés par un taux : ils ne sont tout simplement pas dans les parts HT.
+    const parts = partsEnBase(partsMappees(transactions, AXE, mappings), tauxParCategorie(mappings), "ht");
+    assert.equal(parts.some((p) => p.etage === "vat"), false);
+  });
+
+  test("TTC : mouvements de TVA présents, montants et signes réels, sur leur propre ligne", () => {
+    const ttc = calculerPnlEnBase(transactions, AXE, mappings, [], "ttc");
+    assert.equal(ttc.tva, -9_000);
+    assert.equal(ttc.extraPnl, 0);
+    assert.equal(ttc.ebitda, 9_600);
+    assert.equal(ttc.categories.find((c) => c.sourceCategoryId === "tva")?.montant, -9_000);
+  });
+
+  test("trésorerie : TVA comprise dans le Cash flow opérationnel et la Variation de trésorerie, dans les deux lectures", () => {
+    const ttc = calculerPnlEnBase(transactions, AXE, mappings, [], "ttc");
+    const ht = calculerPnlEnBase(transactions, AXE, mappings, [], "ht");
+    assert.equal(ttc.cashFlowOperationnel, 9_600 - 9_000);
+    assert.equal(ht.cashFlowOperationnel, ttc.cashFlowOperationnel);
+    assert.equal(ht.variationTresorerie, ttc.variationTresorerie);
+    assert.equal(ht.tva, -9_000);
+  });
+
+  test("écran Cash flow : TVA incluse hors financement comme financement compris", () => {
+    const parts = partsMappees(transactions, AXE, mappings);
+    for (const financementCompris of [false, true]) {
+      const vue = calculerDetail(parts, "cash_flow", { categorie: null, mois: null }, PERIODE, [], { financementCompris });
+      assert.equal(vue.kpi.montant, 600, `financementCompris=${financementCompris}`);
+      assert.equal(vue.transactions.filter((p) => p.etage === "vat").length, 2);
+    }
+  });
+
+  test("remapper une catégorie d'Extra P&L vers TVA : totaux TTC et trésorerie inchangés, jamais comptée deux fois", () => {
+    const enExtra = indexerMappings([mapping("ventes", "revenue", 20), mapping("loyer", "ebitda", 20), mapping("tva", "extra_pnl", null)]);
+    const avant = calculerPnl(transactions, AXE, enExtra);
+    const apres = calculerPnl(transactions, AXE, mappings);
+    assert.equal(apres.cashFlowOperationnel, avant.cashFlowOperationnel);
+    assert.equal(apres.variationTresorerie, avant.variationTresorerie);
+    assert.equal(apres.ebitda, avant.ebitda);
+    assert.deepEqual([avant.extraPnl, avant.tva], [-9_000, 0]);
+    assert.deepEqual([apres.extraPnl, apres.tva], [0, -9_000]);
+    assert.equal(apres.ebitda + apres.extraPnl + apres.tva, apres.cashFlowOperationnel);
+  });
+
+  test("aucun taux requis : la catégorie TVA ne rend pas la couverture HT incomplète", () => {
+    const ht = calculerPnlEnBase(transactions, AXE, mappings, [], "ht");
+    for (const indicateur of ["ca", "margeBrute", "margeContributive", "ebitda"] as const) {
+      assert.equal(ht.couvertures![indicateur].complete, true, indicateur);
+    }
+  });
+
+  test("analyse d'écarts (Cash flow, TTC) : la TVA est une contribution distincte, réconciliation exacte", () => {
+    const a = donneesPeriode(activite, AXE, mappings, [], PERIODE);
+    const b = donneesPeriode(transactions, AXE, mappings, [], PERIODE);
+    const comparaison = comparerPeriodes(a, b);
+    assert.equal(comparaison.variationTva, -9_000);
+    assert.equal(comparaison.etages.find((e) => e.etage === "vat")?.contribution, -9_000);
+    proche(comparaison.etages.reduce((s, e) => s + e.contribution, 0), comparaison.ecart);
+    proche(comparaison.variationEbitda + comparaison.variationExtraPnl + comparaison.variationTva + comparaison.variationFinancements, comparaison.ecart);
+    // Sans mouvement de TVA sur aucune des deux périodes : pas de marche « TVA : 0 ».
+    assert.equal(comparerPeriodes(a, a).etages.some((e) => e.etage === "vat"), false);
+  });
+
+  test("aucune transaction source modifiée : seule la lecture change", () => {
+    const copie = JSON.stringify(transactions);
+    calculerPnlEnBase(transactions, AXE, mappings, [], "ht");
+    calculerPnlEnBase(transactions, AXE, mappings, [], "ttc");
+    assert.equal(JSON.stringify(transactions), copie);
+  });
+});
