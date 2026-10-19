@@ -3,7 +3,7 @@
 import MentionTTC from "./MentionTTC";
 import { useState } from "react";
 import { formatMontant } from "@/lib/format";
-import { estEtageEconomique, estTauxTvaValide, LIBELLE_TVA_NON_APPLICABLE, LIBELLE_TVA_SANS_OBJET, TAUX_TVA_PROPOSES } from "@/lib/pastHtEstime";
+import { estEtageConvertiEnHt, estTauxTvaValide, LIBELLE_TVA_NON_APPLICABLE, LIBELLE_TVA_SANS_OBJET, TAUX_TVA_PROPOSES } from "@/lib/pastHtEstime";
 import {
   EtagePnl,
   ETAGES_PNL,
@@ -26,7 +26,8 @@ const AUTRE = "autre";
 
 /**
  * Taux de TVA estimé d'une catégorie : « Non défini » par défaut (jamais prérempli), un taux
- * courant, ou un autre taux saisi. Sans objet pour les étages de trésorerie, jamais convertis.
+ * courant, ou un autre taux saisi. Sans objet pour Virements internes & Financement (jamais converti)
+ * et pour la TVA (exclue du HT).
  */
 function SelecteurTva({ ligne, onChange }: { ligne: LigneMapping; onChange: (taux: number | null) => void }) {
   const taux = ligne.vatRate ?? null;
@@ -43,7 +44,7 @@ function SelecteurTva({ ligne, onChange }: { ligne: LigneMapping; onChange: (tau
       </span>
     );
   }
-  if (ligne.pnlStage !== null && !estEtageEconomique(ligne.pnlStage)) {
+  if (ligne.pnlStage !== null && !estEtageConvertiEnHt(ligne.pnlStage)) {
     return <span className="passe-mapping__tva-sans-objet" title={LIBELLE_TVA_SANS_OBJET}>Sans objet</span>;
   }
   const valider = () => {

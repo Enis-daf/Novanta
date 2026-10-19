@@ -13,9 +13,13 @@
  *  - part de l'étage TVA (paiements et remboursements de TVA) : EXCLUE de la lecture HT, dans les
  *    deux sens — ni convertie, ni divisée par un taux. Elle reste dans la lecture TTC et dans toute
  *    la trésorerie (Cash flow opérationnel, Variation de trésorerie), toujours calculée en TTC ;
- *  - part d'un étage de TRÉSORERIE (Extra P&L, Virements internes & Financement) : jamais convertie.
- *    Le Cash flow opérationnel et la Variation de trésorerie sont des flux bancaires réels : ils
- *    restent TTC et sont toujours calculés sur leur propre base TTC, jamais à partir d'un EBITDA HT ;
+ *  - part de l'Extra P&L : convertie comme une part économique (taux de sa catégorie ; taux non
+ *    défini : signalée, jamais assimilée à 0 %). Elle compose le Cash flow opérationnel HT estimé =
+ *    EBITDA HT + Extra P&L HT, dernier résultat chiffré de la lecture HT — une lecture de gestion,
+ *    pas une variation bancaire ;
+ *  - part de Virements internes & Financement : jamais convertie, et sans objet en lecture HT. La
+ *    Variation de trésorerie n'existe qu'en TTC : jamais de « Variation de trésorerie HT », jamais
+ *    un EBITDA HT additionné à des flux TTC ;
  *  - ajustement de gestion (variation de stock, et tout autre ajustement saisi) : jamais converti.
  *    Ce sont des valeurs de gestion saisies dans Novanta, pas des flux soumis à TVA : un stock se
  *    valorise hors taxe, et le diviser par 1,2 le convertirait à tort. Il est repris tel quel dans
@@ -40,6 +44,8 @@ export const LIBELLE_ECARTS_EN_TTC = `L'analyse d'écarts porte sur le Cash flow
 export const LIBELLE_CASH_FLOW_TTC = `Le cash flow est toujours présenté en ${MENTION_TTC}, quel que soit le mode de reporting sélectionné.`;
 export const LIBELLE_TVA_SANS_OBJET = `Flux de trésorerie : toujours lu en ${MENTION_TTC}`;
 export const LIBELLE_TVA_NON_APPLICABLE = "Non applicable à ce type de mouvement.";
+// Écran Général en HT estimé : la Variation de trésorerie n'a pas de lecture HT, elle renvoie au TTC.
+export const LIBELLE_VOIR_TTC = `Voir onglet ${MENTION_TTC}`;
 
 export type BaseMontants = "ttc" | "ht";
 
@@ -76,6 +82,13 @@ export function estEtageEconomique(etage: EtagePnl): boolean {
   return ETAGES_ECONOMIQUES.includes(etage);
 }
 
+/** Étages dont les parts sont converties en HT estimé : l'exploitation, et l'Extra P&L. */
+export const ETAGES_CONVERTIS_EN_HT: readonly EtagePnl[] = [...ETAGES_ECONOMIQUES, "extra_pnl"];
+
+export function estEtageConvertiEnHt(etage: EtagePnl): boolean {
+  return ETAGES_CONVERTIS_EN_HT.includes(etage);
+}
+
 /** Taux de TVA de chaque catégorie (null = non défini), d'après les correspondances. */
 export function tauxParCategorie(mappings: ReadonlyMap<string, MappingCategorie> | MappingCategorie[]): ReadonlyMap<string, number | null> {
   const liste = Array.isArray(mappings) ? mappings : [...mappings.values()];
@@ -95,14 +108,14 @@ export function partsEnBase(parts: PartMappee[], taux: ReadonlyMap<string, numbe
   if (base === "ttc") return parts;
   return parts.filter((part) => part.etage !== ETAGE_EXCLU_DU_HT).map((part) => {
     if (part.montantTtc !== undefined) throw new Error("Part déjà convertie : une seule conversion par part.");
-    if (!estEtageEconomique(part.etage)) return { ...part, montantTtc: part.montant };
+    if (!estEtageConvertiEnHt(part.etage)) return { ...part, montantTtc: part.montant };
     const tauxCategorie = taux.get(part.sourceCategoryId) ?? null;
     if (tauxCategorie === null) return { ...part, montantTtc: part.montant, tvaManquante: true };
     return { ...part, montant: montantHtEstime(part.montant, tauxCategorie), montantTtc: part.montant };
   });
 }
 
-export type IndicateurEconomique = "ca" | "margeBrute" | "margeContributive" | "ebitda";
+export type IndicateurEconomique = "ca" | "margeBrute" | "margeContributive" | "ebitda" | "cashFlowOperationnel";
 
 /** Étages dont les montants composent chaque indicateur économique. */
 export const ETAGES_DE_L_INDICATEUR: Record<IndicateurEconomique, readonly EtagePnl[]> = {
@@ -110,6 +123,8 @@ export const ETAGES_DE_L_INDICATEUR: Record<IndicateurEconomique, readonly Etage
   margeBrute: ["revenue", "gross_margin"],
   margeContributive: ["revenue", "gross_margin", "contribution_margin"],
   ebitda: ["revenue", "gross_margin", "contribution_margin", "ebitda"],
+  // Lecture HT seulement : EBITDA HT + Extra P&L HT (jamais la TVA ni le financement).
+  cashFlowOperationnel: ["revenue", "gross_margin", "contribution_margin", "ebitda", "extra_pnl"],
 };
 
 export interface PnlEnBase extends Pnl {
@@ -124,8 +139,10 @@ export interface PnlEnBase extends Pnl {
  *  - Marge brute, Marge contributive, EBITDA : recalculés à partir de ces composantes (ajustements
  *    de gestion compris, non convertis) ;
  *  - ratios : HT sur HT ;
- *  - Extra P&L, TVA, Financement, Cash flow opérationnel, Variation de trésorerie : ceux du P&L TTC,
- *    à l'identique (la ligne TVA n'est pas présentée en lecture HT, mais la trésorerie la compte) ;
+ *  - Extra P&L : somme de ses parts converties ; Cash flow opérationnel HT estimé = EBITDA HT +
+ *    Extra P&L HT (ajustements de gestion de l'Extra P&L compris, ceux de l'EBITDA déjà dedans) ;
+ *  - TVA, Financement, Variation de trésorerie : ceux du P&L TTC, laissés tels quels mais SANS OBJET
+ *    en lecture HT — l'écran ne les présente pas (Variation de trésorerie : « Voir onglet TTC ») ;
  *  - catégories (répartitions) : sans la TVA.
  */
 export function calculerPnlEnBase(
@@ -172,11 +189,12 @@ export function calculerPnlEnBase(
     margeContributive,
     coutsStructure: totalEtage("ebitda"),
     ebitda,
-    // Trésorerie : TTC, toujours. Jamais EBITDA HT + flux TTC.
-    extraPnl: pnlTtc.extraPnl,
+    // Lecture HT : le dernier résultat chiffré est le Cash flow opérationnel HT estimé. Les flux
+    // suivants (TVA, financement, variation de trésorerie) restent ceux du TTC, sans objet ici.
+    extraPnl: totalEtage("extra_pnl"),
     tva: pnlTtc.tva,
     financements: pnlTtc.financements,
-    cashFlowOperationnel: pnlTtc.cashFlowOperationnel,
+    cashFlowOperationnel: ebitda + ajuste("extra_pnl"),
     variationTresorerie: pnlTtc.variationTresorerie,
     ratios: { margeBrute: ratio(margeBrute), margeContributive: ratio(margeContributive), ebitda: ratio(ebitda) },
     categories: [...parCategorie.values()],
@@ -185,6 +203,7 @@ export function calculerPnlEnBase(
       margeBrute: couvertureDe("margeBrute"),
       margeContributive: couvertureDe("margeContributive"),
       ebitda: couvertureDe("ebitda"),
+      cashFlowOperationnel: couvertureDe("cashFlowOperationnel"),
     },
   };
 }

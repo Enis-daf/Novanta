@@ -3314,6 +3314,7 @@ button.passe-cible--lien:focus-visible,
 }
 
 .passe-pnl__incomplet,
+.passe-pnl__texte,
 .passe-kpi__montant--incomplet {
   color: var(--couleur-texte-secondaire);
   font-weight: 400;
@@ -3720,4 +3721,9 @@ button.passe-cible--lien:focus-visible,
   height: 32px;
   padding-top: 0;
   padding-bottom: 0;
+}
+
+/* « Voir onglet TTC » : un renvoi, pas un montant — corps du texte courant. */
+.passe-pnl__texte {
+  font-size: 13px;
 }
