@@ -118,6 +118,31 @@ input[type="checkbox"] {
   border-bottom: 1px solid var(--couleur-filet);
 }
 
+/* Titre de l'écran (« Analyse des flux de trésorerie », « Projection de trésorerie »), juste
+   sous la ligne de l'en-tête, au même emplacement sur les deux modules (EnTeteCockpit). Les marges négatives
+   ramènent à 16 px l'écart de la grille (32 px) au-dessus et au-dessous : le titre ne repousse
+   presque pas les données. Accent : le carré rose du repère actif. */
+.titre-ecran {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: calc(var(--space-3) - var(--space-5)) 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--couleur-texte);
+}
+
+.titre-ecran::before {
+  content: "";
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  background: var(--couleur-accent);
+}
+
 /* Eyebrow partagé par tous les écrans (panneau de pilotage, connexion, abonnement,
    intégrations) — un seul endroit à faire évoluer plutôt que plusieurs déclinaisons
    quasi identiques. */
@@ -3296,12 +3321,6 @@ button.passe-cible--lien:focus-visible,
 
 .passe-kpi__montant--incomplet {
   font-size: 22px;
-}
-
-.passe-pnl__frontiere {
-  margin: var(--space-2) 0 0;
-  font-size: 12px;
-  color: var(--couleur-texte-secondaire);
 }
 
 .passe-tva-incomplete {

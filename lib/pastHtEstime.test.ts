@@ -215,14 +215,15 @@ describe("écran Général : HT estimé jusqu'à l'EBITDA, trésorerie en TTC, o
   const rendre = (pnl: ReturnType<typeof calculerPnlEnBase>, c: EcartsVsCibles | null = cibles) =>
     texte(renderToStaticMarkup(React.createElement(PasseGeneral, { pnl, cibles: c, onOuvrir: () => {}, onDefinirCible: () => {}, onConfigurerTva: () => {}, teintes: new Map() })));
 
-  test("lecture HT : « Encaissements HT estimé », « Cash flow opérationnel TTC », frontière explicite", () => {
+  test("lecture HT : « Encaissements HT estimé », « Cash flow opérationnel TTC », sans mention de frontière", () => {
     const lignes = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ht"));
     const suivi = (libelle: string) => lignes[lignes.indexOf(libelle) + 1];
     assert.equal(suivi("Encaissements"), MENTION_HT_ESTIME);
     assert.equal(suivi("Marge brute"), MENTION_HT_ESTIME);
     assert.equal(suivi("Cash flow opérationnel"), MENTION_TTC);
     assert.equal(suivi("Variation de trésorerie"), MENTION_TTC);
-    assert.ok(lignes.includes("Trésorerie : flux bancaires réels, toujours en TTC"));
+    // La mention « Trésorerie : flux bancaires réels, toujours en TTC » a été retirée du P&L.
+    assert.equal(lignes.some((t) => t.startsWith("Trésorerie :")), false);
     assert.ok(lignes.includes("10 000 €"));
     assert.ok(lignes.includes("5 200 €"), "cash flow : 12 000 − 6 000 − 800, en TTC");
   });
