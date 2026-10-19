@@ -59,7 +59,10 @@ export default function LoginForm() {
   return (
     <main className="ecran-editorial">
       <form className="carte-editoriale login-card" onSubmit={handleSubmit}>
-        <p className="eyebrow">Novanta</p>
+        <p className="eyebrow">
+          Novanta
+          <span className="carte-editoriale__rubrique">{mode === "connexion" ? "Connexion" : "Création de compte"}</span>
+        </p>
         <h1>Cockpit de trésorerie</h1>
         <p className="login-subtitle">
           {mode === "connexion" ? "Connectez-vous à votre société" : "Créez votre compte"}

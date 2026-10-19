@@ -1,6 +1,7 @@
 "use client";
 
 import MentionTTC from "./MentionTTC";
+import Cartouche from "@/components/Cartouche";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import PasseEcarts, { SelectionsEcarts } from "./PasseEcarts";
@@ -31,7 +32,7 @@ import {
   selectionParDefaut,
   serialiserSelection,
 } from "@/lib/fiscalPeriods";
-import { formatMontant, formatMontantComptable } from "@/lib/format";
+import { formatMontant, formatMontantComptable, MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
 import { teintesParCategorie } from "@/lib/dataviz";
 import {
   AjustementGestion,
@@ -1348,6 +1349,15 @@ export default function PasseTransactions({ organizationId, organizationName, ac
           )}
         </>
       )}
+      <Cartouche
+        titre="Passé"
+        lignes={[
+          { libelle: "Société", valeur: organizationName || "—" },
+          { libelle: "Période", valeur: `${formatDateCourte(periode.debut)} → ${formatDateCourte(periode.fin)}` },
+          { libelle: "Lecture", valeur: base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC },
+          { libelle: "Édité le", valeur: formatDateCourte(aujourdhui) },
+        ]}
+      />
       {/* Rappel permanent, commun à tous les onglets du module, selon la lecture choisie. */}
       {base === "ttc" ? (
         <p className="passe-disclaimer">{DISCLAIMER_PASSE}</p>

@@ -3333,3 +3333,372 @@ button.passe-cible--lien:focus-visible,
   font-size: 12px;
   color: var(--couleur-texte-secondaire);
 }
+
+/* ============================================================================================
+   DIRECTION « ARCHITECTE » — angles francs et filets d'encre pleins : un document de pilotage
+   tiré au cordeau. Plus de pilules ni de grands arrondis ; libellés d'action en capitales
+   espacées. Posée par-dessus les règles précédentes de ce fichier (elle les complète ou les
+   remplace) ; :root en tête de sélecteur leur garde la priorité sur les règles de base.
+   ============================================================================================ */
+
+
+:root {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-pilule: 3px;
+  --couleur-filet: var(--couleur-texte);
+}
+
+:root .page-intro {
+  border-bottom-width: 2px;
+}
+
+:root .selecteur,
+:root .passe-onglets__groupe {
+  border-radius: 4px;
+}
+
+:root .btn-secondaire,
+:root .btn-add,
+:root .btn-deconnexion,
+:root .passe-onglet {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Le point rose de l'option active devient un carré. */
+:root .btn-module--actif::before,
+:root .passe-onglet--actif::before {
+  border-radius: 0;
+}
+
+:root .section-titre {
+  text-transform: uppercase;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+}
+
+:root .invoice-table th,
+:root .passe-table th,
+:root .synthese-mensuelle__table th,
+:root .controle-mensuel__table th {
+  border-bottom-color: var(--couleur-texte);
+}
+
+:root .pilotage__headline-valeur {
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+/* ---------- Architecte · cohérence ---------- */
+
+/* Alertes et signalements : plus d'aplat rose arrondi, un filet rose à gauche sur le fond ivoire. */
+:root .passe-non-categorise--alerte,
+:root .login-erreur,
+:root .passe-axe-a-configurer,
+:root .passe-statut--a-mapper,
+:root .bandeau-mode-local {
+  background: var(--couleur-fond);
+  border: none;
+  border-left: 3px solid var(--couleur-accent);
+  border-radius: 0;
+}
+
+/* Informations (vert) : même construction, filet bleu-vert. */
+:root .login-info {
+  background: var(--couleur-fond);
+  border-left: 3px solid #0f766e;
+  border-radius: 0;
+}
+
+:root .bandeau-periode-filtre {
+  background: var(--couleur-fond);
+  border: 1px solid var(--couleur-texte);
+  border-left: 3px solid #0f766e;
+  border-radius: 0;
+}
+
+/* Lignes en retard : un filet rose en tête de ligne plutôt qu'une ligne entière en rose. */
+:root .row--en-retard {
+  background: transparent;
+}
+
+:root .row--en-retard td:first-child {
+  box-shadow: inset 3px 0 0 var(--couleur-accent);
+}
+
+:root .badge-retard,
+:root .passe-onglet__pastille,
+:root .consistency-item__badge {
+  border-radius: 0;
+}
+
+:root .passe-table tbody tr:hover {
+  background: var(--couleur-survol);
+}
+
+/* Graphiques : grille en filets pleins, sans pointillés (la ligne du zéro garde les siens). */
+:root .recharts-cartesian-grid line {
+  stroke-dasharray: none;
+}
+
+/* Champs des tableaux du Futur : une grille propre au repos ; le cadre apparaît au survol et à la
+   saisie. */
+:root .invoice-table input[type="text"],
+:root .invoice-table input[type="number"],
+:root .invoice-table input[type="date"],
+:root .invoice-table select,
+:root .invoice-table .date-field__bouton,
+:root .invoice-table .source-calcul-select__bouton {
+  border-color: transparent;
+  background: transparent;
+}
+
+:root .invoice-table input:hover,
+:root .invoice-table select:hover,
+:root .invoice-table .date-field__bouton:hover,
+:root .invoice-table .source-calcul-select__bouton:hover {
+  border-color: var(--couleur-bordure);
+}
+
+:root .invoice-table input:focus,
+:root .invoice-table select:focus {
+  outline: none;
+  border-color: var(--couleur-texte);
+  background: var(--couleur-fond);
+}
+
+/* ---------- Architecte · caractère ---------- */
+
+/* Sections du Futur numérotées comme les planches d'un plan : 01 Entrées, 02 Sorties… */
+:root .cockpit__col--droite {
+  counter-reset: section-futur;
+}
+
+:root .cockpit__col--droite > .section-groupe {
+  counter-increment: section-futur;
+}
+
+:root .cockpit__col--droite .section-titre::before {
+  content: counter(section-futur, decimal-leading-zero);
+  padding: 2px 6px;
+  border: 1px solid var(--couleur-texte);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--couleur-texte);
+}
+
+/* Totaux comptables : filet plein sous chaque solde intermédiaire, double filet au total final. */
+:root .passe-pnl__ligne--solde {
+  border-top-color: var(--couleur-texte);
+}
+
+:root .passe-pnl__ligne--total,
+:root .passe-pnl__bloc--cash {
+  border-top: 3px double var(--couleur-texte);
+}
+
+:root .synthese-mensuelle__table .synthese-mensuelle__total,
+:root .synthese-mensuelle__table th:last-child {
+  border-left: 1px solid var(--couleur-texte);
+}
+
+/* Cartouche (components/Cartouche.tsx) : le contexte de lecture de l'écran, comme sur un plan. */
+:root .cartouche {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  border: 1px solid var(--couleur-texte);
+  font-size: 11px;
+}
+
+:root .cartouche__titre {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--couleur-texte);
+  color: var(--couleur-fond);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+:root .cartouche__lignes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  margin: 0;
+}
+
+:root .cartouche__ligne {
+  padding: 8px 12px;
+  border-left: 1px solid var(--couleur-bordure);
+}
+
+:root .cartouche__ligne:first-child {
+  border-left: none;
+}
+
+:root .cartouche dt {
+  margin: 0 0 2px;
+  color: var(--couleur-texte-secondaire);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:root .cartouche dd {
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte);
+}
+
+/* ---------- Architecte · titres cotés, étiquettes, fiches ---------- */
+
+/* Titres de blocs cotés : un court filet d'encre au-dessus, comme une cote de plan. */
+:root .eyebrow--encre::before {
+  content: "";
+  display: block;
+  width: 24px;
+  height: 2px;
+  margin-bottom: var(--space-1);
+  background: var(--couleur-texte);
+}
+
+/* Étiquettes : une seule forme pour tous les statuts courts (En retard, nombre de catégories à
+   mapper, Connecté…) — un rectangle à filet fin, du texte en capitales. Les sélecteurs (Fixe /
+   Saisonnalisé…) restent des rails. */
+:root .badge-retard,
+:root .passe-onglet__pastille,
+:root .consistency-item__badge,
+:root .passe-statut--a-mapper,
+:root .etiquette {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 0;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+:root .passe-onglet__pastille,
+:root .passe-statut--a-mapper {
+  color: var(--couleur-accent-fonce);
+}
+
+:root .passe-onglet--actif .passe-onglet__pastille {
+  color: var(--couleur-fond);
+}
+
+:root .consistency-item__badge {
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Statut favorable : bleu-vert, précédé du carré du repère actif. */
+:root .etiquette--ok {
+  color: #0f766e;
+}
+
+:root .etiquette--ok::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+}
+
+/* Écrans secondaires en fiche technique : en-tête de carte en bandeau d'encre (marque, ornement,
+   rubrique), comme le titre du cartouche ; champs et lignes séparés par des filets. */
+:root .carte-editoriale > .eyebrow:first-child {
+  margin: calc(var(--space-6) * -1) calc(var(--space-6) * -1) var(--space-3);
+  padding: var(--space-2) var(--space-6);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--couleur-texte);
+  color: var(--couleur-accent);
+}
+
+:root .carte-editoriale > .eyebrow:first-child::after {
+  order: 1;
+}
+
+.carte-editoriale__rubrique {
+  order: 2;
+  margin-left: auto;
+  color: var(--couleur-fond);
+}
+
+:root .login-card label,
+:root .pennylane-champ label {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--couleur-bordure);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--couleur-texte-secondaire);
+}
+
+:root .billing-status {
+  row-gap: 0;
+}
+
+:root .billing-status dt,
+:root .billing-status dd {
+  padding: var(--space-1) 0;
+  border-top: 1px solid var(--couleur-bordure);
+}
+
+:root .billing-status dt {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ---------- Architecte · grille ---------- */
+
+/* Une seule hauteur de contrôle sur la grille de 8 px : 32 px pour les boutons, champs et
+   sélecteurs des barres d'outils (la hauteur des rails), 26 px pour les options à l'intérieur
+   d'un rail. Les petits contrôles des tableaux gardent leur taille propre. */
+:root .btn-secondaire,
+:root .btn-add,
+:root .btn-deconnexion {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+:root .selecteur .btn-secondaire,
+:root .passe-onglet {
+  min-height: 26px;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+:root .invoice-table .btn-secondaire,
+:root .invoice-table .btn-add,
+:root .rentree-saisonnalite__uniforme {
+  min-height: 0;
+}
+
+:root .barre-recherche__input,
+:root .tri-controle select,
+:root .solde-initial input,
+:root .solde-initial select,
+:root .solde-initial .date-field__bouton,
+:root .passe-controles select,
+:root .passe-controle .date-field__bouton {
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+}

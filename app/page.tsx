@@ -19,6 +19,8 @@ import ControleMensuel from "@/components/ControleMensuel";
 import LoginForm from "@/components/LoginForm";
 import IconTelechargement from "@/components/IconTelechargement";
 import EnTeteCockpit from "@/components/EnTeteCockpit";
+import Cartouche from "@/components/Cartouche";
+import { formatDate } from "@/lib/format";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 const ImportHistoriqueBancaire = dynamic(() => import("@/components/ImportHistoriqueBancaire"), { ssr: false });
@@ -982,6 +984,15 @@ export default function Home() {
             onPointClickCourbe={handleClicCourbe}
           />
           <SyntheseMensuelle synthese={syntheseMensuelle} />
+          <Cartouche
+            titre="Futur"
+            lignes={[
+              { libelle: "Relevé du", valeur: formatDate(dateReleve) },
+              { libelle: "Horizon", valeur: `${horizonJours} jours` },
+              { libelle: "Montants", valeur: "TTC" },
+              { libelle: "Édité le", valeur: formatDate(todayISO()) },
+            ]}
+          />
         </div>
       </div>
       <div className="cockpit__col--droite">
