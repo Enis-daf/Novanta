@@ -37,6 +37,8 @@ export interface Pnl {
   coutsStructure: number;
   ebitda: number;
   extraPnl: number;
+  // Paiements (négatifs) et remboursements (positifs) de TVA : flux de trésorerie, après l'EBITDA.
+  tva: number;
   financements: number;
   // Voir calculerCashFlowOperationnel / calculerVariationTresorerie (ajustements de gestion compris).
   cashFlowOperationnel: number;
@@ -56,8 +58,8 @@ export interface Pnl {
  * négatif = consommée). Ce ne sont ni des étages de mapping ni des alias de l'Extra P&L ; leurs
  * formules ne sont écrites qu'ici, et les étages s'ADDITIONNENT toujours avec leur signe réel.
  *
- *  - Cash flow opérationnel = EBITDA + Extra P&L : ce que l'activité génère ou consomme. C'est la
- *    lecture « hors financement » de l'écran Cash flow.
+ *  - Cash flow opérationnel = EBITDA + Extra P&L + TVA : ce que l'activité génère ou consomme,
+ *    TVA payée ou remboursée comprise. C'est la lecture « hors financement » de l'écran Cash flow.
  *  - Variation de trésorerie = Cash flow opérationnel + Virements internes & Financement : le
  *    mouvement bancaire complet, aucun flux n'en est retiré. C'est la lecture « financement
  *    compris » de l'écran Cash flow.
@@ -65,8 +67,8 @@ export interface Pnl {
 export const LIBELLE_CASH_FLOW_OPERATIONNEL = "Cash flow opérationnel";
 export const LIBELLE_VARIATION_TRESORERIE = "Variation de trésorerie";
 
-export function calculerCashFlowOperationnel(ebitda: number, extraPnl: number): number {
-  return ebitda + extraPnl;
+export function calculerCashFlowOperationnel(ebitda: number, extraPnl: number, tva: number): number {
+  return ebitda + extraPnl + tva;
 }
 
 export function calculerVariationTresorerie(cashFlowOperationnel: number, financements: number): number {
@@ -89,6 +91,7 @@ export function calculerPnl(
     contribution_margin: 0,
     ebitda: 0,
     extra_pnl: 0,
+    vat: 0,
     financing: 0,
   };
   const parCategorie = new Map<string, PnlCategorie>();
@@ -121,7 +124,7 @@ export function calculerPnl(
   const margeBrute = caAjuste + ajustes("gross_margin");
   const margeContributive = margeBrute + ajustes("contribution_margin");
   const ebitda = margeContributive + ajustes("ebitda");
-  const cashFlowOperationnel = calculerCashFlowOperationnel(ebitda, ajustes("extra_pnl"));
+  const cashFlowOperationnel = calculerCashFlowOperationnel(ebitda, ajustes("extra_pnl"), ajustes("vat"));
 
   return {
     ca: totaux.revenue,
@@ -132,6 +135,7 @@ export function calculerPnl(
     coutsStructure: totaux.ebitda,
     ebitda,
     extraPnl: totaux.extra_pnl,
+    tva: totaux.vat,
     financements: totaux.financing,
     cashFlowOperationnel,
     variationTresorerie: calculerVariationTresorerie(cashFlowOperationnel, ajustes("financing")),
@@ -147,6 +151,7 @@ export function calculerPnl(
       contribution_margin: lignesAjustements.filter((l) => l.etage === "contribution_margin"),
       ebitda: lignesAjustements.filter((l) => l.etage === "ebitda"),
       extra_pnl: lignesAjustements.filter((l) => l.etage === "extra_pnl"),
+      vat: lignesAjustements.filter((l) => l.etage === "vat"),
       financing: lignesAjustements.filter((l) => l.etage === "financing"),
     },
     nonMappees: {

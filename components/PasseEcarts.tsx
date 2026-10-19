@@ -559,6 +559,7 @@ export default function PasseEcarts({
               <p className="passe-message">
                 Dont variation d&apos;EBITDA : {signe(comparaison.variationEbitda)} · variation d&apos;Extra P&amp;L :{" "}
                 {signe(comparaison.variationExtraPnl)}
+                {comparaison.variationTva !== 0 && <> · variation de TVA : {signe(comparaison.variationTva)}</>}
                 {financementCompris && <> · variation des virements internes &amp; financement : {signe(comparaison.variationFinancements)}</>}. Cliquez sur une
                 contribution pour voir ses catégories.
               </p>
