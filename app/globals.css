@@ -6,7 +6,22 @@
   --couleur-texte-secondaire: #6b7280;
   --couleur-accent: #f02894;
   --couleur-accent-fonce: #c10068;
-  --couleur-bordure: #e5e7eb;
+  /* Rose des actions principales (boutons pleins) : le rose du deck (#f02894) ne donne que 3,8:1
+     sous un texte ivoire ; cette nuance atteint 4,9:1 (AA) sans quitter la famille. Le #f02894
+     reste celui des accents graphiques (ornement, onglet actif, courbe, bulles). */
+  --couleur-accent-action: #d6177c;
+  /* Séparateurs et contours de champs : gris chaud accordé au fond ivoire (l'ancien #e5e7eb,
+     froid, tirait vers le bleu sur l'ivoire). */
+  --couleur-bordure: #e8e5dc;
+  /* Contour fin des cartes et des boutons secondaires : le bleu nuit, très atténué — comme les
+     cartes du deck, dessinées par un simple filet, sans ombre ni aplat. */
+  --couleur-filet: rgba(3, 10, 22, 0.16);
+  /* Survol des contrôles neutres : un voile de bleu nuit plutôt qu'un aplat gris. */
+  --couleur-survol: rgba(3, 10, 22, 0.05);
+  /* Rail des sélecteurs (onglets, Passé / Futur, HT / TTC…) et libellé de leurs options au repos :
+     choisir se lit sur un rail gris pâle, agir sur une pilule isolée à contour (.btn-secondaire). */
+  --couleur-rail: rgba(3, 10, 22, 0.06);
+  --couleur-texte-option: #3d4350;
 
   /* Rythme d'espacement unique pour toute l'app : page > section > bloc > contrôle. */
   --space-1: 8px;
@@ -22,6 +37,7 @@
   --radius-sm: 6px;
   --radius-md: 12px;
   --radius-lg: 24px;
+  --radius-pilule: 999px;
 }
 
 * {
@@ -36,6 +52,8 @@ body {
   color: var(--couleur-texte);
   font-family: var(--font-lexend), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
@@ -43,39 +61,24 @@ body {
   position: relative;
 }
 
-/* Même signature décorative que .ecran-editorial, en très discret, réservée aux pages qui
-   contiennent le cockpit (:has évite de la dupliquer avec les cercles déjà présents sur
-   .ecran-editorial — connexion/abonnement/intégrations). Position fixed : aucun effet sur le
-   scroll interne du panneau de pilotage ni sur les popovers positionnés dans le cockpit. Opacité
-   réduite pour ne jamais entrer en concurrence avec les tableaux denses. */
-body:has(.cockpit)::before,
-body:has(.cockpit)::after {
-  content: "";
-  position: fixed;
-  border-radius: 50%;
-  z-index: -1;
-  pointer-events: none;
+/* Focus clavier commun à tous les contrôles des deux modules : un anneau rose, décollé du
+   contrôle. Les champs qui signalent déjà leur focus par leur bordure gardent leur règle. */
+:where(a, button, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--couleur-accent);
+  outline-offset: 2px;
 }
 
-/* Toutes deux ancrées en haut : c'est la seule zone du cockpit qui n'est jamais recouverte par une
-   surface opaque (panneau de pilotage à gauche, tableaux à droite) — en bas, une bulle serait
-   simplement invisible, cachée sous ces blocs. */
-body:has(.cockpit)::before {
-  width: 34vw;
-  height: 34vw;
-  left: -14vw;
-  top: -20vw;
-  background: var(--couleur-fond-alt-vert);
-  opacity: 0.6;
-}
-
-body:has(.cockpit)::after {
-  width: 22vw;
-  height: 22vw;
-  right: -9vw;
-  top: -9vw;
-  background: var(--couleur-fond-alt-rose);
-  opacity: 0.6;
+/* Ornement signature du deck (filet — point — filet), en rose : un repère, jamais un titre.
+   Utilisé dans l'en-tête et sur les états d'attente, purement décoratif (aria-hidden). */
+.ornement {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 52px;
+  height: 7px;
+  background:
+    linear-gradient(var(--couleur-accent), var(--couleur-accent)) left center / 19px 1px no-repeat,
+    linear-gradient(var(--couleur-accent), var(--couleur-accent)) right center / 19px 1px no-repeat,
+    radial-gradient(circle, var(--couleur-accent) 3px, transparent 3.5px) center / 7px 7px no-repeat;
 }
 
 button,
@@ -110,9 +113,9 @@ input[type="checkbox"] {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--space-4);
-  padding-bottom: var(--space-1);
-  margin-bottom: var(--space-2);
-  border-bottom: 1px solid var(--couleur-bordure);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--couleur-filet);
 }
 
 /* Eyebrow partagé par tous les écrans (panneau de pilotage, connexion, abonnement,
@@ -122,9 +125,11 @@ input[type="checkbox"] {
   margin: 0 0 var(--space-1);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--couleur-accent);
+  /* Rose foncé en petit corps (6:1 sur l'ivoire), comme les petits textes roses du deck ; le rose
+     vif est réservé aux tailles où il reste lisible (.eyebrow--grand). */
+  color: var(--couleur-accent-fonce);
 }
 
 /* Variante ponctuelle pour "Projection de trésorerie" (Dashboard) : plus grande que .eyebrow (12px)
@@ -132,6 +137,8 @@ input[type="checkbox"] {
    deux. Sans toucher au .eyebrow partagé par tous les autres écrans. */
 .eyebrow--grand {
   font-size: 19px;
+  letter-spacing: 0.1em;
+  color: var(--couleur-accent);
 }
 
 /* Variante en encre pour les titres de blocs du module Passé : même typographie (capitales
@@ -145,29 +152,36 @@ input[type="checkbox"] {
    directement suivi du nom du produit en noir, sur une seule ligne — pas de gros H1 séparé. */
 .page-intro__titre-compact {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .page-intro__marque {
-  color: var(--couleur-accent);
+  color: var(--couleur-accent-fonce);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.16em;
 }
 
 .page-intro__produit {
   color: var(--couleur-texte);
+  font-size: 15px;
+  letter-spacing: -0.01em;
 }
 
 .page-intro__actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
 .page-intro__email {
   font-size: 13px;
+  font-weight: 300;
   color: var(--couleur-texte-secondaire);
   margin-right: var(--space-1);
 }
@@ -280,7 +294,7 @@ input[type="checkbox"] {
   padding: 0;
   font-size: 26px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.025em;
   color: var(--couleur-texte);
   font-family: inherit;
   background: none;
@@ -316,7 +330,7 @@ input[type="checkbox"] {
   max-height: calc(100vh - 2 * var(--space-4));
   background: var(--couleur-fond);
   color: var(--couleur-texte);
-  border: 1px solid var(--couleur-bordure);
+  border: 1px solid var(--couleur-filet);
   border-radius: var(--radius-lg);
   padding: var(--space-5);
   display: flex;
@@ -381,64 +395,6 @@ input[type="checkbox"] {
   isolation: isolate;
 }
 
-/* Bulle rose : ANCRÉE AU CONTENU (tout en haut de .pilotage__scroll, juste avant Dashboard),
-   comme la bulle verte — défile avec le reste et disparaît en scrollant, ce n'est plus une couche
-   fixée au cadre du panneau. Même construction que .pilotage__decor-verte : ancre pleine largeur/
-   hauteur nulle, ::before pour le cercle. Dimensions/position du cercle inchangées par rapport à
-   l'ancienne version fixe (750px, right:-645px, top:-325px) : seul le mécanisme d'ancrage change. */
-.pilotage__decor-rose {
-  position: relative;
-  height: 0;
-  z-index: -1;
-  pointer-events: none;
-}
-
-.pilotage__decor-rose::before {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-  width: 750px;
-  height: 750px;
-  right: -645px;
-  top: -325px;
-  background: var(--couleur-fond-alt-rose);
-}
-
-/* Bulle verte : ANCRÉE AU CONTENU (juste après le titre "Synthèse mensuelle", avant le tableau,
-   dans le JSX) — défile avec le reste et disparaît si on remonte. position:relative + height:0 :
-   ancre de largeur pleine mais de hauteur nulle (aucun impact sur le flow), qui sert de repère à
-   son propre ::before pour le bord SUPÉRIEUR (juste sous le titre, qui reste non décoré, top:0 =
-   largeur nulle exactement à cet endroit, quel que soit le rayon ci-dessous). Le bord GAUCHE et le
-   bord INFÉRIEUR, eux, doivent atteindre le vrai bord du panneau, en miroir de la bulle rose (vrai
-   bord haut + droit) : la zone de découpe (.synthese-mensuelle__corps ci-dessous) s'étend bien
-   jusque-là. Cercle (pas une ellipse — l'ellipse essayée entre-temps donnait une forme trop
-   étirée/pas naturelle), avec le même rapport centre/ancre que la toute première version (avant
-   tous ces ajustements de bord), juste redimensionné pour que son point le plus large tombe pile à
-   la hauteur où la zone de découpe se termine (voir ::before). */
-.pilotage__decor-verte {
-  position: relative;
-  height: 0;
-  z-index: -1;
-  pointer-events: none;
-}
-
-.pilotage__decor-verte::before {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-  /* Cercle (width = height, comme la toute première version à 900px/450 de rayon, et comme la bulle
-     rose). Rayon = hauteur de .synthese-mensuelle__corps (~236px) : le point le plus large du cercle
-     tombe alors pile à la hauteur où la zone de découpe se termine, au lieu d'être caché hors champ.
-     left = même décalage par rapport à l'ancre que la version d'origine (-60px de son propre rayon,
-     soit ancre - 60), pour garder le même "style" de départ (centre légèrement à gauche de l'ancre),
-     juste recalculé pour le nouveau rayon : -60 - 236 = -296px. */
-  width: 472px;
-  height: 472px;
-  left: -296px;
-  top: 0;
-  background: var(--couleur-fond-alt-vert);
-}
-
 .bandeau-mode-local {
   grid-column: 1 / -1;
   background: var(--couleur-fond-alt-rose);
@@ -458,11 +414,11 @@ input[type="checkbox"] {
   justify-content: space-between;
   gap: 16px;
   background: var(--couleur-fond-alt-vert);
-  border: 1px solid var(--couleur-accent-fonce);
+  border: 1px solid var(--couleur-filet);
   border-radius: var(--radius-md);
-  padding: 10px 16px;
+  padding: 12px 18px;
   margin-bottom: 16px;
-  box-shadow: 0 2px 8px rgba(3, 10, 22, 0.1);
+  box-shadow: 0 8px 24px -12px rgba(3, 10, 22, 0.18);
 }
 
 .bandeau-periode-filtre__texte {
@@ -497,13 +453,29 @@ input[type="checkbox"] {
   color: var(--couleur-texte-secondaire);
 }
 
+/* États d'attente et d'erreur d'accès (les deux modules) : l'ornement du deck au-dessus du
+   message, pour qu'un écran d'attente appartienne déjà à l'application. */
 .cockpit-chargement {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: var(--space-3);
   min-height: 100vh;
   color: var(--couleur-texte-secondaire);
   font-size: 14px;
+  font-weight: 300;
+  letter-spacing: 0.01em;
+}
+
+.cockpit-chargement::before {
+  content: "";
+  width: 52px;
+  height: 7px;
+  background:
+    linear-gradient(var(--couleur-accent), var(--couleur-accent)) left center / 19px 1px no-repeat,
+    linear-gradient(var(--couleur-accent), var(--couleur-accent)) right center / 19px 1px no-repeat,
+    radial-gradient(circle, var(--couleur-accent) 3px, transparent 3.5px) center / 7px 7px no-repeat;
 }
 
 .cockpit-erreur-acces {
@@ -580,6 +552,7 @@ input[type="checkbox"] {
 .pilotage__headline-label {
   margin: 0 0 6px;
   font-size: 14px;
+  font-weight: 300;
   color: var(--couleur-texte-secondaire);
 }
 
@@ -588,7 +561,8 @@ input[type="checkbox"] {
   font-size: 56px;
   line-height: 1;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
   color: var(--couleur-texte);
 }
 
@@ -613,6 +587,8 @@ input[type="checkbox"] {
   margin: 0;
   font-size: 22px;
   font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
   color: var(--couleur-texte);
 }
 
@@ -733,7 +709,7 @@ input[type="checkbox"] {
   font-weight: 600;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
 }
 
 .synthese-mensuelle__total {
@@ -776,7 +752,7 @@ input[type="checkbox"] {
   font-weight: 600;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
 }
 
 .controle-mensuel__net {
@@ -819,7 +795,7 @@ input[type="checkbox"] {
   font-weight: 600;
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
 }
 
 .col-montant {
@@ -1062,16 +1038,18 @@ input[type="checkbox"] {
   background: var(--couleur-bordure);
 }
 
+/* Action principale : pilule pleine en rose d'action, comme les badges du deck. */
 .btn-add {
   margin-top: 10px;
-  border: 1px solid var(--couleur-accent);
-  background: var(--couleur-accent);
-  border-radius: var(--radius-sm);
-  padding: 6px 12px;
+  border: 1px solid var(--couleur-accent-action);
+  background: var(--couleur-accent-action);
+  border-radius: var(--radius-pilule);
+  padding: 6px 14px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  color: #fffefa;
+  color: var(--couleur-fond);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .btn-add:hover {
@@ -1079,7 +1057,8 @@ input[type="checkbox"] {
   border-color: var(--couleur-accent-fonce);
 }
 
-.btn-add:disabled {
+.btn-add:disabled,
+.btn-add:disabled:hover {
   background: var(--couleur-bordure);
   border-color: var(--couleur-bordure);
   color: var(--couleur-texte-secondaire);
@@ -1106,30 +1085,33 @@ input[type="checkbox"] {
   min-width: 200px;
 }
 
+/* Fixe / Saisonnalisé (et équivalents) : un sélecteur, en version compacte du rail .selecteur. */
 .mode-montant-toggle {
   display: inline-flex;
-  border: 1px solid var(--couleur-bordure);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--radius-pilule);
+  background: var(--couleur-rail);
   margin-bottom: 4px;
 }
 
 .mode-montant-toggle button {
   border: none;
-  background: var(--couleur-fond);
+  border-radius: var(--radius-pilule);
+  background: transparent;
   padding: 2px 8px;
   font-size: 10px;
   font-weight: 600;
   cursor: pointer;
-  color: var(--couleur-texte-secondaire);
+  color: var(--couleur-texte-option);
 }
 
-.mode-montant-toggle button:first-child {
-  border-right: 1px solid var(--couleur-bordure);
+.mode-montant-toggle button:hover {
+  background: var(--couleur-survol);
 }
 
 .mode-montant-toggle button.actif {
-  background: var(--couleur-accent);
+  background: var(--couleur-texte);
   color: var(--couleur-fond);
 }
 
@@ -1237,7 +1219,7 @@ input[type="checkbox"] {
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
   color: var(--couleur-texte-secondaire);
 }
 
@@ -1335,7 +1317,7 @@ input[type="checkbox"] {
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
   color: var(--couleur-texte-secondaire);
 }
 
@@ -1424,23 +1406,22 @@ input[type="checkbox"] {
     overflow-y: visible;
   }
 
-  /* Les deux bulles s'ancrent sur elles-mêmes (position:relative), pas sur .pilotage — leur
-     mécanisme ne dépend donc pas de son passage en position:static ci-dessus. Masquées ici par
-     choix (moins de pertinence sur petit écran), pas par nécessité technique. */
-  .pilotage__decor-rose,
-  .pilotage__decor-verte {
-    display: none;
-  }
 }
 
+/* Action secondaire : la même pilule, dessinée par un filet bleu nuit (les cartes du deck). Au
+   survol, le filet se fonce et un voile très léger apparaît — jamais de rose sur une action
+   secondaire. Partagé par les deux modules et l'en-tête. */
 .btn-secondaire {
-  border: 1px solid var(--couleur-bordure);
-  background: var(--couleur-fond);
-  border-radius: var(--radius-sm);
-  padding: 6px 12px;
+  border: 1px solid var(--couleur-filet);
+  background: transparent;
+  border-radius: var(--radius-pilule);
+  padding: 6px 14px;
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   color: var(--couleur-texte);
+  text-decoration: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .btn-export {
@@ -1450,43 +1431,83 @@ input[type="checkbox"] {
 }
 
 .btn-secondaire:hover {
-  background: var(--couleur-bordure);
+  background: var(--couleur-survol);
+  border-color: var(--couleur-texte);
 }
 
 /* Couple Passé / Futur dans l'en-tête : écart interne réduit de moitié par rapport aux autres
    boutons, et écart doublé de part et d'autre pour le détacher du reste de .page-intro__actions. */
 .nav-modules {
-  display: flex;
-  align-items: center;
-  gap: calc(var(--space-2) / 2);
   margin: 0 var(--space-2);
-}
-
-/* Séparateurs "//" de part et d'autre du couple (décoratifs, hors arbre d'accessibilité). */
-.nav-modules::before,
-.nav-modules::after {
-  content: "//" / "";
-  font-size: 12px;
-  color: var(--couleur-texte-secondaire);
-}
-
-.nav-modules::before {
-  margin-right: calc(var(--space-2) / 2);
-}
-
-.nav-modules::after {
-  margin-left: calc(var(--space-2) / 2);
 }
 
 .btn-module--actif,
 .btn-module--actif:hover {
-  background: var(--couleur-accent);
-  border-color: var(--couleur-accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--couleur-texte);
   color: var(--couleur-fond);
 }
 
-.btn-secondaire:disabled {
+.btn-module--actif::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--couleur-accent);
+}
+
+/* Sélecteur : un rail gris pâle qui porte ses options (Passé / Futur, HT / TTC, Montant / Date,
+   lectures du Cash flow…). Les options n'ont pas de contour propre — c'est ce qui les distingue
+   des actions, pilules isolées à contour fin. L'option affichée reste pleine en bleu nuit avec le
+   point rose. Rayon de 20px plutôt qu'une pilule : sur une ligne, le rendu est identique ; s'il
+   passe à la ligne (mobile), le rail reste un bloc arrondi lisible. */
+.selecteur {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 20px;
+  background: var(--couleur-rail);
+}
+
+.selecteur .btn-secondaire {
+  border-color: transparent;
+  padding: 5px 13px;
+  color: var(--couleur-texte-option);
+}
+
+.selecteur .btn-secondaire:hover {
+  border-color: transparent;
+  background: var(--couleur-survol);
+  color: var(--couleur-texte);
+}
+
+.selecteur .btn-module--actif,
+.selecteur .btn-module--actif:hover {
+  background: var(--couleur-texte);
+  color: var(--couleur-fond);
+}
+
+/* Les conteneurs .passe-tri qui sont eux-mêmes un sélecteur gardent l'écart serré du rail. */
+.passe-tri.selecteur {
+  display: inline-flex;
+  gap: 2px;
+  width: fit-content;
+  align-self: flex-start;
+}
+
+/* Compteur dans une option affichée (À vérifier 3) : lisible sur le bleu nuit. */
+.btn-module--actif .passe-detail__compte {
+  color: rgba(255, 254, 250, 0.72);
+}
+
+.btn-secondaire:disabled,
+.btn-secondaire:disabled:hover {
   background: var(--couleur-bordure);
+  border-color: var(--couleur-bordure);
   color: var(--couleur-texte-secondaire);
   cursor: not-allowed;
 }
@@ -1639,30 +1660,47 @@ input[type="checkbox"] {
   justify-content: center;
   gap: var(--space-4);
   padding: var(--space-4);
+  /* Largeur de l'ombre portée de la tasse ; tout le visuel s'en déduit (voir ::before / ::after). */
+  --tasse-largeur: clamp(240px, 27vw, 420px);
 }
 
+/* La tasse du deck Caf du DAF, posée avec son ombre dans le coin bas-droit des écrans secondaires
+   (connexion, abonnement, intégrations), aux proportions exactes de la diapositive « Titre de
+   section » : l'ombre (4080844 × 3007576 EMU) touche le coin ; la tasse, de même haut que l'ombre,
+   est décalée de 9,66 % de sa largeur vers la droite et fait 56,02 % de cette largeur. Purement
+   décoratif (images de fond, hors arbre d'accessibilité), sous la carte. */
 .ecran-editorial::before,
 .ecran-editorial::after {
   content: "";
   position: absolute;
-  border-radius: 50%;
   z-index: 0;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-size: contain;
 }
 
 .ecran-editorial::before {
-  width: 46vw;
-  height: 46vw;
-  left: -18vw;
-  bottom: -20vw;
-  background: var(--couleur-fond-alt-vert);
+  right: 0;
+  bottom: 0;
+  width: var(--tasse-largeur);
+  aspect-ratio: 4080844 / 3007576;
+  background-image: url("/images/tasse-cafe-ombre.png");
 }
 
 .ecran-editorial::after {
-  width: 30vw;
-  height: 30vw;
-  right: -10vw;
-  top: -10vw;
-  background: var(--couleur-fond-alt-rose);
+  right: calc(var(--tasse-largeur) * 0.3432);
+  bottom: calc(var(--tasse-largeur) * 0.1159);
+  width: calc(var(--tasse-largeur) * 0.5602);
+  aspect-ratio: 2286000 / 2534610;
+  background-image: url("/images/tasse-cafe.png");
+}
+
+/* Sur petit écran, la carte occupe toute la largeur : la tasse passerait dessous. */
+@media (max-width: 720px) {
+  .ecran-editorial::before,
+  .ecran-editorial::after {
+    display: none;
+  }
 }
 
 .carte-editoriale {
@@ -1676,19 +1714,39 @@ input[type="checkbox"] {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  box-shadow: 0 24px 60px -24px rgba(3, 10, 22, 0.25);
+  /* Comme les panneaux Futur et Passé : un filet bleu nuit fin, sans ombre portée. */
+  border: 1px solid var(--couleur-filet);
+}
+
+/* « NOVANTA » en tête de carte, suivi de l'ornement du deck, comme dans l'en-tête du cockpit. */
+.carte-editoriale > .eyebrow:first-child {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  letter-spacing: 0.16em;
+}
+
+.carte-editoriale > .eyebrow:first-child::after {
+  content: "";
+  width: 52px;
+  height: 7px;
+  background:
+    linear-gradient(var(--couleur-accent), var(--couleur-accent)) left center / 19px 1px no-repeat,
+    linear-gradient(var(--couleur-accent), var(--couleur-accent)) right center / 19px 1px no-repeat,
+    radial-gradient(circle, var(--couleur-accent) 3px, transparent 3.5px) center / 7px 7px no-repeat;
 }
 
 .carte-editoriale h1 {
   font-size: 30px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.025em;
   margin: 0;
 }
 
 .login-subtitle {
   margin: 0 0 var(--space-2);
   font-size: 14px;
+  font-weight: 300;
   color: var(--couleur-texte-secondaire);
 }
 
@@ -1703,6 +1761,13 @@ input[type="checkbox"] {
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: 14px;
+  background: var(--couleur-fond);
+  color: var(--couleur-texte);
+}
+
+.login-card input:focus {
+  outline: none;
+  border-color: var(--couleur-accent);
 }
 
 .login-erreur {
@@ -1735,18 +1800,22 @@ input[type="checkbox"] {
   text-decoration: underline;
 }
 
+/* Sortie : action tertiaire, sans contour — elle ne rivalise pas avec la navigation. */
 .btn-deconnexion {
-  border: 1px solid var(--couleur-bordure);
-  background: var(--couleur-fond);
-  border-radius: var(--radius-sm);
-  padding: 5px 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-pilule);
+  padding: 6px 12px;
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  color: var(--couleur-texte);
+  color: var(--couleur-texte-secondaire);
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .btn-deconnexion:hover {
-  background: var(--couleur-bordure);
+  background: var(--couleur-survol);
+  color: var(--couleur-texte);
 }
 
 .billing-page__header {
@@ -1761,6 +1830,7 @@ input[type="checkbox"] {
 
 .billing-page__email {
   font-size: 13px;
+  font-weight: 300;
   color: var(--couleur-texte-secondaire);
 }
 
@@ -1784,8 +1854,15 @@ input[type="checkbox"] {
 
 .billing-actions {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
   margin-top: 6px;
+}
+
+/* Une action tient sur une ligne : la rangée passe à la ligne plutôt que de casser un libellé. */
+.billing-actions > * {
+  white-space: nowrap;
 }
 
 .pennylane-badge {
@@ -1821,6 +1898,13 @@ input[type="checkbox"] {
   border-radius: var(--radius-sm);
   padding: 8px 10px;
   font-size: 14px;
+  background: var(--couleur-fond);
+  color: var(--couleur-texte);
+}
+
+.pennylane-champ input:focus {
+  outline: none;
+  border-color: var(--couleur-accent);
 }
 
 /* Module Passé : contrôles (période, catégories, synchronisation), compteur et tableau des
@@ -1834,7 +1918,7 @@ input[type="checkbox"] {
   gap: var(--space-3);
   min-width: 0;
   background: var(--couleur-fond);
-  border: 1px solid var(--couleur-bordure);
+  border: 1px solid var(--couleur-filet);
   border-radius: var(--radius-lg);
   padding: var(--space-5);
   position: relative;
@@ -1844,51 +1928,6 @@ input[type="checkbox"] {
      position:sticky de la liste de transactions des écrans de détail. */
   isolation: isolate;
   overflow: clip;
-}
-
-/* Les deux plages pastel signature, sur le modèle de .pilotage__decor-rose / -verte, mêmes
-   couleurs aux mêmes coins que le panneau Futur : rose au coin haut-droit, verte au coin bas-gauche. Ancres de taille nulle posées sur les coins de la
-   surface (hors flux : .passe est une colonne flex avec gap), le cercle vient du ::before. */
-.passe__decor-haut,
-.passe__decor-bas {
-  position: absolute;
-  width: 0;
-  height: 0;
-  z-index: -1;
-  pointer-events: none;
-}
-
-.passe__decor-haut {
-  top: 0;
-  right: 0;
-}
-
-.passe__decor-bas {
-  bottom: 0;
-  left: 0;
-}
-
-.passe__decor-haut::before,
-.passe__decor-bas::before {
-  content: "";
-  position: absolute;
-  border-radius: 50%;
-}
-
-.passe__decor-haut::before {
-  width: 640px;
-  height: 640px;
-  right: -380px;
-  top: -380px;
-  background: var(--couleur-fond-alt-rose);
-}
-
-.passe__decor-bas::before {
-  width: 560px;
-  height: 560px;
-  left: -300px;
-  bottom: -300px;
-  background: var(--couleur-fond-alt-vert);
 }
 
 /* Une information, pas une alerte : texte secondaire, sans fond ni rose. */
@@ -2065,7 +2104,7 @@ input[type="checkbox"] {
   font-weight: 600;
   font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
   white-space: nowrap;
 }
 
@@ -2114,7 +2153,7 @@ input[type="checkbox"] {
   font-size: 12px;
   color: var(--couleur-texte);
   background: var(--couleur-fond);
-  max-width: 360px;
+  max-width: min(360px, 100%);
 }
 
 /* Plusieurs axes analytiques et aucun choisi : état explicite, le module ne tranche pas seul. */
@@ -2135,7 +2174,8 @@ input[type="checkbox"] {
   flex: 1 1 420px;
 }
 
-/* Onglets du module Passé : Transactions / Correspondance P&L. */
+/* Onglets du module Passé : même rail que les autres sélecteurs (.selecteur) — options sans
+   contour, l'onglet affiché plein en bleu nuit avec le point rose. */
 /* Deux groupes : consultation à gauche, actions (Stocks, Correspondance P&L) à droite, séparés
    par l'espace libre. Faute de place, le second groupe passe à la ligne sans se mêler au premier. */
 .passe-onglets {
@@ -2143,49 +2183,62 @@ input[type="checkbox"] {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-5);
-  border-bottom: 1px solid var(--couleur-bordure);
 }
 
+/* Chaque groupe d'onglets est un rail, comme .selecteur. */
 .passe-onglets__groupe {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
+  gap: 2px;
+  padding: 3px;
+  border-radius: 20px;
+  background: var(--couleur-rail);
 }
 
 .passe-onglet {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) 0;
-  margin-bottom: -1px;
+  gap: 6px;
+  padding: 5px 13px;
   border: none;
-  border-bottom: 2px solid transparent;
-  background: none;
+  border-radius: var(--radius-pilule);
+  background: transparent;
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--couleur-texte-secondaire);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--couleur-texte-option);
   cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .passe-onglet:hover {
+  background: var(--couleur-survol);
   color: var(--couleur-texte);
 }
 
-.passe-onglet--actif {
-  color: var(--couleur-texte);
-  border-bottom-color: var(--couleur-accent);
+.passe-onglet--actif,
+.passe-onglet--actif:hover {
+  background: var(--couleur-texte);
+  color: var(--couleur-fond);
 }
 
-/* Onglet mis en avant : toujours un onglet de navigation, simplement en rose de marque. L'état
-   actif reste lisible par le soulignement commun à tous les onglets et un texte plus soutenu. */
+.passe-onglet--actif::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--couleur-accent);
+}
+
+/* Onglet mis en avant : libellé en rose foncé tant qu'il n'est pas affiché ; affiché, il devient un
+   onglet actif comme les autres. */
 .passe-onglet--vedette,
 .passe-onglet--vedette:hover {
-  color: var(--couleur-accent);
+  color: var(--couleur-accent-fonce);
 }
 
 .passe-onglet--vedette.passe-onglet--actif {
-  color: var(--couleur-accent-fonce);
+  color: var(--couleur-fond);
 }
 
 .passe-onglet__pastille {
@@ -2194,6 +2247,7 @@ input[type="checkbox"] {
   background: var(--couleur-fond-alt-rose);
   color: var(--couleur-accent-fonce);
   font-size: 11px;
+  font-weight: 600;
 }
 
 .passe-indicateurs {
@@ -3194,12 +3248,6 @@ button.passe-cible--lien:focus-visible,
 @media (max-width: 900px) {
   .passe {
     padding: var(--space-3);
-  }
-
-  /* Masquées sur petit écran, comme celles du panneau Futur. */
-  .passe__decor-haut,
-  .passe__decor-bas {
-    display: none;
   }
 
   .passe-controles__actions {

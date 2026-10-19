@@ -267,7 +267,7 @@ export default function PastDetailDashboard({
         {/* Histogramme et, à côté, les ajustements de gestion compris dans ses barreaux. Le bloc suit
             les filtres (période, mois) mais n'en crée pas. */}
         {metrique === "cash_flow" && (
-          <div className="passe-tri" role="group" aria-label="Lecture du Cash flow">
+          <div className="passe-tri selecteur" role="group" aria-label="Lecture du Cash flow">
             {LECTURES_CASH_FLOW.map((option) => (
               <button
                 key={option.libelle}
@@ -286,7 +286,7 @@ export default function PastDetailDashboard({
           </div>
         )}
         {evolutionCouts !== null && (
-          <div className="passe-tri" role="group" aria-label="Série de l'histogramme mensuel">
+          <div className="passe-tri selecteur" role="group" aria-label="Série de l'histogramme mensuel">
             {SERIES.map((option) => (
               <button
                 key={option.cle}
@@ -376,17 +376,19 @@ export default function PastDetailDashboard({
           <>
             <div className="passe-tri" role="group" aria-label="Trier les transactions">
               <span className="passe-filtres-actifs__titre">Trier par :</span>
-              {TRIS.map((option) => (
-                <button
-                  key={option.cle}
-                  type="button"
-                  className={`btn-secondaire${tri === option.cle ? " btn-module--actif" : ""}`}
-                  aria-pressed={tri === option.cle}
-                  onClick={() => changerTri(option.cle)}
-                >
-                  {option.libelle}
-                </button>
-              ))}
+              <span className="selecteur">
+                {TRIS.map((option) => (
+                  <button
+                    key={option.cle}
+                    type="button"
+                    className={`btn-secondaire${tri === option.cle ? " btn-module--actif" : ""}`}
+                    aria-pressed={tri === option.cle}
+                    onClick={() => changerTri(option.cle)}
+                  >
+                    {option.libelle}
+                  </button>
+                ))}
+              </span>
             </div>
             <div className="passe-detail__table">
               <table className="passe-table">

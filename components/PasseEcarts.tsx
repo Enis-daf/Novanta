@@ -472,7 +472,7 @@ export default function PasseEcarts({
               catalogue={PRESETS_AVEC_MOIS}
             />
           </div>
-          <div className="passe-tri" role="group" aria-label="Lecture de l'analyse">
+          <div className="passe-tri selecteur" role="group" aria-label="Lecture de l'analyse">
             {LECTURES.map((option) => (
               <button
                 key={option.libelle}
@@ -646,20 +646,22 @@ export default function PasseEcarts({
                 ← Retour
               </button>
               <span className="passe-filtres-actifs__titre">Trier par :</span>
-              {TRIS.map((option) => (
-                <button
-                  key={option.cle}
-                  type="button"
-                  className={`btn-secondaire${tri === option.cle ? " btn-module--actif" : ""}`}
-                  aria-pressed={tri === option.cle}
-                  onClick={() => {
-                    setTri(option.cle);
-                    setNombreAffiche(PAS_AFFICHAGE);
-                  }}
-                >
-                  {option.libelle}
-                </button>
-              ))}
+              <span className="selecteur">
+                {TRIS.map((option) => (
+                  <button
+                    key={option.cle}
+                    type="button"
+                    className={`btn-secondaire${tri === option.cle ? " btn-module--actif" : ""}`}
+                    aria-pressed={tri === option.cle}
+                    onClick={() => {
+                      setTri(option.cle);
+                      setNombreAffiche(PAS_AFFICHAGE);
+                    }}
+                  >
+                    {option.libelle}
+                  </button>
+                ))}
+              </span>
             </div>
             <div className="passe-detail__table">
               <table className="passe-table">

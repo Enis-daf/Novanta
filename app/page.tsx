@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import Dashboard from "@/components/Dashboard";
 import SyntheseMensuelle from "@/components/SyntheseMensuelle";
@@ -19,7 +18,7 @@ import BandeauPeriodeFiltre from "@/components/BandeauPeriodeFiltre";
 import ControleMensuel from "@/components/ControleMensuel";
 import LoginForm from "@/components/LoginForm";
 import IconTelechargement from "@/components/IconTelechargement";
-import NavigationModules from "@/components/NavigationModules";
+import EnTeteCockpit from "@/components/EnTeteCockpit";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 const ImportHistoriqueBancaire = dynamic(() => import("@/components/ImportHistoriqueBancaire"), { ssr: false });
@@ -962,32 +961,16 @@ export default function Home() {
           Mode local — configurez Supabase (.env.local) pour sauvegarder les données.
         </div>
       )}
-      <header className="page-intro">
-        <div className="page-intro__texte">
-          <h1 className="page-intro__titre-compact">
-            <span className="page-intro__marque">Novanta</span>
-            <span className="page-intro__produit"> — cockpit de trésorerie</span>
-          </h1>
-        </div>
-        {supabaseConfigured && session && (
-          <div className="page-intro__actions">
-            <span className="page-intro__email">{session.user.email}</span>
-            <NavigationModules moduleActif="futur" passeDisponible={modulePasseActif} />
-            <Link href="/account/billing" className="btn-secondaire">
-              Abonnement
-            </Link>
-            <Link href="/account/integrations" className="btn-secondaire">
-              Intégrations
-            </Link>
-            <button type="button" className="btn-deconnexion" onClick={handleDeconnexion}>
-              Se déconnecter
-            </button>
-          </div>
-        )}
-      </header>
+      <EnTeteCockpit
+        moduleActif="futur"
+        compte={
+          supabaseConfigured && session
+            ? { email: session.user.email, passeDisponible: modulePasseActif, onDeconnexion: handleDeconnexion }
+            : undefined
+        }
+      />
       <div className="pilotage">
         <div className="pilotage__scroll">
-          <div className="pilotage__decor-rose" aria-hidden="true" />
           <Dashboard
             soldeInitial={soldeInitial}
             onChangeSoldeInitial={handleChangeSoldeInitial}

@@ -867,8 +867,6 @@ export default function PasseTransactions({ organizationId, organizationName, ac
 
   return (
     <section className="passe">
-      <div className="passe__decor-haut" aria-hidden="true" />
-      <div className="passe__decor-bas" aria-hidden="true" />
       <div className="passe-controles">
         <div className="passe-controle passe-axe">
           {/* L'onglet Écarts compare deux périodes qui lui sont propres : la période du module n'y
@@ -1104,22 +1102,24 @@ export default function PasseTransactions({ organizationId, organizationName, ac
           {!axeAConfigurer && vue !== "ecarts" && detailSignesOuvert && (nombreSignesInhabituels > 0 || nombreSignesValides > 0) && (
             <div className="passe-signes-detail">
               <div className="passe-tri" role="group" aria-label="Signes inhabituels à afficher">
-                <button
-                  type="button"
-                  className={`btn-secondaire${vueSignes === "a_verifier" ? " btn-module--actif" : ""}`}
-                  aria-pressed={vueSignes === "a_verifier"}
-                  onClick={() => setVueSignes("a_verifier")}
-                >
-                  À vérifier <span className="passe-detail__compte">{signes.aVerifier.length}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`btn-secondaire${vueSignes === "validees" ? " btn-module--actif" : ""}`}
-                  aria-pressed={vueSignes === "validees"}
-                  onClick={() => setVueSignes("validees")}
-                >
-                  Validées <span className="passe-detail__compte">{signes.validees.length}</span>
-                </button>
+                <span className="selecteur">
+                  <button
+                    type="button"
+                    className={`btn-secondaire${vueSignes === "a_verifier" ? " btn-module--actif" : ""}`}
+                    aria-pressed={vueSignes === "a_verifier"}
+                    onClick={() => setVueSignes("a_verifier")}
+                  >
+                    À vérifier <span className="passe-detail__compte">{signes.aVerifier.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-secondaire${vueSignes === "validees" ? " btn-module--actif" : ""}`}
+                    aria-pressed={vueSignes === "validees"}
+                    onClick={() => setVueSignes("validees")}
+                  >
+                    Validées <span className="passe-detail__compte">{signes.validees.length}</span>
+                  </button>
+                </span>
                 {/* Retour discret après une action ; s'efface seul. */}
                 <span className="passe-signes-detail__retour" role="status">
                   {messageSigne}
