@@ -15,7 +15,7 @@ const OPTIONS: { base: BaseMontants; libelle: string }[] = [
  */
 export default function PasseSelecteurBase({ base, onChange }: { base: BaseMontants; onChange: (base: BaseMontants) => void }) {
   return (
-    <div className="passe-tri passe-selecteur-base" role="group" aria-label="Lecture des montants">
+    <div className="passe-tri passe-selecteur-base selecteur" role="group" aria-label="Lecture des montants">
       {OPTIONS.map((option) => (
         <button
           key={option.base}

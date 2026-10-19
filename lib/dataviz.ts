@@ -14,7 +14,7 @@ export const NEUTRES = {
   encre: "#030A16",
   secondaire: "#6B7280",
   autres: "#9CA3AF", // réservé à la part "Autres"
-  bordure: "#E5E7EB",
+  bordure: "#E8E5DC",
   fond: "#FFFEFA",
 } as const;
 

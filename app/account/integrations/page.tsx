@@ -47,7 +47,10 @@ export default function IntegrationsPage() {
 
       {!supabaseConfigured && (
         <div className="carte-editoriale billing-card">
-          <p className="eyebrow">Novanta</p>
+          <p className="eyebrow">
+            Novanta
+            <span className="carte-editoriale__rubrique">Intégrations</span>
+          </p>
           <h1>Pennylane</h1>
           <p>L&apos;intégration Pennylane nécessite Supabase (.env.local) — non disponible en mode local.</p>
         </div>

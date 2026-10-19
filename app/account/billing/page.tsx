@@ -156,7 +156,10 @@ function BillingPageContent() {
       </div>
 
       <div className="carte-editoriale billing-card">
-        <p className="eyebrow">Novanta</p>
+        <p className="eyebrow">
+          Novanta
+          <span className="carte-editoriale__rubrique">Compte</span>
+        </p>
         <h1>Abonnement</h1>
 
         {success && (
