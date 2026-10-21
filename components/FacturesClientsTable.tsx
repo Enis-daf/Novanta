@@ -7,7 +7,7 @@ import {
   decalerDateISO,
   estDateValide,
   estEnRetard,
-  estMasqueeApresPaiement,
+  estFactureMasquee,
   trierParDate,
   trierParMontant,
 } from "@/lib/dates";
@@ -47,7 +47,7 @@ export default function FacturesClientsTable({
 }: FacturesClientsTableProps) {
   const router = useRouter();
   const facturesTriees = useMemo(() => {
-    const actives = factures.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt, f.settledOn ?? null));
+    const actives = factures.filter((f) => !estFactureMasquee(f));
     const dansPeriode = filtrePeriode ? actives.filter((f) => filtrePeriode.has(f.id)) : actives;
     const filtrees = filtrerFacturesClients(dansPeriode, recherche);
     return tri === "montant"
