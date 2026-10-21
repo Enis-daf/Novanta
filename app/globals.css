@@ -3389,11 +3389,7 @@ button.passe-cible--lien:focus-visible,
   font-weight: 600;
 }
 
-/* Le point rose de l'option active devient un carré. */
-:root .btn-module--actif::before,
-:root .passe-onglet--actif::before {
-  border-radius: 0;
-}
+/* Option active des sélecteurs : le repère reste un point rose (rond), malgré les angles francs. */
 
 :root .section-titre {
   text-transform: uppercase;
