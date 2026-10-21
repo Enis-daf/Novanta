@@ -13,6 +13,7 @@ import PasseSelecteurBase from "./PasseSelecteurBase";
 import { BaseMontants, calculerPnlEnBase, partsEnBase, tauxParCategorie } from "@/lib/pastHtEstime";
 import { DISCLAIMER_HT_ESTIME, DISCLAIMER_PASSE, PRECISION_HT_ESTIME } from "@/lib/pastPdfModel";
 import { baseEnregistree, cleStockageBase, LIBELLE_ECARTS_EN_TTC, libelleCouverture } from "@/lib/pastHtEstime";
+import PasseBfr from "./PasseBfr";
 import PasseStocks from "./PasseStocks";
 import PastDetailDashboard from "./PastDetailDashboard";
 import { supabase } from "@/lib/supabaseClient";
@@ -43,7 +44,7 @@ import {
 import { estMetriqueDetail, FiltresDetail, moisDeLaPeriode, partsMappees } from "@/lib/pastDetail";
 import { nomFichierPdf, pagesExportPdf } from "@/lib/pastPdfModel";
 import { calculerPnl } from "@/lib/pastPnl";
-import { donneesDeGestionACompleter } from "@/lib/pastManagementData";
+import { donneesDeGestionACompleter, moisTerminesDeLaPeriode } from "@/lib/pastManagementData";
 import {
   AnomalieSigne,
   anomaliesDeSigne,
@@ -133,6 +134,9 @@ const ONGLETS = [
   { cle: "marge_contributive", libelle: "Marge contributive" },
   { cle: "ebitda", libelle: "EBITDA" },
   { cle: "cash_flow", libelle: "Cash flow" },
+  // Toujours HT, sur factures Pennylane et stocks : ne dépend ni de la lecture HT estimé / TTC ni
+  // des transactions de la période.
+  { cle: "bfr", libelle: "BFR" },
   // Dernier du groupe de consultation : ce n'est pas un étage de plus du P&L mais une lecture
   // transversale. Mis en avant (rose de marque) même au repos, pour être repéré d'emblée.
   { cle: "ecarts", libelle: "Analyse d'écarts", vedette: true },
@@ -1051,7 +1055,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               </p>
               {selecteurAxe("passe-axe-a-configurer-select")}
             </div>
-          ) : vue === "ecarts" ? null : (
+          ) : vue === "ecarts" || vue === "bfr" ? null : (
             <div className="passe-indicateurs">
               <p className={`passe-non-categorise${nombreNonCategorisees > 0 ? " passe-non-categorise--alerte" : ""}`}>
                 {nombreNonCategorisees > 0 && <span aria-hidden="true">⚠ </span>}
@@ -1100,7 +1104,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
             </div>
           )}
 
-          {!axeAConfigurer && vue !== "ecarts" && detailSignesOuvert && (nombreSignesInhabituels > 0 || nombreSignesValides > 0) && (
+          {!axeAConfigurer && vue !== "ecarts" && vue !== "bfr" && detailSignesOuvert && (nombreSignesInhabituels > 0 || nombreSignesValides > 0) && (
             <div className="passe-signes-detail">
               <div className="passe-tri" role="group" aria-label="Signes inhabituels à afficher">
                 <span className="selecteur">
@@ -1200,7 +1204,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
             </div>
           )}
 
-          {!axeAConfigurer && vue !== "mapping" && vue !== "objectifs" && vue !== "transactions" && vue !== "stocks" && vue !== "ecarts" && pnl.nonMappees.nombreCategories > 0 && (
+          {!axeAConfigurer && vue !== "mapping" && vue !== "objectifs" && vue !== "transactions" && vue !== "stocks" && vue !== "ecarts" && vue !== "bfr" && pnl.nonMappees.nombreCategories > 0 && (
             <p className="passe-message">
               Reporting incomplet :{" "}
               {pnl.nonMappees.nombreCategories > 1
@@ -1253,6 +1257,16 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               rechargement={rechargement}
             />
             </>
+          ) : vue === "bfr" ? (
+            <PasseBfr
+              organizationId={organizationId}
+              accessToken={accessToken}
+              mois={moisTerminesDeLaPeriode(periode, aujourdhui)}
+              stocks={stocks}
+              sansStock={sansStock}
+              pennylaneConnecte={pennylaneConnecte}
+              onOuvrirStocks={() => setVue("stocks")}
+            />
           ) : vue === "stocks" ? (
             <PasseStocks
               mois={moisDeLaPeriode(periode)}
@@ -1359,7 +1373,12 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         ]}
       />
       {/* Rappel permanent, commun à tous les onglets du module, selon la lecture choisie. */}
-      {base === "ttc" ? (
+      {vue === "bfr" ? (
+        <p className="passe-disclaimer">
+          BFR toujours en HT : montants HT des factures Pennylane réelles et stocks saisis HT. Aucun taux de TVA appliqué,
+          aucune facture prévisionnelle.
+        </p>
+      ) : base === "ttc" ? (
         <p className="passe-disclaimer">{DISCLAIMER_PASSE}</p>
       ) : (
         <p className="passe-disclaimer">
