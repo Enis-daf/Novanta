@@ -119,9 +119,21 @@ export async function operationSupabase<T>(operation: () => PromiseLike<T>): Pro
 
 // --- Étape 1 : factures ---
 
+/**
+ * Instant d'un horodatage, quel que soit son format : Pennylane écrit « …T10:00:00.000+02:00 »,
+ * la base relit la même valeur en « …T08:00:00+00:00 ». Comparer les chaînes ferait passer toute
+ * facture pour modifiée — réécrite et redatée à chaque synchronisation (constaté sur le Preview).
+ */
+function instant(horodatage: string | null): number | null {
+  if (horodatage === null) return null;
+  const ms = Date.parse(horodatage);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 /** Contenu comparable d'une ligne : ce qui, s'il change, justifie une écriture. */
 function empreinte(ligne: LigneStockee): string {
-  return JSON.stringify([{ ...ligne.facture, reglements: null }, ligne.pennylaneUpdatedAt, ligne.reglements]);
+  const reglements = ligne.reglements?.etat === "dates" ? { ...ligne.reglements, recuperesLe: instant(ligne.reglements.recuperesLe) } : ligne.reglements;
+  return JSON.stringify([{ ...ligne.facture, reglements: null }, instant(ligne.pennylaneUpdatedAt), reglements]);
 }
 
 function reglementsReutilisables(ancienne: LigneStockee | undefined, facture: FactureBfr, pennylaneUpdatedAt: string | null, maintenant: string): ReglementsStockes | null {
@@ -129,7 +141,7 @@ function reglementsReutilisables(ancienne: LigneStockee | undefined, facture: Fa
   if (!ancienne || !stockes || stockes.etat !== "dates") return null;
   const validite = validiteReglementsJours(cleFacture(facture.type, facture.pennylaneId)) * MS_PAR_JOUR;
   const frais = Date.parse(maintenant) - Date.parse(stockes.recuperesLe) < validite;
-  const inchangee = pennylaneUpdatedAt !== null && ancienne.pennylaneUpdatedAt === pennylaneUpdatedAt && ancienne.facture.resteTtc === facture.resteTtc;
+  const inchangee = instant(pennylaneUpdatedAt) !== null && instant(ancienne.pennylaneUpdatedAt) === instant(pennylaneUpdatedAt) && ancienne.facture.resteTtc === facture.resteTtc;
   return frais && inchangee ? stockes : null;
 }
 
@@ -211,6 +223,9 @@ export interface ResultatReglements {
   // Plafond de l'API encore atteint après les nouvelles tentatives (autre synchronisation sur le
   // même token, par exemple) : le lot s'arrête proprement, l'appel suivant reprend.
   ralenti: boolean;
+  // Pennylane momentanément indisponible (5xx, délai dépassé) : même arrêt propre. Constaté sur le
+  // Preview : un seul 502 faisait échouer toute la synchronisation.
+  interrompu: boolean;
 }
 
 export async function daterReglements(client: ClientFacturesBfr, depot: DepotFacturesBfr, options: OptionsDatation): Promise<ResultatReglements> {
@@ -220,9 +235,10 @@ export async function daterReglements(client: ClientFacturesBfr, depot: DepotFac
   let suivante = 0;
   let erreur: unknown = null;
   let ralenti = false;
+  let interrompu = false;
 
   const travailleur = async () => {
-    while (erreur === null && !ralenti && suivante < lot.length && Date.now() - debut < options.budgetMs) {
+    while (erreur === null && !ralenti && !interrompu && suivante < lot.length && Date.now() - debut < options.budgetMs) {
       const ligne = lot[suivante++];
       await options.reserver();
       try {
@@ -234,6 +250,7 @@ export async function daterReglements(client: ClientFacturesBfr, depot: DepotFac
         });
       } catch (e) {
         if (e instanceof PennylaneApiError && e.reason === "rate_limited") ralenti = true;
+        else if (e instanceof PennylaneApiError && e.reason === "unavailable") interrompu = true;
         else erreur = e;
       }
     }
@@ -243,5 +260,5 @@ export async function daterReglements(client: ClientFacturesBfr, depot: DepotFac
   // Ce qui a été daté est gardé, même si un appel a échoué : la reprise repart des restantes.
   await depot.ecrire(datees, options.maintenant);
   if (erreur !== null) throw erreur;
-  return { datees: datees.length, restantes: await depot.compterADater(), ralenti };
+  return { datees: datees.length, restantes: await depot.compterADater(), ralenti, interrompu };
 }

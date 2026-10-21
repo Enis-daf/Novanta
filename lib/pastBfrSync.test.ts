@@ -112,6 +112,20 @@ describe("synchronisation BFR — initialisation puis actualisation", () => {
     assert.deepEqual([r.ecrites, r.aDater], [0, 0]);
   });
 
+  test("horodatage relu par la base dans un autre format : même instant, ni réécriture ni redatation", async () => {
+    const b = banc({ client: [payee(2, { updated_at: "2026-10-02T11:00:00.000+02:00" })], fournisseur: [] }, { 2: [{ id: 1, date: "2026-10-02" }] });
+    await b.synchroniser(JOUR1);
+    // La base renvoie les timestamptz en UTC (« +00:00 ») : cas réel du Preview, le 21/10.
+    for (const ligne of b.base.values()) {
+      ligne.pennylaneUpdatedAt = "2026-10-02T09:00:00+00:00";
+      if (ligne.reglements?.etat === "dates") ligne.reglements.recuperesLe = "2026-10-21T10:00:00+00:00";
+    }
+    const avant = { ...b.appels };
+    const r = await b.synchroniser("2026-10-22T10:00:00.000Z");
+    assert.deepEqual([r.ecrites, r.aDater], [0, 0]);
+    assert.equal(b.appels.details, avant.details);
+  });
+
   test("facture modifiée chez Pennylane (reste dû ou updated_at) : redatée", async () => {
     const liste = { client: [brute(1)], fournisseur: [] as FacturePennylaneBrute[] };
     const b = banc(liste, { 1: [{ id: 1, date: "2026-10-05" }] });
@@ -173,15 +187,25 @@ describe("synchronisation BFR — initialisation puis actualisation", () => {
 });
 
 describe("synchronisation BFR — erreurs et reprise", () => {
-  test("erreur API en cours de datation : ce qui est daté est gardé, la reprise termine le reste", async () => {
+  test("erreur API non passagère en cours de datation : échec signalé, ce qui est daté est gardé, la reprise termine le reste", async () => {
     const b = banc({ client: [payee(1), payee(2), payee(3)], fournisseur: [] }, { 1: [{ id: 1, date: "2026-10-02" }], 2: [{ id: 2, date: "2026-10-03" }], 3: [{ id: 3, date: "2026-10-04" }] });
     await synchroniserFactures(b.client, b.depot, JOUR1);
-    b.echouerSur((id) => (id === "3" ? new PennylaneApiError("unavailable", "indisponible") : null));
+    b.echouerSur((id) => (id === "3" ? new PennylaneApiError("unknown", "réponse inattendue", 400) : null));
     await assert.rejects(daterReglements(b.client, b.depot, { ...b.options(JOUR1), concurrence: 1 }));
     assert.equal(await b.depot.compterADater(), 1);
     b.echouerSur(null);
     const reprise = await daterReglements(b.client, b.depot, b.options(JOUR1));
     assert.deepEqual([reprise.datees, reprise.restantes], [1, 0]);
+  });
+
+  test("Pennylane momentanément indisponible (502) : arrêt propre, progression gardée, reprise", async () => {
+    const b = banc({ client: [payee(1), payee(2), payee(3)], fournisseur: [] }, { 1: [{ id: 1, date: "2026-10-02" }] });
+    await synchroniserFactures(b.client, b.depot, JOUR1);
+    b.echouerSur((id) => (id === "2" ? new PennylaneApiError("unavailable", "502", 502) : null));
+    const r = await daterReglements(b.client, b.depot, { ...b.options(JOUR1), concurrence: 1 });
+    assert.deepEqual([r.interrompu, r.datees, r.restantes], [true, 1, 2]);
+    b.echouerSur(null);
+    assert.equal((await daterReglements(b.client, b.depot, b.options(JOUR1))).restantes, 0);
   });
 
   test("plafond d'appels encore atteint : arrêt propre, sans erreur, l'appel suivant reprend", async () => {

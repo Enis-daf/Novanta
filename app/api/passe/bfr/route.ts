@@ -28,9 +28,10 @@ import { depotFacturesBfr } from "@/lib/pastBfrDepot";
 export const maxDuration = 60;
 
 const MESSAGE_ERREUR_SYNC = "La synchronisation des factures Pennylane a échoué. Réessayez.";
-// Datation : au plus 300 factures par appel, 4 appels en vol, et jamais plus de 20 démarrages par
-// fenêtre de 5 s — l'API en autorise 25 : la marge absorbe les nouvelles tentatives après un 429 et
-// les autres appels du même token. Aucun nouvel appel après 40 s.
+// Datation : au plus 300 factures par appel, 4 appels en vol, et jamais plus de 24 démarrages par
+// fenêtre de 5 s — l'API en autorise 25. Mesuré sur le Preview (21/10, 1 203 factures) : c'est ce
+// plafond qui fixe le débit (Pennylane répond en ~240 ms), à 20 il n'y a eu aucun 429 ; un 429
+// éventuel est réessayé, puis le lot s'arrête proprement. Aucun nouvel appel après 40 s.
 const MAX_FACTURES_PAR_APPEL = 300;
 const CONCURRENCE = 4;
 const BUDGET_MS = 40_000;
@@ -129,7 +130,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ...resultat, synchroniseesLe: maintenant });
     }
     const resultat = await avecMesures(mesures, () =>
-      daterReglements(client, depot, { maxFactures: MAX_FACTURES_PAR_APPEL, concurrence: CONCURRENCE, budgetMs: BUDGET_MS, maintenant, reserver: limiteurDebit(20, 5_000) })
+      daterReglements(client, depot, { maxFactures: MAX_FACTURES_PAR_APPEL, concurrence: CONCURRENCE, budgetMs: BUDGET_MS, maintenant, reserver: limiteurDebit(24, 5_000) })
     );
     journaliser(synchro, etape, organizationId, debut, mesures, { ...resultat });
     return NextResponse.json(resultat);

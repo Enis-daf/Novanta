@@ -207,9 +207,14 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
       setMessage("Récupération des factures Pennylane…");
       const factures = await appeler("factures");
       let restantes: number = factures.aDater ?? 0;
-      for (let appel = 0; restantes > 0 && appel < MAX_APPELS_SYNCHRO; appel++) {
+      // Un lot interrompu sans aucune facture datée (Pennylane indisponible) : deux de suite, et la
+      // synchronisation s'arrête — ce qui est daté reste acquis, une relance reprendra.
+      let lotsVides = 0;
+      for (let appel = 0; restantes > 0 && appel < MAX_APPELS_SYNCHRO && lotsVides < 2; appel++) {
         setMessage(`Récupération des règlements : ${restantes} factures à dater…`);
-        restantes = (await appeler("reglements")).restantes ?? 0;
+        const lot = await appeler("reglements");
+        restantes = lot.restantes ?? 0;
+        lotsVides = lot.datees > 0 ? 0 : lotsVides + 1;
       }
       setMessage("Calcul des situations BFR…");
       await charger();
