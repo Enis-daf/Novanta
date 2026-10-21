@@ -28,6 +28,8 @@ export interface ResultatSyncPennylane {
   nombreMarquesPayees: number;
   // Factures fournisseurs déjà importées dont la version Pennylane est désormais archivée : retirées.
   nombreArchiveesRetirees: number;
+  // Factures déjà importées dont le montant a été ramené au reste à payer Pennylane (règlement partiel).
+  nombreMontantsActualises?: number;
   erreurClients: string | null;
   erreurFournisseurs: string | null;
 }
@@ -64,7 +66,12 @@ export function messageSyncPennylane(r: ResultatSyncPennylane): string {
           r.nombreArchiveesRetirees > 1 ? "s" : ""
         } dans Pennylane retirée${r.nombreArchiveesRetirees > 1 ? "s" : ""}.`
       : "";
-  return `Pennylane synchronisé — Fournisseurs : ${fournisseurs}. Clients : ${clients}. ${payees} au total.${retirees}`;
+  const actualises = r.nombreMontantsActualises ?? 0;
+  const montants =
+    actualises > 0
+      ? ` ${actualises} ${pluriel(actualises, "montant")} ${actualises > 1 ? "ramenés" : "ramené"} au reste à payer Pennylane.`
+      : "";
+  return `Pennylane synchronisé — Fournisseurs : ${fournisseurs}. Clients : ${clients}. ${payees} au total.${retirees}${montants}`;
 }
 
 /**
@@ -89,7 +96,13 @@ export interface CandidatFacturePennylane {
   pennylaneId: string;
   facture: string; // numéro
   tiers: string; // nom du client ou du fournisseur
-  montant: number; // toujours positif — le sens (entrée/sortie) est déterminé par le type, jamais ici
+  // Montant de trésorerie, toujours positif : le RESTE À PAYER / À ENCAISSER selon Pennylane, ou le
+  // total quand rien n'est encore réglé (voir montantRestantDu). Le sens (entrée/sortie) est
+  // déterminé par le type, jamais ici.
+  montant: number;
+  // Total TTC de la facture selon Pennylane. Égal à `montant` tant que rien n'est réglé ; supérieur
+  // dès qu'un règlement partiel est intervenu. Absent : rien n'indique un règlement partiel.
+  montantFacture?: number;
   dateEcheance: string; // YYYY-MM-DD, "" si Pennylane n'en fournit aucune
   payee: boolean; // true = réglée selon Pennylane (voir decisionPaiementFournisseur / decisionPaiementClient)
   motifSolde?: MotifSolde | null; // non null = jamais importée (voir MotifSolde)
@@ -139,8 +152,9 @@ export interface DecisionPaiement {
 
 // Part du montant qu'un règlement rapproché doit couvrir pour que la facture soit tenue pour réglée.
 // Choix de Novanta, pas une donnée Pennylane : les règlements observés à montant différent de la
-// facture (change, frais, prélèvement forfaitaire) couvrent au moins 85 % ; un acompte reste en dessous.
-export const SEUIL_COUVERTURE_REGLEMENT = 0.8;
+// facture par un écart de change couvrent l'essentiel du montant. Au-dessous de 98 % (choix produit
+// du 16/10/2026), le reliquat est un reste à payer réel, projeté en trésorerie (voir montantRestantDu).
+export const SEUIL_COUVERTURE_REGLEMENT = 0.98;
 
 /**
  * Facture fournisseur ACTIVE réglée ? Quatre signaux, chacun suffisant, tous constatés sur la
@@ -253,6 +267,35 @@ interface FactureBrutePennylane {
   amount: string;
   deadline: string | null;
   paid: boolean;
+  remaining_amount_with_tax?: string | null;
+  currency?: string | null;
+}
+
+/**
+ * Montant encore dû d'une facture Pennylane, TTC — celui qu'elle pèse encore sur la trésorerie.
+ * Pennylane le calcule et l'expose directement dans la liste (remaining_amount_with_tax) : il n'est
+ * jamais reconstruit à partir des règlements. Convention de signe observée sur l'API réelle :
+ *  - facture FOURNISSEUR : NÉGATIF tant qu'il reste dû ("-11944.8" pour 39 816 € dont 27 871,20 €
+ *    réglés), "0.0" une fois couverte ;
+ *  - facture CLIENT : POSITIF tant qu'il reste dû ("109088.1"), "0.0" une fois réglée.
+ * null — et le montant total reste retenu, comme avant — quand le reste est absent, illisible,
+ * nul (la facture est alors réglée : décision de paiement inchangée), incohérent (supérieur au
+ * total, ou de signe inattendu), ou exprimé dans une autre devise que l'euro : `amount` est en
+ * euros, le reste n'a pas été observé sur une facture en devise ouverte, rien n'est converti.
+ */
+export function montantRestantDu(
+  brute: { amount: string; remaining_amount_with_tax?: string | null; currency?: string | null },
+  sens: "client" | "fournisseur"
+): number | null {
+  if (brute.currency != null && brute.currency !== "EUR") return null;
+  const texte = brute.remaining_amount_with_tax;
+  if (typeof texte !== "string" || texte.trim() === "") return null;
+  const brut = Number(texte);
+  const total = Math.abs(Number(brute.amount));
+  if (!Number.isFinite(brut) || !Number.isFinite(total)) return null;
+  const reste = sens === "fournisseur" ? -brut : brut;
+  if (reste < 0.005 || reste > total + 0.005) return null;
+  return Math.round(reste * 100) / 100;
 }
 
 /**
@@ -264,11 +307,16 @@ interface FactureBrutePennylane {
 function candidatDepuisFactureBrute(
   brute: FactureBrutePennylane,
   libelleGeneriqueTiers: string,
-  decision: DecisionPaiement
+  decision: DecisionPaiement,
+  sens: "client" | "fournisseur"
 ): CandidatFacturePennylane | null {
   if (estAvoir(brute.amount)) return null;
-  const montant = Math.abs(Number(brute.amount));
-  if (!Number.isFinite(montant) || montant === 0) return null;
+  const total = Math.abs(Number(brute.amount));
+  if (!Number.isFinite(total) || total === 0) return null;
+  // Montant de trésorerie d'une facture ouverte : ce qui reste dû, jamais le total d'une facture
+  // déjà en partie réglée. Une facture tenue pour réglée garde son montant : elle ne pèse plus sur
+  // la trésorerie, et son reliquat éventuel n'est pas un flux à venir (voir estPayeeFournisseur).
+  const montant = decision.payee ? total : (montantRestantDu(brute, sens) ?? total);
   const id = String(brute.id);
   const { tiers, numero } = extraireTiersEtNumero(brute.label, id, libelleGeneriqueTiers);
   return {
@@ -276,6 +324,7 @@ function candidatDepuisFactureBrute(
     facture: brute.invoice_number || numero,
     tiers,
     montant,
+    montantFacture: total,
     dateEcheance: brute.deadline ?? brute.date ?? "",
     payee: decision.payee,
     motifSolde: decision.motifSolde,
@@ -285,12 +334,12 @@ function candidatDepuisFactureBrute(
 /** Retourne null pour un brouillon ou un avoir : ni l'un ni l'autre n'est importé en V1. */
 export function candidatFactureClient(item: PennylaneCustomerInvoiceListItem): CandidatFacturePennylane | null {
   if (item.draft) return null;
-  return candidatDepuisFactureBrute(item, "Client Pennylane", decisionPaiementClient(item));
+  return candidatDepuisFactureBrute(item, "Client Pennylane", decisionPaiementClient(item), "client");
 }
 
 /** Pas de notion de brouillon côté factures fournisseurs (jamais observée dans l'API). */
 export function candidatFactureFournisseur(item: PennylaneSupplierInvoiceListItem): CandidatFacturePennylane | null {
-  const candidat = candidatDepuisFactureBrute(item, "Fournisseur Pennylane", decisionPaiementFournisseur(item));
+  const candidat = candidatDepuisFactureBrute(item, "Fournisseur Pennylane", decisionPaiementFournisseur(item), "fournisseur");
   return candidat && estArchiveeFournisseur(item) ? { ...candidat, aRetirer: true } : candidat;
 }
 
@@ -332,12 +381,17 @@ export interface FactureExistantePourSync {
   id: string; // id Novanta (jamais l'id Pennylane)
   pennylaneId?: string | null;
   payee: boolean;
+  // Montant de trésorerie actuel de la ligne : comparé au reste dû Pennylane à chaque synchronisation.
+  montant?: number;
 }
 
 export interface ResultatCalculSynchronisation {
   aInserer: CandidatFacturePennylane[];
   idsAMettreAJourPayee: string[]; // ids NOVANTA (pas pennylaneId) à patcher payee=true
   idsASupprimer: string[]; // ids NOVANTA dont la version Pennylane est archivée
+  // Factures déjà connues, encore ouvertes, dont le reste dû Pennylane a changé : seul leur montant
+  // est actualisé (date prévue, Litigieuse et autres réglages Novanta intacts).
+  montantsAMettreAJour: { id: string; montant: number }[];
 }
 
 /**
@@ -349,13 +403,15 @@ export interface ResultatCalculSynchronisation {
  *     que les factures ouvertes) ;
  *   - candidat déjà connu (même pennylaneId), Pennylane payée ET Novanta encore non payée ->
  *     marquer Payée=true ;
- *   - tout le reste (déjà payée des deux côtés, encore non payée des deux côtés) -> NO-OP.
+ *   - candidat déjà connu, encore ouvert des deux côtés, PARTIELLEMENT réglé chez Pennylane, dont
+ *     le reste dû diffère du montant Novanta -> MONTANT ramené au reste dû ;
+ *   - tout le reste -> NO-OP.
  * Ne renvoie JAMAIS un id à repasser à false : cette fonction ne lit `existante.payee` que pour
  * décider si une MISE À JOUR vers true est nécessaire, jamais pour en proposer une vers false —
  * la règle absolue "jamais Payée true -> false" est donc garantie par construction, pas seulement
  * par convention d'appel.
  * Idempotente par construction : ré-appliquer avec les mêmes candidats sur un état Novanta déjà
- * synchronisé renvoie aInserer=[], idsAMettreAJourPayee=[] et idsASupprimer=[].
+ * synchronisé renvoie des listes vides.
  */
 export function calculerSynchronisation(
   candidats: CandidatFacturePennylane[],
@@ -369,6 +425,7 @@ export function calculerSynchronisation(
   const aInserer: CandidatFacturePennylane[] = [];
   const idsAMettreAJourPayee: string[] = [];
   const idsASupprimer: string[] = [];
+  const montantsAMettreAJour: { id: string; montant: number }[] = [];
 
   for (const candidat of candidats) {
     const existante = existanteParPennylaneId.get(candidat.pennylaneId);
@@ -386,9 +443,24 @@ export function calculerSynchronisation(
     if (candidat.payee && !existante.payee) {
       idsAMettreAJourPayee.push(existante.id);
     }
+
+    // Le reste dû évolue au fil des règlements : pour une facture en partie réglée chez Pennylane,
+    // Pennylane fait foi pour le montant encore ouvert. Une facture sans règlement garde le montant
+    // de la ligne Novanta (comportement inchangé). Une facture réglée (d'un côté ou de l'autre) ne
+    // pèse plus sur la trésorerie : rien à changer.
+    const partiellementReglee = candidat.montantFacture !== undefined && candidat.montant < candidat.montantFacture - 0.005;
+    if (
+      partiellementReglee &&
+      !candidat.payee &&
+      !existante.payee &&
+      existante.montant !== undefined &&
+      Math.abs(existante.montant - candidat.montant) >= 0.005
+    ) {
+      montantsAMettreAJour.push({ id: existante.id, montant: candidat.montant });
+    }
   }
 
-  return { aInserer, idsAMettreAJourPayee, idsASupprimer };
+  return { aInserer, idsAMettreAJourPayee, idsASupprimer, montantsAMettreAJour };
 }
 
 /**
@@ -396,8 +468,9 @@ export function calculerSynchronisation(
  * lib/supabaseRepository.ts::importerFacturesClients (même fonction que l'import manuel, voir
  * app/page.tsx::handleImporterFactures). dateEncaissementAnticipee (date prévue, propre à
  * Novanta) est initialisée à l'échéance Pennylane faute de meilleure source — l'utilisateur peut
- * l'éditer ensuite normalement, une synchronisation ultérieure ne la touchera plus jamais (seul
- * `payee` est mis à jour pour une facture déjà connue, voir calculerSynchronisation).
+ * l'éditer ensuite normalement, une synchronisation ultérieure ne la touchera plus jamais (pour une
+ * facture déjà connue, seuls `payee` et le montant encore dû sont actualisés, voir
+ * calculerSynchronisation).
  */
 export function candidatVersFactureClient(candidat: CandidatFacturePennylane): FactureClient {
   return {

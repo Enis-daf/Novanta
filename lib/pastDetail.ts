@@ -135,9 +135,11 @@ export const METRIQUES_DETAIL: Record<MetriqueDetail, ConfigMetrique> = {
   cash_flow: {
     libelle: "Cash flow",
     // Lecture par défaut, « hors financement » : voir CASH_FLOW_FINANCEMENT_COMPRIS pour l'autre.
-    etagesKpi: ["revenue", "gross_margin", "contribution_margin", "ebitda", "extra_pnl"],
-    etagesDetail: ["extra_pnl"],
-    libelleDetail: "Extra P&L",
+    // La TVA payée ou remboursée est un flux de trésorerie : toujours dans le Cash flow, quelle que
+    // soit la lecture du financement.
+    etagesKpi: ["revenue", "gross_margin", "contribution_margin", "ebitda", "extra_pnl", "vat"],
+    etagesDetail: ["extra_pnl", "vat"],
+    libelleDetail: "Extra P&L et TVA",
     repartition: { type: "barres" },
     ratioSurCa: false,
     coutsAssocies: false,
@@ -153,7 +155,7 @@ const CASH_FLOW_FINANCEMENT_COMPRIS: ConfigMetrique = {
   ...METRIQUES_DETAIL.cash_flow,
   etagesKpi: [...METRIQUES_DETAIL.cash_flow.etagesKpi, "financing"],
   etagesDetail: [...METRIQUES_DETAIL.cash_flow.etagesDetail, "financing"],
-  libelleDetail: "Extra P&L et financement",
+  libelleDetail: "Extra P&L, TVA et financement",
 };
 
 export interface OptionsDetail {

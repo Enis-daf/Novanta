@@ -1,6 +1,7 @@
 "use client";
 
 import MentionTTC from "./MentionTTC";
+import Cartouche from "@/components/Cartouche";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import PasseEcarts, { SelectionsEcarts } from "./PasseEcarts";
@@ -32,7 +33,7 @@ import {
   selectionParDefaut,
   serialiserSelection,
 } from "@/lib/fiscalPeriods";
-import { formatMontant, formatMontantComptable } from "@/lib/format";
+import { formatMontant, formatMontantComptable, MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
 import { teintesParCategorie } from "@/lib/dataviz";
 import {
   AjustementGestion,
@@ -871,8 +872,6 @@ export default function PasseTransactions({ organizationId, organizationName, ac
 
   return (
     <section className="passe">
-      <div className="passe__decor-haut" aria-hidden="true" />
-      <div className="passe__decor-bas" aria-hidden="true" />
       <div className="passe-controles">
         <div className="passe-controle passe-axe">
           {/* L'onglet Écarts compare deux périodes qui lui sont propres : la période du module n'y
@@ -1108,22 +1107,24 @@ export default function PasseTransactions({ organizationId, organizationName, ac
           {!axeAConfigurer && vue !== "ecarts" && vue !== "bfr" && detailSignesOuvert && (nombreSignesInhabituels > 0 || nombreSignesValides > 0) && (
             <div className="passe-signes-detail">
               <div className="passe-tri" role="group" aria-label="Signes inhabituels à afficher">
-                <button
-                  type="button"
-                  className={`btn-secondaire${vueSignes === "a_verifier" ? " btn-module--actif" : ""}`}
-                  aria-pressed={vueSignes === "a_verifier"}
-                  onClick={() => setVueSignes("a_verifier")}
-                >
-                  À vérifier <span className="passe-detail__compte">{signes.aVerifier.length}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`btn-secondaire${vueSignes === "validees" ? " btn-module--actif" : ""}`}
-                  aria-pressed={vueSignes === "validees"}
-                  onClick={() => setVueSignes("validees")}
-                >
-                  Validées <span className="passe-detail__compte">{signes.validees.length}</span>
-                </button>
+                <span className="selecteur">
+                  <button
+                    type="button"
+                    className={`btn-secondaire${vueSignes === "a_verifier" ? " btn-module--actif" : ""}`}
+                    aria-pressed={vueSignes === "a_verifier"}
+                    onClick={() => setVueSignes("a_verifier")}
+                  >
+                    À vérifier <span className="passe-detail__compte">{signes.aVerifier.length}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn-secondaire${vueSignes === "validees" ? " btn-module--actif" : ""}`}
+                    aria-pressed={vueSignes === "validees"}
+                    onClick={() => setVueSignes("validees")}
+                  >
+                    Validées <span className="passe-detail__compte">{signes.validees.length}</span>
+                  </button>
+                </span>
                 {/* Retour discret après une action ; s'efface seul. */}
                 <span className="passe-signes-detail__retour" role="status">
                   {messageSigne}
@@ -1362,6 +1363,15 @@ export default function PasseTransactions({ organizationId, organizationName, ac
           )}
         </>
       )}
+      <Cartouche
+        titre="Passé"
+        lignes={[
+          { libelle: "Société", valeur: organizationName || "—" },
+          { libelle: "Période", valeur: `${formatDateCourte(periode.debut)} → ${formatDateCourte(periode.fin)}` },
+          { libelle: "Lecture", valeur: base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC },
+          { libelle: "Édité le", valeur: formatDateCourte(aujourdhui) },
+        ]}
+      />
       {/* Rappel permanent, commun à tous les onglets du module, selon la lecture choisie. */}
       {vue === "bfr" ? (
         <p className="passe-disclaimer">

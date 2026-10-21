@@ -298,7 +298,7 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
       <div className="passe-bfr__haut">
         {/* A. Synthèse */}
         <section className="passe-kpi passe-bfr__synthese">
-          <h3 className="eyebrow eyebrow--encre">BFR au {formatDateCourte(finDeMois(courant))}</h3>
+          <p className="eyebrow eyebrow--grand">BFR au {formatDateCourte(finDeMois(courant))}</p>
           <p className="passe-kpi__montant">{totaux ? enK(totaux.bfr) : "Incomplet"}</p>
           {variation && (
             <p className="passe-kpi__ratio">

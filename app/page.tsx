@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import Dashboard from "@/components/Dashboard";
 import SyntheseMensuelle from "@/components/SyntheseMensuelle";
@@ -19,7 +18,9 @@ import BandeauPeriodeFiltre from "@/components/BandeauPeriodeFiltre";
 import ControleMensuel from "@/components/ControleMensuel";
 import LoginForm from "@/components/LoginForm";
 import IconTelechargement from "@/components/IconTelechargement";
-import NavigationModules from "@/components/NavigationModules";
+import EnTeteCockpit from "@/components/EnTeteCockpit";
+import Cartouche from "@/components/Cartouche";
+import { formatDate } from "@/lib/format";
 
 const ImportFactures = dynamic(() => import("@/components/ImportFactures"), { ssr: false });
 const ImportHistoriqueBancaire = dynamic(() => import("@/components/ImportHistoriqueBancaire"), { ssr: false });
@@ -81,6 +82,7 @@ import {
   importerFacturesFournisseurs,
   marquerFacturesClientsPayees,
   marquerFacturesFournisseursPayees,
+  mettreAJourMontantsFactures,
   sauvegarderDateReleve,
   sauvegarderFactureClient,
   sauvegarderFactureFournisseur,
@@ -572,6 +574,19 @@ export default function Home() {
   // factures. Les mises à jour "Payée" ne touchent JAMAIS que payee/paidAt (voir
   // marquerFacturesClientsPayees/Fournisseurs), jamais dateEcheance/litigieuse/autres réglages
   // utilisateur.
+  // Règlement partiel dans Pennylane : le montant d'une facture déjà importée est ramené au reste à
+  // payer / à encaisser. Seul le montant change (Payée, date prévue, Litigieuse intacts).
+  const appliquerMontantsRestants = (sens: "client" | "fournisseur", montants: { id: string; montant: number }[]) => {
+    if (montants.length === 0) return;
+    const parId = new Map(montants.map((m) => [m.id, m.montant]));
+    if (sens === "client") {
+      setFacturesClients((prev) => prev.map((f) => (parId.has(f.id) ? { ...f, montant: parId.get(f.id)! } : f)));
+    } else {
+      setFacturesFournisseurs((prev) => prev.map((f) => (parId.has(f.id) ? { ...f, montant: parId.get(f.id)! } : f)));
+    }
+    persist(() => mettreAJourMontantsFactures(sens === "client" ? "customer_invoices" : "supplier_invoices", montants));
+  };
+
   const handleSynchroniserPennylaneFactures = (
     nouvellesFacturesClients: FactureClient[],
     nouvellesFacturesFournisseurs: FactureFournisseur[],
@@ -637,12 +652,15 @@ export default function Home() {
         id: f.id,
         pennylaneId: f.pennylaneId,
         payee: f.payee,
+        montant: f.montant,
       }));
       const facturesFournisseursExistantesPourSync = facturesFournisseurs.map((f) => ({
         id: f.id,
         pennylaneId: f.pennylaneId,
         payee: f.payee,
+        montant: f.montant,
       }));
+      let nombreMontantsActualises = 0;
 
       let nombreClientsAjoutes = 0;
       let nombreFournisseursAjoutes = 0;
@@ -653,20 +671,24 @@ export default function Home() {
       let nouvellesFacturesFournisseurs: FactureFournisseur[] = [];
 
       if (data.clientCandidates) {
-        const { aInserer, idsAMettreAJourPayee } = calculerSynchronisation(
+        const { aInserer, idsAMettreAJourPayee, montantsAMettreAJour } = calculerSynchronisation(
           data.clientCandidates,
           facturesClientsExistantesPourSync
         );
+        appliquerMontantsRestants("client", montantsAMettreAJour);
+        nombreMontantsActualises += montantsAMettreAJour.length;
         nouvellesFacturesClients = aInserer.map(candidatVersFactureClient);
         idsClientsAMettreAJourPayee = idsAMettreAJourPayee;
         nombreClientsAjoutes = nouvellesFacturesClients.length;
       }
 
       if (data.fournisseurCandidates) {
-        const { aInserer, idsAMettreAJourPayee, idsASupprimer } = calculerSynchronisation(
+        const { aInserer, idsAMettreAJourPayee, idsASupprimer, montantsAMettreAJour } = calculerSynchronisation(
           data.fournisseurCandidates,
           facturesFournisseursExistantesPourSync
         );
+        appliquerMontantsRestants("fournisseur", montantsAMettreAJour);
+        nombreMontantsActualises += montantsAMettreAJour.length;
         nouvellesFacturesFournisseurs = aInserer.map(candidatVersFactureFournisseur);
         idsFournisseursAMettreAJourPayee = idsAMettreAJourPayee;
         idsFournisseursASupprimer = idsASupprimer;
@@ -688,6 +710,7 @@ export default function Home() {
         nombreFournisseursAjoutes,
         nombreMarquesPayees: idsClientsAMettreAJourPayee.length + idsFournisseursAMettreAJourPayee.length,
         nombreArchiveesRetirees: idsFournisseursASupprimer.length,
+        nombreMontantsActualises,
         erreurClients: data.erreurClients ?? null,
         erreurFournisseurs: data.erreurFournisseurs ?? null,
       });
@@ -940,32 +963,16 @@ export default function Home() {
           Mode local — configurez Supabase (.env.local) pour sauvegarder les données.
         </div>
       )}
-      <header className="page-intro">
-        <div className="page-intro__texte">
-          <h1 className="page-intro__titre-compact">
-            <span className="page-intro__marque">Novanta</span>
-            <span className="page-intro__produit"> — cockpit de trésorerie</span>
-          </h1>
-        </div>
-        {supabaseConfigured && session && (
-          <div className="page-intro__actions">
-            <span className="page-intro__email">{session.user.email}</span>
-            <NavigationModules moduleActif="futur" passeDisponible={modulePasseActif} />
-            <Link href="/account/billing" className="btn-secondaire">
-              Abonnement
-            </Link>
-            <Link href="/account/integrations" className="btn-secondaire">
-              Intégrations
-            </Link>
-            <button type="button" className="btn-deconnexion" onClick={handleDeconnexion}>
-              Se déconnecter
-            </button>
-          </div>
-        )}
-      </header>
+      <EnTeteCockpit
+        moduleActif="futur"
+        compte={
+          supabaseConfigured && session
+            ? { email: session.user.email, passeDisponible: modulePasseActif, onDeconnexion: handleDeconnexion }
+            : undefined
+        }
+      />
       <div className="pilotage">
         <div className="pilotage__scroll">
-          <div className="pilotage__decor-rose" aria-hidden="true" />
           <Dashboard
             soldeInitial={soldeInitial}
             onChangeSoldeInitial={handleChangeSoldeInitial}
@@ -977,6 +984,15 @@ export default function Home() {
             onPointClickCourbe={handleClicCourbe}
           />
           <SyntheseMensuelle synthese={syntheseMensuelle} />
+          <Cartouche
+            titre="Futur"
+            lignes={[
+              { libelle: "Relevé du", valeur: formatDate(dateReleve) },
+              { libelle: "Horizon", valeur: `${horizonJours} jours` },
+              { libelle: "Montants", valeur: "TTC" },
+              { libelle: "Édité le", valeur: formatDate(todayISO()) },
+            ]}
+          />
         </div>
       </div>
       <div className="cockpit__col--droite">

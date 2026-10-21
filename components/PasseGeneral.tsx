@@ -7,7 +7,7 @@ import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import PasseTvaIncomplete from "./PasseTvaIncomplete";
 import { formatMontantComptable, formatPourcentage, MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
-import { CouvertureTva, IndicateurEconomique, LIBELLE_FRONTIERE_TRESORERIE, PnlEnBase } from "@/lib/pastHtEstime";
+import { CouvertureTva, IndicateurEconomique, LIBELLE_VOIR_TTC, PnlEnBase } from "@/lib/pastHtEstime";
 import { LigneAjustement } from "@/lib/pastAdjustments";
 import { EcartsVsCibles } from "@/lib/pastTargets";
 import { LIBELLE_ENCAISSEMENTS, libelleEtagePnl } from "@/lib/pastCategoryMapping";
@@ -43,6 +43,8 @@ function Ligne({
   niveau,
   mention = MENTION_TTC,
   incomplet = false,
+  texte,
+  vide = false,
 }: {
   libelle: string;
   montant: number;
@@ -52,6 +54,10 @@ function Ligne({
   mention?: string;
   // Lecture HT : TVA non renseignée sur une partie des montants — pas de chiffre trompeur.
   incomplet?: boolean;
+  // Lecture HT, au-delà du Cash flow opérationnel : pas de montant. `texte` le remplace (texte
+  // secondaire, jamais un montant), `vide` laisse la cellule réellement vide.
+  texte?: string;
+  vide?: boolean;
 }) {
   return (
     <div className={`passe-pnl__ligne${niveau ? ` passe-pnl__ligne--${niveau}` : ""}`}>
@@ -59,10 +65,18 @@ function Ligne({
         {libelle}
         {/* Indicateurs principaux seulement (titre, soldes, total) : ils posent le contexte (TTC ou
             HT estimé) pour les lignes de coûts qui les précèdent, qui restent sans mention. */}
-        {niveau && <MentionTTC libelle={mention} />}
+        {niveau && !texte && <MentionTTC libelle={mention} />}
       </span>
-      <span className="passe-pnl__montant">{incomplet ? <span className="passe-pnl__incomplet">Incomplet</span> : formatMontantComptable(montant)}</span>
-      <span className="passe-pnl__ratio">{ratio === undefined || incomplet ? "" : formatPourcentage(ratio)}</span>
+      <span className="passe-pnl__montant">
+        {vide ? null : texte ? (
+          <span className="passe-pnl__texte">{texte}</span>
+        ) : incomplet ? (
+          <span className="passe-pnl__incomplet">Incomplet</span>
+        ) : (
+          formatMontantComptable(montant)
+        )}
+      </span>
+      <span className="passe-pnl__ratio">{ratio === undefined || incomplet || vide || texte ? "" : formatPourcentage(ratio)}</span>
     </div>
   );
 }
@@ -151,21 +165,34 @@ export default function PasseGeneral({ pnl, teintes, cibles, onOuvrir, onDefinir
         {ht && pnl.couvertures && !pnl.couvertures.ebitda.complete && (
           <PasseTvaIncomplete couverture={pnl.couvertures.ebitda} onConfigurer={onConfigurerTva} />
         )}
-        {/* Frontière explicite en lecture HT : au-dessous, des flux bancaires réels, toujours TTC.
-            Le Cash flow n'est jamais déduit de l'EBITDA HT. */}
-        {ht && <p className="passe-pnl__frontiere">{LIBELLE_FRONTIERE_TRESORERIE}</p>}
         {/* Trésorerie, à part du P&L opérationnel et sans ratio : ce que l'activité génère après
             l'Extra P&L (sous-total, au rang des marges), puis l'effet des virements internes et du
             financement, jusqu'au total final. */}
         <div className="passe-pnl__bloc passe-pnl__bloc--cash">
           <Ligne libelle={libelleEtagePnl("extra_pnl")} montant={pnl.extraPnl} />
           <LignesAjustements lignes={pnl.ajustements.extra_pnl} />
-          <Ligne libelle={LIBELLE_CASH_FLOW_OPERATIONNEL} montant={pnl.cashFlowOperationnel} niveau="solde" />
+          {/* TVA payée ou remboursée : présentée en lecture TTC seulement. En HT estimé elle sort de
+              la lecture, mais le Cash flow opérationnel (toujours TTC) la compte dans les deux. */}
+          {!ht && (
+            <>
+              <Ligne libelle={libelleEtagePnl("vat")} montant={pnl.tva} />
+              <LignesAjustements lignes={pnl.ajustements.vat} />
+            </>
+          )}
+          {/* HT estimé : EBITDA HT + Extra P&L HT, dernier résultat chiffré de cette lecture. */}
+          <Ligne
+            libelle={LIBELLE_CASH_FLOW_OPERATIONNEL}
+            montant={pnl.cashFlowOperationnel}
+            niveau="solde"
+            mention={mention}
+            incomplet={incomplet("cashFlowOperationnel")}
+          />
         </div>
+        {/* Au-delà, des flux bancaires réels : sans objet en HT, chiffrés en TTC seulement. */}
         <div className="passe-pnl__bloc">
-          <Ligne libelle={libelleEtagePnl("financing")} montant={pnl.financements} />
-          <LignesAjustements lignes={pnl.ajustements.financing} />
-          <Ligne libelle={LIBELLE_VARIATION_TRESORERIE} montant={pnl.variationTresorerie} niveau="total" />
+          <Ligne libelle={libelleEtagePnl("financing")} montant={pnl.financements} vide={ht} />
+          {!ht && <LignesAjustements lignes={pnl.ajustements.financing} />}
+          <Ligne libelle={LIBELLE_VARIATION_TRESORERIE} montant={pnl.variationTresorerie} niveau="total" texte={ht ? LIBELLE_VOIR_TTC : undefined} />
         </div>
       </section>
 

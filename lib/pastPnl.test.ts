@@ -66,15 +66,15 @@ describe("P&L synthétique — additions successives de montants signés", () =>
     assert.equal(sansCa.ebitda, -100);
   });
 
-  test("Cash flow opérationnel = EBITDA + Extra P&L, dérivé et distinct de l'Extra P&L", () => {
-    assert.equal(calculerCashFlowOperationnel(190_000, -85_000), 105_000);
+  test("Cash flow opérationnel = EBITDA + Extra P&L (+ TVA), dérivé et distinct de l'Extra P&L", () => {
+    assert.equal(calculerCashFlowOperationnel(190_000, -85_000, 0), 105_000);
     assert.equal(pnl.cashFlowOperationnel, 105_000);
     assert.notEqual(pnl.cashFlowOperationnel, pnl.extraPnl);
   });
 
   test("Cash flow opérationnel négatif = consommation nette de trésorerie", () => {
-    assert.equal(calculerCashFlowOperationnel(-40_000, -85_000), -125_000);
-    assert.equal(calculerCashFlowOperationnel(-40_000, 60_000), 20_000);
+    assert.equal(calculerCashFlowOperationnel(-40_000, -85_000, 0), -125_000);
+    assert.equal(calculerCashFlowOperationnel(-40_000, 60_000, 0), 20_000);
   });
 
   test("aucune période sans transaction ne casse le calcul", () => {
@@ -200,7 +200,7 @@ describe("fin du P&L — Cash flow opérationnel puis Variation de trésorerie",
     const pnl = pnlAvec([150_000]);
     assert.deepEqual([pnl.ebitda, pnl.extraPnl, pnl.cashFlowOperationnel], [100_000, -20_000, 80_000]);
     assert.equal(pnl.cashFlowOperationnel, pnl.ebitda + pnl.extraPnl);
-    assert.equal(calculerCashFlowOperationnel(100_000, -20_000), 80_000);
+    assert.equal(calculerCashFlowOperationnel(100_000, -20_000, 0), 80_000);
   });
 
   test("Variation de trésorerie = Cash flow opérationnel + Virements internes & Financement", () => {

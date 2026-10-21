@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { SoldeJournalier } from "@/lib/types";
 import { formatDate, formatMontant } from "@/lib/format";
+import { NEUTRES } from "@/lib/dataviz";
 
 interface CashCurveChartProps {
   serie: SoldeJournalier[];
@@ -32,24 +33,24 @@ export default function CashCurveChart({ serie, onPointClick }: CashCurveChartPr
             if (onPointClick && typeof date === "string") onPointClick(date);
           }}
         >
-          <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+          <CartesianGrid strokeDasharray="3 3" stroke={NEUTRES.bordure} />
           <XAxis
             dataKey="date"
             tickFormatter={(value: string) => formatDate(value)}
             minTickGap={40}
             fontSize={12}
-            tick={{ fill: "#6B7280" }}
-            axisLine={{ stroke: "#E5E7EB" }}
-            tickLine={{ stroke: "#E5E7EB" }}
+            tick={{ fill: NEUTRES.secondaire }}
+            axisLine={{ stroke: NEUTRES.bordure }}
+            tickLine={{ stroke: NEUTRES.bordure }}
             style={{ fontFamily: "var(--font-lexend), sans-serif" }}
           />
           <YAxis
             tickFormatter={(value: number) => formatMontant(value)}
             width={90}
             fontSize={12}
-            tick={{ fill: "#6B7280" }}
-            axisLine={{ stroke: "#E5E7EB" }}
-            tickLine={{ stroke: "#E5E7EB" }}
+            tick={{ fill: NEUTRES.secondaire }}
+            axisLine={{ stroke: NEUTRES.bordure }}
+            tickLine={{ stroke: NEUTRES.bordure }}
             style={{ fontFamily: "var(--font-lexend), sans-serif" }}
           />
           <Tooltip
@@ -57,13 +58,13 @@ export default function CashCurveChart({ serie, onPointClick }: CashCurveChartPr
             formatter={(value: number) => [formatMontant(value), "Solde"]}
             contentStyle={{
               fontFamily: "var(--font-lexend), sans-serif",
-              background: "#fffefa",
-              border: "1px solid #E5E7EB",
+              background: NEUTRES.fond,
+              border: `1px solid ${NEUTRES.bordure}`,
               borderRadius: 10,
               fontSize: 13,
             }}
-            labelStyle={{ color: "#030A16", fontWeight: 600 }}
-            itemStyle={{ color: "#030A16" }}
+            labelStyle={{ color: NEUTRES.encre, fontWeight: 600 }}
+            itemStyle={{ color: NEUTRES.encre }}
           />
           <ReferenceLine y={0} stroke="#c10068" strokeDasharray="4 4" />
           <Line

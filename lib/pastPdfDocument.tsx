@@ -10,7 +10,7 @@ import { formatKiloEuros, formatMontant, formatMontantComptable, formatPourcenta
 import { LigneAjustement } from "./pastAdjustments";
 import { libelleEtagePnl, LIBELLE_ENCAISSEMENTS } from "./pastCategoryMapping";
 import { METRIQUES_DETAIL } from "./pastDetail";
-import { BaseMontants, IndicateurEconomique } from "./pastHtEstime";
+import { BaseMontants, IndicateurEconomique, LIBELLE_VOIR_TTC } from "./pastHtEstime";
 import { disclaimerPdf, mentionDeLaBase, PageDetailPdf, PageGeneralPdf, PagePdf, textePdf } from "./pastPdfModel";
 import { ETAGES_COUTS, ETAGES_REVENUS, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { Periode } from "./pastTransactions";
@@ -226,12 +226,15 @@ async function blocStructure(
 type LignePnl =
   // `tresorerie` : flux bancaires réels, toujours TTC. `indicateur` : indicateur économique, lu dans
   // la base de l'export (« Incomplet » si sa TVA n'est pas renseignée partout).
-  | { type: "ligne"; libelle: string; montant: number; ratio?: number | null; niveau?: "titre" | "solde"; tresorerie?: boolean; indicateur?: IndicateurEconomique }
+  // `vide` : cellule de montant laissée vide ; `texte` : texte secondaire à la place du montant
+  // (lecture HT, au-delà du Cash flow opérationnel).
+  | { type: "ligne"; libelle: string; montant: number; ratio?: number | null; niveau?: "titre" | "solde"; tresorerie?: boolean; indicateur?: IndicateurEconomique; vide?: boolean; texte?: string }
   | { type: "note"; texte: string }
   | { type: "bloc"; cash?: boolean };
 
 function lignesPnl(page: PageGeneralPdf): LignePnl[] {
   const { pnl } = page;
+  const ht = page.base === "ht";
   const ajustements = (lignes: LigneAjustement[]): LignePnl[] =>
     lignes.flatMap((ligne) => [
       { type: "ligne", libelle: ligne.label, montant: ligne.montant } as LignePnl,
@@ -255,13 +258,19 @@ function lignesPnl(page: PageGeneralPdf): LignePnl[] {
     { type: "bloc", cash: true },
     { type: "ligne", libelle: libelleEtagePnl("extra_pnl"), montant: pnl.extraPnl },
     ...ajustements(pnl.ajustements.extra_pnl),
-    { type: "ligne", libelle: LIBELLE_CASH_FLOW_OPERATIONNEL, montant: pnl.cashFlowOperationnel, niveau: "solde", tresorerie: true },
+    // Comme à l'écran : ligne TVA en lecture TTC seulement ; la trésorerie la compte toujours.
+    ...(ht ? [] : [{ type: "ligne", libelle: libelleEtagePnl("vat"), montant: pnl.tva } as LignePnl, ...ajustements(pnl.ajustements.vat)]),
+    // Comme à l'écran : en HT, Cash flow opérationnel HT estimé (dernier résultat chiffré), puis
+    // financement sans montant et « Voir onglet TTC » ; en TTC, la trésorerie complète.
+    ht
+      ? { type: "ligne", libelle: LIBELLE_CASH_FLOW_OPERATIONNEL, montant: pnl.cashFlowOperationnel, niveau: "solde", indicateur: "cashFlowOperationnel" }
+      : { type: "ligne", libelle: LIBELLE_CASH_FLOW_OPERATIONNEL, montant: pnl.cashFlowOperationnel, niveau: "solde", tresorerie: true },
     { type: "bloc" },
-    { type: "ligne", libelle: libelleEtagePnl("financing"), montant: pnl.financements },
-    ...ajustements(pnl.ajustements.financing),
+    { type: "ligne", libelle: libelleEtagePnl("financing"), montant: pnl.financements, vide: ht },
+    ...(ht ? [] : ajustements(pnl.ajustements.financing)),
     // Total final de la section : filet plein juste au-dessus.
     { type: "bloc", cash: true },
-    { type: "ligne", libelle: LIBELLE_VARIATION_TRESORERIE, montant: pnl.variationTresorerie, niveau: "titre", tresorerie: true },
+    { type: "ligne", libelle: LIBELLE_VARIATION_TRESORERIE, montant: pnl.variationTresorerie, niveau: "titre", tresorerie: true, texte: ht ? LIBELLE_VOIR_TTC : undefined },
   ];
 }
 
@@ -293,10 +302,11 @@ async function pageGeneral(doc: jsPDF, page: PageGeneralPdf, teintes: ReadonlyMa
       const largeurLibelle = ecrire(doc, ligne.libelle, gauche.x, base, { taille, gras: fort, couleur: fort ? NEUTRES.encre : NEUTRES.secondaire, largeurMax: xMontant - gauche.x - 90 });
       // Indicateur principal : « Marge brute TTC », la mention en petit, à la suite du nom ; les
       // lignes de coûts restent sans mention, comme à l'écran.
-      if (fort) ecrireMentionTTC(doc, gauche.x + largeurLibelle, base, 7 * echelle, ligne.tresorerie ? MENTION_TTC : mentionDeLaBase(page.base));
+      if (fort && !ligne.texte) ecrireMentionTTC(doc, gauche.x + largeurLibelle, base, 7 * echelle, ligne.tresorerie ? MENTION_TTC : mentionDeLaBase(page.base));
       const incomplet = ligne.indicateur !== undefined && page.incomplets.includes(ligne.indicateur);
-      ecrire(doc, incomplet ? "Incomplet" : formatMontantComptable(ligne.montant), xMontant, base, { taille, gras: fort, aDroite: true });
-      if (ligne.ratio !== undefined && !incomplet) {
+      if (ligne.texte) ecrire(doc, ligne.texte, xMontant, base, { taille: 8.5 * echelle, couleur: NEUTRES.secondaire, aDroite: true });
+      else if (!ligne.vide) ecrire(doc, incomplet ? "Incomplet" : formatMontantComptable(ligne.montant), xMontant, base, { taille, gras: fort, aDroite: true });
+      if (ligne.ratio !== undefined && !incomplet && !ligne.vide && !ligne.texte) {
         ecrire(doc, formatPourcentage(ligne.ratio), xRatio, base, { taille: 8.5 * echelle, couleur: NEUTRES.secondaire, aDroite: true });
       }
     }

@@ -73,9 +73,12 @@ describe("parts : conversion avant agrégation, une seule fois", () => {
     proche(parts[1].montant, 1_200 / 1.1); // 1 200 à 10 %
   });
 
-  test("étage de trésorerie (Extra P&L) : jamais converti", () => {
+  test("Extra P&L : converti au taux de sa catégorie ; Virements internes & Financement : jamais converti", () => {
     const parts = partsEnBase(partsMappees([tx(-1_200, [["tva", 1]])], AXE, mappings), tauxParCategorie(mappings), "ht");
-    assert.equal(parts[0].montant, -1_200);
+    proche(parts[0].montant, -1_000);
+    const financement = indexerMappings([mapping("emprunt", "financing", 20)]);
+    const partsFinancement = partsEnBase(partsMappees([tx(5_000, [["emprunt", 1]])], AXE, financement), tauxParCategorie(financement), "ht");
+    assert.equal(partsFinancement[0].montant, 5_000);
   });
 
   test("une part déjà convertie n'est jamais reconvertie", () => {
@@ -118,7 +121,7 @@ describe("taux manquant : incomplet, jamais converti en silence", () => {
   });
 });
 
-describe("P&L : soldes recalculés à partir de leurs composantes, trésorerie toujours TTC", () => {
+describe("P&L : soldes recalculés à partir de leurs composantes ; en HT, arrêt au Cash flow opérationnel HT", () => {
   const mappings = indexerMappings([
     mapping("ventes", "revenue", 20),
     mapping("achats", "gross_margin", 20),
@@ -154,12 +157,20 @@ describe("P&L : soldes recalculés à partir de leurs composantes, trésorerie t
     assert.equal(ttc.margeBrute, 12_000 - 6_000 + 500);
   });
 
-  test("Cash flow opérationnel et Variation de trésorerie identiques en TTC et en HT", () => {
-    assert.equal(ht.cashFlowOperationnel, ttc.cashFlowOperationnel);
-    assert.equal(ht.variationTresorerie, ttc.variationTresorerie);
-    assert.equal(ht.extraPnl, ttc.extraPnl);
-    assert.equal(ht.financements, ttc.financements);
-    assert.notEqual(ht.cashFlowOperationnel, ht.ebitda + ht.extraPnl, "jamais EBITDA HT + flux TTC");
+  test("HT : Cash flow opérationnel = EBITDA HT + Extra P&L HT, jamais le Cash flow TTC renommé", () => {
+    // Extra P&L sans taux : marqué incomplet, jamais repris en TTC à la place.
+    assert.equal(ht.couvertures!.cashFlowOperationnel.complete, false);
+    assert.equal(ht.couvertures!.ebitda.complete, true);
+    const avecTaux = indexerMappings([...mappings.values()].map((m) => (m.sourceCategoryId === "tva" ? { ...m, vatRate: 0 } : m)));
+    const htComplet = calculerPnlEnBase(transactions, AXE, avecTaux, [stock], "ht");
+    assert.equal(htComplet.couvertures!.cashFlowOperationnel.complete, true);
+    proche(htComplet.cashFlowOperationnel, htComplet.ebitda + htComplet.extraPnl);
+    assert.notEqual(htComplet.cashFlowOperationnel, ttc.cashFlowOperationnel);
+    // Financement exclu : l'emprunt de 5 000 € n'y entre pas.
+    proche(htComplet.cashFlowOperationnel, htComplet.ebitda - 800);
+    // TTC : trésorerie complète, inchangée.
+    assert.equal(ttc.cashFlowOperationnel, ttc.ebitda + ttc.extraPnl);
+    assert.equal(ttc.variationTresorerie, ttc.cashFlowOperationnel + ttc.financements);
   });
 
   test("changer de lecture n'altère aucune donnée", () => {
@@ -208,23 +219,40 @@ import { MENTION_HT_ESTIME, MENTION_TTC } from "./format";
 const texte = (html: string) =>
   html.replace(/<[^>]+>/g, "\n").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/[  ]/g, " ").split("\n").map((t) => t.trim()).filter(Boolean);
 
-describe("écran Général : HT estimé jusqu'à l'EBITDA, trésorerie en TTC, objectifs dans la lecture active", () => {
-  const mappings = indexerMappings([mapping("ventes", "revenue", 20), mapping("achats", "gross_margin", 20), mapping("tva", "extra_pnl", null)]);
+describe("écran Général : HT estimé jusqu'au Cash flow opérationnel HT, objectifs dans la lecture active", () => {
+  const mappings = indexerMappings([mapping("ventes", "revenue", 20), mapping("achats", "gross_margin", 20), mapping("tva", "extra_pnl", 0)]);
   const transactions = [tx(12_000, [["ventes", 1]]), tx(-6_000, [["achats", 1]]), tx(-800, [["tva", 1]])];
   const cibles = ecartsVsCibles([], [], [], PERIODE);
   const rendre = (pnl: ReturnType<typeof calculerPnlEnBase>, c: EcartsVsCibles | null = cibles) =>
     texte(renderToStaticMarkup(React.createElement(PasseGeneral, { pnl, cibles: c, onOuvrir: () => {}, onDefinirCible: () => {}, onConfigurerTva: () => {}, teintes: new Map() })));
 
-  test("lecture HT : « Encaissements HT estimé », « Cash flow opérationnel TTC », frontière explicite", () => {
+  test("lecture HT : dernier résultat chiffré = Cash flow opérationnel HT ; financement vide ; « Voir onglet TTC »", () => {
     const lignes = rendre(calculerPnlEnBase(transactions, AXE, mappings, [], "ht"));
-    const suivi = (libelle: string) => lignes[lignes.indexOf(libelle) + 1];
+    const suivi = (libelle: string, decalage = 1) => lignes[lignes.indexOf(libelle) + decalage];
     assert.equal(suivi("Encaissements"), MENTION_HT_ESTIME);
     assert.equal(suivi("Marge brute"), MENTION_HT_ESTIME);
+    assert.equal(suivi("Cash flow opérationnel"), MENTION_HT_ESTIME);
+    assert.equal(suivi("Cash flow opérationnel", 2), "4 200 €", "10 000 − 5 000 − 800 (Extra P&L à 0 %)");
+    // Virements internes & Financement : libellé seul, cellule vide (ni 0 €, ni tiret).
+    assert.equal(suivi("Virements internes & Financement"), "Variation de trésorerie");
+    // Variation de trésorerie : exactement « Voir onglet TTC », sans montant ni mention.
+    assert.equal(suivi("Variation de trésorerie"), `Voir onglet ${MENTION_TTC}`);
+    assert.equal(lignes.includes("5 200 €"), false, "aucun montant TTC de trésorerie en lecture HT");
+  });
+
+  test("lecture TTC : trésorerie complète, montants réaffichés", () => {
+    const lignes = rendre(calculerPnlEnBase([...transactions, tx(5_000, [["emprunt", 1]])], AXE, indexerMappings([...mappings.values(), mapping("emprunt", "financing", null)]), [], "ttc"));
+    const suivi = (libelle: string, decalage = 1) => lignes[lignes.indexOf(libelle) + decalage];
     assert.equal(suivi("Cash flow opérationnel"), MENTION_TTC);
-    assert.equal(suivi("Variation de trésorerie"), MENTION_TTC);
-    assert.ok(lignes.includes("Trésorerie : flux bancaires réels, toujours en TTC"));
-    assert.ok(lignes.includes("10 000 €"));
-    assert.ok(lignes.includes("5 200 €"), "cash flow : 12 000 − 6 000 − 800, en TTC");
+    assert.equal(suivi("Cash flow opérationnel", 2), "5 200 €");
+    assert.equal(suivi("Virements internes & Financement"), "5 000 €");
+    assert.equal(suivi("Variation de trésorerie", 2), "10 200 €");
+  });
+
+  test("lecture HT : Extra P&L sans taux, Cash flow opérationnel HT « Incomplet », jamais repris en TTC", () => {
+    const sansTaux = indexerMappings([...mappings.values()].map((m) => (m.sourceCategoryId === "tva" ? { ...m, vatRate: null } : m)));
+    const lignes = rendre(calculerPnlEnBase(transactions, AXE, sansTaux, [], "ht"));
+    assert.equal(lignes[lignes.indexOf("Cash flow opérationnel") + 2], "Incomplet");
   });
 
   test("objectifs : en HT, cible et écart HT ; en TTC, aucun objectif ni mention", () => {
@@ -250,5 +278,90 @@ describe("écran Général : HT estimé jusqu'à l'EBITDA, trésorerie en TTC, o
     assert.equal(suivi("Marge brute"), "Incomplet");
     assert.ok(lignes.some((t) => t.includes("TVA non définie pour achats")));
     assert.ok(lignes.some((t) => t.includes("Répartition HT non affichée")));
+  });
+});
+
+describe("étage TVA — exclu du HT estimé, conservé en TTC et dans la trésorerie", () => {
+  // Activité : 12 000 € TTC encaissés (20 %), 2 400 € TTC de loyer (20 %), et des mouvements de TVA :
+  // un paiement de -12 000 € et un remboursement de +3 000 €, sans taux (aucun n'est requis).
+  const mappings = indexerMappings([mapping("ventes", "revenue", 20), mapping("loyer", "ebitda", 20), mapping("tva", "vat", null), mapping("divers", "extra_pnl", null)]);
+  const activite = [tx(12_000, [["ventes", 1]]), tx(-2_400, [["loyer", 1]])];
+  const mouvementsTva = [tx(-12_000, [["tva", 1]]), tx(3_000, [["tva", 1]])];
+  const transactions = [...activite, ...mouvementsTva];
+
+  test("HT estimé : paiement et remboursement exclus des montants, des soldes et des répartitions", () => {
+    const ht = calculerPnlEnBase(transactions, AXE, mappings, [], "ht");
+    const htSansTva = calculerPnlEnBase(activite, AXE, mappings, [], "ht");
+    proche(ht.ca, 10_000);
+    proche(ht.ebitda, 8_000);
+    assert.deepEqual([ht.ca, ht.margeBrute, ht.ebitda], [htSansTva.ca, htSansTva.margeBrute, htSansTva.ebitda]);
+    assert.equal(ht.categories.some((c) => c.etage === "vat"), false);
+    // Jamais divisés par un taux : ils ne sont tout simplement pas dans les parts HT.
+    const parts = partsEnBase(partsMappees(transactions, AXE, mappings), tauxParCategorie(mappings), "ht");
+    assert.equal(parts.some((p) => p.etage === "vat"), false);
+  });
+
+  test("TTC : mouvements de TVA présents, montants et signes réels, sur leur propre ligne", () => {
+    const ttc = calculerPnlEnBase(transactions, AXE, mappings, [], "ttc");
+    assert.equal(ttc.tva, -9_000);
+    assert.equal(ttc.extraPnl, 0);
+    assert.equal(ttc.ebitda, 9_600);
+    assert.equal(ttc.categories.find((c) => c.sourceCategoryId === "tva")?.montant, -9_000);
+  });
+
+  test("trésorerie TTC : TVA comprise ; Cash flow opérationnel HT : TVA exclue", () => {
+    const ttc = calculerPnlEnBase(transactions, AXE, mappings, [], "ttc");
+    const ht = calculerPnlEnBase(transactions, AXE, mappings, [], "ht");
+    assert.equal(ttc.cashFlowOperationnel, 9_600 - 9_000);
+    assert.equal(ttc.variationTresorerie, 600);
+    // HT : le Cash flow opérationnel HT estimé exclut la TVA (EBITDA HT 8 000 + Extra P&L HT 0).
+    proche(ht.cashFlowOperationnel, 8_000);
+  });
+
+  test("écran Cash flow : TVA incluse hors financement comme financement compris", () => {
+    const parts = partsMappees(transactions, AXE, mappings);
+    for (const financementCompris of [false, true]) {
+      const vue = calculerDetail(parts, "cash_flow", { categorie: null, mois: null }, PERIODE, [], { financementCompris });
+      assert.equal(vue.kpi.montant, 600, `financementCompris=${financementCompris}`);
+      assert.equal(vue.transactions.filter((p) => p.etage === "vat").length, 2);
+    }
+  });
+
+  test("remapper une catégorie d'Extra P&L vers TVA : totaux TTC et trésorerie inchangés, jamais comptée deux fois", () => {
+    const enExtra = indexerMappings([mapping("ventes", "revenue", 20), mapping("loyer", "ebitda", 20), mapping("tva", "extra_pnl", null)]);
+    const avant = calculerPnl(transactions, AXE, enExtra);
+    const apres = calculerPnl(transactions, AXE, mappings);
+    assert.equal(apres.cashFlowOperationnel, avant.cashFlowOperationnel);
+    assert.equal(apres.variationTresorerie, avant.variationTresorerie);
+    assert.equal(apres.ebitda, avant.ebitda);
+    assert.deepEqual([avant.extraPnl, avant.tva], [-9_000, 0]);
+    assert.deepEqual([apres.extraPnl, apres.tva], [0, -9_000]);
+    assert.equal(apres.ebitda + apres.extraPnl + apres.tva, apres.cashFlowOperationnel);
+  });
+
+  test("aucun taux requis : la catégorie TVA ne rend pas la couverture HT incomplète", () => {
+    const ht = calculerPnlEnBase(transactions, AXE, mappings, [], "ht");
+    for (const indicateur of ["ca", "margeBrute", "margeContributive", "ebitda"] as const) {
+      assert.equal(ht.couvertures![indicateur].complete, true, indicateur);
+    }
+  });
+
+  test("analyse d'écarts (Cash flow, TTC) : la TVA est une contribution distincte, réconciliation exacte", () => {
+    const a = donneesPeriode(activite, AXE, mappings, [], PERIODE);
+    const b = donneesPeriode(transactions, AXE, mappings, [], PERIODE);
+    const comparaison = comparerPeriodes(a, b);
+    assert.equal(comparaison.variationTva, -9_000);
+    assert.equal(comparaison.etages.find((e) => e.etage === "vat")?.contribution, -9_000);
+    proche(comparaison.etages.reduce((s, e) => s + e.contribution, 0), comparaison.ecart);
+    proche(comparaison.variationEbitda + comparaison.variationExtraPnl + comparaison.variationTva + comparaison.variationFinancements, comparaison.ecart);
+    // Sans mouvement de TVA sur aucune des deux périodes : pas de marche « TVA : 0 ».
+    assert.equal(comparerPeriodes(a, a).etages.some((e) => e.etage === "vat"), false);
+  });
+
+  test("aucune transaction source modifiée : seule la lecture change", () => {
+    const copie = JSON.stringify(transactions);
+    calculerPnlEnBase(transactions, AXE, mappings, [], "ht");
+    calculerPnlEnBase(transactions, AXE, mappings, [], "ttc");
+    assert.equal(JSON.stringify(transactions), copie);
   });
 });

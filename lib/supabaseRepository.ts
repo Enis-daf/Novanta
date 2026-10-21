@@ -424,6 +424,19 @@ export async function marquerFacturesFournisseursPayees(ids: string[]): Promise<
   if (error) throw error;
 }
 
+// Synchronisation Pennylane : ramène le montant de factures déjà importées au reste à payer
+// Pennylane (voir lib/pennylaneInvoiceAdapter.ts::calculerSynchronisation). Seule la colonne montant
+// est écrite : Payée, date prévue et Litigieuse ne sont jamais touchées ici.
+export async function mettreAJourMontantsFactures(
+  table: "customer_invoices" | "supplier_invoices",
+  montants: { id: string; montant: number }[]
+): Promise<void> {
+  for (const { id, montant } of montants) {
+    const { error } = await client().from(table).update({ montant }).eq("id", id);
+    if (error) throw error;
+  }
+}
+
 // Synchronisation Pennylane : retire les factures fournisseurs dont la version Pennylane a été
 // archivée (voir lib/pennylaneInvoiceAdapter.ts::calculerSynchronisation).
 export async function supprimerFacturesFournisseurs(ids: string[]): Promise<void> {

@@ -21,7 +21,6 @@ export default function SyntheseMensuelle({ synthese }: SyntheseMensuelleProps) 
     <div className="synthese-mensuelle">
       <h3>Synthèse mensuelle</h3>
       <div className="synthese-mensuelle__corps">
-        <div className="pilotage__decor-verte" aria-hidden="true" />
         <div className="synthese-mensuelle__scroll">
           <table className="synthese-mensuelle__table">
             <thead>

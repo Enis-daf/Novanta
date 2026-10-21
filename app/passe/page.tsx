@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import LoginForm from "@/components/LoginForm";
-import NavigationModules from "@/components/NavigationModules";
+import EnTeteCockpit from "@/components/EnTeteCockpit";
 import PasseTransactions from "@/components/PasseTransactions";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
@@ -102,27 +101,10 @@ export default function PassePage() {
 
   return (
     <main className="cockpit">
-      <header className="page-intro">
-        <div className="page-intro__texte">
-          <h1 className="page-intro__titre-compact">
-            <span className="page-intro__marque">Novanta</span>
-            <span className="page-intro__produit"> — cockpit de trésorerie</span>
-          </h1>
-        </div>
-        <div className="page-intro__actions">
-          <span className="page-intro__email">{session.user.email}</span>
-          <NavigationModules moduleActif="passe" passeDisponible />
-          <Link href="/account/billing" className="btn-secondaire">
-            Abonnement
-          </Link>
-          <Link href="/account/integrations" className="btn-secondaire">
-            Intégrations
-          </Link>
-          <button type="button" className="btn-deconnexion" onClick={() => supabase!.auth.signOut()}>
-            Se déconnecter
-          </button>
-        </div>
-      </header>
+      <EnTeteCockpit
+        moduleActif="passe"
+        compte={{ email: session.user.email, passeDisponible: true, onDeconnexion: () => supabase!.auth.signOut() }}
+      />
       {/* `key` : une organisation = une instance du module ; son état (période comprise) ne passe
           jamais à une autre organisation. */}
       <PasseTransactions

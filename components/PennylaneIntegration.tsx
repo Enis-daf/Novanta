@@ -131,7 +131,10 @@ export default function PennylaneIntegration({ session }: PennylaneIntegrationPr
   if (chargement) {
     return (
       <div className="carte-editoriale billing-card">
-        <p className="eyebrow">Novanta</p>
+        <p className="eyebrow">
+          Novanta
+          <span className="carte-editoriale__rubrique">Intégrations</span>
+        </p>
         <h1>Pennylane</h1>
         <p>Chargement…</p>
       </div>
@@ -144,14 +147,17 @@ export default function PennylaneIntegration({ session }: PennylaneIntegrationPr
 
   return (
     <div className="carte-editoriale billing-card">
-      <p className="eyebrow">Novanta</p>
+      <p className="eyebrow">
+        Novanta
+        <span className="carte-editoriale__rubrique">Intégrations</span>
+      </p>
       <h1>Pennylane</h1>
 
       {erreur && <div className="login-erreur">{erreur}</div>}
       {info && <div className="login-info">{info}</div>}
 
       {estConnecte && (
-        <p className="pennylane-badge pennylane-badge--connecte">🟢 Connecté</p>
+        <p className="pennylane-badge pennylane-badge--connecte etiquette etiquette--ok">Connecté</p>
       )}
       {estConnecte && derniereUtilisation && (
         <dl className="billing-status">

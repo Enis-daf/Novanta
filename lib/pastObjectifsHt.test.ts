@@ -252,7 +252,9 @@ describe("écrans de détail : objectifs en HT seulement, Cash flow toujours TTC
     }
     const ht = calculerPnlEnBase(transactions, AXE, MAPPINGS, [], "ht");
     const ttc = calculerPnlEnBase(transactions, AXE, MAPPINGS, [], "ttc");
-    assert.equal(ht.cashFlowOperationnel, ttc.cashFlowOperationnel);
+    // Général en HT : Cash flow opérationnel HT estimé (EBITDA HT + Extra P&L HT) ; l'écran et la
+    // page Cash flow, eux, restent TTC.
+    assert.ok(Math.abs(ht.cashFlowOperationnel - (ht.ebitda + ht.extraPnl)) < 1e-6);
     assert.equal(ht.variationTresorerie, ttc.variationTresorerie);
   });
 
