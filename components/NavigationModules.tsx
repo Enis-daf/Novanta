@@ -15,7 +15,7 @@ export default function NavigationModules({ moduleActif, passeDisponible }: Navi
     `btn-secondaire${moduleActif === module ? " btn-module--actif" : ""}`;
 
   return (
-    <nav className="nav-modules" aria-label="Modules">
+    <nav className="nav-modules selecteur" aria-label="Modules">
       <Link
         href={ROUTE_PASSE}
         className={classe("passe")}

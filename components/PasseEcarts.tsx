@@ -472,7 +472,7 @@ export default function PasseEcarts({
               catalogue={PRESETS_AVEC_MOIS}
             />
           </div>
-          <div className="passe-tri" role="group" aria-label="Lecture de l'analyse">
+          <div className="passe-tri selecteur" role="group" aria-label="Lecture de l'analyse">
             {LECTURES.map((option) => (
               <button
                 key={option.libelle}
@@ -559,6 +559,7 @@ export default function PasseEcarts({
               <p className="passe-message">
                 Dont variation d&apos;EBITDA : {signe(comparaison.variationEbitda)} · variation d&apos;Extra P&amp;L :{" "}
                 {signe(comparaison.variationExtraPnl)}
+                {comparaison.variationTva !== 0 && <> · variation de TVA : {signe(comparaison.variationTva)}</>}
                 {financementCompris && <> · variation des virements internes &amp; financement : {signe(comparaison.variationFinancements)}</>}. Cliquez sur une
                 contribution pour voir ses catégories.
               </p>
@@ -646,20 +647,22 @@ export default function PasseEcarts({
                 ← Retour
               </button>
               <span className="passe-filtres-actifs__titre">Trier par :</span>
-              {TRIS.map((option) => (
-                <button
-                  key={option.cle}
-                  type="button"
-                  className={`btn-secondaire${tri === option.cle ? " btn-module--actif" : ""}`}
-                  aria-pressed={tri === option.cle}
-                  onClick={() => {
-                    setTri(option.cle);
-                    setNombreAffiche(PAS_AFFICHAGE);
-                  }}
-                >
-                  {option.libelle}
-                </button>
-              ))}
+              <span className="selecteur">
+                {TRIS.map((option) => (
+                  <button
+                    key={option.cle}
+                    type="button"
+                    className={`btn-secondaire${tri === option.cle ? " btn-module--actif" : ""}`}
+                    aria-pressed={tri === option.cle}
+                    onClick={() => {
+                      setTri(option.cle);
+                      setNombreAffiche(PAS_AFFICHAGE);
+                    }}
+                  >
+                    {option.libelle}
+                  </button>
+                ))}
+              </span>
             </div>
             <div className="passe-detail__table">
               <table className="passe-table">

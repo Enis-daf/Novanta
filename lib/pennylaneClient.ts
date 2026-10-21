@@ -234,6 +234,28 @@ interface ReponsePagineeGenerique<T> {
   next_cursor: string | null;
 }
 
+/**
+ * Observation des appels HTTP (mesure de performance) : un événement par tentative, sans token ni
+ * contenu de réponse. Aucun observateur par défaut ; la route qui mesure en pose un (voir
+ * lib/pastBfrSync.ts). Le client reste utilisable partout, sans dépendance serveur.
+ */
+export interface EvenementAppelPennylane {
+  endpoint: string; // chemin, identifiants de facture remplacés par « {id} »
+  statut: number | null; // null : pas de réponse (réseau, délai)
+  dureeMs: number;
+  attenteMs: number; // attente imposée après un 429 (retry-after), 0 sinon
+}
+
+let observateur: ((evenement: EvenementAppelPennylane) => void) | null = null;
+
+export function definirObservateurPennylane(fonction: ((evenement: EvenementAppelPennylane) => void) | null): void {
+  observateur = fonction;
+}
+
+function signaler(endpoint: string, statut: number | null, debut: number, attenteMs = 0) {
+  observateur?.({ endpoint: endpoint.replace(/\/\d+(?=\/|$)/g, "/{id}"), statut, dureeMs: Date.now() - debut, attenteMs });
+}
+
 function attendre(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -253,6 +275,7 @@ async function appelerPennylane(bearer: string, endpoint: string, params: URLSea
   for (let tentative = 1; tentative <= MAX_TENTATIVES_RATE_LIMIT; tentative++) {
     const controller = new AbortController();
     const minuteur = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const debut = Date.now();
     let reponse: Response;
     try {
       reponse = await fetch(`${baseUrlPennylane()}${endpoint}?${params.toString()}`, {
@@ -262,6 +285,7 @@ async function appelerPennylane(bearer: string, endpoint: string, params: URLSea
       });
     } catch (erreur) {
       clearTimeout(minuteur);
+      signaler(endpoint, null, debut);
       const estAbort = erreur instanceof Error && erreur.name === "AbortError";
       await journaliserEchec(endpoint, null, "network");
       throw new PennylaneApiError(
@@ -273,6 +297,7 @@ async function appelerPennylane(bearer: string, endpoint: string, params: URLSea
     }
     clearTimeout(minuteur);
 
+    if (reponse.status !== 429) signaler(endpoint, reponse.status, debut);
     if (reponse.status === 401) {
       await journaliserEchec(endpoint, reponse, "invalid_token");
       throw new PennylaneApiError("invalid_token", "Token Pennylane invalide ou expiré.", 401, endpoint);
@@ -292,7 +317,9 @@ async function appelerPennylane(bearer: string, endpoint: string, params: URLSea
         throw new PennylaneApiError("rate_limited", "Limite de requêtes Pennylane atteinte.", 429, endpoint);
       }
       const retryAfter = Number(reponse.headers.get("retry-after"));
-      await attendre((Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 2) * 1000);
+      const attente = (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 2) * 1000;
+      signaler(endpoint, 429, debut, attente);
+      await attendre(attente);
       continue;
     }
     if (reponse.status >= 500) {
@@ -331,11 +358,12 @@ export async function getMe(credentialProvider: PennylaneCredentialProvider): Pr
 async function paginerParCurseur<T>(
   bearer: string,
   endpoint: string,
-  paramsBase: Record<string, string>
+  paramsBase: Record<string, string>,
+  maxPages = MAX_PAGES
 ): Promise<T[]> {
   const toutes: T[] = [];
   let cursor: string | null = null;
-  for (let page = 0; page < MAX_PAGES; page++) {
+  for (let page = 0; page < maxPages; page++) {
     const params = new URLSearchParams({ ...paramsBase, limit: String(LIMITE_PAR_PAGE) });
     if (cursor) params.set("cursor", cursor);
     const reponse = (await appelerPennylane(bearer, endpoint, params)) as ReponsePagineeGenerique<T>;
@@ -383,6 +411,49 @@ export async function listSupplierInvoices(
 ): Promise<PennylaneSupplierInvoiceListItem[]> {
   const bearer = await credentialProvider.getBearerToken();
   return paginerParCurseur<PennylaneSupplierInvoiceListItem>(bearer, ENDPOINT_SUPPLIER_INVOICES, {});
+}
+
+/** Nombre maximal de factures qu'une liste peut renvoyer (pagination bornée) : au-delà, tronquée. */
+export const MAX_FACTURES_PAR_LISTE = LIMITE_PAR_PAGE * MAX_PAGES;
+
+// BFR : tout l'historique des factures, payées comprises. La borne n'est qu'un garde-fou contre une
+// pagination qui ne s'arrêterait pas ; l'atteindre rend la liste « incomplète », jamais en silence.
+const MAX_PAGES_FACTURES_BFR = 1_000;
+
+/**
+ * Toutes les factures d'un type, payées comprises, pour le BFR historique (100 par page, le
+ * maximum de l'API). `complete` est faux si la borne de pages a été atteinte.
+ */
+export async function listerFacturesPourBfr(
+  credentialProvider: PennylaneCredentialProvider,
+  type: "customer" | "supplier"
+): Promise<{ items: unknown[]; complete: boolean }> {
+  const bearer = await credentialProvider.getBearerToken();
+  const items = await paginerParCurseur<unknown>(bearer, type === "customer" ? ENDPOINT_CUSTOMER_INVOICES : ENDPOINT_SUPPLIER_INVOICES, {}, MAX_PAGES_FACTURES_BFR);
+  return { items, complete: items.length < LIMITE_PAR_PAGE * MAX_PAGES_FACTURES_BFR };
+}
+
+/** Transaction bancaire rapprochée d'une facture : seuls l'id, la date et le montant sont lus. */
+export interface PennylaneMatchedTransactionRaw {
+  id: number | string;
+  date?: string | null;
+  amount?: string | null;
+}
+
+/**
+ * Transactions bancaires rapprochées d'une facture (GET /customer_invoices/{id}/matched_transactions
+ * ou /supplier_invoices/{id}/matched_transactions, mêmes scopes que les listes de factures). Leur
+ * date est la seule date de règlement effectif que l'API expose ; la part de chaque transaction
+ * affectée à la facture, elle, n'est pas fournie. Vide pour une facture archivée ou brouillon.
+ */
+export async function listMatchedTransactions(
+  credentialProvider: PennylaneCredentialProvider,
+  type: "customer" | "supplier",
+  invoiceId: string
+): Promise<PennylaneMatchedTransactionRaw[]> {
+  const bearer = await credentialProvider.getBearerToken();
+  const endpoint = `${type === "customer" ? ENDPOINT_CUSTOMER_INVOICES : ENDPOINT_SUPPLIER_INVOICES}/${encodeURIComponent(invoiceId)}/matched_transactions`;
+  return paginerParCurseur<PennylaneMatchedTransactionRaw>(bearer, endpoint, {});
 }
 
 /** Groupe de catégories analytiques (un "axe" analytique côté Pennylane). */

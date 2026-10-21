@@ -30,6 +30,11 @@ export const ETAGES_PNL = [
   { cle: "contribution_margin", libelle: "Autres coûts variables" },
   { cle: "ebitda", libelle: "Coûts de structure" },
   { cle: "extra_pnl", libelle: "Extra P&L" },
+  // Paiements et remboursements de TVA. À ne pas confondre avec le TAUX de TVA d'une catégorie
+  // (vatRate), qui convertit ses montants en HT estimé : ici, c'est le mouvement lui-même qui est de
+  // la TVA. Exclu de la lecture HT estimé, gardé tel quel en TTC et dans toute la trésorerie, après
+  // l'Extra P&L. Rattachement par l'utilisateur uniquement, comme pour les autres étages.
+  { cle: "vat", libelle: "TVA" },
   // Virements entre comptes de l'entreprise et flux de financement : ils entrent dans le Cash flow
   // complet, mais l'écran Cash flow peut les laisser de côté (lecture « hors financement »). C'est
   // l'utilisateur qui y rattache ses catégories ; rien n'est jamais reconnu d'après un nom de
