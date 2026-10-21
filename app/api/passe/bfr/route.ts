@@ -5,49 +5,45 @@ import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { moduleActifPourOrganisation } from "@/lib/organizationModules";
 import { marquerResultatTestPennylane, obtenirTokenPennylane, resumeErreurSupabaseSansSecret } from "@/lib/pennylaneRepository";
 import { CompanyApiTokenCredentialProvider } from "@/lib/pennylaneCredentialProvider";
-import {
-  listCustomerInvoices,
-  listMatchedTransactions,
-  listSupplierInvoices,
-  MAX_FACTURES_PAR_LISTE,
-  PennylaneApiError,
-} from "@/lib/pennylaneClient";
+import { listerFacturesPourBfr, listMatchedTransactions, PennylaneApiError } from "@/lib/pennylaneClient";
 import { cleChiffrementConfiguree } from "@/lib/pennylaneCrypto";
 import { MESSAGE_CONFIG_SERVEUR, codeErreurPennylane, messageErreurUtilisationPennylane } from "@/lib/pennylaneMessages";
 import { TypeFactureBfr } from "@/lib/pastBfr";
-import {
-  FacturePennylaneBrute,
-  factureBfrDepuisPennylane,
-  reglementsDepuisTransactions,
-  reglementsNecessaires,
-} from "@/lib/pastBfrPennylane";
-import {
-  chargerEtatFacturesBfr,
-  FactureAEnregistrer,
-  supprimerFacturesBfrNonRevues,
-  upsertFacturesBfr,
-} from "@/lib/pastBfrRepository";
+import { FacturePennylaneBrute } from "@/lib/pastBfrPennylane";
+import { avecMesures, ClientFacturesBfr, daterReglements, limiteurDebit, MesuresSynchro, nouvellesMesures, synchroniserFactures } from "@/lib/pastBfrSync";
+import { depotFacturesBfr } from "@/lib/pastBfrDepot";
 
 // Synchronisation Pennylane -> past_bfr_invoices pour le BFR historique du module "Passé",
-// déclenchée à la demande. Lit les factures clients et fournisseurs RÉELLES (payées comprises), et
-// date les règlements des factures réglées par leurs transactions rapprochées (un appel par
-// facture). Ces dates ne changent pas tant que la facture n'est pas modifiée chez Pennylane : elles
-// ne sont redemandées que pour une facture nouvelle ou modifiée (updated_at).
+// déclenchée à la demande, en deux étapes (voir lib/pastBfrSync.ts) :
+//   - etape "factures" : liste complète des factures, écriture des seules lignes nouvelles ou
+//     modifiées, factures à dater marquées ;
+//   - etape "reglements" : datation par lots des factures marquées, rappelée par le navigateur tant
+//     qu'il en reste. Aucune liste n'est relue à cette étape.
+// Chaque appel journalise ses mesures (durées, appels Pennylane par endpoint, 429, opérations
+// Supabase) avec l'identifiant de synchronisation envoyé par le navigateur — jamais de token ni de
+// contenu de facture. Rien n'est écrit dans les situations validées.
 //
-// Un appel est borné en nombre de requêtes (limite Pennylane : 25 requêtes / 5 s) : il renvoie le
-// nombre de factures dont les règlements restent à dater, et le navigateur rappelle la route
-// jusqu'à zéro. Une facture pas encore datée est simplement « au solde inconnu » entre-temps.
-//
-// L'organisation est toujours dérivée de l'utilisateur connecté. Rien n'est écrit dans les
-// situations validées : une synchronisation ne les modifie jamais.
+// L'organisation est toujours dérivée de l'utilisateur connecté.
 
 export const maxDuration = 60;
 
 const MESSAGE_ERREUR_SYNC = "La synchronisation des factures Pennylane a échoué. Réessayez.";
-const MAX_APPELS_REGLEMENTS = 100;
+// Datation : au plus 300 factures par appel, 4 appels en vol, et jamais plus de 20 démarrages par
+// fenêtre de 5 s — l'API en autorise 25 : la marge absorbe les nouvelles tentatives après un 429 et
+// les autres appels du même token. Aucun nouvel appel après 40 s.
+const MAX_FACTURES_PAR_APPEL = 300;
+const CONCURRENCE = 4;
 const BUDGET_MS = 40_000;
 
 const VERS_PENNYLANE: Record<TypeFactureBfr, "customer" | "supplier"> = { client: "customer", fournisseur: "supplier" };
+
+function journaliser(synchro: string, etape: string, organizationId: string, debut: number, mesures: MesuresSynchro, resultat: Record<string, unknown>) {
+  const appels = Object.entries(mesures.appelsPennylane).map(([endpoint, n]) => `${endpoint}:${n}`).join(",");
+  const details = Object.entries(resultat).map(([cle, valeur]) => `${cle}=${valeur}`).join(" ");
+  console.log(
+    `[passe/bfr] synchro=${synchro} etape=${etape} company=${organizationId} duree_ms=${Date.now() - debut} pennylane_ms=${mesures.dureePennylaneMs} appels=${appels || "aucun"} r429=${mesures.reponses429} attente_429_ms=${mesures.attente429Ms} supabase_ops=${mesures.operationsSupabase} supabase_ms=${mesures.dureeSupabaseMs} ${details}`
+  );
+}
 
 export async function POST(req: NextRequest) {
   if (!supabaseAdminConfigured || !supabaseAdmin) {
@@ -64,6 +60,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Authentification requise." }, { status: 401 });
   }
   const { supabase, user } = auth;
+
+  let corps: { etape?: unknown; synchro?: unknown };
+  try {
+    corps = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
+  }
+  const etape = corps.etape;
+  if (etape !== "factures" && etape !== "reglements") {
+    return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
+  }
+  // Identifiant de corrélation des journaux : jamais une donnée, borné et filtré.
+  const synchro = typeof corps.synchro === "string" ? corps.synchro.replace(/[^\w-]/g, "").slice(0, 40) : "inconnue";
 
   let organizationId: string;
   try {
@@ -92,56 +101,41 @@ export async function POST(req: NextRequest) {
   }
 
   const provider = new CompanyApiTokenCredentialProvider(token);
+  const client: ClientFacturesBfr = {
+    async listerFactures(type) {
+      const { items, complete } = await listerFacturesPourBfr(provider, VERS_PENNYLANE[type]);
+      return { items: items as FacturePennylaneBrute[], complete };
+    },
+    async listerTransactionsRapprochees(type, pennylaneId) {
+      try {
+        return await listMatchedTransactions(provider, VERS_PENNYLANE[type], pennylaneId);
+      } catch (erreur) {
+        // Facture introuvable à cette adresse (supprimée entre-temps) : aucune transaction datée —
+        // elle restera « au solde inconnu », sans bloquer la datation des autres.
+        if (erreur instanceof PennylaneApiError && erreur.httpStatus === 404) return [];
+        throw erreur;
+      }
+    },
+  };
+  const depot = depotFacturesBfr(supabaseAdmin, organizationId);
   const debut = Date.now();
-  const syncedAt = new Date().toISOString();
+  const maintenant = new Date().toISOString();
+  const mesures = nouvellesMesures();
 
   try {
-    const listes: [TypeFactureBfr, FacturePennylaneBrute[]][] = [
-      ["client", (await listCustomerInvoices(provider)) as unknown as FacturePennylaneBrute[]],
-      ["fournisseur", (await listSupplierInvoices(provider)) as unknown as FacturePennylaneBrute[]],
-    ];
-    // Une liste pleine est peut-être tronquée : on n'efface alors rien de ce qui n'a pas été revu.
-    const complete = listes.every(([, items]) => items.length < MAX_FACTURES_PAR_LISTE);
-    const connu = await chargerEtatFacturesBfr(supabaseAdmin, organizationId);
-
-    const aEnregistrer: FactureAEnregistrer[] = [];
-    let appels = 0;
-    let restantes = 0;
-    for (const [type, items] of listes) {
-      for (const item of items) {
-        const facture = factureBfrDepuisPennylane(type, item, null);
-        if (facture === null) continue;
-        const pennylaneUpdatedAt = item.updated_at ?? null;
-        if (reglementsNecessaires(facture)) {
-          const deja = connu.get(`${type}|${facture.pennylaneId}`);
-          const inchangee = deja !== undefined && deja.reglements !== null && pennylaneUpdatedAt !== null && deja.pennylaneUpdatedAt === pennylaneUpdatedAt;
-          if (inchangee) {
-            facture.reglements = deja.reglements;
-          } else if (appels < MAX_APPELS_REGLEMENTS && Date.now() - debut < BUDGET_MS) {
-            appels++;
-            facture.reglements = reglementsDepuisTransactions(await listMatchedTransactions(provider, VERS_PENNYLANE[type], facture.pennylaneId));
-          } else {
-            // Pas encore datée : enregistrée sans règlements, et sans date de mise à jour pour être
-            // reprise au prochain appel.
-            restantes++;
-            aEnregistrer.push({ facture, pennylaneUpdatedAt: null });
-            continue;
-          }
-        }
-        aEnregistrer.push({ facture, pennylaneUpdatedAt });
-      }
+    if (etape === "factures") {
+      const resultat = await avecMesures(mesures, () => synchroniserFactures(client, depot, maintenant));
+      journaliser(synchro, etape, organizationId, debut, mesures, { ...resultat });
+      return NextResponse.json({ ...resultat, synchroniseesLe: maintenant });
     }
-
-    await upsertFacturesBfr(supabaseAdmin, organizationId, aEnregistrer, syncedAt);
-    const retirees = complete ? await supprimerFacturesBfrNonRevues(supabaseAdmin, organizationId, syncedAt) : 0;
-
-    console.log(
-      `[passe/bfr] OK company=${organizationId} factures=${aEnregistrer.length} reglements_dates=${appels} restantes=${restantes} retirees=${retirees} complete=${complete}`
+    const resultat = await avecMesures(mesures, () =>
+      daterReglements(client, depot, { maxFactures: MAX_FACTURES_PAR_APPEL, concurrence: CONCURRENCE, budgetMs: BUDGET_MS, maintenant, reserver: limiteurDebit(20, 5_000) })
     );
-    return NextResponse.json({ nombreFactures: aEnregistrer.length, restantes, complete, synchroniseesLe: syncedAt });
+    journaliser(synchro, etape, organizationId, debut, mesures, { ...resultat });
+    return NextResponse.json(resultat);
   } catch (erreur) {
     if (erreur instanceof PennylaneApiError) {
-      console.log(`[passe/bfr] Pennylane returned ${erreur.httpStatus ?? "?"} reason=${erreur.reason}`);
+      journaliser(synchro, `${etape}-echec`, organizationId, debut, mesures, { http: erreur.httpStatus ?? "?", raison: erreur.reason });
       if (erreur.reason === "invalid_token" || erreur.reason === "insufficient_scope") {
         try {
           await marquerResultatTestPennylane(supabaseAdmin, organizationId, {

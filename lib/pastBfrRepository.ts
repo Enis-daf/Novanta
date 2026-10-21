@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ExclusionFacture, FactureBfr, LigneBfr, ReglementBfr, RevisionBfr, SituationValidee, TypeFactureBfr } from "./pastBfr";
+import type { LigneStockee, ReglementsStockes } from "./pastBfrSync";
 
 /**
  * Accès Supabase du BFR historique (voir supabase/migrations/20261022_past_working_capital.sql).
@@ -7,33 +8,53 @@ import { ExclusionFacture, FactureBfr, LigneBfr, ReglementBfr, RevisionBfr, Situ
  * l'organisation. past_bfr_situations : situations validées, écrites par l'utilisateur (RLS).
  */
 
-type Row = Record<string, unknown>;
+export type Row = Record<string, unknown>;
 
-const TAILLE_LOT = 200;
+export const TAILLE_LOT = 200;
 
-const VERS_BASE: Record<TypeFactureBfr, string> = { client: "customer", fournisseur: "supplier" };
+export const VERS_BASE: Record<TypeFactureBfr, string> = { client: "customer", fournisseur: "supplier" };
 const DEPUIS_BASE: Record<string, TypeFactureBfr> = { customer: "client", supplier: "fournisseur" };
 
 const nombreOuNull = (valeur: unknown) => (valeur === null || valeur === undefined ? null : Number(valeur));
 
-function versFacture(row: Row): FactureBfr {
+/**
+ * Colonne settlements : { etat: "a_dater" } | { etat: "dates", recuperesLe, transactions } | null
+ * (inutiles). Ancien format (tableau de transactions, sans date de récupération) : lu comme daté mais
+ * à rafraîchir, voir lib/pastBfrSync.ts.
+ */
+function versReglementsStockes(valeur: unknown): ReglementsStockes | null {
+  if (valeur === null || valeur === undefined) return null;
+  if (Array.isArray(valeur)) return { etat: "dates", recuperesLe: "1970-01-01T00:00:00.000Z", transactions: valeur as ReglementBfr[] };
+  const objet = valeur as { etat?: string; recuperesLe?: string; transactions?: ReglementBfr[] };
+  if (objet.etat === "dates") return { etat: "dates", recuperesLe: objet.recuperesLe ?? "1970-01-01T00:00:00.000Z", transactions: objet.transactions ?? [] };
+  return { etat: "a_dater" };
+}
+
+export function versLigneStockee(row: Row): LigneStockee {
+  const reglements = versReglementsStockes(row.settlements);
   return {
-    pennylaneId: row.pennylane_id as string,
-    type: DEPUIS_BASE[row.invoice_type as string],
-    numero: row.invoice_number as string,
-    tiers: row.party_label as string,
-    dateEmission: (row.issue_date as string | null) ?? null,
-    echeance: (row.due_date as string | null) ?? null,
-    devise: row.currency as string,
-    montantTtc: Number(row.amount_incl_tax),
-    montantHt: nombreOuNull(row.amount_excl_tax),
-    resteTtc: Number(row.remaining_incl_tax),
-    resteHt: nombreOuNull(row.remaining_excl_tax),
-    exclusion: (row.exclusion as ExclusionFacture | null) ?? null,
-    factureAvoireeId: (row.credited_pennylane_id as string | null) ?? null,
-    reglements: (row.settlements as ReglementBfr[] | null) ?? null,
+    facture: {
+      pennylaneId: row.pennylane_id as string,
+      type: DEPUIS_BASE[row.invoice_type as string],
+      numero: row.invoice_number as string,
+      tiers: row.party_label as string,
+      dateEmission: (row.issue_date as string | null) ?? null,
+      echeance: (row.due_date as string | null) ?? null,
+      devise: row.currency as string,
+      montantTtc: Number(row.amount_incl_tax),
+      montantHt: nombreOuNull(row.amount_excl_tax),
+      resteTtc: Number(row.remaining_incl_tax),
+      resteHt: nombreOuNull(row.remaining_excl_tax),
+      exclusion: (row.exclusion as ExclusionFacture | null) ?? null,
+      factureAvoireeId: (row.credited_pennylane_id as string | null) ?? null,
+      reglements: reglements?.etat === "dates" ? reglements.transactions : null,
+    },
+    pennylaneUpdatedAt: (row.pennylane_updated_at as string | null) ?? null,
+    reglements,
   };
 }
+
+const versFacture = (row: Row): FactureBfr => versLigneStockee(row).facture;
 
 export interface FacturesBfrChargees {
   factures: FactureBfr[];
@@ -62,85 +83,6 @@ export async function chargerFacturesBfr(supabase: SupabaseClient, organizationI
     if (lignes.length < 1000) break;
   }
   return { factures, synchroniseesLe };
-}
-
-// --- Écriture serveur (route /api/passe/bfr) ---
-
-export interface EtatConnuFacture {
-  pennylaneUpdatedAt: string | null;
-  reglements: ReglementBfr[] | null;
-}
-
-/** Ce que la base sait déjà de chaque facture : pour ne redemander que les règlements qui ont pu changer. */
-export async function chargerEtatFacturesBfr(admin: SupabaseClient, organizationId: string): Promise<Map<string, EtatConnuFacture>> {
-  const etat = new Map<string, EtatConnuFacture>();
-  for (let debut = 0; ; debut += 1000) {
-    const { data, error } = await admin
-      .from("past_bfr_invoices")
-      .select("invoice_type, pennylane_id, pennylane_updated_at, settlements")
-      .eq("organization_id", organizationId)
-      .order("invoice_type")
-      .order("pennylane_id")
-      .range(debut, debut + 999);
-    if (error) throw error;
-    const lignes = (data ?? []) as Row[];
-    for (const row of lignes) {
-      etat.set(`${DEPUIS_BASE[row.invoice_type as string]}|${row.pennylane_id as string}`, {
-        pennylaneUpdatedAt: (row.pennylane_updated_at as string | null) ?? null,
-        reglements: (row.settlements as ReglementBfr[] | null) ?? null,
-      });
-    }
-    if (lignes.length < 1000) break;
-  }
-  return etat;
-}
-
-export interface FactureAEnregistrer {
-  facture: FactureBfr;
-  pennylaneUpdatedAt: string | null;
-}
-
-export async function upsertFacturesBfr(
-  admin: SupabaseClient,
-  organizationId: string,
-  factures: FactureAEnregistrer[],
-  syncedAt: string
-): Promise<void> {
-  for (let i = 0; i < factures.length; i += TAILLE_LOT) {
-    const lot = factures.slice(i, i + TAILLE_LOT).map(({ facture: f, pennylaneUpdatedAt }) => ({
-      organization_id: organizationId,
-      invoice_type: VERS_BASE[f.type],
-      pennylane_id: f.pennylaneId,
-      invoice_number: f.numero,
-      party_label: f.tiers,
-      issue_date: f.dateEmission,
-      due_date: f.echeance,
-      currency: f.devise,
-      amount_incl_tax: f.montantTtc,
-      amount_excl_tax: f.montantHt,
-      remaining_incl_tax: f.resteTtc,
-      remaining_excl_tax: f.resteHt,
-      exclusion: f.exclusion,
-      credited_pennylane_id: f.factureAvoireeId,
-      settlements: f.reglements,
-      pennylane_updated_at: pennylaneUpdatedAt,
-      synced_at: syncedAt,
-    }));
-    const { error } = await admin.from("past_bfr_invoices").upsert(lot, { onConflict: "organization_id,invoice_type,pennylane_id" });
-    if (error) throw error;
-  }
-}
-
-/** Factures disparues de Pennylane (supprimées) : retirées. Seulement après une liste complète. */
-export async function supprimerFacturesBfrNonRevues(admin: SupabaseClient, organizationId: string, syncedAt: string): Promise<number> {
-  const { data, error } = await admin
-    .from("past_bfr_invoices")
-    .delete()
-    .eq("organization_id", organizationId)
-    .lt("synced_at", syncedAt)
-    .select("pennylane_id");
-  if (error) throw error;
-  return (data ?? []).length;
 }
 
 // --- Situations validées ---

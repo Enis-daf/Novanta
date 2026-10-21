@@ -185,35 +185,47 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
     [mois, situationDu, valideeDu]
   );
 
+  // Deux étapes (voir app/api/passe/bfr/route.ts) : les factures, puis la datation des règlements,
+  // rappelée tant qu'il en reste. Le message dit l'étape réellement en cours ; le compteur n'apparaît
+  // que lorsque le serveur a donné le nombre de factures à dater. « À jour » seulement à la fin.
   const synchroniser = async () => {
     if (syncEnCours) return;
     setSyncEnCours(true);
     setErreur(null);
-    setMessage(null);
+    const synchro = crypto.randomUUID();
+    const appeler = async (etape: "factures" | "reglements") => {
+      const res = await fetch("/api/passe/bfr", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ etape, synchro }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "La synchronisation des factures Pennylane a échoué. Réessayez.");
+      return data;
+    };
     try {
-      for (let appel = 0; appel < MAX_APPELS_SYNCHRO; appel++) {
-        const res = await fetch("/api/passe/bfr", { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          setErreur(data.error || "La synchronisation des factures Pennylane a échoué. Réessayez.");
-          return;
-        }
-        if (!data.restantes) {
-          setMessage(
-            `${data.nombreFactures ?? 0} factures Pennylane à jour.${
-              data.complete === false ? " Liste très volumineuse : certaines factures anciennes peuvent manquer." : ""
-            }`
-          );
-          return;
-        }
-        setMessage(`Datation des règlements : ${data.restantes} factures restantes…`);
+      setMessage("Récupération des factures Pennylane…");
+      const factures = await appeler("factures");
+      let restantes: number = factures.aDater ?? 0;
+      for (let appel = 0; restantes > 0 && appel < MAX_APPELS_SYNCHRO; appel++) {
+        setMessage(`Récupération des règlements : ${restantes} factures à dater…`);
+        restantes = (await appeler("reglements")).restantes ?? 0;
       }
-      setMessage("Synchronisation interrompue : relancez-la pour dater les règlements restants.");
-    } catch {
-      setErreur("Pennylane est temporairement indisponible. Réessayez.");
+      setMessage("Calcul des situations BFR…");
+      await charger();
+      setMessage(
+        restantes > 0
+          ? `Synchronisation interrompue : ${restantes} factures restent à dater. Relancez-la pour reprendre.`
+          : `${factures.factures ?? 0} factures Pennylane à jour.${
+              factures.complete === false ? " Liste très volumineuse : certaines factures anciennes peuvent manquer." : ""
+            }`
+      );
+    } catch (e) {
+      setMessage(null);
+      setErreur(e instanceof Error && !(e instanceof TypeError) && e.message ? e.message : "Pennylane est temporairement indisponible. Réessayez.");
+      await charger().catch(() => undefined);
     } finally {
       setSyncEnCours(false);
-      await charger().catch(() => setErreur("Le BFR n'a pas pu être rechargé. Réessayez."));
     }
   };
 
