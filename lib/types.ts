@@ -8,6 +8,10 @@ export interface FactureClient {
   litigieuse: boolean;
   payee: boolean;
   paidAt: string | null; // ISO 8601 datetime — moment où "Payée" a été cochée
+  // Règlement réel (YYYY-MM-DD) : date de la dernière transaction bancaire rapprochée chez
+  // Pennylane. Écrit par le serveur seulement (/api/pennylane/invoices/settlement) ; sert au
+  // masquage des factures payées (lib/dates.ts::estMasqueeApresPaiement), à rien d'autre.
+  settledOn?: string | null;
   // ID de la facture côté Pennylane — présent uniquement si importée par la synchronisation
   // Pennylane (voir lib/pennylaneInvoiceAdapter.ts) ; absent/null pour une facture créée
   // manuellement ou importée par fichier. Clé de dédoublonnage, jamais recalculée.
@@ -24,6 +28,8 @@ export interface FactureFournisseur {
   litigieuse: boolean;
   payee: boolean;
   paidAt: string | null; // ISO 8601 datetime — moment où "Payée" a été cochée
+  // Voir FactureClient.settledOn.
+  settledOn?: string | null;
   // Voir FactureClient.pennylaneId — même rôle côté factures fournisseurs.
   pennylaneId?: string | null;
 }

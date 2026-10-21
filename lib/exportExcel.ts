@@ -106,7 +106,7 @@ function ajouterFeuille(classeur: ExcelJS.Workbook, nom: string, colonnes: Parti
 // --- Factures clients / fournisseurs -----------------------------------------------------
 
 function lignesFacturesClientsVisibles(params: ParametresExportExcel): FactureClient[] {
-  const actives = params.facturesClients.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt));
+  const actives = params.facturesClients.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt, f.settledOn ?? null));
   const filtrePeriode = params.filtresParCategorie.facturesClients;
   const dansPeriode = filtrePeriode ? actives.filter((f) => filtrePeriode.has(f.id)) : actives;
   const filtrees = filtrerFacturesClients(dansPeriode, params.recherche);
@@ -141,7 +141,7 @@ function construireFeuilleFacturesClients(classeur: ExcelJS.Workbook, params: Pa
 }
 
 function lignesFacturesFournisseursVisibles(params: ParametresExportExcel): FactureFournisseur[] {
-  const actives = params.facturesFournisseurs.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt));
+  const actives = params.facturesFournisseurs.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt, f.settledOn ?? null));
   const filtrePeriode = params.filtresParCategorie.facturesFournisseurs;
   const dansPeriode = filtrePeriode ? actives.filter((f) => filtrePeriode.has(f.id)) : actives;
   const filtrees = filtrerFacturesFournisseurs(dansPeriode, params.recherche);
