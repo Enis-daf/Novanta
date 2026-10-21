@@ -32,7 +32,7 @@ import {
   ResultatSyncPennylane,
 } from "@/lib/pennylaneInvoiceAdapter";
 import { calculerProjectionCash } from "@/lib/cash-engine";
-import { estMasqueeApresPaiement, todayISO } from "@/lib/dates";
+import { estMasqueeApresPaiement, reglementReelARecuperer, todayISO } from "@/lib/dates";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
 import { calculerControleMensuel } from "@/lib/controleMensuel";
 import { calculerFluxPeriode, calculerPeriodeFiltre } from "@/lib/periodeFiltre";
@@ -100,6 +100,10 @@ import {
 } from "@/lib/supabaseRepository";
 
 const DELAI_DEBOUNCE_MS = 600;
+
+// Lecture du règlement réel chez Pennylane : au plus 200 factures par synchronisation (un appel
+// Pennylane chacune) ; les suivantes le sont à la synchronisation d'après.
+const MAX_REGLEMENTS_REELS_PAR_SYNCHRO = 200;
 
 function persist(action: () => Promise<void>) {
   action().catch((error) => console.error("Échec de la sauvegarde Supabase :", error));
@@ -170,9 +174,9 @@ export default function Home() {
   // "aucun résultat"), totalement indépendant du calcul de trésorerie ci-dessous.
   const totalResultatsRecherche = useMemo(() => {
     if (!recherche) return null;
-    const facturesClientsActives = facturesClients.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt));
+    const facturesClientsActives = facturesClients.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt, f.settledOn ?? null));
     const facturesFournisseursActives = facturesFournisseurs.filter(
-      (f) => !estMasqueeApresPaiement(f.payee, f.paidAt)
+      (f) => !estMasqueeApresPaiement(f.payee, f.paidAt, f.settledOn ?? null)
     );
     return (
       filtrerFacturesClients(facturesClientsActives, recherche).length +
@@ -593,7 +597,10 @@ export default function Home() {
     idsClientsAMettreAJourPayee: string[],
     idsFournisseursAMettreAJourPayee: string[],
     idsFournisseursASupprimer: string[]
-  ) => {
+  ): Promise<void> => {
+    // Écritures « Payée » attendues par l'appelant : la lecture du règlement réel ne porte que sur
+    // des factures déjà enregistrées payées en base.
+    const marquages: Promise<void>[] = [];
     if (nouvellesFacturesClients.length > 0) {
       setFacturesClients((prev) => [...prev, ...nouvellesFacturesClients]);
       if (companyId) persist(() => importerFacturesClients(companyId, nouvellesFacturesClients));
@@ -609,7 +616,7 @@ export default function Home() {
       setFacturesClients((prev) =>
         prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant } : f))
       );
-      persist(() => marquerFacturesClientsPayees(idsClientsAMettreAJourPayee));
+      marquages.push(marquerFacturesClientsPayees(idsClientsAMettreAJourPayee).catch((error) => console.error("Échec de la sauvegarde Supabase :", error)));
     }
     if (idsFournisseursAMettreAJourPayee.length > 0) {
       const idsAMettreAJour = new Set(idsFournisseursAMettreAJourPayee);
@@ -617,13 +624,52 @@ export default function Home() {
       setFacturesFournisseurs((prev) =>
         prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant } : f))
       );
-      persist(() => marquerFacturesFournisseursPayees(idsFournisseursAMettreAJourPayee));
+      marquages.push(marquerFacturesFournisseursPayees(idsFournisseursAMettreAJourPayee).catch((error) => console.error("Échec de la sauvegarde Supabase :", error)));
     }
     // Versions archivées dans Pennylane : ce ne sont plus des factures de trésorerie.
     if (idsFournisseursASupprimer.length > 0) {
       const idsASupprimer = new Set(idsFournisseursASupprimer);
       setFacturesFournisseurs((prev) => prev.filter((f) => !idsASupprimer.has(f.id)));
       persist(() => supprimerFacturesFournisseurs(idsFournisseursASupprimer));
+    }
+    return Promise.all(marquages).then(() => undefined);
+  };
+
+  /**
+   * Règlement réel des factures Pennylane payées encore visibles (lib/dates.ts::
+   * reglementReelARecuperer) : lu chez Pennylane par le serveur, qui l'écrit en base ; l'état local
+   * suit. Sans incidence sur la synchronisation elle-même : une erreur laisse simplement le
+   * masquage partir de la date de paiement Novanta.
+   */
+  const recupererReglementsReels = async (
+    clients: FactureClient[],
+    fournisseurs: FactureFournisseur[]
+  ): Promise<void> => {
+    if (!session?.access_token) return;
+    const maintenant = new Date();
+    const lots: [ "client" | "fournisseur", string[] ][] = [
+      ["client", clients.filter((f) => reglementReelARecuperer(f, maintenant)).map((f) => f.id)],
+      ["fournisseur", fournisseurs.filter((f) => reglementReelARecuperer(f, maintenant)).map((f) => f.id)],
+    ];
+    for (const [type, ids] of lots) {
+      for (let i = 0; i < ids.length && i < MAX_REGLEMENTS_REELS_PAR_SYNCHRO; i += 50) {
+        try {
+          const res = await fetch("/api/pennylane/invoices/settlement", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ type, ids: ids.slice(i, i + 50) }),
+          });
+          if (!res.ok) return;
+          const { reglements } = (await res.json()) as { reglements: { id: string; settledOn: string }[] };
+          const parId = new Map(reglements.map((r) => [r.id, r.settledOn]));
+          if (parId.size === 0) continue;
+          if (type === "client") setFacturesClients((prev) => prev.map((f) => (parId.has(f.id) ? { ...f, settledOn: parId.get(f.id)! } : f)));
+          else setFacturesFournisseurs((prev) => prev.map((f) => (parId.has(f.id) ? { ...f, settledOn: parId.get(f.id)! } : f)));
+        } catch (error) {
+          console.error("Lecture du règlement réel impossible :", error);
+          return;
+        }
+      }
     }
   };
 
@@ -695,7 +741,7 @@ export default function Home() {
         nombreFournisseursAjoutes = nouvellesFacturesFournisseurs.length;
       }
 
-      handleSynchroniserPennylaneFactures(
+      const marquages = handleSynchroniserPennylaneFactures(
         nouvellesFacturesClients,
         nouvellesFacturesFournisseurs,
         idsClientsAMettreAJourPayee,
@@ -714,6 +760,16 @@ export default function Home() {
         erreurClients: data.erreurClients ?? null,
         erreurFournisseurs: data.erreurFournisseurs ?? null,
       });
+
+      // Factures payées par cette synchronisation, et factures déjà payées encore visibles : leur
+      // règlement réel, une fois les marquages enregistrés. En arrière-plan : la synchronisation est
+      // terminée pour l'utilisateur ; les lignes concernées disparaissent quand leur date arrive.
+      const maintenantIso = new Date().toISOString();
+      const marqueesClients = new Set(idsClientsAMettreAJourPayee);
+      const marqueesFournisseurs = new Set(idsFournisseursAMettreAJourPayee);
+      const clientsApres = facturesClients.map((f) => (marqueesClients.has(f.id) ? { ...f, payee: true, paidAt: maintenantIso } : f));
+      const fournisseursApres = facturesFournisseurs.map((f) => (marqueesFournisseurs.has(f.id) ? { ...f, payee: true, paidAt: maintenantIso } : f));
+      void marquages.then(() => recupererReglementsReels(clientsApres, fournisseursApres));
     } catch {
       setSyncPennylaneErreur("Pennylane est temporairement indisponible. Réessayez.");
     } finally {

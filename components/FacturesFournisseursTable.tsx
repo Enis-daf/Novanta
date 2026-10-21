@@ -47,7 +47,7 @@ export default function FacturesFournisseursTable({
 }: FacturesFournisseursTableProps) {
   const router = useRouter();
   const facturesTriees = useMemo(() => {
-    const actives = factures.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt));
+    const actives = factures.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt, f.settledOn ?? null));
     const dansPeriode = filtrePeriode ? actives.filter((f) => filtrePeriode.has(f.id)) : actives;
     const filtrees = filtrerFacturesFournisseurs(dansPeriode, recherche);
     return tri === "montant"

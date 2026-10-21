@@ -122,14 +122,35 @@ export const JOURS_VISIBILITE_APRES_PAIEMENT = 7;
 /**
  * Une facture payée depuis plus de 7 jours doit disparaître des tableaux actifs
  * (affichage uniquement — jamais du calcul, déjà exclu dès payee=true, ni de Supabase).
- * Règle la plus sûre pour les factures déjà payées avant l'ajout de paid_at : tant que
- * paid_at est absent, on ne masque jamais (pas de disparition surprise d'anciennes données).
+ *
+ * Les 7 jours partent du RÈGLEMENT RÉEL quand il est connu (settledOn : date de la dernière
+ * transaction bancaire rapprochée chez Pennylane, YYYY-MM-DD) ; sinon du moment où « Payée » a été
+ * cochée ou synchronisée (paidAt) — facture saisie dans Novanta, ou payée chez Pennylane sans
+ * transaction rapprochée. Exactement 7 jours : encore visible.
+ * Sans aucune des deux dates, on ne masque jamais (pas de disparition surprise de données).
  */
-export function estMasqueeApresPaiement(payee: boolean, paidAt: string | null): boolean {
-  if (!payee || !paidAt) return false;
+export function estMasqueeApresPaiement(payee: boolean, paidAt: string | null, settledOn: string | null = null, maintenant: Date = new Date()): boolean {
+  if (!payee) return false;
+  if (settledOn && estDateValide(settledOn)) {
+    const limite = new Date(maintenant.getFullYear(), maintenant.getMonth(), maintenant.getDate() - JOURS_VISIBILITE_APRES_PAIEMENT);
+    return parseDateISO(settledOn) < limite;
+  }
+  if (!paidAt) return false;
   const date = new Date(paidAt);
   if (Number.isNaN(date.getTime())) return false;
-  const limite = new Date();
+  const limite = new Date(maintenant.getTime());
   limite.setDate(limite.getDate() - JOURS_VISIBILITE_APRES_PAIEMENT);
   return date < limite;
+}
+
+/**
+ * Facture Pennylane payée dont le règlement réel reste à lire chez Pennylane : seulement tant que
+ * la date de paiement Novanta la laisse encore visible. Au-delà, elle est déjà masquée — la date
+ * réelle (toujours antérieure) ne changerait rien, inutile de la redemander.
+ */
+export function reglementReelARecuperer(
+  f: { payee: boolean; paidAt: string | null; settledOn?: string | null; pennylaneId?: string | null },
+  maintenant: Date = new Date()
+): boolean {
+  return f.payee && !!f.pennylaneId && !f.settledOn && !!f.paidAt && !estMasqueeApresPaiement(true, f.paidAt, null, maintenant);
 }
