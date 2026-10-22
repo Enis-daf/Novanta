@@ -7,7 +7,7 @@ import {
   decalerDateISO,
   estDateValide,
   estEnRetard,
-  estMasqueeApresPaiement,
+  estFactureMasquee,
   formatDateCourte,
   trierParDate,
   trierParMontant,
@@ -63,7 +63,7 @@ export default function FacturesFournisseursTable({
 }: FacturesFournisseursTableProps) {
   const router = useRouter();
   const facturesTriees = useMemo(() => {
-    const actives = factures.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt));
+    const actives = factures.filter((f) => !estFactureMasquee(f));
     const dansPeriode = filtrePeriode ? actives.filter((f) => filtrePeriode.has(f.id)) : actives;
     const filtrees = filtrerFacturesFournisseurs(dansPeriode, recherche);
     return tri === "montant"

@@ -83,6 +83,20 @@ export function messageSyncPennylane(r: ResultatSyncPennylane): string {
 }
 
 /**
+ * Règlement réel d'une facture : la date (YYYY-MM-DD) de sa DERNIÈRE transaction bancaire
+ * rapprochée chez Pennylane. null sans transaction datée (payée hors banque, marquée payée à la
+ * main dans Pennylane) : aucune date réelle n'existe, jamais d'approximation.
+ */
+export function dateDeReglementReel(transactions: { date?: string | null }[]): string | null {
+  let derniere: string | null = null;
+  for (const t of transactions) {
+    const date = typeof t.date === "string" ? t.date.slice(0, 10) : "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && (derniere === null || date > derniere)) derniere = date;
+  }
+  return derniere;
+}
+
+/**
  * Un avoir a un montant négatif chez Pennylane (vérifié en direct : "Avoir EOLIA - AV2607-0006",
  * amount "-19800.0"). Jamais importé comme facture classique en V1 (voir diagnostic) — accepte
  * number pour rester utilisable indifféremment sur du texte brut ("amount") ou un montant déjà

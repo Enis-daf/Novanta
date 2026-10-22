@@ -113,6 +113,7 @@ function rowToFactureClient(row: Row): FactureClient {
     litigieuse: row.litigieuse as boolean,
     payee: Boolean(row.paid),
     paidAt: (row.paid_at as string | null) ?? null,
+    settledOn: (row.settled_on as string | null) ?? null,
     pennylaneId: (row.pennylane_id as string | null) ?? null,
   };
 }
@@ -145,6 +146,7 @@ function rowToFactureFournisseur(row: Row): FactureFournisseur {
     litigieuse: row.litigieuse as boolean,
     payee: Boolean(row.paid),
     paidAt: (row.paid_at as string | null) ?? null,
+    settledOn: (row.settled_on as string | null) ?? null,
     pennylaneId: (row.pennylane_id as string | null) ?? null,
     pennylaneSupplierId: (row.pennylane_supplier_id as string | null | undefined) ?? null,
   };
