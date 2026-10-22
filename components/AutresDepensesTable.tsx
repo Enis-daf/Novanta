@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { AutreDepense, TriMode } from "@/lib/types";
 import { trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerAutresDepenses } from "@/lib/recherche";
@@ -12,10 +12,11 @@ import {
   CorrespondanceFutur,
   EtageDepense,
   FiltreEtage,
+  grouperParEtage,
   idsAAffecter,
 } from "@/lib/futurPnl";
 import DateField from "./DateField";
-import { CaseSelectionLigne, OutilsEtagePnl, SelecteurEtagePnl, useSelectionLignes } from "./EtagePnl";
+import { CaseSelectionLigne, ErreurEtage, OutilsEtagePnl, SelecteurEtagePnl, SousTitreEtage, useSelectionLignes } from "./EtagePnl";
 
 interface AutresDepensesTableProps {
   depenses: AutreDepense[];
@@ -28,6 +29,8 @@ interface AutresDepensesTableProps {
   // Étage P&L (lib/futurPnl.ts) : écriture du seul choix manuel, classement par ligne.
   correspondance?: CorrespondanceFutur;
   onChangeEtage?: (ids: string[], etage: EtageDepense | null) => void;
+  // Échec d'enregistrement d'un étage : l'ancien classement est conservé, ce message l'explique.
+  erreurEtage?: string | null;
 }
 
 export default function AutresDepensesTable({
@@ -40,6 +43,7 @@ export default function AutresDepensesTable({
   filtrePeriode,
   correspondance = CORRESPONDANCE_VIDE,
   onChangeEtage,
+  erreurEtage = null,
 }: AutresDepensesTableProps) {
   const [filtreEtage, setFiltreEtage] = useState<FiltreEtage>("tous");
   const { selection, basculer, basculerTout, vider } = useSelectionLignes();
@@ -56,6 +60,11 @@ export default function AutresDepensesTable({
   const idsAffiches = depensesTriees.map((x) => x.id);
   const idsSelectionnes = idsAAffecter(selection, idsAffiches);
   const toutSelectionne = idsAffiches.length > 0 && idsSelectionnes.length === idsAffiches.length;
+  // Sous-titres par étage (lib/futurPnl.ts::grouperParEtage), tri existant conservé dans chaque
+  // groupe. Sans classification, une seule liste sans sous-titre.
+  const groupesAffiches = onChangeEtage
+    ? grouperParEtage(depensesTriees, (x) => classerDepense(x, correspondance))
+    : [{ groupe: null, libelle: "", lignes: depensesTriees }];
 
   return (
     <div className="table-wrapper">
@@ -73,6 +82,7 @@ export default function AutresDepensesTable({
           onDeselectionner={vider}
         />
       )}
+      <ErreurEtage message={erreurEtage} />
       {filtreActif && depensesTriees.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
@@ -100,7 +110,10 @@ export default function AutresDepensesTable({
           </tr>
         </thead>
         <tbody>
-          {depensesTriees.map((depense) => (
+          {groupesAffiches.map((g) => (
+            <Fragment key={g.groupe ?? "a_classer"}>
+              {onChangeEtage && <SousTitreEtage libelle={g.libelle} colonnes={9} />}
+              {g.lignes.map((depense) => (
             <tr key={depense.id} className={depense.facturee || depense.payee ? "row--litigieuse" : ""}>
               {onChangeEtage && (
                 <td className="col-checkbox">
@@ -181,6 +194,8 @@ export default function AutresDepensesTable({
                 </button>
               </td>
             </tr>
+              ))}
+            </Fragment>
           ))}
         </tbody>
       </table>

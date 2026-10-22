@@ -7,8 +7,12 @@ import {
   correspondAuFiltreEtage,
   CorrespondanceFutur,
   ETAGES_DEPENSE,
+  estFiltreEtage,
   etageAutomatique,
   EtageDepense,
+  groupeDeClassement,
+  GROUPES_ETAGE,
+  grouperParEtage,
   idsAAffecter,
   infobulleClassement,
   lireCorrespondance,
@@ -18,6 +22,7 @@ import { ETAGES_PNL, EtagePnl } from "./pastCategoryMapping";
 import { categoriesDeFacture, calculerSynchronisation, CandidatFacturePennylane } from "./pennylaneInvoiceAdapter";
 import { calculerProjectionCash } from "./cash-engine";
 import { calculerFluxPeriode } from "./periodeFiltre";
+import { estEtageConvertiEnHt } from "./pastHtEstime";
 import { AutreDepense, ChargeFixe, FactureFournisseur } from "./types";
 
 // Correspondance partagée de l'organisation (past_category_mappings), telle que la renvoie
@@ -351,5 +356,86 @@ describe("fusion de doublons : deux choix manuels ne s'écrasent pas en silence"
 
   test("deux choix différents : conflit à trancher", () => {
     assert.deepEqual(reunirEtagesManuels("ebitda", "gross_margin"), { etage: null, conflit: { a: "ebitda", b: "gross_margin" } });
+  });
+});
+
+describe("présentation simplifiée de Futur : TVA sous Extra P&L, « Financement »", () => {
+  test("groupes, ordre et libellés de Futur", () => {
+    assert.deepEqual(
+      GROUPES_ETAGE.map((g) => [g.cle, g.libelle]),
+      [
+        ["gross_margin", "Coûts directs"],
+        ["contribution_margin", "Autres coûts variables"],
+        ["ebitda", "Coûts de structure"],
+        ["extra_pnl", "Extra P&L"],
+        ["financing", "Financement"],
+      ]
+    );
+    assert.ok(!GROUPES_ETAGE.some((g) => g.libelle === "TVA"));
+  });
+
+  test("Passé garde sa nomenclature : TVA distincte, libellé Financement d'origine, TVA exclue du HT", () => {
+    assert.equal(ETAGES_PNL.find((e) => e.cle === "vat")?.libelle, "TVA");
+    assert.equal(ETAGES_PNL.find((e) => e.cle === "financing")?.libelle, "Virements internes & Financement");
+    assert.equal(estEtageConvertiEnHt("vat"), false);
+  });
+
+  test("une facture mappée TVA s'affiche sous Extra P&L sans perdre sa classification source", () => {
+    const tva = correspondance({ "301": "vat" });
+    const classement = classerDepense(facture({ categoriesPennylane: [cat("301", "TVA décaissée")] }), tva);
+    assert.deepEqual(classement, { etage: "vat", provenance: "correspondance" });
+    assert.equal(groupeDeClassement(classement), "extra_pnl");
+    assert.equal(infobulleClassement(classement), "Issu de la correspondance P&L (classée TVA)");
+  });
+
+  test("filtre Extra P&L : retrouve Extra P&L et TVA ; filtre Financement : virements et financements", () => {
+    const c = (etage: EtageDepense | null) => ({ etage, provenance: etage ? ("manuel" as const) : ("a_classer" as const) });
+    assert.equal(correspondAuFiltreEtage(c("extra_pnl"), "extra_pnl"), true);
+    assert.equal(correspondAuFiltreEtage(c("vat"), "extra_pnl"), true);
+    assert.equal(correspondAuFiltreEtage(c("ebitda"), "extra_pnl"), false);
+    assert.equal(correspondAuFiltreEtage(c("financing"), "financing"), true);
+    assert.equal(correspondAuFiltreEtage(c(null), "a_classer"), true);
+    assert.equal(estFiltreEtage("vat"), false);
+  });
+});
+
+describe("regroupement des lignes sous des sous-titres", () => {
+  const ligne = (id: string, etage: EtageDepense | null) => ({ id, etagePnlManuel: etage });
+  const classer = (l: { etagePnlManuel: EtageDepense | null }) => classerDepense(l, lireCorrespondance(null));
+
+  test("ordre fixe des groupes, À classer en dernier, aucun groupe vide, ordre interne conservé", () => {
+    const lignes = [
+      ligne("1", null),
+      ligne("2", "financing"),
+      ligne("3", "vat"),
+      ligne("4", "gross_margin"),
+      ligne("5", "extra_pnl"),
+      ligne("6", "gross_margin"),
+      ligne("7", null),
+    ];
+    const groupes = grouperParEtage(lignes, classer);
+    assert.deepEqual(
+      groupes.map((g) => [g.libelle, g.lignes.map((l) => l.id)]),
+      [
+        ["Coûts directs", ["4", "6"]],
+        ["Extra P&L", ["3", "5"]],
+        ["Financement", ["2"]],
+        ["À classer", ["1", "7"]],
+      ]
+    );
+  });
+
+  test("chaque ligne apparaît une fois, aucune perdue", () => {
+    const lignes = Array.from({ length: 40 }, (_, i) =>
+      ligne(String(i), ([null, "gross_margin", "contribution_margin", "ebitda", "extra_pnl", "vat", "financing"] as const)[i % 7])
+    );
+    const ids = grouperParEtage(lignes, classer).flatMap((g) => g.lignes.map((l) => l.id));
+    assert.equal(ids.length, 40);
+    assert.equal(new Set(ids).size, 40);
+  });
+
+  test("aucune dépense non classée : pas de groupe À classer ; liste vide : aucun sous-titre", () => {
+    assert.deepEqual(grouperParEtage([ligne("1", "ebitda")], classer).map((g) => g.libelle), ["Coûts de structure"]);
+    assert.deepEqual(grouperParEtage([], classer), []);
   });
 });

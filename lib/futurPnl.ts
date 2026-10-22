@@ -112,28 +112,88 @@ export function classerDepense(depense: DepenseClassable, correspondance: Corres
   return auto ? { etage: auto, provenance: "correspondance" } : { etage: null, provenance: "a_classer" };
 }
 
-export function libelleEtageDepense(etage: EtageDepense | null): string {
-  return etage === null ? LIBELLE_A_CLASSER : ETAGES_DEPENSE.find((e) => e.cle === etage)!.libelle;
+// --- Présentation dans Futur ---
+//
+// Futur présente une nomenclature simplifiée, SANS toucher aux données : la TVA est montrée sous
+// « Extra P&L », et « Virements internes & Financement » s'appelle « Financement ». L'étage stocké
+// (choix manuel, correspondance de Passé) reste celui d'origine : une catégorie mappée TVA le reste,
+// et le reporting HT de Passé continue de l'exclure. Seul ce bloc décide de cette présentation :
+// sous-titres, filtres et sélecteurs le partagent.
+
+/** Groupe affiché dans Futur : un étage de dépense, la TVA étant rattachée à « Extra P&L ». */
+export type GroupeEtage = Exclude<EtageDepense, "vat">;
+
+/** Groupes de Futur, dans l'ordre des sous-titres des tableaux (« À classer » vient après). */
+export const GROUPES_ETAGE: readonly { cle: GroupeEtage; libelle: string }[] = [
+  { cle: "gross_margin", libelle: "Coûts directs" },
+  { cle: "contribution_margin", libelle: "Autres coûts variables" },
+  { cle: "ebitda", libelle: "Coûts de structure" },
+  { cle: "extra_pnl", libelle: "Extra P&L" },
+  { cle: "financing", libelle: "Financement" },
+];
+
+export function groupeDeEtage(etage: EtageDepense): GroupeEtage {
+  return etage === "vat" ? "extra_pnl" : etage;
 }
 
-/** Infobulle discrète de la cellule « Étage P&L ». */
+export function estGroupeEtage(valeur: unknown): valeur is GroupeEtage {
+  return GROUPES_ETAGE.some((g) => g.cle === valeur);
+}
+
+export function libelleGroupeEtage(groupe: GroupeEtage | null): string {
+  return groupe === null ? LIBELLE_A_CLASSER : GROUPES_ETAGE.find((g) => g.cle === groupe)!.libelle;
+}
+
+/** Groupe affiché d'une dépense classée, null = « À classer ». */
+export function groupeDeClassement(classement: ClassementDepense): GroupeEtage | null {
+  return classement.etage === null ? null : groupeDeEtage(classement.etage);
+}
+
+/**
+ * Infobulle discrète de la cellule « Étage P&L ». Une ligne classée TVA (affichée sous Extra P&L)
+ * garde la trace de sa classification d'origine.
+ */
 export function infobulleClassement(classement: ClassementDepense): string {
-  if (classement.provenance === "manuel") return LIBELLE_PROVENANCE_MANUELLE;
-  if (classement.provenance === "correspondance") return LIBELLE_PROVENANCE_CORRESPONDANCE;
+  const origineTva = classement.etage === "vat" ? " (classée TVA)" : "";
+  if (classement.provenance === "manuel") return LIBELLE_PROVENANCE_MANUELLE + origineTva;
+  if (classement.provenance === "correspondance") return LIBELLE_PROVENANCE_CORRESPONDANCE + origineTva;
   return LIBELLE_A_CLASSER;
 }
 
-/** Filtre d'une liste de dépenses par étage. N'agit que sur l'affichage, jamais sur la projection. */
-export type FiltreEtage = "tous" | "a_classer" | EtageDepense;
+/** Filtre d'une liste de dépenses par groupe. N'agit que sur l'affichage, jamais sur la projection. */
+export type FiltreEtage = "tous" | "a_classer" | GroupeEtage;
 
 export function estFiltreEtage(valeur: unknown): valeur is FiltreEtage {
-  return valeur === "tous" || valeur === "a_classer" || estEtageDepense(valeur);
+  return valeur === "tous" || valeur === "a_classer" || estGroupeEtage(valeur);
 }
 
 export function correspondAuFiltreEtage(classement: ClassementDepense, filtre: FiltreEtage): boolean {
   if (filtre === "tous") return true;
-  if (filtre === "a_classer") return classement.etage === null;
-  return classement.etage === filtre;
+  return groupeDeClassement(classement) === (filtre === "a_classer" ? null : filtre);
+}
+
+/** Sous-titre d'un tableau de dépenses et ses lignes, dans l'ordre reçu (le tri existant). */
+export interface GroupeLignes<T> {
+  groupe: GroupeEtage | null;
+  libelle: string;
+  lignes: T[];
+}
+
+/**
+ * Lignes d'un tableau regroupées sous leurs sous-titres : ordre fixe des groupes, « À classer » en
+ * dernier, aucun groupe vide. Chaque ligne apparaît une fois ; l'ordre interne est celui reçu.
+ */
+export function grouperParEtage<T>(lignes: readonly T[], classer: (ligne: T) => ClassementDepense): GroupeLignes<T>[] {
+  const parGroupe = new Map<GroupeEtage | null, T[]>();
+  for (const ligne of lignes) {
+    const groupe = groupeDeClassement(classer(ligne));
+    const liste = parGroupe.get(groupe) ?? [];
+    liste.push(ligne);
+    parGroupe.set(groupe, liste);
+  }
+  return [...GROUPES_ETAGE.map((g) => g.cle), null]
+    .filter((groupe) => parGroupe.has(groupe))
+    .map((groupe) => ({ groupe, libelle: libelleGroupeEtage(groupe), lignes: parGroupe.get(groupe)! }));
 }
 
 /**

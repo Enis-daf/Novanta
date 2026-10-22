@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { ChargeFixe, RentreeReguliere, TriMode } from "@/lib/types";
 import { formatDateCourte, parseDateISO, trierParDate, trierParMontant } from "@/lib/dates";
 import { formatMontant } from "@/lib/format";
@@ -21,10 +21,11 @@ import {
   CorrespondanceFutur,
   EtageDepense,
   FiltreEtage,
+  grouperParEtage,
   idsAAffecter,
 } from "@/lib/futurPnl";
 import DateField from "./DateField";
-import { CaseSelectionLigne, OutilsEtagePnl, SelecteurEtagePnl, useSelectionLignes } from "./EtagePnl";
+import { CaseSelectionLigne, ErreurEtage, OutilsEtagePnl, SelecteurEtagePnl, SousTitreEtage, useSelectionLignes } from "./EtagePnl";
 import SourceCalculSelect from "./SourceCalculSelect";
 import IconCalculatrice from "./IconCalculatrice";
 
@@ -41,6 +42,8 @@ interface ChargesFixesTableProps {
   // Étage P&L (lib/futurPnl.ts) : écriture du seul choix manuel, classement par ligne.
   correspondance?: CorrespondanceFutur;
   onChangeEtage?: (ids: string[], etage: EtageDepense | null) => void;
+  // Échec d'enregistrement d'un étage : l'ancien classement est conservé, ce message l'explique.
+  erreurEtage?: string | null;
 }
 
 export default function ChargesFixesTable({
@@ -55,6 +58,7 @@ export default function ChargesFixesTable({
   periodeFiltre,
   correspondance = CORRESPONDANCE_VIDE,
   onChangeEtage,
+  erreurEtage = null,
 }: ChargesFixesTableProps) {
   const [filtreEtage, setFiltreEtage] = useState<FiltreEtage>("tous");
   const { selection, basculer, basculerTout, vider } = useSelectionLignes();
@@ -73,6 +77,11 @@ export default function ChargesFixesTable({
   const idsAffiches = chargesTriees.map((x) => x.id);
   const idsSelectionnes = idsAAffecter(selection, idsAffiches);
   const toutSelectionne = idsAffiches.length > 0 && idsSelectionnes.length === idsAffiches.length;
+  // Sous-titres par étage (lib/futurPnl.ts::grouperParEtage), tri existant conservé dans chaque
+  // groupe. Sans classification, une seule liste sans sous-titre.
+  const groupesAffiches = onChangeEtage
+    ? grouperParEtage(chargesTriees, (x) => classerDepense(x, correspondance))
+    : [{ groupe: null, libelle: "", lignes: chargesTriees }];
 
   return (
     <div className="table-wrapper">
@@ -90,6 +99,7 @@ export default function ChargesFixesTable({
           onDeselectionner={vider}
         />
       )}
+      <ErreurEtage message={erreurEtage} />
       {filtreActif && chargesTriees.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
@@ -117,7 +127,10 @@ export default function ChargesFixesTable({
           </tr>
         </thead>
         <tbody>
-          {chargesTriees.map((charge) => {
+          {groupesAffiches.map((g) => (
+            <Fragment key={g.groupe ?? "a_classer"}>
+              {onChangeEtage && <SousTitreEtage libelle={g.libelle} colonnes={9} />}
+              {g.lignes.map((charge) => {
             const occurrences = filtrePeriode?.get(charge.id);
             const estCalculee = charge.modeMontant === "calcule";
             const montantCalcule = estCalculee
@@ -309,7 +322,9 @@ export default function ChargesFixesTable({
               </td>
             </tr>
             );
-          })}
+              })}
+            </Fragment>
+          ))}
         </tbody>
       </table>
       )}

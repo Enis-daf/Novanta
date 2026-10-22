@@ -3,11 +3,12 @@
 import { useState } from "react";
 import {
   ClassementDepense,
-  ETAGES_DEPENSE,
-  EtageDepense,
-  estEtageDepense,
   estFiltreEtage,
+  estGroupeEtage,
   FiltreEtage,
+  groupeDeClassement,
+  GROUPES_ETAGE,
+  GroupeEtage,
   infobulleClassement,
   LIBELLE_A_CLASSER,
   LIBELLE_AFFECTER_ETAGE,
@@ -20,6 +21,8 @@ const REPRENDRE_AUTOMATIQUE = "__reprendre_automatique__";
  * Cellule « Étage P&L » d'une dépense : sélecteur compact, modifiable directement dans le tableau.
  * La provenance (correspondance P&L ou choix fait dans Futur) n'est donnée que par l'infobulle :
  * aucun badge par ligne. « Reprendre le classement automatique » n'apparaît que sur un choix manuel.
+ * Une ligne classée TVA s'affiche « Extra P&L » sans rien écrire : seul un changement de valeur
+ * par l'utilisateur crée un choix manuel.
  */
 export function SelecteurEtagePnl({
   classement,
@@ -28,22 +31,23 @@ export function SelecteurEtagePnl({
 }: {
   classement: ClassementDepense;
   libelleLigne: string;
-  onChange: (etage: EtageDepense | null) => void;
+  onChange: (etage: GroupeEtage | null) => void;
 }) {
+  const groupe = groupeDeClassement(classement);
   return (
     <select
-      className={`etage-pnl${classement.etage === null ? " etage-pnl--a-classer" : ""}`}
+      className={`etage-pnl${groupe === null ? " etage-pnl--a-classer" : ""}`}
       aria-label={`Étage P&L de ${libelleLigne || "cette ligne"}`}
       title={infobulleClassement(classement)}
-      value={classement.etage ?? ""}
+      value={groupe ?? ""}
       onChange={(e) => {
         const valeur = e.target.value;
         if (valeur === REPRENDRE_AUTOMATIQUE) onChange(null);
-        else if (estEtageDepense(valeur)) onChange(valeur);
+        else if (estGroupeEtage(valeur)) onChange(valeur);
       }}
     >
-      {classement.etage === null && <option value="">{LIBELLE_A_CLASSER}</option>}
-      {ETAGES_DEPENSE.map((etage) => (
+      {groupe === null && <option value="">{LIBELLE_A_CLASSER}</option>}
+      {GROUPES_ETAGE.map((etage) => (
         <option key={etage.cle} value={etage.cle}>
           {etage.libelle}
         </option>
@@ -89,10 +93,10 @@ export function OutilsEtagePnl({
   filtre: FiltreEtage;
   onChangeFiltre: (filtre: FiltreEtage) => void;
   nombreSelectionnees: number;
-  onAffecter: (etage: EtageDepense) => void;
+  onAffecter: (etage: GroupeEtage) => void;
   onDeselectionner: () => void;
 }) {
-  const [etageAAffecter, setEtageAAffecter] = useState<EtageDepense | "">("");
+  const [etageAAffecter, setEtageAAffecter] = useState<GroupeEtage | "">("");
   return (
     <div className="etage-pnl-outils">
       <label className="etage-pnl-outils__label" htmlFor={`${idSection}-filtre-etage`}>
@@ -106,7 +110,7 @@ export function OutilsEtagePnl({
       >
         <option value="tous">Tous les étages</option>
         <option value="a_classer">{LIBELLE_A_CLASSER}</option>
-        {ETAGES_DEPENSE.map((etage) => (
+        {GROUPES_ETAGE.map((etage) => (
           <option key={etage.cle} value={etage.cle}>
             {etage.libelle}
           </option>
@@ -121,10 +125,10 @@ export function OutilsEtagePnl({
             className="etage-pnl"
             aria-label={LIBELLE_AFFECTER_ETAGE}
             value={etageAAffecter}
-            onChange={(e) => setEtageAAffecter(estEtageDepense(e.target.value) ? e.target.value : "")}
+            onChange={(e) => setEtageAAffecter(estGroupeEtage(e.target.value) ? e.target.value : "")}
           >
             <option value="">{LIBELLE_AFFECTER_ETAGE}…</option>
-            {ETAGES_DEPENSE.map((etage) => (
+            {GROUPES_ETAGE.map((etage) => (
               <option key={etage.cle} value={etage.cle}>
                 {etage.libelle}
               </option>
@@ -149,6 +153,25 @@ export function OutilsEtagePnl({
       )}
     </div>
   );
+}
+
+/**
+ * Sous-titre d'étage dans un tableau de dépenses : une ligne sur toute la largeur, qui n'est pas
+ * une dépense (ni case à cocher, ni montant) et ne compte dans aucune sélection.
+ */
+export function SousTitreEtage({ libelle, colonnes }: { libelle: string; colonnes: number }) {
+  return (
+    <tr className="groupe-etage">
+      <th colSpan={colonnes} scope="colgroup">
+        <span className="groupe-etage__libelle">{libelle}</span>
+      </th>
+    </tr>
+  );
+}
+
+/** Erreur d'enregistrement d'un étage, sous la barre d'outils du tableau. */
+export function ErreurEtage({ message }: { message: string | null | undefined }) {
+  return message ? <p className="login-erreur etage-pnl-erreur">{message}</p> : null;
 }
 
 /** Sélection de lignes d'un tableau (ids), remise à zéro à la demande. */

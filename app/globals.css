@@ -3923,3 +3923,32 @@ button.passe-cible--lien:focus-visible,
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* Sous-titre d'étage dans un tableau de dépenses (Futur) : une ligne compacte sur toute la largeur,
+   dans la typographie des en-têtes de colonnes, posée sur un filet. Ce n'est pas une dépense. */
+.invoice-table tr.groupe-etage th {
+  padding: 12px 4px 4px;
+  border-bottom: 1px solid var(--couleur-texte);
+  background: var(--couleur-fond);
+  color: var(--couleur-texte);
+  font-size: 10px;
+  font-weight: 600;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  text-align: left;
+}
+
+.invoice-table tbody tr.groupe-etage:first-child th {
+  padding-top: 6px;
+}
+
+/* Sur petite largeur, le tableau défile : le libellé reste visible à gauche. */
+.groupe-etage__libelle {
+  position: sticky;
+  left: 4px;
+}
+
+.etage-pnl-erreur {
+  margin: 0 0 var(--space-1);
+}

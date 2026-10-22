@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FactureFournisseur, TriMode } from "@/lib/types";
 import {
@@ -21,10 +21,11 @@ import {
   CorrespondanceFutur,
   EtageDepense,
   FiltreEtage,
+  grouperParEtage,
   idsAAffecter,
 } from "@/lib/futurPnl";
 import DateField from "./DateField";
-import { CaseSelectionLigne, OutilsEtagePnl, SelecteurEtagePnl, useSelectionLignes } from "./EtagePnl";
+import { CaseSelectionLigne, ErreurEtage, OutilsEtagePnl, SelecteurEtagePnl, SousTitreEtage, useSelectionLignes } from "./EtagePnl";
 
 interface FacturesFournisseursTableProps {
   factures: FactureFournisseur[];
@@ -42,6 +43,8 @@ interface FacturesFournisseursTableProps {
   // Étage P&L (lib/futurPnl.ts) : correspondance partagée et écriture du seul choix manuel.
   correspondance?: CorrespondanceFutur;
   onChangeEtage?: (ids: string[], etage: EtageDepense | null) => void;
+  // Échec d'enregistrement d'un étage : l'ancien classement est conservé, ce message l'explique.
+  erreurEtage?: string | null;
 }
 
 export default function FacturesFournisseursTable({
@@ -59,6 +62,7 @@ export default function FacturesFournisseursTable({
   syncPennylaneErreur = null,
   correspondance = CORRESPONDANCE_VIDE,
   onChangeEtage,
+  erreurEtage = null,
 }: FacturesFournisseursTableProps) {
   const router = useRouter();
   const [filtreEtage, setFiltreEtage] = useState<FiltreEtage>("tous");
@@ -77,6 +81,11 @@ export default function FacturesFournisseursTable({
   const idsAffiches = facturesTriees.map((f) => f.id);
   const idsSelectionnes = idsAAffecter(selection, idsAffiches);
   const toutSelectionne = idsAffiches.length > 0 && idsSelectionnes.length === idsAffiches.length;
+  // Sous-titres par étage (lib/futurPnl.ts::grouperParEtage), tri existant conservé dans chaque
+  // groupe. Sans classification, une seule liste sans sous-titre.
+  const groupesAffiches = onChangeEtage
+    ? grouperParEtage(facturesTriees, (x) => classerDepense(x, correspondance))
+    : [{ groupe: null, libelle: "", lignes: facturesTriees }];
 
   return (
     <div className="table-wrapper">
@@ -94,6 +103,7 @@ export default function FacturesFournisseursTable({
           onDeselectionner={vider}
         />
       )}
+      <ErreurEtage message={erreurEtage} />
       {filtreActif && facturesTriees.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
@@ -123,7 +133,10 @@ export default function FacturesFournisseursTable({
           </tr>
         </thead>
         <tbody>
-          {facturesTriees.map((facture) => {
+          {groupesAffiches.map((g) => (
+            <Fragment key={g.groupe ?? "a_classer"}>
+              {onChangeEtage && <SousTitreEtage libelle={g.libelle} colonnes={11} />}
+              {g.lignes.map((facture) => {
             const enRetard = estEnRetard(facture.datePaiementPrevue, facture.payee, facture.litigieuse);
             const rowClassName = [facture.litigieuse || facture.payee ? "row--litigieuse" : "", enRetard ? "row--en-retard" : ""]
               .filter(Boolean)
@@ -245,7 +258,9 @@ export default function FacturesFournisseursTable({
               </td>
             </tr>
             );
-          })}
+              })}
+            </Fragment>
+          ))}
         </tbody>
       </table>
       )}

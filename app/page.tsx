@@ -86,6 +86,7 @@ import {
   sauvegarderChargeFixe,
   affecterEtagePnlManuel,
   chargerCorrespondanceFutur,
+  TableDepense,
   importerChargesFixes,
   importerFacturesClients,
   importerFacturesFournisseurs,
@@ -167,6 +168,8 @@ export default function Home() {
   const [modulePasseActif, setModulePasseActif] = useState(false);
   // Correspondance catégorie -> étage P&L partagée avec Passé, lisible sans le module Passé.
   const [correspondancePnl, setCorrespondancePnl] = useState<CorrespondanceFutur>(CORRESPONDANCE_VIDE);
+  // Échec d'enregistrement d'un étage P&L, par tableau (le classement précédent reste affiché).
+  const [erreursEtage, setErreursEtage] = useState<Partial<Record<TableDepense, string>>>({});
 
   const [soldeInitial, setSoldeInitial] = useState(SOLDE_BANCAIRE_INITIAL);
   const [dateReleve, setDateReleve] = useState(() => todayISO());
@@ -964,6 +967,25 @@ export default function Home() {
   // Étage P&L (lib/futurPnl.ts) : une ligne (cellule du tableau) ou plusieurs (« Affecter un étage
   // P&L »). null = « Reprendre le classement automatique ». Seul le choix manuel est écrit ; aucun
   // autre champ, aucune autre ligne, ni la correspondance partagée, ni Pennylane.
+  // L'affichage (et donc le groupe de la ligne) ne change qu'une fois l'enregistrement réussi ; en
+  // cas d'échec, l'ancien classement reste en place et l'erreur s'affiche sous le tableau.
+  const enregistrerEtage = async (table: TableDepense, ids: string[], etage: EtageDepense | null, appliquer: () => void) => {
+    setErreursEtage((prev) => ({ ...prev, [table]: undefined }));
+    if (!companyId) {
+      appliquer();
+      return;
+    }
+    try {
+      await affecterEtagePnlManuel(table, companyId, ids, etage);
+      appliquer();
+    } catch (error) {
+      console.error("Échec de l'enregistrement de l'étage P&L :", error);
+      setErreursEtage((prev) => ({
+        ...prev,
+        [table]: "Classement non enregistré : l'étage précédent est conservé. Réessayez.",
+      }));
+    }
+  };
   const appliquerEtage = <T extends { id: string; etagePnlManuel?: EtageDepense | null }>(
     liste: T[],
     ids: string[],
@@ -972,18 +994,12 @@ export default function Home() {
     const cibles = new Set(ids);
     return liste.map((x) => (cibles.has(x.id) ? { ...x, etagePnlManuel: etage } : x));
   };
-  const handleChangeEtageFacturesFournisseurs = (ids: string[], etage: EtageDepense | null) => {
-    setFacturesFournisseurs((prev) => appliquerEtage(prev, ids, etage));
-    if (companyId) persist(() => affecterEtagePnlManuel("supplier_invoices", companyId, ids, etage));
-  };
-  const handleChangeEtageChargesFixes = (ids: string[], etage: EtageDepense | null) => {
-    setChargesFixes((prev) => appliquerEtage(prev, ids, etage));
-    if (companyId) persist(() => affecterEtagePnlManuel("fixed_charges", companyId, ids, etage));
-  };
-  const handleChangeEtageAutresDepenses = (ids: string[], etage: EtageDepense | null) => {
-    setAutresDepenses((prev) => appliquerEtage(prev, ids, etage));
-    if (companyId) persist(() => affecterEtagePnlManuel("other_expenses", companyId, ids, etage));
-  };
+  const handleChangeEtageFacturesFournisseurs = (ids: string[], etage: EtageDepense | null) =>
+    void enregistrerEtage("supplier_invoices", ids, etage, () => setFacturesFournisseurs((prev) => appliquerEtage(prev, ids, etage)));
+  const handleChangeEtageChargesFixes = (ids: string[], etage: EtageDepense | null) =>
+    void enregistrerEtage("fixed_charges", ids, etage, () => setChargesFixes((prev) => appliquerEtage(prev, ids, etage)));
+  const handleChangeEtageAutresDepenses = (ids: string[], etage: EtageDepense | null) =>
+    void enregistrerEtage("other_expenses", ids, etage, () => setAutresDepenses((prev) => appliquerEtage(prev, ids, etage)));
 
   const handleChangeFinancement = (id: string, patch: Partial<Financement>) => {
     setFinancements((prev) => {
@@ -1245,6 +1261,7 @@ export default function Home() {
             syncPennylaneErreur={syncPennylaneErreur}
             correspondance={correspondancePnl}
             onChangeEtage={handleChangeEtageFacturesFournisseurs}
+            erreurEtage={erreursEtage.supplier_invoices}
           />
           <ChargesFixesTable
             charges={chargesFixes}
@@ -1258,6 +1275,7 @@ export default function Home() {
             periodeFiltre={periodeFiltre}
             correspondance={correspondancePnl}
             onChangeEtage={handleChangeEtageChargesFixes}
+            erreurEtage={erreursEtage.fixed_charges}
           />
           <AutresDepensesTable
             depenses={autresDepenses}
@@ -1269,6 +1287,7 @@ export default function Home() {
             filtrePeriode={fluxPeriode?.idsAutresDepenses ?? null}
             correspondance={correspondancePnl}
             onChangeEtage={handleChangeEtageAutresDepenses}
+            erreurEtage={erreursEtage.other_expenses}
           />
         </SectionRepliable>
 
