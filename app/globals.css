@@ -3859,3 +3859,67 @@ button.passe-cible--lien:focus-visible,
   align-items: flex-start;
   gap: var(--space-2);
 }
+
+/* ---------- Futur · Étage P&L des dépenses (lib/futurPnl.ts) ---------- */
+
+/* Sélecteur compact, dans le tableau comme dans la barre d'outils. « À classer » se lit en gris :
+   un état à compléter, jamais une alerte rose. */
+.etage-pnl {
+  max-width: 190px;
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-fond);
+  padding: 3px 4px;
+  font: inherit;
+  font-size: 11px;
+  font-style: normal;
+  color: var(--couleur-texte);
+}
+
+.etage-pnl--a-classer {
+  color: var(--couleur-texte-secondaire);
+  font-style: italic;
+}
+
+.etage-pnl-outils {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-1);
+  font-size: 11px;
+}
+
+.etage-pnl-outils__label {
+  color: var(--couleur-texte-secondaire);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.etage-pnl-outils__lot {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: var(--space-2);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--couleur-bordure);
+  color: var(--couleur-texte);
+}
+
+.etage-pnl-outils__lot .btn-secondaire {
+  padding: 3px 10px;
+}
+
+.etage-pnl-outils__lien {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+  text-decoration: underline;
+  cursor: pointer;
+}

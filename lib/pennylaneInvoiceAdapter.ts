@@ -7,7 +7,12 @@
  * Aucune règle ici n'est devinée : chaque décision renvoie au diagnostic vérifié empiriquement
  * contre l'API Pennylane v2 réelle (voir le rapport livré avant implémentation).
  */
-import { PennylaneCustomerInvoiceListItem, PennylaneSupplierInvoiceListItem } from "./pennylaneClient";
+import {
+  PennylaneCustomerInvoiceListItem,
+  PennylaneSupplierInvoiceListItem,
+  PennylaneTransactionCategoryRaw,
+} from "./pennylaneClient";
+import type { CategorieFacture } from "./futurPnl";
 import { FactureClient, FactureFournisseur } from "./types";
 
 /**
@@ -86,6 +91,25 @@ export function dateDeReglementReel(transactions: { date?: string | null }[]): s
     if (/^\d{4}-\d{2}-\d{2}$/.test(date) && (derniere === null || date > derniere)) derniere = date;
   }
   return derniere;
+}
+
+/**
+ * Catégories analytiques d'une facture fournisseur, normalisées pour le classement Futur
+ * (lib/futurPnl.ts). Identifiants convertis en chaîne, comme dans Passé ; une catégorie sans
+ * libellé est écartée (rien à rapprocher d'une correspondance) ; pondération illisible -> 1.
+ */
+export function categoriesDeFacture(brutes: PennylaneTransactionCategoryRaw[]): CategorieFacture[] {
+  return brutes
+    .filter((c) => c && c.label && c.label.trim() !== "")
+    .map((c) => {
+      const poids = c.weight === null || c.weight === undefined || c.weight === "" ? Number.NaN : Number(c.weight);
+      return {
+        id: c.id === null || c.id === undefined ? null : String(c.id),
+        label: c.label!.trim(),
+        groupId: c.category_group?.id === undefined || c.category_group?.id === null ? null : String(c.category_group.id),
+        weight: Number.isFinite(poids) ? poids : 1,
+      };
+    });
 }
 
 /**

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ChargeFixe, RentreeReguliere, TriMode } from "@/lib/types";
 import { formatDateCourte, parseDateISO, trierParDate, trierParMontant } from "@/lib/dates";
 import { formatMontant } from "@/lib/format";
@@ -14,7 +14,17 @@ import {
   optionsSourceDisponibles,
   sourceCalculCoupee,
 } from "@/lib/montantCalcule";
+import {
+  classerDepense,
+  CORRESPONDANCE_VIDE,
+  correspondAuFiltreEtage,
+  CorrespondanceFutur,
+  EtageDepense,
+  FiltreEtage,
+  idsAAffecter,
+} from "@/lib/futurPnl";
 import DateField from "./DateField";
+import { CaseSelectionLigne, OutilsEtagePnl, SelecteurEtagePnl, useSelectionLignes } from "./EtagePnl";
 import SourceCalculSelect from "./SourceCalculSelect";
 import IconCalculatrice from "./IconCalculatrice";
 
@@ -28,6 +38,9 @@ interface ChargesFixesTableProps {
   tri: TriMode;
   filtrePeriode?: OccurrencesParId | null;
   periodeFiltre?: PeriodeFiltre | null;
+  // Étage P&L (lib/futurPnl.ts) : écriture du seul choix manuel, classement par ligne.
+  correspondance?: CorrespondanceFutur;
+  onChangeEtage?: (ids: string[], etage: EtageDepense | null) => void;
 }
 
 export default function ChargesFixesTable({
@@ -40,31 +53,65 @@ export default function ChargesFixesTable({
   tri,
   filtrePeriode,
   periodeFiltre,
+  correspondance = CORRESPONDANCE_VIDE,
+  onChangeEtage,
 }: ChargesFixesTableProps) {
+  const [filtreEtage, setFiltreEtage] = useState<FiltreEtage>("tous");
+  const { selection, basculer, basculerTout, vider } = useSelectionLignes();
   const chargesTriees = useMemo(() => {
     const dansPeriode = filtrePeriode ? charges.filter((c) => filtrePeriode.has(c.id)) : charges;
-    const filtrees = filtrerChargesFixes(dansPeriode, recherche);
+    // Le filtre par étage ne restreint que la liste : le montant calculé d'une charge continue
+    // de lire toutes les charges (`charges`), sa source comprise.
+    const dansEtage = dansPeriode.filter((c) => correspondAuFiltreEtage(classerDepense(c, correspondance), filtreEtage));
+    const filtrees = filtrerChargesFixes(dansEtage, recherche);
     return tri === "montant"
       ? trierParMontant(filtrees, (c) => montantApercuChargeFixe(c, charges, rentreesRegulieres) ?? Number.NaN)
       : trierParDate(filtrees, (c) => c.datePrevue);
-  }, [charges, rentreesRegulieres, recherche, tri, filtrePeriode]);
+  }, [charges, rentreesRegulieres, recherche, tri, filtrePeriode, filtreEtage, correspondance]);
 
-  const filtreActif = !!recherche || !!filtrePeriode;
+  const filtreActif = !!recherche || !!filtrePeriode || filtreEtage !== "tous";
+  const idsAffiches = chargesTriees.map((x) => x.id);
+  const idsSelectionnes = idsAAffecter(selection, idsAffiches);
+  const toutSelectionne = idsAffiches.length > 0 && idsSelectionnes.length === idsAffiches.length;
 
   return (
     <div className="table-wrapper">
       <h3>Charges fixes</h3>
+      {onChangeEtage && (
+        <OutilsEtagePnl
+          idSection="charges-fixes"
+          filtre={filtreEtage}
+          onChangeFiltre={setFiltreEtage}
+          nombreSelectionnees={idsSelectionnes.length}
+          onAffecter={(etage) => {
+            onChangeEtage(idsSelectionnes, etage);
+            vider();
+          }}
+          onDeselectionner={vider}
+        />
+      )}
       {filtreActif && chargesTriees.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
       <table className="invoice-table">
         <thead>
           <tr>
+            {onChangeEtage && (
+              <th className="col-checkbox">
+                <input
+                  type="checkbox"
+                  aria-label="Sélectionner toutes les charges affichées"
+                  checked={toutSelectionne}
+                  onChange={(e) => basculerTout(idsAffiches, e.target.checked)}
+                />
+              </th>
+            )}
             <th>Libellé</th>
             <th className="col-montant">Montant</th>
             <th>Date prévue</th>
             <th>Récurrence</th>
             <th>Date de fin</th>
+            {onChangeEtage && <th>Étage P&amp;L</th>}
             <th>À couper</th>
             <th></th>
           </tr>
@@ -97,6 +144,15 @@ export default function ChargesFixesTable({
             const montantAffiche = enModeFiltre ? (detailPeriode ? detailPeriode.montantCharge : null) : montantCalcule;
             return (
             <tr key={charge.id} className={charge.aCouper ? "row--litigieuse" : ""}>
+              {onChangeEtage && (
+                <td className="col-checkbox">
+                  <CaseSelectionLigne
+                    coche={selection.has(charge.id)}
+                    libelleLigne={charge.libelle}
+                    onChange={(coche) => basculer(charge.id, coche)}
+                  />
+                </td>
+              )}
               <td>
                 <input
                   type="text"
@@ -215,6 +271,15 @@ export default function ChargesFixesTable({
                   onChange={(valeur) => onChange(charge.id, { dateFin: valeur || null })}
                 />
               </td>
+              {onChangeEtage && (
+                <td>
+                  <SelecteurEtagePnl
+                    classement={classerDepense(charge, correspondance)}
+                    libelleLigne={charge.libelle}
+                    onChange={(etage) => onChangeEtage([charge.id], etage)}
+                  />
+                </td>
+              )}
               <td className="col-checkbox">
                 <span
                   className="checkbox-tooltip"

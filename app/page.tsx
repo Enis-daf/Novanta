@@ -74,9 +74,18 @@ import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { moduleActifPourOrganisation } from "@/lib/organizationModules";
 import {
+  categoriesARelire,
+  CategorieFacture,
+  CORRESPONDANCE_VIDE,
+  CorrespondanceFutur,
+  EtageDepense,
+} from "@/lib/futurPnl";
+import {
   chargerOuInitialiserDonnees,
   sauvegarderAutreDepense,
   sauvegarderChargeFixe,
+  affecterEtagePnlManuel,
+  chargerCorrespondanceFutur,
   importerChargesFixes,
   importerFacturesClients,
   importerFacturesFournisseurs,
@@ -104,6 +113,10 @@ const DELAI_DEBOUNCE_MS = 600;
 // Lecture du règlement réel chez Pennylane : au plus 200 factures par synchronisation (un appel
 // Pennylane chacune) ; les suivantes le sont à la synchronisation d'après.
 const MAX_REGLEMENTS_REELS_PAR_SYNCHRO = 200;
+
+// Catégories Pennylane des factures fournisseurs (étage P&L) : au plus 200 factures relues par
+// synchronisation, un appel Pennylane chacune ; les suivantes le sont à la synchronisation d'après.
+const MAX_CATEGORIES_PAR_SYNCHRO = 200;
 
 function persist(action: () => Promise<void>) {
   action().catch((error) => console.error("Échec de la sauvegarde Supabase :", error));
@@ -152,6 +165,8 @@ export default function Home() {
   // Entitlement "past" de la société courante : ne sert qu'à afficher ou non le bouton "Passé"
   // dans l'en-tête (la route /passe revérifie elle-même). false par défaut et en cas d'erreur.
   const [modulePasseActif, setModulePasseActif] = useState(false);
+  // Correspondance catégorie -> étage P&L partagée avec Passé, lisible sans le module Passé.
+  const [correspondancePnl, setCorrespondancePnl] = useState<CorrespondanceFutur>(CORRESPONDANCE_VIDE);
 
   const [soldeInitial, setSoldeInitial] = useState(SOLDE_BANCAIRE_INITIAL);
   const [dateReleve, setDateReleve] = useState(() => todayISO());
@@ -234,6 +249,28 @@ export default function Home() {
       annule = true;
     };
   }, [session]);
+
+  // Correspondance P&L de la société (lib/futurPnl.ts) : relue à chaque chargement du cockpit,
+  // donc toute modification faite dans Passé s'applique aux dépenses sans choix manuel. Échec
+  // (migration absente, réseau) : aucune correspondance, le classement manuel reste disponible.
+  useEffect(() => {
+    if (!supabaseConfigured || !companyId) {
+      setCorrespondancePnl(CORRESPONDANCE_VIDE);
+      return;
+    }
+    let annule = false;
+    chargerCorrespondanceFutur()
+      .then((correspondance) => {
+        if (!annule) setCorrespondancePnl(correspondance);
+      })
+      .catch((error) => {
+        console.error("Correspondance P&L indisponible :", error);
+        if (!annule) setCorrespondancePnl(CORRESPONDANCE_VIDE);
+      });
+    return () => {
+      annule = true;
+    };
+  }, [companyId]);
 
   useEffect(() => {
     if (!supabaseConfigured || !companyId) {
@@ -607,7 +644,11 @@ export default function Home() {
     }
     if (nouvellesFacturesFournisseurs.length > 0) {
       setFacturesFournisseurs((prev) => [...prev, ...nouvellesFacturesFournisseurs]);
-      if (companyId) persist(() => importerFacturesFournisseurs(companyId, nouvellesFacturesFournisseurs));
+      // Attendue avec les marquages : la lecture des catégories Pennylane qui suit porte aussi sur
+      // ces nouvelles factures, et le serveur ne lit que des factures déjà en base.
+      if (companyId) {
+        marquages.push(importerFacturesFournisseurs(companyId, nouvellesFacturesFournisseurs).catch((error) => console.error("Échec de la sauvegarde Supabase :", error)));
+      }
     }
 
     if (idsClientsAMettreAJourPayee.length > 0) {
@@ -669,6 +710,40 @@ export default function Home() {
           console.error("Lecture du règlement réel impossible :", error);
           return;
         }
+      }
+    }
+  };
+
+  /**
+   * Catégories Pennylane des factures fournisseurs à payer (lib/futurPnl.ts::categoriesARelire),
+   * lues par le serveur qui les écrit en base ; l'état local suit. Ne touche jamais au choix
+   * manuel d'étage. Une erreur laisse les factures concernées telles quelles (« À classer » ou
+   * classement précédent).
+   */
+  const recupererCategoriesFactures = async (fournisseurs: FactureFournisseur[]): Promise<void> => {
+    if (!session?.access_token) return;
+    const maintenant = new Date();
+    const ids = fournisseurs.filter((f) => categoriesARelire(f, maintenant)).map((f) => f.id);
+    for (let i = 0; i < ids.length && i < MAX_CATEGORIES_PAR_SYNCHRO; i += 50) {
+      try {
+        const res = await fetch("/api/pennylane/invoices/categories", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: ids.slice(i, i + 50) }),
+        });
+        if (!res.ok) return;
+        const { lues } = (await res.json()) as { lues: { id: string; categories: CategorieFacture[]; luesLe: string }[] };
+        const parId = new Map(lues.map((l) => [l.id, l]));
+        if (parId.size === 0) return;
+        setFacturesFournisseurs((prev) =>
+          prev.map((f) => {
+            const lue = parId.get(f.id);
+            return lue ? { ...f, categoriesPennylane: lue.categories, categoriesLuesLe: lue.luesLe } : f;
+          })
+        );
+      } catch (error) {
+        console.error("Lecture des catégories Pennylane impossible :", error);
+        return;
       }
     }
   };
@@ -769,7 +844,14 @@ export default function Home() {
       const marqueesFournisseurs = new Set(idsFournisseursAMettreAJourPayee);
       const clientsApres = facturesClients.map((f) => (marqueesClients.has(f.id) ? { ...f, payee: true, paidAt: maintenantIso } : f));
       const fournisseursApres = facturesFournisseurs.map((f) => (marqueesFournisseurs.has(f.id) ? { ...f, payee: true, paidAt: maintenantIso } : f));
-      void marquages.then(() => recupererReglementsReels(clientsApres, fournisseursApres));
+      // Puis les catégories Pennylane des factures fournisseurs (étage P&L), nouvelles comprises :
+      // `marquages` attend aussi leur insertion, pour que le serveur les retrouve en base.
+      const fournisseursACategoriser = [...fournisseursApres, ...nouvellesFacturesFournisseurs].filter(
+        (f) => !idsFournisseursASupprimer.includes(f.id)
+      );
+      void marquages
+        .then(() => recupererReglementsReels(clientsApres, fournisseursApres))
+        .then(() => recupererCategoriesFactures(fournisseursACategoriser));
     } catch {
       setSyncPennylaneErreur("Pennylane est temporairement indisponible. Réessayez.");
     } finally {
@@ -877,6 +959,30 @@ export default function Home() {
   const handleRemoveAutreDepense = (id: string) => {
     setAutresDepenses((prev) => prev.filter((d) => d.id !== id));
     if (companyId) persist(() => supprimerAutreDepense(id));
+  };
+
+  // Étage P&L (lib/futurPnl.ts) : une ligne (cellule du tableau) ou plusieurs (« Affecter un étage
+  // P&L »). null = « Reprendre le classement automatique ». Seul le choix manuel est écrit ; aucun
+  // autre champ, aucune autre ligne, ni la correspondance partagée, ni Pennylane.
+  const appliquerEtage = <T extends { id: string; etagePnlManuel?: EtageDepense | null }>(
+    liste: T[],
+    ids: string[],
+    etage: EtageDepense | null
+  ): T[] => {
+    const cibles = new Set(ids);
+    return liste.map((x) => (cibles.has(x.id) ? { ...x, etagePnlManuel: etage } : x));
+  };
+  const handleChangeEtageFacturesFournisseurs = (ids: string[], etage: EtageDepense | null) => {
+    setFacturesFournisseurs((prev) => appliquerEtage(prev, ids, etage));
+    if (companyId) persist(() => affecterEtagePnlManuel("supplier_invoices", companyId, ids, etage));
+  };
+  const handleChangeEtageChargesFixes = (ids: string[], etage: EtageDepense | null) => {
+    setChargesFixes((prev) => appliquerEtage(prev, ids, etage));
+    if (companyId) persist(() => affecterEtagePnlManuel("fixed_charges", companyId, ids, etage));
+  };
+  const handleChangeEtageAutresDepenses = (ids: string[], etage: EtageDepense | null) => {
+    setAutresDepenses((prev) => appliquerEtage(prev, ids, etage));
+    if (companyId) persist(() => affecterEtagePnlManuel("other_expenses", companyId, ids, etage));
   };
 
   const handleChangeFinancement = (id: string, patch: Partial<Financement>) => {
@@ -1137,6 +1243,8 @@ export default function Home() {
             syncPennylaneEnCours={syncPennylaneEnCours}
             syncPennylaneResultat={syncPennylaneResultat}
             syncPennylaneErreur={syncPennylaneErreur}
+            correspondance={correspondancePnl}
+            onChangeEtage={handleChangeEtageFacturesFournisseurs}
           />
           <ChargesFixesTable
             charges={chargesFixes}
@@ -1148,6 +1256,8 @@ export default function Home() {
             tri={tri}
             filtrePeriode={fluxPeriode?.occurrencesChargesFixes ?? null}
             periodeFiltre={periodeFiltre}
+            correspondance={correspondancePnl}
+            onChangeEtage={handleChangeEtageChargesFixes}
           />
           <AutresDepensesTable
             depenses={autresDepenses}
@@ -1157,6 +1267,8 @@ export default function Home() {
             recherche={recherche}
             tri={tri}
             filtrePeriode={fluxPeriode?.idsAutresDepenses ?? null}
+            correspondance={correspondancePnl}
+            onChangeEtage={handleChangeEtageAutresDepenses}
           />
         </SectionRepliable>
 

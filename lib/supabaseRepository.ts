@@ -18,6 +18,7 @@ import {
   HorizonJours,
   RentreeReguliere,
 } from "./types";
+import { CategorieFacture, CorrespondanceFutur, EtageDepense, estEtageDepense, lireCorrespondance } from "./futurPnl";
 
 export interface DonneesEntreprise {
   soldeInitial: number;
@@ -39,6 +40,15 @@ type Row = Record<string, unknown>;
 // car une chaîne vide n'est pas une valeur "date" valide pour Postgres.
 function dateOuNull(dateStr: string): string | null {
   return dateStr || null;
+}
+
+// Étage choisi dans Futur : une valeur hors nomenclature lue en base est traitée comme « aucun choix ».
+function etageManuelOuNull(valeur: unknown): EtageDepense | null {
+  return estEtageDepense(valeur) ? valeur : null;
+}
+
+function categoriesOuNull(valeur: unknown): CategorieFacture[] | null {
+  return Array.isArray(valeur) ? (valeur as CategorieFacture[]) : null;
 }
 
 function client() {
@@ -113,6 +123,7 @@ function factureFournisseurToRow(companyId: string, f: FactureFournisseur): Row 
     paid: f.payee,
     paid_at: f.paidAt,
     pennylane_id: f.pennylaneId ?? null,
+    // Ni l'étage P&L ni les catégories Pennylane ne sont renvoyés ici (voir affecterEtagePnlManuel).
   };
 }
 
@@ -129,6 +140,10 @@ function rowToFactureFournisseur(row: Row): FactureFournisseur {
     paidAt: (row.paid_at as string | null) ?? null,
     settledOn: (row.settled_on as string | null) ?? null,
     pennylaneId: (row.pennylane_id as string | null) ?? null,
+    // Colonnes absentes avant la migration « étage P&L Futur » : « À classer ».
+    etagePnlManuel: etageManuelOuNull(row.pnl_stage_manual),
+    categoriesPennylane: categoriesOuNull(row.pennylane_categories),
+    categoriesLuesLe: (row.pennylane_categories_synced_at as string | null | undefined) ?? null,
   };
 }
 
@@ -164,6 +179,7 @@ function rowToChargeFixe(row: Row): ChargeFixe {
     sourceCalculType: (row.source_calcul_type as ChargeFixe["sourceCalculType"] | undefined) ?? null,
     // Colonne absente sur une ligne créée avant la migration "à couper" : reste incluse (false).
     aCouper: Boolean(row.a_couper),
+    etagePnlManuel: etageManuelOuNull(row.pnl_stage_manual),
   };
 }
 
@@ -190,6 +206,7 @@ function rowToAutreDepense(row: Row): AutreDepense {
     facturee: Boolean(row.facturee),
     // Colonne absente sur une ligne créée avant la migration "Payée" : reste incluse (false).
     payee: Boolean(row.payee),
+    etagePnlManuel: etageManuelOuNull(row.pnl_stage_manual),
   };
 }
 
@@ -484,4 +501,35 @@ export async function sauvegarderRentreeReguliere(companyId: string, rentree: Re
 
 export async function supprimerRentreeReguliere(id: string): Promise<void> {
   await deleteOne("recurring_income", id);
+}
+
+export type TableDepense = "fixed_charges" | "supplier_invoices" | "other_expenses";
+
+/**
+ * Seule écriture de l'étage P&L (cellule du tableau, « Affecter un étage P&L », « Reprendre le
+ * classement automatique ») : le SEUL choix manuel (null = le retirer) sur les lignes désignées de
+ * la société. Aucune autre colonne n'est envoyée : montants, dates, récurrence, réglages de
+ * prévision restent intacts. À l'inverse, les sauvegardes habituelles d'une ligne n'envoient
+ * jamais pnl_stage_manual : une saisie en cours ne peut pas effacer un étage choisi entre-temps.
+ */
+export async function affecterEtagePnlManuel(
+  table: TableDepense,
+  companyId: string,
+  ids: string[],
+  etage: EtageDepense | null
+): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await client().from(table).update({ pnl_stage_manual: etage }).eq("company_id", companyId).in("id", ids);
+  if (error) throw error;
+}
+
+/**
+ * Correspondance catégorie -> étage de la société, lue par la fonction future_pnl_correspondance
+ * (identifiants et étages seulement) : disponible sans le module Passé. Absente (migration non
+ * passée, erreur) : aucune correspondance, tout reste classable à la main.
+ */
+export async function chargerCorrespondanceFutur(): Promise<CorrespondanceFutur> {
+  const { data, error } = await client().rpc("future_pnl_correspondance");
+  if (error) throw error;
+  return lireCorrespondance(data);
 }
