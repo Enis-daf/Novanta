@@ -8,6 +8,7 @@ import {
   estDateValide,
   estEnRetard,
   estFactureMasquee,
+  formatDateCourte,
   trierParDate,
   trierParMontant,
 } from "@/lib/dates";
@@ -15,6 +16,13 @@ import { filtrerFacturesFournisseurs } from "@/lib/recherche";
 import { OccurrencesParId } from "@/lib/periodeFiltre";
 import { messageSyncPennylane, ResultatSyncPennylane } from "@/lib/pennylaneInvoiceAdapter";
 import DateField from "./DateField";
+
+/** Occurrence de Charge fixe qu'une facture remplace (rapprochement confirmé). */
+export interface RapprochementFacture {
+  lienId: string;
+  libelleCharge: string;
+  dateOccurrence: string; // YYYY-MM-DD
+}
 
 interface FacturesFournisseursTableProps {
   factures: FactureFournisseur[];
@@ -29,6 +37,11 @@ interface FacturesFournisseursTableProps {
   syncPennylaneEnCours?: boolean;
   syncPennylaneResultat?: ResultatSyncPennylane | null;
   syncPennylaneErreur?: string | null;
+  // Rapprochement avec les Charges fixes (voir lib/rapprochementChargesFixes.ts) : absent = la
+  // fonctionnalité n'est pas proposée dans ce tableau.
+  rapprochements?: Map<string, RapprochementFacture>;
+  onRapprocher?: (factureId: string) => void;
+  onDissocier?: (lienId: string) => void;
 }
 
 export default function FacturesFournisseursTable({
@@ -44,6 +57,9 @@ export default function FacturesFournisseursTable({
   syncPennylaneEnCours = false,
   syncPennylaneResultat = null,
   syncPennylaneErreur = null,
+  rapprochements,
+  onRapprocher,
+  onDissocier,
 }: FacturesFournisseursTableProps) {
   const router = useRouter();
   const facturesTriees = useMemo(() => {
@@ -98,6 +114,30 @@ export default function FacturesFournisseursTable({
                   value={facture.fournisseur}
                   onChange={(e) => onChange(facture.id, { fournisseur: e.target.value })}
                 />
+                {onRapprocher &&
+                  (rapprochements?.get(facture.id) ? (
+                    <span className="rapprochement-ligne">
+                      Remplace «&nbsp;{rapprochements.get(facture.id)!.libelleCharge || "Charge sans libellé"}&nbsp;» du{" "}
+                      {formatDateCourte(rapprochements.get(facture.id)!.dateOccurrence)}
+                      {onDissocier && (
+                        <button
+                          type="button"
+                          className="btn-shift"
+                          onClick={() => {
+                            if (window.confirm("Dissocier cette facture de la charge fixe ? L’occurrence prévue sera de nouveau comptée.")) {
+                              onDissocier(rapprochements.get(facture.id)!.lienId);
+                            }
+                          }}
+                        >
+                          Dissocier
+                        </button>
+                      )}
+                    </span>
+                  ) : (
+                    <button type="button" className="btn-shift rapprochement-ligne" onClick={() => onRapprocher(facture.id)}>
+                      Rapprocher d&apos;une charge fixe
+                    </button>
+                  ))}
               </td>
               <td className="col-montant">
                 <input

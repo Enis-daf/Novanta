@@ -4,14 +4,54 @@
     {
       "name": "cockpit-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000
     },
     {
       "name": "cockpit-prod",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start"],
+      "runtimeArgs": [
+        "run",
+        "start"
+      ],
       "port": 3000
+    },
+    {
+      "name": "cockpit-mock",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "NEXT_PUBLIC_SUPABASE_URL=",
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=",
+        "SUPABASE_SERVICE_ROLE_KEY=",
+        "npm",
+        "run",
+        "dev",
+        "--",
+        "-p",
+        "3002"
+      ],
+      "port": 3002
+    },
+    {
+      "name": "cockpit-staging",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:staging"
+      ],
+      "port": 3001
+    },
+    {
+      "name": "cockpit-staging-mock",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev:staging:mock"
+      ],
+      "port": 3001
     }
   ]
 }

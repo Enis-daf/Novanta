@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
           console.error(`[pennylane/transactions] DB save (statut invalide) failed ${resumeErreurSupabaseSansSecret(dbErreur)}`);
         }
       }
-      return NextResponse.json({ error: messageErreurUtilisationPennylane(erreur.reason) }, { status: 400 });
+      return NextResponse.json({ error: messageErreurUtilisationPennylane(erreur.reason, erreur.endpoint) }, { status: 400 });
     }
     console.error("[pennylane/transactions] erreur inattendue en contactant Pennylane", erreur);
     return NextResponse.json({ error: MESSAGE_CONFIG_SERVEUR }, { status: 500 });
