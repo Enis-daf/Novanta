@@ -144,6 +144,28 @@ export function estMasqueeApresPaiement(payee: boolean, paidAt: string | null, s
 }
 
 /**
+ * Masquage d'une facture du cockpit (tableaux, export Excel). Les 7 jours partent, dans l'ordre :
+ *  1. du règlement réel (settledOn), quand Pennylane le donne ;
+ *  2. pour une facture Pennylane payée sans transaction rapprochée, de son ÉCHÉANCE quand elle est
+ *     antérieure au marquage « Payée » : une facture de janvier marquée payée aujourd'hui ne reste
+ *     pas une semaine à l'écran (décision du 21/10/2026, option B) ;
+ *  3. sinon du marquage « Payée » (paidAt) — et toujours pour une facture saisie dans Novanta.
+ */
+export function estFactureMasquee(
+  f: { payee: boolean; paidAt: string | null; settledOn?: string | null; pennylaneId?: string | null; dateEcheance?: string | null },
+  maintenant: Date = new Date()
+): boolean {
+  if (!f.payee) return false;
+  if (f.settledOn && estDateValide(f.settledOn)) return estMasqueeApresPaiement(true, f.paidAt, f.settledOn, maintenant);
+  const marquage = f.paidAt ? new Date(f.paidAt) : null;
+  const echeance = f.pennylaneId && estDateValide(f.dateEcheance) ? f.dateEcheance : null;
+  if (echeance && marquage && !Number.isNaN(marquage.getTime()) && echeance < toISODate(marquage)) {
+    return estMasqueeApresPaiement(true, f.paidAt, echeance, maintenant);
+  }
+  return estMasqueeApresPaiement(true, f.paidAt, null, maintenant);
+}
+
+/**
  * Facture Pennylane payée dont le règlement réel reste à lire chez Pennylane : seulement tant que
  * la date de paiement Novanta la laisse encore visible. Au-delà, elle est déjà masquée — la date
  * réelle (toujours antérieure) ne changerait rien, inutile de la redemander.

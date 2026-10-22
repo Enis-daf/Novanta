@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { AutreDepense, ChargeFixe, FactureClient, FactureFournisseur, Financement, HorizonJours, RentreeReguliere, TriMode } from "./types";
-import { estEnRetard, estMasqueeApresPaiement, parseDateISO, todayISO, trierParDate, trierParMontant } from "./dates";
+import { estEnRetard, estFactureMasquee, parseDateISO, todayISO, trierParDate, trierParMontant } from "./dates";
 import {
   filtrerAutresDepenses,
   filtrerChargesFixes,
@@ -17,7 +17,7 @@ import { etatTotalPonderations, montantOccurrenceRentreeReguliere, montantRentre
 
 // Ce module RECOMPOSE, pour chaque catégorie, exactement la même chaîne filtre → recherche →
 // tri que le tableau correspondant (voir xxxTriees dans chaque composant Table). Il réutilise
-// les mêmes fonctions pures (filtrerXxx, trierParXxx, estMasqueeApresPaiement, estEnRetard,
+// les mêmes fonctions pures (filtrerXxx, trierParXxx, estFactureMasquee, estEnRetard,
 // montantApercuChargeFixe, detailChargeFixeSurPeriode, montantRentreeReguliereSurPeriode) —
 // aucune logique de filtrage n'est réécrite ici, seul l'ORDRE de composition est dupliqué par
 // catégorie. Si un tableau change cet ordre, ce module doit être mis à jour en miroir.
@@ -106,7 +106,7 @@ function ajouterFeuille(classeur: ExcelJS.Workbook, nom: string, colonnes: Parti
 // --- Factures clients / fournisseurs -----------------------------------------------------
 
 function lignesFacturesClientsVisibles(params: ParametresExportExcel): FactureClient[] {
-  const actives = params.facturesClients.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt, f.settledOn ?? null));
+  const actives = params.facturesClients.filter((f) => !estFactureMasquee(f));
   const filtrePeriode = params.filtresParCategorie.facturesClients;
   const dansPeriode = filtrePeriode ? actives.filter((f) => filtrePeriode.has(f.id)) : actives;
   const filtrees = filtrerFacturesClients(dansPeriode, params.recherche);
@@ -141,7 +141,7 @@ function construireFeuilleFacturesClients(classeur: ExcelJS.Workbook, params: Pa
 }
 
 function lignesFacturesFournisseursVisibles(params: ParametresExportExcel): FactureFournisseur[] {
-  const actives = params.facturesFournisseurs.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt, f.settledOn ?? null));
+  const actives = params.facturesFournisseurs.filter((f) => !estFactureMasquee(f));
   const filtrePeriode = params.filtresParCategorie.facturesFournisseurs;
   const dansPeriode = filtrePeriode ? actives.filter((f) => filtrePeriode.has(f.id)) : actives;
   const filtrees = filtrerFacturesFournisseurs(dansPeriode, params.recherche);

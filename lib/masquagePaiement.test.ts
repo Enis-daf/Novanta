@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { estMasqueeApresPaiement, JOURS_VISIBILITE_APRES_PAIEMENT, reglementReelARecuperer } from "./dates";
+import { estFactureMasquee, estMasqueeApresPaiement, JOURS_VISIBILITE_APRES_PAIEMENT, reglementReelARecuperer } from "./dates";
 import { dateDeReglementReel } from "./pennylaneInvoiceAdapter";
 
 // Aujourd'hui fixé : mercredi 21/10/2026, 12 h (heure locale).
@@ -60,5 +60,51 @@ describe("règlement réel : date de la dernière transaction rapprochée", () =
     assert.equal(reglementReelARecuperer({ ...base, settledOn: "2026-07-28" }, MAINTENANT), false, "déjà connue");
     assert.equal(reglementReelARecuperer({ ...base, payee: false }, MAINTENANT), false, "non payée");
     assert.equal(reglementReelARecuperer({ ...base, paidAt: ilYa(9) }, MAINTENANT), false, "déjà masquée");
+  });
+});
+
+describe("facture Pennylane payée sans transaction rapprochée : repli sur l'échéance (option B)", () => {
+  const pennylane = (dateEcheance: string, champs: Record<string, unknown> = {}) => ({
+    payee: true,
+    paidAt: ilYa(0.2),
+    settledOn: null,
+    pennylaneId: "123",
+    dateEcheance,
+    ...champs,
+  });
+  const masqueeF = (f: Parameters<typeof estFactureMasquee>[0]) => estFactureMasquee(f, MAINTENANT);
+
+  test("cas réel TENERGIE FA2601-0003 : échéance en début d'année, marquée payée ce matin -> masquée", () => {
+    assert.equal(masqueeF(pennylane("2026-02-05")), true);
+  });
+
+  test("échéance antérieure au marquage mais récente : 7 jours depuis l'échéance", () => {
+    assert.equal(masqueeF(pennylane("2026-10-15")), false, "échéance il y a 6 jours");
+    assert.equal(masqueeF(pennylane("2026-10-14")), false, "exactement 7 jours");
+    assert.equal(masqueeF(pennylane("2026-10-13")), true, "8 jours");
+  });
+
+  test("échéance future ou du jour du marquage : 7 jours depuis le marquage", () => {
+    assert.equal(masqueeF(pennylane("2026-11-30")), false);
+    assert.equal(masqueeF(pennylane("2026-11-30", { paidAt: ilYa(8) })), true);
+  });
+
+  test("le règlement réel prime toujours sur l'échéance", () => {
+    assert.equal(masqueeF(pennylane("2026-01-10", { settledOn: "2026-10-20" })), false);
+    assert.equal(masqueeF(pennylane("2026-12-31", { settledOn: "2026-07-28" })), true);
+  });
+
+  test("facture saisie dans Novanta : jamais de repli sur l'échéance (7 jours depuis le clic)", () => {
+    assert.equal(masqueeF(pennylane("2026-02-05", { pennylaneId: null })), false);
+  });
+
+  test("échéance absente ou illisible : 7 jours depuis le marquage", () => {
+    assert.equal(masqueeF(pennylane("")), false);
+    assert.equal(masqueeF(pennylane("illisible")), false);
+  });
+
+  test("non payée, ou payée sans date de marquage : jamais masquée", () => {
+    assert.equal(masqueeF(pennylane("2026-02-05", { payee: false })), false);
+    assert.equal(masqueeF(pennylane("2026-02-05", { paidAt: null })), false);
   });
 });

@@ -32,7 +32,7 @@ import {
   ResultatSyncPennylane,
 } from "@/lib/pennylaneInvoiceAdapter";
 import { calculerProjectionCash } from "@/lib/cash-engine";
-import { estMasqueeApresPaiement, reglementReelARecuperer, todayISO } from "@/lib/dates";
+import { estFactureMasquee, reglementReelARecuperer, todayISO } from "@/lib/dates";
 import { calculerSyntheseMensuelle } from "@/lib/syntheseMensuelle";
 import { calculerControleMensuel } from "@/lib/controleMensuel";
 import { calculerFluxPeriode, calculerPeriodeFiltre } from "@/lib/periodeFiltre";
@@ -174,9 +174,9 @@ export default function Home() {
   // "aucun résultat"), totalement indépendant du calcul de trésorerie ci-dessous.
   const totalResultatsRecherche = useMemo(() => {
     if (!recherche) return null;
-    const facturesClientsActives = facturesClients.filter((f) => !estMasqueeApresPaiement(f.payee, f.paidAt, f.settledOn ?? null));
+    const facturesClientsActives = facturesClients.filter((f) => !estFactureMasquee(f));
     const facturesFournisseursActives = facturesFournisseurs.filter(
-      (f) => !estMasqueeApresPaiement(f.payee, f.paidAt, f.settledOn ?? null)
+      (f) => !estFactureMasquee(f)
     );
     return (
       filtrerFacturesClients(facturesClientsActives, recherche).length +
