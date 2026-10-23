@@ -16,6 +16,7 @@ import SectionRepliable from "@/components/SectionRepliable";
 import BarreRecherche from "@/components/BarreRecherche";
 import BandeauPeriodeFiltre from "@/components/BandeauPeriodeFiltre";
 import ControleMensuel from "@/components/ControleMensuel";
+import FiabiliteProjection from "@/components/FiabiliteProjection";
 import LoginForm from "@/components/LoginForm";
 import IconTelechargement from "@/components/IconTelechargement";
 import EnTeteCockpit from "@/components/EnTeteCockpit";
@@ -225,6 +226,8 @@ export default function Home() {
   const [modulePasseActif, setModulePasseActif] = useState(false);
   // Correspondance catégorie -> étage P&L partagée avec Passé, lisible sans le module Passé.
   const [correspondancePnl, setCorrespondancePnl] = useState<CorrespondanceFutur>(CORRESPONDANCE_VIDE);
+  // Onglets de Futur : le cockpit opérationnel, et la fiabilité de la projection (contrôles).
+  const [ongletFutur, setOngletFutur] = useState<"flux" | "fiabilite">("flux");
   // Échec d'enregistrement d'un étage P&L, par tableau (le classement précédent reste affiché).
   const [erreursEtage, setErreursEtage] = useState<Partial<Record<TableDepense, string>>>({});
 
@@ -1607,7 +1610,29 @@ export default function Home() {
             : undefined
         }
       />
-      <div className="pilotage">
+      <div className="passe-onglets onglets-futur" role="tablist" aria-label="Vues du module Futur">
+        <div className="passe-onglets__groupe" role="presentation">
+          {(
+            [
+              { cle: "flux", libelle: "Flux de tréso" },
+              { cle: "fiabilite", libelle: "Fiabilité de la projection" },
+            ] as const
+          ).map((onglet) => (
+            <button
+              key={onglet.cle}
+              type="button"
+              role="tab"
+              aria-selected={ongletFutur === onglet.cle}
+              className={`passe-onglet${ongletFutur === onglet.cle ? " passe-onglet--actif" : ""}`}
+              onClick={() => setOngletFutur(onglet.cle)}
+            >
+              {onglet.libelle}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Les deux onglets restent montés (masqués par hidden) : saisies et états conservés. */}
+      <div className="pilotage" hidden={ongletFutur !== "flux"}>
         <div className="pilotage__scroll">
           <Dashboard
             soldeInitial={soldeInitial}
@@ -1631,7 +1656,7 @@ export default function Home() {
           />
         </div>
       </div>
-      <div className="cockpit__col--droite">
+      <div className="cockpit__col--droite" hidden={ongletFutur !== "flux"}>
         {periodeFiltre && fluxPeriode && (
           <BandeauPeriodeFiltre
             dateClic={periodeFiltre.dateClic}
@@ -1807,7 +1832,25 @@ export default function Home() {
           />
         </SectionRepliable>
 
-        <SectionRepliable titre="Vérifier mes données" ouvertParDefaut={false}>
+
+        <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>
+          <ImportFactures
+            onImporter={handleImporterFactures}
+            pennylaneConnecte={pennylaneConnecte === true}
+            onSynchroniserPennylane={handleClicSynchroniserPennylane}
+            syncPennylaneEnCours={syncPennylaneEnCours}
+            syncPennylaneResultat={syncPennylaneResultat}
+            syncPennylaneErreur={syncPennylaneErreur}
+          />
+        </SectionRepliable>
+
+      </div>
+
+      {/* Fiabilité de la projection. Futur seul : « Vérifier mes données » et l'ancien Contrôle
+          mensuel. Passé + Futur : le contrôle prévu / réalisé le remplace (droits revérifiés côté
+          serveur par /api/futur/fiabilite). */}
+      <section className="onglet-fiabilite" hidden={ongletFutur !== "fiabilite"} aria-label="Fiabilité de la projection">
+        <SectionRepliable titre="Vérifier mes données" ouvertParDefaut>
           <VerifierMesDonnees
             facturesClients={facturesClients}
             facturesFournisseurs={facturesFournisseurs}
@@ -1821,22 +1864,16 @@ export default function Home() {
             accessToken={session?.access_token ?? null}
           />
         </SectionRepliable>
-
-        <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>
-          <ImportFactures
-            onImporter={handleImporterFactures}
-            pennylaneConnecte={pennylaneConnecte === true}
-            onSynchroniserPennylane={handleClicSynchroniserPennylane}
-            syncPennylaneEnCours={syncPennylaneEnCours}
-            syncPennylaneResultat={syncPennylaneResultat}
-            syncPennylaneErreur={syncPennylaneErreur}
-          />
-        </SectionRepliable>
-
-        <SectionRepliable titre="Contrôle mensuel" ouvertParDefaut={false}>
-          <ControleMensuel controle={controleMensuel} />
-        </SectionRepliable>
-      </div>
+        {modulePasseActif ? (
+          <SectionRepliable titre="Contrôle prévu / réalisé" ouvertParDefaut>
+            <FiabiliteProjection accessToken={session?.access_token ?? null} actif={ongletFutur === "fiabilite"} />
+          </SectionRepliable>
+        ) : (
+          <SectionRepliable titre="Contrôle mensuel" ouvertParDefaut>
+            <ControleMensuel controle={controleMensuel} />
+          </SectionRepliable>
+        )}
+      </section>
     </main>
   );
 }

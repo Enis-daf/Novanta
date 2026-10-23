@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "./supabaseClient";
 import { todayISO } from "./dates";
 import {
@@ -755,4 +756,77 @@ export async function actualiserDocumentsFactures(
       .eq("id", m.id);
     if (error) throw error;
   }
+}
+
+// --- Lecture serveur (clé service_role) : prévision de référence, lib/fiabiliteProjection.ts ---
+
+const TAILLE_PAGE_SERVEUR = 1000;
+
+/** Toutes les lignes d'une table pour une société, paginées : jamais une liste tronquée. */
+async function selectToutServeur(admin: SupabaseClient, table: string, companyId: string, siTableExiste = false): Promise<Row[]> {
+  const toutes: Row[] = [];
+  for (let debut = 0; ; debut += TAILLE_PAGE_SERVEUR) {
+    const { data, error } = await admin
+      .from(table)
+      .select("*")
+      .eq("company_id", companyId)
+      .order("id", { ascending: true })
+      .range(debut, debut + TAILLE_PAGE_SERVEUR - 1);
+    if (error) {
+      if (siTableExiste && (error.code === "42P01" || error.code === "PGRST205")) return [];
+      throw error;
+    }
+    const lignes = (data ?? []) as Row[];
+    toutes.push(...lignes);
+    if (lignes.length < TAILLE_PAGE_SERVEUR) return toutes;
+  }
+}
+
+/** Données de prévision d'une société, lues côté serveur (aucune donnée de démonstration créée). */
+export async function chargerDonneesPrevisionServeur(admin: SupabaseClient, companyId: string) {
+  const [clients, fournisseurs, charges, depenses, financementsRows, rentrees, liens] = await Promise.all([
+    selectToutServeur(admin, "customer_invoices", companyId),
+    selectToutServeur(admin, "supplier_invoices", companyId),
+    selectToutServeur(admin, "fixed_charges", companyId),
+    selectToutServeur(admin, "other_expenses", companyId),
+    selectToutServeur(admin, "financings", companyId),
+    selectToutServeur(admin, "recurring_income", companyId),
+    selectToutServeur(admin, "fixed_charge_invoice_links", companyId, true),
+  ]);
+  return {
+    facturesClients: clients.map(rowToFactureClient),
+    facturesFournisseurs: fournisseurs.map(rowToFactureFournisseur),
+    chargesFixes: charges.map(rowToChargeFixe),
+    autresDepenses: depenses.map(rowToAutreDepense),
+    financements: financementsRows.map(rowToFinancement),
+    rentreesRegulieres: rentrees.map(rowToRentreeReguliere),
+    liensRapprochement: liens.map(rowToLienRapprochement),
+  };
+}
+
+/** Correspondance P&L de la société lue côté serveur (même contenu que future_pnl_correspondance). */
+export async function chargerCorrespondanceServeur(admin: SupabaseClient, companyId: string): Promise<CorrespondanceFutur> {
+  const [{ data: reglages, error: e1 }, mappings] = await Promise.all([
+    admin.from("past_settings").select("reporting_analytic_group_id").eq("organization_id", companyId).maybeSingle(),
+    (async () => {
+      const toutes: Row[] = [];
+      for (let debut = 0; ; debut += TAILLE_PAGE_SERVEUR) {
+        const { data, error } = await admin
+          .from("past_category_mappings")
+          .select("source_category_id, source_group_id, pnl_stage")
+          .eq("organization_id", companyId)
+          .not("pnl_stage", "is", null)
+          .order("source_category_id", { ascending: true })
+          .range(debut, debut + TAILLE_PAGE_SERVEUR - 1);
+        if (error) throw error;
+        toutes.push(...((data ?? []) as Row[]));
+        if ((data ?? []).length < TAILLE_PAGE_SERVEUR) return toutes;
+      }
+    })(),
+  ]);
+  if (e1) throw e1;
+  return lireCorrespondance({
+    axe: (reglages as Row | null)?.reporting_analytic_group_id ?? null,
+    correspondances: mappings.map((m) => ({ id: m.source_category_id, axe: m.source_group_id, etage: m.pnl_stage })),
+  });
 }

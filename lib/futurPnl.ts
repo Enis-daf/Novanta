@@ -30,6 +30,8 @@ export function estEtageDepense(valeur: unknown): valeur is EtageDepense {
 }
 
 export const LIBELLE_A_CLASSER = "À classer";
+// Clé technique du groupe « À classer » (filtres, regroupements, fiabilité de la projection).
+export const CLE_A_CLASSER = "a_classer" as const;
 export const LIBELLE_PROVENANCE_CORRESPONDANCE = "Issu de la correspondance P&L";
 export const LIBELLE_PROVENANCE_MANUELLE = "Défini dans Futur";
 export const LIBELLE_REPRENDRE_AUTOMATIQUE = "Reprendre le classement automatique";

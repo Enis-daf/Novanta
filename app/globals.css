@@ -4231,3 +4231,188 @@ button.passe-cible--lien:focus-visible,
 .etage-pnl-erreur {
   margin: 0 0 var(--space-1);
 }
+
+/* ---------- Futur · onglets « Flux de tréso » / « Fiabilité de la projection » ---------- */
+
+.onglets-futur {
+  grid-column: 1 / -1;
+  margin: calc(var(--space-2) - var(--space-5)) 0 0;
+}
+
+/* Les deux onglets restent montés : l'attribut hidden doit l'emporter sur les display des blocs. */
+.cockpit > [hidden] {
+  display: none !important;
+}
+
+.onglet-fiabilite {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+/* ---------- Futur · Fiabilité de la projection ---------- */
+
+.fiabilite {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  font-style: normal;
+  color: var(--couleur-texte);
+}
+
+.fiabilite h3,
+.fiabilite h4,
+.fiabilite h5 {
+  margin: 0;
+  font-style: normal;
+}
+
+.fiabilite h3 {
+  font-size: 18px;
+}
+
+.fiabilite h4 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fiabilite h5 {
+  margin-top: var(--space-2);
+  font-size: 12px;
+}
+
+.fiabilite-controles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.fiabilite-controles__periode {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.fiabilite-entete {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+.fiabilite-entete p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.fiabilite-note {
+  margin: 0;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Signalement : filet rose à gauche, comme les autres alertes de l'application. */
+.fiabilite-alerte {
+  margin: 0;
+  padding: 4px 0 4px 10px;
+  border-left: 2px solid var(--couleur-accent);
+  font-size: 12px;
+}
+
+.fiabilite-synthese {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.fiabilite-globale {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fiabilite-globale__libelle {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--couleur-texte-secondaire);
+}
+
+.fiabilite-globale strong {
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.fiabilite-corps {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.fiabilite-corps__gauche,
+.fiabilite-corps__droite {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.fiabilite-lien {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: var(--couleur-filet);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.fiabilite-contributions--actif th,
+.fiabilite-contributions--actif td {
+  background: var(--couleur-survol);
+}
+
+.fiabilite-table__libelle {
+  white-space: normal;
+  min-width: 140px;
+}
+
+.fiabilite-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-x: auto;
+}
+
+.fiabilite-historique__entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+@media (max-width: 900px) {
+  .fiabilite-synthese,
+  .fiabilite-corps {
+    grid-template-columns: 1fr;
+  }
+  .fiabilite-comparaisons {
+    display: block;
+    overflow-x: auto;
+  }
+}
