@@ -1,11 +1,22 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { AutreDepense, TriMode } from "@/lib/types";
 import { trierParDate, trierParMontant } from "@/lib/dates";
 import { filtrerAutresDepenses } from "@/lib/recherche";
 import { OccurrencesParId } from "@/lib/periodeFiltre";
+import {
+  classerDepense,
+  CORRESPONDANCE_VIDE,
+  correspondAuFiltreEtage,
+  CorrespondanceFutur,
+  EtageDepense,
+  FiltreEtage,
+  grouperParEtage,
+  idsAAffecter,
+} from "@/lib/futurPnl";
 import DateField from "./DateField";
+import { CaseSelectionLigne, ErreurEtage, OutilsEtagePnl, SelecteurEtagePnl, SousTitreEtage, useSelectionLignes } from "./EtagePnl";
 
 interface AutresDepensesTableProps {
   depenses: AutreDepense[];
@@ -15,6 +26,11 @@ interface AutresDepensesTableProps {
   recherche: string;
   tri: TriMode;
   filtrePeriode?: OccurrencesParId | null;
+  // Étage P&L (lib/futurPnl.ts) : écriture du seul choix manuel, classement par ligne.
+  correspondance?: CorrespondanceFutur;
+  onChangeEtage?: (ids: string[], etage: EtageDepense | null) => void;
+  // Échec d'enregistrement d'un étage : l'ancien classement est conservé, ce message l'explique.
+  erreurEtage?: string | null;
 }
 
 export default function AutresDepensesTable({
@@ -25,38 +41,89 @@ export default function AutresDepensesTable({
   recherche,
   tri,
   filtrePeriode,
+  correspondance = CORRESPONDANCE_VIDE,
+  onChangeEtage,
+  erreurEtage = null,
 }: AutresDepensesTableProps) {
+  const [filtreEtage, setFiltreEtage] = useState<FiltreEtage>("tous");
+  const { selection, basculer, basculerTout, vider } = useSelectionLignes();
   const depensesTriees = useMemo(() => {
     const dansPeriode = filtrePeriode ? depenses.filter((d) => filtrePeriode.has(d.id)) : depenses;
-    const filtrees = filtrerAutresDepenses(dansPeriode, recherche);
+    const dansEtage = dansPeriode.filter((d) => correspondAuFiltreEtage(classerDepense(d, correspondance), filtreEtage));
+    const filtrees = filtrerAutresDepenses(dansEtage, recherche);
     return tri === "montant"
       ? trierParMontant(filtrees, (d) => d.montant)
       : trierParDate(filtrees, (d) => d.datePrevue);
-  }, [depenses, recherche, tri, filtrePeriode]);
+  }, [depenses, recherche, tri, filtrePeriode, filtreEtage, correspondance]);
 
-  const filtreActif = !!recherche || !!filtrePeriode;
+  const filtreActif = !!recherche || !!filtrePeriode || filtreEtage !== "tous";
+  const idsAffiches = depensesTriees.map((x) => x.id);
+  const idsSelectionnes = idsAAffecter(selection, idsAffiches);
+  const toutSelectionne = idsAffiches.length > 0 && idsSelectionnes.length === idsAffiches.length;
+  // Sous-titres par étage (lib/futurPnl.ts::grouperParEtage), tri existant conservé dans chaque
+  // groupe. Sans classification, une seule liste sans sous-titre.
+  const groupesAffiches = onChangeEtage
+    ? grouperParEtage(depensesTriees, (x) => classerDepense(x, correspondance))
+    : [{ groupe: null, libelle: "", lignes: depensesTriees }];
 
   return (
     <div className="table-wrapper">
       <h3>Autres dépenses</h3>
+      {onChangeEtage && (
+        <OutilsEtagePnl
+          idSection="autres-depenses"
+          filtre={filtreEtage}
+          onChangeFiltre={setFiltreEtage}
+          nombreSelectionnees={idsSelectionnes.length}
+          onAffecter={(etage) => {
+            onChangeEtage(idsSelectionnes, etage);
+            vider();
+          }}
+          onDeselectionner={vider}
+        />
+      )}
+      <ErreurEtage message={erreurEtage} />
       {filtreActif && depensesTriees.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
       <table className="invoice-table">
         <thead>
           <tr>
+            {onChangeEtage && (
+              <th className="col-checkbox">
+                <input
+                  type="checkbox"
+                  aria-label="Sélectionner toutes les dépenses affichées"
+                  checked={toutSelectionne}
+                  onChange={(e) => basculerTout(idsAffiches, e.target.checked)}
+                />
+              </th>
+            )}
             <th>Libellé</th>
             <th className="col-montant">Montant</th>
             <th>Date prévue</th>
             <th>Type</th>
+            {onChangeEtage && <th>Étage P&amp;L</th>}
             <th>Facturée</th>
             <th>Payée</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {depensesTriees.map((depense) => (
+          {groupesAffiches.map((g) => (
+            <Fragment key={g.groupe ?? "a_classer"}>
+              {onChangeEtage && <SousTitreEtage libelle={g.libelle} colonnes={9} />}
+              {g.lignes.map((depense) => (
             <tr key={depense.id} className={depense.facturee || depense.payee ? "row--litigieuse" : ""}>
+              {onChangeEtage && (
+                <td className="col-checkbox">
+                  <CaseSelectionLigne
+                    coche={selection.has(depense.id)}
+                    libelleLigne={depense.libelle}
+                    onChange={(coche) => basculer(depense.id, coche)}
+                  />
+                </td>
+              )}
               <td>
                 <input
                   type="text"
@@ -86,6 +153,15 @@ export default function AutresDepensesTable({
                   <option value="probable">Probable</option>
                 </select>
               </td>
+              {onChangeEtage && (
+                <td>
+                  <SelecteurEtagePnl
+                    classement={classerDepense(depense, correspondance)}
+                    libelleLigne={depense.libelle}
+                    onChange={(etage) => onChangeEtage([depense.id], etage)}
+                  />
+                </td>
+              )}
               <td className="col-checkbox">
                 <span
                   className="checkbox-tooltip"
@@ -118,6 +194,8 @@ export default function AutresDepensesTable({
                 </button>
               </td>
             </tr>
+              ))}
+            </Fragment>
           ))}
         </tbody>
       </table>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FactureFournisseur, TriMode } from "@/lib/types";
 import {
@@ -15,7 +15,18 @@ import {
 import { filtrerFacturesFournisseurs } from "@/lib/recherche";
 import { OccurrencesParId } from "@/lib/periodeFiltre";
 import { messageSyncPennylane, ResultatSyncPennylane } from "@/lib/pennylaneInvoiceAdapter";
+import {
+  classerDepense,
+  CORRESPONDANCE_VIDE,
+  correspondAuFiltreEtage,
+  CorrespondanceFutur,
+  EtageDepense,
+  FiltreEtage,
+  grouperParEtage,
+  idsAAffecter,
+} from "@/lib/futurPnl";
 import DateField from "./DateField";
+import { CaseSelectionLigne, ErreurEtage, OutilsEtagePnl, SelecteurEtagePnl, SousTitreEtage, useSelectionLignes } from "./EtagePnl";
 
 /** Occurrence de Charge fixe qu'une facture remplace (rapprochement confirmé). */
 export interface RapprochementFacture {
@@ -37,6 +48,11 @@ interface FacturesFournisseursTableProps {
   syncPennylaneEnCours?: boolean;
   syncPennylaneResultat?: ResultatSyncPennylane | null;
   syncPennylaneErreur?: string | null;
+  // Étage P&L (lib/futurPnl.ts) : correspondance partagée et écriture du seul choix manuel.
+  correspondance?: CorrespondanceFutur;
+  onChangeEtage?: (ids: string[], etage: EtageDepense | null) => void;
+  // Échec d'enregistrement d'un étage : l'ancien classement est conservé, ce message l'explique.
+  erreurEtage?: string | null;
   // Rapprochement avec les Charges fixes (voir lib/rapprochementChargesFixes.ts) : absent = la
   // fonctionnalité n'est pas proposée dans ce tableau.
   rapprochements?: Map<string, RapprochementFacture>;
@@ -57,50 +73,101 @@ export default function FacturesFournisseursTable({
   syncPennylaneEnCours = false,
   syncPennylaneResultat = null,
   syncPennylaneErreur = null,
+  correspondance = CORRESPONDANCE_VIDE,
+  onChangeEtage,
+  erreurEtage = null,
   rapprochements,
   onRapprocher,
   onDissocier,
 }: FacturesFournisseursTableProps) {
   const router = useRouter();
+  const [filtreEtage, setFiltreEtage] = useState<FiltreEtage>("tous");
+  const { selection, basculer, basculerTout, vider } = useSelectionLignes();
   const facturesTriees = useMemo(() => {
     const actives = factures.filter((f) => !estFactureMasquee(f));
     const dansPeriode = filtrePeriode ? actives.filter((f) => filtrePeriode.has(f.id)) : actives;
-    const filtrees = filtrerFacturesFournisseurs(dansPeriode, recherche);
+    const dansEtage = dansPeriode.filter((f) => correspondAuFiltreEtage(classerDepense(f, correspondance), filtreEtage));
+    const filtrees = filtrerFacturesFournisseurs(dansEtage, recherche);
     return tri === "montant"
       ? trierParMontant(filtrees, (f) => f.montant)
       : trierParDate(filtrees, (f) => f.datePaiementPrevue);
-  }, [factures, recherche, tri, filtrePeriode]);
+  }, [factures, recherche, tri, filtrePeriode, filtreEtage, correspondance]);
 
-  const filtreActif = !!recherche || !!filtrePeriode;
+  const filtreActif = !!recherche || !!filtrePeriode || filtreEtage !== "tous";
+  const idsAffiches = facturesTriees.map((f) => f.id);
+  const idsSelectionnes = idsAAffecter(selection, idsAffiches);
+  const toutSelectionne = idsAffiches.length > 0 && idsSelectionnes.length === idsAffiches.length;
+  // Sous-titres par étage (lib/futurPnl.ts::grouperParEtage), tri existant conservé dans chaque
+  // groupe. Sans classification, une seule liste sans sous-titre.
+  const groupesAffiches = onChangeEtage
+    ? grouperParEtage(facturesTriees, (x) => classerDepense(x, correspondance))
+    : [{ groupe: null, libelle: "", lignes: facturesTriees }];
 
   return (
     <div className="table-wrapper">
       <h3>Factures fournisseurs</h3>
+      {onChangeEtage && (
+        <OutilsEtagePnl
+          idSection="factures-fournisseurs"
+          filtre={filtreEtage}
+          onChangeFiltre={setFiltreEtage}
+          nombreSelectionnees={idsSelectionnes.length}
+          onAffecter={(etage) => {
+            onChangeEtage(idsSelectionnes, etage);
+            vider();
+          }}
+          onDeselectionner={vider}
+        />
+      )}
+      <ErreurEtage message={erreurEtage} />
       {filtreActif && facturesTriees.length === 0 ? (
         <p className="recherche-vide">Aucun résultat dans cette section</p>
       ) : (
       <table className="invoice-table">
         <thead>
           <tr>
+            {onChangeEtage && (
+              <th className="col-checkbox">
+                <input
+                  type="checkbox"
+                  aria-label="Sélectionner toutes les factures affichées"
+                  checked={toutSelectionne}
+                  onChange={(e) => basculerTout(idsAffiches, e.target.checked)}
+                />
+              </th>
+            )}
             <th>Facture</th>
             <th>Fournisseur</th>
             <th className="col-montant">Montant</th>
             <th>Échéance</th>
             <th>Paiement prévu</th>
             <th>Décalage rapide</th>
+            {onChangeEtage && <th>Étage P&amp;L</th>}
             <th>Litigieuse</th>
             <th>Payée</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {facturesTriees.map((facture) => {
+          {groupesAffiches.map((g) => (
+            <Fragment key={g.groupe ?? "a_classer"}>
+              {onChangeEtage && <SousTitreEtage libelle={g.libelle} colonnes={11} />}
+              {g.lignes.map((facture) => {
             const enRetard = estEnRetard(facture.datePaiementPrevue, facture.payee, facture.litigieuse);
             const rowClassName = [facture.litigieuse || facture.payee ? "row--litigieuse" : "", enRetard ? "row--en-retard" : ""]
               .filter(Boolean)
               .join(" ");
             return (
             <tr key={facture.id} className={rowClassName}>
+              {onChangeEtage && (
+                <td className="col-checkbox">
+                  <CaseSelectionLigne
+                    coche={selection.has(facture.id)}
+                    libelleLigne={facture.facture || facture.fournisseur}
+                    onChange={(coche) => basculer(facture.id, coche)}
+                  />
+                </td>
+              )}
               <td>
                 <input
                   type="text"
@@ -178,6 +245,15 @@ export default function FacturesFournisseursTable({
                   </button>
                 ))}
               </td>
+              {onChangeEtage && (
+                <td>
+                  <SelecteurEtagePnl
+                    classement={classerDepense(facture, correspondance)}
+                    libelleLigne={facture.facture || facture.fournisseur}
+                    onChange={(etage) => onChangeEtage([facture.id], etage)}
+                  />
+                </td>
+              )}
               <td className="col-checkbox">
                 <span
                   className="checkbox-tooltip"
@@ -222,7 +298,9 @@ export default function FacturesFournisseursTable({
               </td>
             </tr>
             );
-          })}
+              })}
+            </Fragment>
+          ))}
         </tbody>
       </table>
       )}

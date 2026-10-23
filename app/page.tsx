@@ -16,6 +16,7 @@ import SectionRepliable from "@/components/SectionRepliable";
 import BarreRecherche from "@/components/BarreRecherche";
 import BandeauPeriodeFiltre from "@/components/BandeauPeriodeFiltre";
 import ControleMensuel from "@/components/ControleMensuel";
+import FiabiliteProjection from "@/components/FiabiliteProjection";
 import LoginForm from "@/components/LoginForm";
 import IconTelechargement from "@/components/IconTelechargement";
 import EnTeteCockpit from "@/components/EnTeteCockpit";
@@ -102,9 +103,19 @@ import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { moduleActifPourOrganisation } from "@/lib/organizationModules";
 import {
+  categoriesARelire,
+  CategorieFacture,
+  CORRESPONDANCE_VIDE,
+  CorrespondanceFutur,
+  EtageDepense,
+} from "@/lib/futurPnl";
+import {
   chargerOuInitialiserDonnees,
   sauvegarderAutreDepense,
   sauvegarderChargeFixe,
+  affecterEtagePnlManuel,
+  chargerCorrespondanceFutur,
+  TableDepense,
   importerChargesFixes,
   importerFacturesClients,
   importerFacturesFournisseurs,
@@ -142,6 +153,10 @@ const DELAI_DEBOUNCE_MS = 600;
 // Lecture du règlement réel chez Pennylane : au plus 200 factures par synchronisation (un appel
 // Pennylane chacune) ; les suivantes le sont à la synchronisation d'après.
 const MAX_REGLEMENTS_REELS_PAR_SYNCHRO = 200;
+
+// Catégories Pennylane des factures fournisseurs (étage P&L) : au plus 200 factures relues par
+// synchronisation, un appel Pennylane chacune ; les suivantes le sont à la synchronisation d'après.
+const MAX_CATEGORIES_PAR_SYNCHRO = 200;
 
 function persist(action: () => Promise<void>) {
   action().catch((error) => console.error("Échec de la sauvegarde Supabase :", error));
@@ -209,6 +224,12 @@ export default function Home() {
   // Entitlement "past" de la société courante : ne sert qu'à afficher ou non le bouton "Passé"
   // dans l'en-tête (la route /passe revérifie elle-même). false par défaut et en cas d'erreur.
   const [modulePasseActif, setModulePasseActif] = useState(false);
+  // Correspondance catégorie -> étage P&L partagée avec Passé, lisible sans le module Passé.
+  const [correspondancePnl, setCorrespondancePnl] = useState<CorrespondanceFutur>(CORRESPONDANCE_VIDE);
+  // Onglets de Futur : le cockpit opérationnel, et la fiabilité de la projection (contrôles).
+  const [ongletFutur, setOngletFutur] = useState<"flux" | "fiabilite">("flux");
+  // Échec d'enregistrement d'un étage P&L, par tableau (le classement précédent reste affiché).
+  const [erreursEtage, setErreursEtage] = useState<Partial<Record<TableDepense, string>>>({});
 
   const [soldeInitial, setSoldeInitial] = useState(SOLDE_BANCAIRE_INITIAL);
   const [dateReleve, setDateReleve] = useState(() => todayISO());
@@ -306,6 +327,28 @@ export default function Home() {
       annule = true;
     };
   }, [session]);
+
+  // Correspondance P&L de la société (lib/futurPnl.ts) : relue à chaque chargement du cockpit,
+  // donc toute modification faite dans Passé s'applique aux dépenses sans choix manuel. Échec
+  // (migration absente, réseau) : aucune correspondance, le classement manuel reste disponible.
+  useEffect(() => {
+    if (!supabaseConfigured || !companyId) {
+      setCorrespondancePnl(CORRESPONDANCE_VIDE);
+      return;
+    }
+    let annule = false;
+    chargerCorrespondanceFutur()
+      .then((correspondance) => {
+        if (!annule) setCorrespondancePnl(correspondance);
+      })
+      .catch((error) => {
+        console.error("Correspondance P&L indisponible :", error);
+        if (!annule) setCorrespondancePnl(CORRESPONDANCE_VIDE);
+      });
+    return () => {
+      annule = true;
+    };
+  }, [companyId]);
 
   useEffect(() => {
     if (!supabaseConfigured || !companyId) {
@@ -817,11 +860,15 @@ export default function Home() {
     setLiensRapprochement(rattaches.liens);
     if (companyId) {
       // Une seule chaîne ordonnée : un lien ne peut référencer une facture qu'une fois celle-ci insérée.
-      persist(async () => {
-        await importerFacturesFournisseurs(companyId, nouvellesFacturesFournisseurs);
-        await renseignerFournisseursPennylane(fournisseursARenseigner);
-        for (const lien of rattaches.modifies) await sauvegarderLienRapprochement(companyId, lien);
-      });
+      // Attendue avec les marquages : la lecture des catégories Pennylane qui suit porte aussi sur
+      // les nouvelles factures, et le serveur ne lit que des factures déjà en base.
+      marquages.push(
+        (async () => {
+          await importerFacturesFournisseurs(companyId, nouvellesFacturesFournisseurs);
+          await renseignerFournisseursPennylane(fournisseursARenseigner);
+          for (const lien of rattaches.modifies) await sauvegarderLienRapprochement(companyId, lien);
+        })().catch((error) => console.error("Échec de la sauvegarde Supabase :", error))
+      );
     }
 
     if (idsClientsAMettreAJourPayee.length > 0) {
@@ -910,6 +957,40 @@ export default function Home() {
           console.error("Lecture du règlement réel impossible :", error);
           return;
         }
+      }
+    }
+  };
+
+  /**
+   * Catégories Pennylane des factures fournisseurs à payer (lib/futurPnl.ts::categoriesARelire),
+   * lues par le serveur qui les écrit en base ; l'état local suit. Ne touche jamais au choix
+   * manuel d'étage. Une erreur laisse les factures concernées telles quelles (« À classer » ou
+   * classement précédent).
+   */
+  const recupererCategoriesFactures = async (fournisseurs: FactureFournisseur[]): Promise<void> => {
+    if (!session?.access_token) return;
+    const maintenant = new Date();
+    const ids = fournisseurs.filter((f) => categoriesARelire(f, maintenant)).map((f) => f.id);
+    for (let i = 0; i < ids.length && i < MAX_CATEGORIES_PAR_SYNCHRO; i += 50) {
+      try {
+        const res = await fetch("/api/pennylane/invoices/categories", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: ids.slice(i, i + 50) }),
+        });
+        if (!res.ok) return;
+        const { lues } = (await res.json()) as { lues: { id: string; categories: CategorieFacture[]; luesLe: string }[] };
+        const parId = new Map(lues.map((l) => [l.id, l]));
+        if (parId.size === 0) return;
+        setFacturesFournisseurs((prev) =>
+          prev.map((f) => {
+            const lue = parId.get(f.id);
+            return lue ? { ...f, categoriesPennylane: lue.categories, categoriesLuesLe: lue.luesLe } : f;
+          })
+        );
+      } catch (error) {
+        console.error("Lecture des catégories Pennylane impossible :", error);
+        return;
       }
     }
   };
@@ -1044,7 +1125,14 @@ export default function Home() {
       const marqueesFournisseurs = new Set(idsFournisseursAMettreAJourPayee);
       const clientsApres = facturesClients.map((f) => (marqueesClients.has(f.id) ? { ...f, payee: true, paidAt: maintenantIso } : f));
       const fournisseursApres = facturesFournisseurs.map((f) => (marqueesFournisseurs.has(f.id) ? { ...f, payee: true, paidAt: maintenantIso } : f));
-      void marquages.then(() => recupererReglementsReels(clientsApres, fournisseursApres));
+      // Puis les catégories Pennylane des factures fournisseurs (étage P&L), nouvelles comprises :
+      // `marquages` attend aussi leur insertion, pour que le serveur les retrouve en base.
+      const fournisseursACategoriser = [...fournisseursApres, ...nouvellesFacturesFournisseurs].filter(
+        (f) => !idsFournisseursASupprimer.includes(f.id)
+      );
+      void marquages
+        .then(() => recupererReglementsReels(clientsApres, fournisseursApres))
+        .then(() => recupererCategoriesFactures(fournisseursACategoriser));
     } catch {
       setSyncPennylaneErreur("Pennylane est temporairement indisponible. Réessayez.");
     } finally {
@@ -1072,6 +1160,7 @@ export default function Home() {
     montant: f.montant,
     dateEcheance: f.dateEcheance,
     datePrevue: f.datePaiementPrevue,
+    etagePnlManuel: f.etagePnlManuel ?? null,
     payee: f.payee,
     litigieuse: f.litigieuse,
     pennylaneId: f.pennylaneId,
@@ -1170,7 +1259,13 @@ export default function Home() {
       } else {
         const [ref, autre] = [facturesFournisseurs.find((f) => f.id === resultat.reference.id), facturesFournisseurs.find((f) => f.id === resultat.retiree.id)];
         if (!ref || !autre) throw new Error("Facture introuvable.");
-        const reference: FactureFournisseur = { ...ref, ...valeurs, datePaiementPrevue: resultat.reference.datePrevue, paidAt: datePaiement(ref, autre) };
+        const reference: FactureFournisseur = {
+          ...ref,
+          ...valeurs,
+          datePaiementPrevue: resultat.reference.datePrevue,
+          paidAt: datePaiement(ref, autre),
+          etagePnlManuel: resultat.reference.etagePnlManuel ?? null,
+        };
         // Rapprochements avec les Charges fixes : ceux de la ligne retirée passent à la référence (pas
         // de lien orphelin « à revoir »), sauf si elle porte déjà une décision sur la même charge.
         const dejaSurReference = new Set(liensRapprochement.filter((l) => l.factureFournisseurId === reference.id).map((l) => l.chargeFixeId));
@@ -1184,6 +1279,10 @@ export default function Home() {
           async () => {
             for (const lien of liensDeplaces) await sauvegarderLienRapprochement(companyId, lien);
             await supprimerRefusSansIdentitePennylane([autre.id]);
+            // Étage P&L choisi dans Futur : repris de la ligne retirée (ou tranché), jamais perdu.
+            if ((reference.etagePnlManuel ?? null) !== (ref.etagePnlManuel ?? null)) {
+              await affecterEtagePnlManuel("supplier_invoices", companyId, [reference.id], reference.etagePnlManuel ?? null);
+            }
           }
         );
         const idsDeplaces = new Set(liensDeplaces.map((l) => l.id));
@@ -1325,6 +1424,43 @@ export default function Home() {
     setAutresDepenses((prev) => prev.filter((d) => d.id !== id));
     if (companyId) persist(() => supprimerAutreDepense(id));
   };
+
+  // Étage P&L (lib/futurPnl.ts) : une ligne (cellule du tableau) ou plusieurs (« Affecter un étage
+  // P&L »). null = « Reprendre le classement automatique ». Seul le choix manuel est écrit ; aucun
+  // autre champ, aucune autre ligne, ni la correspondance partagée, ni Pennylane.
+  // L'affichage (et donc le groupe de la ligne) ne change qu'une fois l'enregistrement réussi ; en
+  // cas d'échec, l'ancien classement reste en place et l'erreur s'affiche sous le tableau.
+  const enregistrerEtage = async (table: TableDepense, ids: string[], etage: EtageDepense | null, appliquer: () => void) => {
+    setErreursEtage((prev) => ({ ...prev, [table]: undefined }));
+    if (!companyId) {
+      appliquer();
+      return;
+    }
+    try {
+      await affecterEtagePnlManuel(table, companyId, ids, etage);
+      appliquer();
+    } catch (error) {
+      console.error("Échec de l'enregistrement de l'étage P&L :", error);
+      setErreursEtage((prev) => ({
+        ...prev,
+        [table]: "Classement non enregistré : l'étage précédent est conservé. Réessayez.",
+      }));
+    }
+  };
+  const appliquerEtage = <T extends { id: string; etagePnlManuel?: EtageDepense | null }>(
+    liste: T[],
+    ids: string[],
+    etage: EtageDepense | null
+  ): T[] => {
+    const cibles = new Set(ids);
+    return liste.map((x) => (cibles.has(x.id) ? { ...x, etagePnlManuel: etage } : x));
+  };
+  const handleChangeEtageFacturesFournisseurs = (ids: string[], etage: EtageDepense | null) =>
+    void enregistrerEtage("supplier_invoices", ids, etage, () => setFacturesFournisseurs((prev) => appliquerEtage(prev, ids, etage)));
+  const handleChangeEtageChargesFixes = (ids: string[], etage: EtageDepense | null) =>
+    void enregistrerEtage("fixed_charges", ids, etage, () => setChargesFixes((prev) => appliquerEtage(prev, ids, etage)));
+  const handleChangeEtageAutresDepenses = (ids: string[], etage: EtageDepense | null) =>
+    void enregistrerEtage("other_expenses", ids, etage, () => setAutresDepenses((prev) => appliquerEtage(prev, ids, etage)));
 
   const handleChangeFinancement = (id: string, patch: Partial<Financement>) => {
     setFinancements((prev) => {
@@ -1474,7 +1610,29 @@ export default function Home() {
             : undefined
         }
       />
-      <div className="pilotage">
+      <div className="passe-onglets onglets-futur" role="tablist" aria-label="Vues du module Futur">
+        <div className="passe-onglets__groupe" role="presentation">
+          {(
+            [
+              { cle: "flux", libelle: "Flux de tréso" },
+              { cle: "fiabilite", libelle: "Fiabilité de la projection" },
+            ] as const
+          ).map((onglet) => (
+            <button
+              key={onglet.cle}
+              type="button"
+              role="tab"
+              aria-selected={ongletFutur === onglet.cle}
+              className={`passe-onglet${ongletFutur === onglet.cle ? " passe-onglet--actif" : ""}`}
+              onClick={() => setOngletFutur(onglet.cle)}
+            >
+              {onglet.libelle}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Les deux onglets restent montés (masqués par hidden) : saisies et états conservés. */}
+      <div className="pilotage" hidden={ongletFutur !== "flux"}>
         <div className="pilotage__scroll">
           <Dashboard
             soldeInitial={soldeInitial}
@@ -1498,7 +1656,7 @@ export default function Home() {
           />
         </div>
       </div>
-      <div className="cockpit__col--droite">
+      <div className="cockpit__col--droite" hidden={ongletFutur !== "flux"}>
         {periodeFiltre && fluxPeriode && (
           <BandeauPeriodeFiltre
             dateClic={periodeFiltre.dateClic}
@@ -1627,6 +1785,9 @@ export default function Home() {
             syncPennylaneEnCours={syncPennylaneEnCours}
             syncPennylaneResultat={syncPennylaneResultat}
             syncPennylaneErreur={syncPennylaneErreur}
+            correspondance={correspondancePnl}
+            onChangeEtage={handleChangeEtageFacturesFournisseurs}
+            erreurEtage={erreursEtage.supplier_invoices}
             rapprochements={rapprochementsParFacture}
             onRapprocher={(id) => {
               setFactureManuelleId(id);
@@ -1645,6 +1806,9 @@ export default function Home() {
             tri={tri}
             filtrePeriode={fluxPeriode?.occurrencesChargesFixes ?? null}
             periodeFiltre={periodeFiltre}
+            correspondance={correspondancePnl}
+            onChangeEtage={handleChangeEtageChargesFixes}
+            erreurEtage={erreursEtage.fixed_charges}
           />
           <AutresDepensesTable
             depenses={autresDepenses}
@@ -1654,6 +1818,9 @@ export default function Home() {
             recherche={recherche}
             tri={tri}
             filtrePeriode={fluxPeriode?.idsAutresDepenses ?? null}
+            correspondance={correspondancePnl}
+            onChangeEtage={handleChangeEtageAutresDepenses}
+            erreurEtage={erreursEtage.other_expenses}
           />
         </SectionRepliable>
 
@@ -1665,7 +1832,25 @@ export default function Home() {
           />
         </SectionRepliable>
 
-        <SectionRepliable titre="Vérifier mes données" ouvertParDefaut={false}>
+
+        <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>
+          <ImportFactures
+            onImporter={handleImporterFactures}
+            pennylaneConnecte={pennylaneConnecte === true}
+            onSynchroniserPennylane={handleClicSynchroniserPennylane}
+            syncPennylaneEnCours={syncPennylaneEnCours}
+            syncPennylaneResultat={syncPennylaneResultat}
+            syncPennylaneErreur={syncPennylaneErreur}
+          />
+        </SectionRepliable>
+
+      </div>
+
+      {/* Fiabilité de la projection. Futur seul : « Vérifier mes données » et l'ancien Contrôle
+          mensuel. Passé + Futur : le contrôle prévu / réalisé le remplace (droits revérifiés côté
+          serveur par /api/futur/fiabilite). */}
+      <section className="onglet-fiabilite" hidden={ongletFutur !== "fiabilite"} aria-label="Fiabilité de la projection">
+        <SectionRepliable titre="Vérifier mes données" ouvertParDefaut>
           <VerifierMesDonnees
             facturesClients={facturesClients}
             facturesFournisseurs={facturesFournisseurs}
@@ -1679,22 +1864,16 @@ export default function Home() {
             accessToken={session?.access_token ?? null}
           />
         </SectionRepliable>
-
-        <SectionRepliable titre="Import de factures" ouvertParDefaut={false}>
-          <ImportFactures
-            onImporter={handleImporterFactures}
-            pennylaneConnecte={pennylaneConnecte === true}
-            onSynchroniserPennylane={handleClicSynchroniserPennylane}
-            syncPennylaneEnCours={syncPennylaneEnCours}
-            syncPennylaneResultat={syncPennylaneResultat}
-            syncPennylaneErreur={syncPennylaneErreur}
-          />
-        </SectionRepliable>
-
-        <SectionRepliable titre="Contrôle mensuel" ouvertParDefaut={false}>
-          <ControleMensuel controle={controleMensuel} />
-        </SectionRepliable>
-      </div>
+        {modulePasseActif ? (
+          <SectionRepliable titre="Contrôle prévu / réalisé" ouvertParDefaut>
+            <FiabiliteProjection accessToken={session?.access_token ?? null} actif={ongletFutur === "fiabilite"} />
+          </SectionRepliable>
+        ) : (
+          <SectionRepliable titre="Contrôle mensuel" ouvertParDefaut>
+            <ControleMensuel controle={controleMensuel} />
+          </SectionRepliable>
+        )}
+      </section>
     </main>
   );
 }
