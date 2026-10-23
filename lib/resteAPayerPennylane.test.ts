@@ -73,15 +73,23 @@ const client = (overrides: Partial<PennylaneCustomerInvoiceListItem> = {}): Penn
   currency: "EUR",
   ...overrides,
 });
+// Ligne Novanta liée à FR-SI-261751, même document que Pennylane : seul le montant peut différer.
 const existante = (montant: number, extra: Partial<FactureExistantePourSync> = {}): FactureExistantePourSync => ({
   id: "novanta-1",
   pennylaneId: "22044927496192",
   payee: false,
+  facture: "FR-SI-261751",
+  tiers: "TKH SECURITY SAS",
+  dateEcheance: "2026-07-09",
+  datePrevue: "2026-07-09",
   montant,
   ...extra,
 });
-const sync = (item: PennylaneSupplierInvoiceListItem, etat: FactureExistantePourSync[]) =>
-  calculerSynchronisation(candidatsFournisseursPennylane([item]).candidats, etat);
+const sync = (item: PennylaneSupplierInvoiceListItem, etat: FactureExistantePourSync[]) => {
+  const resultat = calculerSynchronisation(candidatsFournisseursPennylane([item]).candidats, etat);
+  // Montants actualisés par la synchronisation (Pennylane source de vérité documentaire).
+  return { ...resultat, montantsAMettreAJour: resultat.misesAJourDocument.map((m) => ({ id: m.id, montant: m.montant })) };
+};
 
 describe("reste à payer Pennylane : cas limites", () => {
   test("A. facture non payée, aucun règlement : 10 000 projetés", () => {
@@ -151,7 +159,8 @@ describe("reste à payer Pennylane : cas limites", () => {
 
   test("I. facture litigieuse : la synchronisation n'actualise que le montant, la projection l'exclut toujours", () => {
     const resultat = sync(fournisseur({ remaining_amount_with_tax: "-9944.8" }), [existante(11_944.8, { payee: false })]);
-    assert.deepEqual(Object.keys(resultat.montantsAMettreAJour[0]).sort(), ["id", "montant"]);
+    // Seuls des champs documentaires Pennylane : ni Litigieuse, ni Payée, ni rapprochement.
+    assert.deepEqual(Object.keys(resultat.misesAJourDocument[0]).sort(), ["dateEcheance", "datePrevue", "facture", "id", "montant", "tiers"]);
     const projection = calculerProjectionCash({
       soldeInitial: 0,
       facturesClients: [],
@@ -202,15 +211,26 @@ describe("reste à payer Pennylane : cas limites", () => {
 
   test("message de synchronisation : montants ramenés au reste à payer", () => {
     const base = { nombreClientsAnalysees: 0, nombreFournisseursAnalysees: 1, nombreClientsAjoutes: 0, nombreFournisseursAjoutes: 0, nombreMarquesPayees: 0, nombreArchiveesRetirees: 0, erreurClients: null, erreurFournisseurs: null };
-    assert.ok(messageSyncPennylane({ ...base, nombreMontantsActualises: 1 }).includes("1 montant ramené au reste à payer Pennylane."));
-    assert.ok(!messageSyncPennylane(base).includes("reste à payer"));
+    assert.ok(messageSyncPennylane({ ...base, nombreFacturesActualisees: 1 }).includes("1 facture actualisée depuis Pennylane (n°, fournisseur, échéance, reste à payer)."));
+    assert.ok(!messageSyncPennylane(base).includes("actualisée"));
   });
 });
 
 describe("resynchronisation : seules les factures en partie réglées sont actualisées", () => {
-  test("facture sans règlement dont le montant Novanta diffère : montant Novanta conservé (comportement inchangé)", () => {
+  test("règle Pennylane source de vérité : un montant corrigé dans Novanta est remplacé par le montant Pennylane", () => {
     const sansReglement = fournisseur({ amount: "12086.4", remaining_amount_with_tax: "-12086.4" });
-    assert.deepEqual(sync(sansReglement, [existante(12_086)]).montantsAMettreAJour, []);
+    assert.deepEqual(sync(sansReglement, [existante(12_086)]).montantsAMettreAJour, [{ id: "novanta-1", montant: 12_086.4 }]);
+  });
+
+  test("règle Pennylane source de vérité : n°, fournisseur et échéance actualisés, date prévue explicite conservée", () => {
+    const modifiee = fournisseur({ invoice_number: "FR-SI-261751-B", label: "Facture TKH SECURITY FRANCE - FR-SI-261751-B (label généré)", deadline: "2026-11-30" });
+    const [maj] = sync(modifiee, [existante(11_944.8, { datePrevue: "2026-10-31" })]).misesAJourDocument;
+    assert.deepEqual(maj, { id: "novanta-1", facture: "FR-SI-261751-B", tiers: "TKH SECURITY FRANCE", montant: 11_944.8, dateEcheance: "2026-11-30", datePrevue: null });
+  });
+
+  test("règle Pennylane source de vérité : sans date prévue explicite, la prévision suit la nouvelle échéance", () => {
+    const [maj] = sync(fournisseur({ deadline: "2026-11-30" }), [existante(11_944.8)]).misesAJourDocument;
+    assert.equal(maj.datePrevue, "2026-11-30");
   });
 
   test("le candidat porte le total et le reste dû", () => {

@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient, User } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
+import { exigerEnvironnementSur } from "./environnementGuard";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -10,6 +11,7 @@ const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 // (owner_id = auth.uid()) continue de s'appliquer normalement.
 function createUserScopedClient(accessToken: string): SupabaseClient | null {
   if (!supabaseUrl || !supabasePublishableKey) return null;
+  exigerEnvironnementSur();
   return createClient(supabaseUrl, supabasePublishableKey, {
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
     auth: { persistSession: false, autoRefreshToken: false },

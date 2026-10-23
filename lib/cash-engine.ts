@@ -10,6 +10,7 @@ import {
 import { ajouterJours, estDateValide, genererOccurrencesRecurrentes, parseDateISO, toISODate } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
+import { estOccurrenceRemplacee, Remplacements } from "./remplacementsOccurrences";
 
 export const HORIZON_JOURS_DEFAUT = 90;
 
@@ -23,6 +24,9 @@ export interface ParametresProjectionCash {
   rentreesRegulieres: RentreeReguliere[];
   dateDepart: string; // YYYY-MM-DD
   horizonJours?: number;
+  // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
+  // elles ne génèrent aucun flux, la facture portant seule la dépense. Absent = aucun remplacement.
+  remplacements?: Remplacements;
 }
 
 export interface ResultatProjectionCash {
@@ -49,6 +53,7 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
     rentreesRegulieres,
     dateDepart,
     horizonJours = HORIZON_JOURS_DEFAUT,
+    remplacements,
   } = params;
 
   const debut = parseDateISO(dateDepart);
@@ -85,8 +90,11 @@ export function calculerProjectionCash(params: ParametresProjectionCash): Result
     if (charge.aCouper) continue;
     const occurrencesCharge = genererOccurrencesRecurrentes(charge.datePrevue, charge.recurrence, charge.dateFin, fin);
     occurrencesCharge.forEach((occurrence, index) => {
+      // Remplacée par une facture fournisseur : la facture est la vérité pour cette occurrence,
+      // qu'elle soit encore à payer (projetée à sa propre date) ou déjà payée (dans le solde initial).
+      if (estOccurrenceRemplacee(remplacements, charge.id, occurrence)) return;
       const precedente = index > 0 ? occurrencesCharge[index - 1] : null;
-      const montant = montantOccurrenceChargeFixe(charge, occurrence, precedente, chargesFixes, rentreesRegulieres, fin);
+      const montant = montantOccurrenceChargeFixe(charge, occurrence, precedente, chargesFixes, rentreesRegulieres, fin, remplacements);
       if (montant === null) return; // source indisponible : occurrence exclue du calcul
       enregistrerFlux(toISODate(occurrence), -montant);
     });

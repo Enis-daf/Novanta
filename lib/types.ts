@@ -41,6 +41,41 @@ export interface FactureFournisseur {
   // serveur seulement (/api/pennylane/invoices/categories), jamais renvoyées par une sauvegarde.
   categoriesPennylane?: CategorieFacture[] | null;
   categoriesLuesLe?: string | null; // ISO 8601 datetime de la dernière lecture
+  // ID du fournisseur côté Pennylane (supplier.id) : identité stable du tiers, utilisée en
+  // priorité par le rapprochement avec les Charges fixes. Absent pour une facture manuelle.
+  pennylaneSupplierId?: string | null;
+}
+
+/**
+ * Décision de l'utilisateur sur un couple facture fournisseur <-> occurrence de Charge fixe
+ * (table fixed_charge_invoice_links, voir lib/rapprochementChargesFixes.ts).
+ *  - "confirme" : la facture remplace l'occurrence, qui ne génère plus de flux prévisionnel —
+ *    indépendamment du statut Payée de la facture, et même si la facture est supprimée ensuite.
+ *  - "refuse" : « Ce n'est pas la même dépense » — ce couple n'est plus reproposé.
+ */
+export interface LienRapprochement {
+  id: string;
+  chargeFixeId: string;
+  factureFournisseurId: string | null; // null = la facture n'existe plus dans Novanta
+  dateOccurrence: string; // YYYY-MM-DD
+  statut: "confirme" | "refuse";
+  // Copie de la facture au moment de la décision.
+  factureLibelle: string | null;
+  fournisseurLibelle: string | null;
+  montantFacture: number | null;
+  dateCashFacture: string | null;
+  facturePennylaneId: string | null;
+  fournisseurPennylaneId: string | null;
+  revueEcarteeLe: string | null; // « Laisser remplacée » sur un lien dont la facture a disparu
+}
+
+/** Mémoire fournisseur <-> Charge fixe, écrite à chaque rapprochement confirmé. */
+export interface MappingFournisseurCharge {
+  id: string;
+  chargeFixeId: string;
+  pennylaneSupplierId: string | null;
+  cleNom: string; // nom du fournisseur normalisé (repli quand il n'y a pas d'identifiant Pennylane)
+  libelle: string;
 }
 
 export type ModeMontantChargeFixe = "fixe" | "calcule";

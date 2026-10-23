@@ -308,11 +308,15 @@ describe("synchronisation Pennylane : le choix manuel est un réglage local pré
       payee: false,
       motifSolde: null,
     };
-    const resultat = calculerSynchronisation([candidat], [{ id: "f1", pennylaneId: "pl-1", payee: false, montant: 1000 }]);
+    const resultat = calculerSynchronisation(
+      [candidat],
+      [{ id: "f1", pennylaneId: "pl-1", payee: false, facture: "F-1", tiers: "Fournisseur", montant: 1000, dateEcheance: "2026-11-10" }]
+    );
     assert.equal(resultat.aInserer.length, 0);
-    // Seul le montant restant dû est actualisé : aucune clé d'étage dans le plan de synchronisation.
-    assert.deepEqual(resultat.montantsAMettreAJour, [{ id: "f1", montant: 800 }]);
-    assert.ok(!JSON.stringify(resultat).includes("etage"));
+    // Le document est actualisé (montant restant dû) : aucune clé d'étage dans le plan de synchronisation.
+    assert.equal(resultat.misesAJourDocument.length, 1);
+    assert.equal(resultat.misesAJourDocument[0].montant, 800);
+    assert.ok(!JSON.stringify(resultat).toLowerCase().includes("etage"));
   });
 
   test("catégories relues : à la synchronisation, le choix manuel l'emporte toujours", () => {

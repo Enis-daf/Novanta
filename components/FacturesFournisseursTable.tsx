@@ -8,6 +8,7 @@ import {
   estDateValide,
   estEnRetard,
   estFactureMasquee,
+  formatDateCourte,
   trierParDate,
   trierParMontant,
 } from "@/lib/dates";
@@ -27,6 +28,13 @@ import {
 import DateField from "./DateField";
 import { CaseSelectionLigne, ErreurEtage, OutilsEtagePnl, SelecteurEtagePnl, SousTitreEtage, useSelectionLignes } from "./EtagePnl";
 
+/** Occurrence de Charge fixe qu'une facture remplace (rapprochement confirmé). */
+export interface RapprochementFacture {
+  lienId: string;
+  libelleCharge: string;
+  dateOccurrence: string; // YYYY-MM-DD
+}
+
 interface FacturesFournisseursTableProps {
   factures: FactureFournisseur[];
   onChange: (id: string, patch: Partial<FactureFournisseur>) => void;
@@ -45,6 +53,11 @@ interface FacturesFournisseursTableProps {
   onChangeEtage?: (ids: string[], etage: EtageDepense | null) => void;
   // Échec d'enregistrement d'un étage : l'ancien classement est conservé, ce message l'explique.
   erreurEtage?: string | null;
+  // Rapprochement avec les Charges fixes (voir lib/rapprochementChargesFixes.ts) : absent = la
+  // fonctionnalité n'est pas proposée dans ce tableau.
+  rapprochements?: Map<string, RapprochementFacture>;
+  onRapprocher?: (factureId: string) => void;
+  onDissocier?: (lienId: string) => void;
 }
 
 export default function FacturesFournisseursTable({
@@ -63,6 +76,9 @@ export default function FacturesFournisseursTable({
   correspondance = CORRESPONDANCE_VIDE,
   onChangeEtage,
   erreurEtage = null,
+  rapprochements,
+  onRapprocher,
+  onDissocier,
 }: FacturesFournisseursTableProps) {
   const router = useRouter();
   const [filtreEtage, setFiltreEtage] = useState<FiltreEtage>("tous");
@@ -165,6 +181,30 @@ export default function FacturesFournisseursTable({
                   value={facture.fournisseur}
                   onChange={(e) => onChange(facture.id, { fournisseur: e.target.value })}
                 />
+                {onRapprocher &&
+                  (rapprochements?.get(facture.id) ? (
+                    <span className="rapprochement-ligne">
+                      Remplace «&nbsp;{rapprochements.get(facture.id)!.libelleCharge || "Charge sans libellé"}&nbsp;» du{" "}
+                      {formatDateCourte(rapprochements.get(facture.id)!.dateOccurrence)}
+                      {onDissocier && (
+                        <button
+                          type="button"
+                          className="btn-shift"
+                          onClick={() => {
+                            if (window.confirm("Dissocier cette facture de la charge fixe ? L’occurrence prévue sera de nouveau comptée.")) {
+                              onDissocier(rapprochements.get(facture.id)!.lienId);
+                            }
+                          }}
+                        >
+                          Dissocier
+                        </button>
+                      )}
+                    </span>
+                  ) : (
+                    <button type="button" className="btn-shift rapprochement-ligne" onClick={() => onRapprocher(facture.id)}>
+                      Rapprocher d&apos;une charge fixe
+                    </button>
+                  ))}
               </td>
               <td className="col-montant">
                 <input
