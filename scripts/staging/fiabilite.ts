@@ -325,6 +325,14 @@ lancer(async () => {
   const valeur = (option: string, rang = 1) => args[args.indexOf(option) + rang];
   if (args.includes("--scenarios")) return scenarios(admin, companyId);
   if (args.includes("--nettoyer")) return nettoyer(companyId);
+  if (args.includes("--module")) {
+    // Bascule du module Passé de la société de test (parcours « Futur seul » / « Passé + Futur »).
+    const actif = valeur("--module") === "on";
+    const { error } = await admin.from("organization_modules").upsert({ organization_id: companyId, module_key: "past", enabled: actif }, { onConflict: "organization_id,module_key" });
+    if (error) throw error;
+    console.log(`Module Passé ${actif ? "activé" : "désactivé"}.`);
+    return;
+  }
   if (args.includes("--droits")) {
     const jeton = await jetonTest(admin);
     const utilisateur = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!, {
