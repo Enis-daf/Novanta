@@ -13,7 +13,8 @@
     "staging:schema": "node --env-file=.env.staging.local --import tsx scripts/staging/schema.ts",
     "staging:seed": "node --env-file=.env.staging.local --import tsx scripts/staging/seed.ts",
     "staging:verifier": "node --env-file=.env.staging.local --import tsx scripts/staging/verifier.ts",
-    "staging:mock": "node --import tsx scripts/staging/pennylane-mock.ts"
+    "staging:mock": "node --import tsx scripts/staging/pennylane-mock.ts",
+    "staging:fiabilite": "node --env-file=.env.staging.local --import tsx scripts/staging/fiabilite.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",

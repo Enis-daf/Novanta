@@ -89,6 +89,13 @@ begin
 end;
 $$;
 
+-- Avant cette migration, aucune modification n'était tracée : l'absence d'événement ne prouve
+-- rien. Un marqueur « modifié à l'installation » par société empêche toute capture tardive de
+-- prétendre qu'une projection actuelle est celle d'une clôture antérieure (pas d'antidatage).
+insert into future_change_events (company_id, minute, changed_at)
+select id, date_trunc('minute', now()), now() from companies
+on conflict (company_id, minute) do nothing;
+
 alter table future_change_events enable row level security;
 revoke all on public.future_change_events from anon, authenticated;
 

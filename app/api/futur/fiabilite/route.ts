@@ -33,6 +33,7 @@ import type { DetailFiabilite, PointFiabilite, ReponseFiabilite, RevisionFiabili
 // (empreinte). La référence n'est jamais modifiée.
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 const NOMBRE_PERIODES = { month: 12, quarter: 8 } as const;
 
 type Row = Record<string, unknown>;

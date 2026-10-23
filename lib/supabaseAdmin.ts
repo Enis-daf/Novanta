@@ -13,7 +13,12 @@ exigerEnvironnementSur([serviceRoleKey]);
 // client ni exposer cette clé au navigateur.
 export const supabaseAdmin: SupabaseClient | null =
   supabaseUrl && serviceRoleKey
-    ? createClient(supabaseUrl, serviceRoleKey, { auth: { persistSession: false } })
+    ? createClient(supabaseUrl, serviceRoleKey, {
+        auth: { persistSession: false },
+        // Jamais de lecture servie par le cache de données de Next.js (qui met en cache les GET de
+        // fetch dans les routes) : un traitement serveur doit toujours lire l'état courant de la base.
+        global: { fetch: (input, init) => fetch(input, { ...init, cache: "no-store" }) },
+      })
     : null;
 
 export const supabaseAdminConfigured = Boolean(supabaseAdmin);
