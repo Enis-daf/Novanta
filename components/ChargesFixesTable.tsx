@@ -178,7 +178,7 @@ export default function ChargesFixesTable({
                   </p>
                 )}
               </td>
-              <td className={`col-montant ${estCalculee ? "col-montant--calcule" : ""}`}>
+              <td className={`col-montant ${estCalculee ? "col-montant--calcule col-montant--charge-calculee" : ""}`}>
                 <div className="mode-montant-toggle">
                   <button
                     type="button"
