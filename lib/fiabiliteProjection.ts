@@ -485,3 +485,25 @@ export function libellePeriode(periode: PeriodeFiabilite): string {
 export function dateArrete(periode: PeriodeFiabilite): string {
   return dateLongue(toISODate(ajouterJours(parseDateISO(periode.debut), -1)));
 }
+
+// --- Annonce du démarrage du suivi --------------------------------------------------------------
+
+/** Mise en service de la capture des prévisions de référence (déploiement en production). */
+export const DATE_DEMARRAGE_SUIVI = "2026-10-25";
+/** L'annonce disparaît d'elle-même à partir de cette date (Paris) : aucune action à prévoir. */
+export const FIN_ANNONCE_DEMARRAGE = "2027-01-01";
+
+/**
+ * Bandeau expliquant pourquoi les périodes antérieures n'ont pas de score, affiché jusqu'au
+ * FIN_ANNONCE_DEMARRAGE exclu. Premier mois noté : le premier mois commençant après le démarrage.
+ */
+export function annonceDemarrage(aujourdhui: string): string | null {
+  if (aujourdhui >= FIN_ANNONCE_DEMARRAGE) return null;
+  const premierMois = periodeContenant("month", toISODate(ajouterJours(parseDateISO(periodeContenant("month", DATE_DEMARRAGE_SUIVI, { mois: 1, jour: 1 }).fin), 1)), { mois: 1, jour: 1 });
+  const consultable = dateLongue(toISODate(ajouterJours(parseDateISO(premierMois.fin), 1)));
+  return (
+    `Le suivi de la fiabilité a démarré le ${dateLongue(DATE_DEMARRAGE_SUIVI)}. Premier mois noté : ` +
+    `${libellePeriode(premierMois).toLowerCase()}, consultable à partir du ${consultable}. Les périodes ` +
+    `antérieures n'ont pas de prévision de référence : aucune projection n'était enregistrée à leur clôture.`
+  );
+}

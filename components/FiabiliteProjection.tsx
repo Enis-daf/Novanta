@@ -5,6 +5,7 @@ import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ResponsiveContaine
 import { formatKiloEuros, formatMontant } from "@/lib/format";
 import { NEUTRES, TEINTE_SERIE_PRINCIPALE, TEINTE_TOTAL } from "@/lib/dataviz";
 import {
+  annonceDemarrage,
   CleGroupe,
   dateArrete,
   dateLongue,
@@ -288,9 +289,12 @@ export default function FiabiliteProjection({ accessToken, actif }: { accessToke
   const c = detail.comparaison;
   const statut = detail.statutRealise;
   const scorePublie = point.publiable;
+  // Date de Paris fournie par le serveur : le bandeau disparaît seul au 1er janvier 2027.
+  const annonce = annonceDemarrage(reponse.aujourdhui);
 
   return (
     <div className="fiabilite" aria-busy={chargement}>
+      {annonce && <p className="fiabilite-annonce">{annonce}</p>}
       <div className="fiabilite-controles">
         <span className="selecteur" role="group" aria-label="Type de période">
           {(["month", "quarter"] as const).map((t) => (

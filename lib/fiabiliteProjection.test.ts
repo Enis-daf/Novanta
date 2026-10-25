@@ -20,6 +20,7 @@ import {
   precision,
   statutRealise,
   TotauxFlux,
+  annonceDemarrage,
   dateArrete,
   intervalleDates,
   libellePeriode,
@@ -355,5 +356,17 @@ describe("libellés : dates exactes", () => {
     assert.equal(dateArrete(T4), "30 septembre 2026");
     assert.equal(intervalleDates(SEPTEMBRE.debut, SEPTEMBRE.fin), "du 1er au 30 septembre 2026");
     assert.equal(intervalleDates("2026-12-01", "2027-02-28"), "du 1er décembre 2026 au 28 février 2027");
+  });
+});
+
+describe("annonce du démarrage du suivi", () => {
+  test("affichée jusqu'au 31 décembre 2026, avec le premier mois noté ; disparue dès le 1er janvier 2027", () => {
+    assert.equal(
+      annonceDemarrage("2026-10-25"),
+      "Le suivi de la fiabilité a démarré le 25 octobre 2026. Premier mois noté : novembre 2026, consultable à partir du 1er décembre 2026. Les périodes antérieures n'ont pas de prévision de référence : aucune projection n'était enregistrée à leur clôture."
+    );
+    assert.notEqual(annonceDemarrage("2026-12-31"), null);
+    assert.equal(annonceDemarrage("2027-01-01"), null);
+    assert.equal(annonceDemarrage("2027-06-15"), null);
   });
 });
