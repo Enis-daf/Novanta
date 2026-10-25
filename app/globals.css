@@ -1241,6 +1241,27 @@ input[type="checkbox"] {
   min-width: 200px;
 }
 
+/* Charge fixe au montant calculé : .invoice-table td { white-space: nowrap } l'emporte sur la règle
+   ci-dessus, si bien que l'aide (« Le montant se met à jour… ») et la ligne « taux % de source »
+   restaient sur une seule ligne et élargissaient toute la colonne Montant (~380 px), repoussant
+   Date prévue loin à droite. Ici le contenu passe à la ligne dans une colonne de la largeur du
+   mode Fixe : Date prévue retrouve la verticale des dates des autres tableaux. */
+.invoice-table td.col-montant--charge-calculee {
+  white-space: normal;
+  width: 160px;
+  min-width: 160px;
+}
+
+.col-montant--charge-calculee .charge-calcul__regle {
+  flex-wrap: wrap;
+}
+
+/* Le bouton de source garde sa troncature « … », bornée à la largeur utile de la cellule (160 px
+   moins ses marges de 4 px) : un pourcentage serait mal résolu dans une cellule de tableau. */
+.col-montant--charge-calculee .source-calcul-select__bouton {
+  max-width: 152px;
+}
+
 /* Fixe / Saisonnalisé (et équivalents) : un sélecteur, en version compacte du rail .selecteur. */
 .mode-montant-toggle {
   display: inline-flex;
