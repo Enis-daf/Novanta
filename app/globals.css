@@ -4416,3 +4416,14 @@ button.passe-cible--lien:focus-visible,
     overflow-x: auto;
   }
 }
+
+/* Annonce temporaire du démarrage du suivi (jusqu'au 1er janvier 2027) : information neutre,
+   filet bleu nuit à gauche, jamais le rose réservé aux alertes. */
+.fiabilite-annonce {
+  margin: 0;
+  padding: 6px 0 6px 10px;
+  border-left: 2px solid var(--couleur-texte);
+  font-size: 12px;
+  font-style: normal;
+  color: var(--couleur-texte);
+}
