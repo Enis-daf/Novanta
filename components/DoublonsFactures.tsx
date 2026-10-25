@@ -1,5 +1,6 @@
 "use client";
 
+import { groupeDeEtage, libelleGroupeEtage } from "@/lib/futurPnl";
 import { useState } from "react";
 import { formatDateCourte } from "@/lib/dates";
 import { formatMontant } from "@/lib/format";
@@ -169,8 +170,23 @@ function ResolutionFusion({
           </legend>
           {(["a", "b"] as const).map((c) => (
             <label key={c}>
-              <input type="radio" name={`date-${cle}`} checked={choix.datePrevue === c} onChange={() => setChoix({ datePrevue: c })} />
+              <input type="radio" name={`date-${cle}`} checked={choix.datePrevue === c} onChange={() => setChoix((prev) => ({ ...prev, datePrevue: c }))} />
               {date(proposition.conflitDatePrevue!.valeurs[c])} <span className="doublons-cote__detail">({origine(c === "a" ? paire.a : paire.b)})</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+
+      {proposition.conflitEtagePnl && (
+        <fieldset className="doublons-fusion__choix">
+          <legend>
+            Étage P&amp;L <span className="doublons-cote__detail">— deux classements choisis dans Futur, à choisir</span>
+          </legend>
+          {(["a", "b"] as const).map((c) => (
+            <label key={c}>
+              <input type="radio" name={`etage-${cle}`} checked={choix.etagePnl === c} onChange={() => setChoix((prev) => ({ ...prev, etagePnl: c }))} />
+              {libelleGroupeEtage(groupeDeEtage(proposition.conflitEtagePnl!.valeurs[c]))}{" "}
+              <span className="doublons-cote__detail">({origine(c === "a" ? paire.a : paire.b)})</span>
             </label>
           ))}
         </fieldset>

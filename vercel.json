@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/futur/capture",
+      "schedule": "50 21 * * *"
+    }
+  ]
+}

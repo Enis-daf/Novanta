@@ -16,6 +16,7 @@
  * facture · même montant · fournisseur similaire »), jamais un score opaque. Aucun client ni
  * fournisseur n'est nommé dans ce fichier : tout repose sur des règles génériques.
  */
+import { EtageDepense, reunirEtagesManuels } from "./futurPnl";
 import { normalizeLabel } from "./flowMatching";
 
 export type StatutDoublon = "DUPLICATE_CERTAIN" | "SAME_DOCUMENT" | "REVIEW" | "DISTINCT";
@@ -277,14 +278,17 @@ export function detecterDoublons<T extends FactureComparable>(factures: T[], sen
 //    conservée telle quelle.
 //  - Un écart de montant ne devient jamais un paiement partiel ni un montant de prévision : le
 //    montant de la référence est le montant pris en compte.
-// Seul un vrai conflit entre deux réglages Novanta (deux dates prévues explicites différentes) est
-// soumis à l'utilisateur.
+// Seul un vrai conflit entre deux réglages Novanta (deux dates prévues explicites différentes, ou
+// deux étages P&L choisis différemment dans Futur) est soumis à l'utilisateur. Un même étage ne
+// rend jamais deux factures doublons : il n'entre pas dans la détection.
 
 /** Ce qu'une ligne porte en plus du document : les réglages de prévision Novanta. */
 export interface FactureFusionnable extends FactureComparable {
   datePrevue: string; // date d'encaissement ou de paiement prévue
   payee: boolean;
   litigieuse: boolean;
+  // Étage P&L choisi dans Futur (lib/futurPnl.ts), réglage Novanta comme la date prévue.
+  etagePnlManuel?: EtageDepense | null;
 }
 
 export type CoteFusion = "a" | "b";
@@ -300,10 +304,13 @@ export interface PropositionFusion {
   referenceImposee: boolean;
   // Deux dates de paiement prévues explicites et différentes : l'utilisateur choisit. null sinon.
   conflitDatePrevue: ConflitDatePrevue | null;
+  // Deux étages P&L choisis différemment dans Futur : l'utilisateur choisit. null sinon.
+  conflitEtagePnl: { valeurs: Record<CoteFusion, EtageDepense> } | null;
 }
 
 export interface ChoixFusion {
   datePrevue?: CoteFusion;
+  etagePnl?: CoteFusion;
 }
 
 export interface ResultatFusion<T extends FactureFusionnable = FactureFusionnable> {
@@ -327,17 +334,22 @@ function choisirReference<T extends FactureFusionnable>(a: T, b: T, choisie: str
 export function proposerFusion(a: FactureFusionnable, b: FactureFusionnable, referenceChoisie: string | null = null): PropositionFusion {
   const { ref, autre, imposee } = choisirReference(a, b, referenceChoisie);
   const conflit = datePrevueExplicite(a) && datePrevueExplicite(b) && a.datePrevue !== b.datePrevue;
+  const etages = reunirEtagesManuels(a.etagePnlManuel, b.etagePnlManuel);
   return {
     referenceId: ref.id,
     retireeId: autre.id,
     referenceImposee: imposee,
     conflitDatePrevue: conflit ? { valeurs: { a: a.datePrevue, b: b.datePrevue } } : null,
+    conflitEtagePnl: etages.conflit ? { valeurs: etages.conflit } : null,
   };
 }
 
 /** Le conflit éventuel est-il tranché ? */
 export function fusionPrete(proposition: PropositionFusion, choix: ChoixFusion): boolean {
-  return proposition.conflitDatePrevue === null || choix.datePrevue !== undefined;
+  return (
+    (proposition.conflitDatePrevue === null || choix.datePrevue !== undefined) &&
+    (proposition.conflitEtagePnl === null || choix.etagePnl !== undefined)
+  );
 }
 
 /**
@@ -345,7 +357,8 @@ export function fusionPrete(proposition: PropositionFusion, choix: ChoixFusion):
  * prévision Novanta :
  *  - date prévue : la date explicite de l'une ou l'autre ligne (celle choisie en cas de conflit) ;
  *    sans date explicite, celle de la référence ;
- *  - Payée, Litigieuse : repris dès que l'une des deux lignes les porte.
+ *  - Payée, Litigieuse : repris dès que l'une des deux lignes les porte ;
+ *  - étage P&L choisi dans Futur : celui de l'une ou l'autre ligne (celui choisi en cas de conflit).
  * null tant que le conflit éventuel n'est pas tranché.
  */
 export function appliquerFusion<T extends FactureFusionnable>(a: T, b: T, proposition: PropositionFusion, choix: ChoixFusion): ResultatFusion<T> | null {
@@ -359,8 +372,18 @@ export function appliquerFusion<T extends FactureFusionnable>(a: T, b: T, propos
       : datePrevueExplicite(retiree)
         ? retiree.datePrevue
         : ref.datePrevue;
+  const etagePnlManuel = proposition.conflitEtagePnl
+    ? proposition.conflitEtagePnl.valeurs[choix.etagePnl!]
+    : reunirEtagesManuels(ref.etagePnlManuel, retiree.etagePnlManuel).etage;
   return {
-    reference: { ...ref, datePrevue, payee: ref.payee || retiree.payee, litigieuse: ref.litigieuse || retiree.litigieuse },
+    reference: {
+      ...ref,
+      datePrevue,
+      payee: ref.payee || retiree.payee,
+      litigieuse: ref.litigieuse || retiree.litigieuse,
+      // Aucun champ ajouté à des lignes qui ne portent pas d'étage (factures clients notamment).
+      ...(ref.etagePnlManuel === undefined && retiree.etagePnlManuel === undefined ? {} : { etagePnlManuel }),
+    },
     retiree,
     pennylaneIdRetire: retiree.pennylaneId ?? null,
   };

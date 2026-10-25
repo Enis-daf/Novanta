@@ -1,3 +1,5 @@
+import type { CategorieFacture, EtageDepense } from "./futurPnl";
+
 export interface FactureClient {
   id: string;
   facture: string;
@@ -32,6 +34,13 @@ export interface FactureFournisseur {
   settledOn?: string | null;
   // Voir FactureClient.pennylaneId — même rôle côté factures fournisseurs.
   pennylaneId?: string | null;
+  // Étage P&L choisi dans Futur (null = aucun choix manuel) — voir lib/futurPnl.ts. Prime sur
+  // l'étage issu des catégories Pennylane ; jamais écrit par une synchronisation.
+  etagePnlManuel?: EtageDepense | null;
+  // Catégories analytiques de la facture chez Pennylane (null = jamais lues). Écrites par le
+  // serveur seulement (/api/pennylane/invoices/categories), jamais renvoyées par une sauvegarde.
+  categoriesPennylane?: CategorieFacture[] | null;
+  categoriesLuesLe?: string | null; // ISO 8601 datetime de la dernière lecture
   // ID du fournisseur côté Pennylane (supplier.id) : identité stable du tiers, utilisée en
   // priorité par le rapprochement avec les Charges fixes. Absent pour une facture manuelle.
   pennylaneSupplierId?: string | null;
@@ -85,6 +94,9 @@ export interface ChargeFixe {
   sourceCalculId: string | null; // id de la ligne source (ChargeFixe non calculée ou RentreeReguliere)
   sourceCalculType: TypeSourceCalculChargeFixe | null;
   aCouper: boolean; // true = simulation d'exclusion ("À couper"), exclue du calcul sans supprimer la donnée
+  // Étage P&L de la charge (null = « À classer ») — voir lib/futurPnl.ts. Porté par la charge
+  // source : toutes ses occurrences le reprennent, sans copie par occurrence.
+  etagePnlManuel?: EtageDepense | null;
 }
 
 export interface AutreDepense {
@@ -95,6 +107,7 @@ export interface AutreDepense {
   type: "certaine" | "probable";
   facturee: boolean; // true = remplacée par une vraie facture fournisseur, exclue du calcul
   payee: boolean; // true = déjà comptée dans le solde bancaire initial, exclue du calcul (raison distincte de facturee)
+  etagePnlManuel?: EtageDepense | null; // voir ChargeFixe.etagePnlManuel
 }
 
 export interface Financement {

@@ -367,3 +367,43 @@ describe("synchronisation Pennylane : plus de seconde facture", () => {
     assert.equal(resultat.aInserer.length, 1);
   });
 });
+
+describe("fusion : étage P&L choisi dans Futur", () => {
+  const ligne = (id: string, etagePnlManuel: FactureFusionnable["etagePnlManuel"], pennylaneId: string | null = null): FactureFusionnable => ({
+    id,
+    facture: "F-1",
+    tiers: "Fournisseur",
+    montant: 100,
+    dateEcheance: "2026-11-10",
+    pennylaneId,
+    datePrevue: "2026-11-10",
+    payee: false,
+    litigieuse: false,
+    etagePnlManuel,
+  });
+
+  test("un seul choix manuel : repris par la ligne conservée, même s'il était sur la ligne retirée", () => {
+    const a = ligne("a", null, "pl-1");
+    const b = ligne("b", "ebitda");
+    const proposition = proposerFusion(a, b);
+    assert.equal(proposition.referenceId, "a");
+    assert.equal(proposition.conflitEtagePnl, null);
+    assert.equal(appliquerFusion(a, b, proposition, {})!.reference.etagePnlManuel, "ebitda");
+  });
+
+  test("deux choix différents : conflit à trancher, jamais d'écrasement silencieux", () => {
+    const a = ligne("a", "ebitda", "pl-1");
+    const b = ligne("b", "gross_margin");
+    const proposition = proposerFusion(a, b);
+    assert.deepEqual(proposition.conflitEtagePnl, { valeurs: { a: "ebitda", b: "gross_margin" } });
+    assert.equal(fusionPrete(proposition, {}), false);
+    assert.equal(appliquerFusion(a, b, proposition, {}), null);
+    assert.equal(appliquerFusion(a, b, proposition, { etagePnl: "b" })!.reference.etagePnlManuel, "gross_margin");
+  });
+
+  test("même étage ne rend pas deux factures doublons", () => {
+    const a = { ...ligne("a", "ebitda"), facture: "F-1", tiers: "Alpha", montant: 100 };
+    const b = { ...ligne("b", "ebitda"), facture: "F-2", tiers: "Beta", montant: 999, dateEcheance: "2026-03-01" };
+    assert.equal(detecterDoublons([a, b], "fournisseur").length, 0);
+  });
+});

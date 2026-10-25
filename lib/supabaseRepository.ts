@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "./supabaseClient";
 import { todayISO } from "./dates";
 import {
@@ -20,6 +21,7 @@ import {
   MappingFournisseurCharge,
   RentreeReguliere,
 } from "./types";
+import { CategorieFacture, CorrespondanceFutur, EtageDepense, estEtageDepense, lireCorrespondance } from "./futurPnl";
 
 export interface DonneesEntreprise {
   soldeInitial: number;
@@ -43,6 +45,15 @@ type Row = Record<string, unknown>;
 // car une chaîne vide n'est pas une valeur "date" valide pour Postgres.
 function dateOuNull(dateStr: string): string | null {
   return dateStr || null;
+}
+
+// Étage choisi dans Futur : une valeur hors nomenclature lue en base est traitée comme « aucun choix ».
+function etageManuelOuNull(valeur: unknown): EtageDepense | null {
+  return estEtageDepense(valeur) ? valeur : null;
+}
+
+function categoriesOuNull(valeur: unknown): CategorieFacture[] | null {
+  return Array.isArray(valeur) ? (valeur as CategorieFacture[]) : null;
 }
 
 function client() {
@@ -131,6 +142,7 @@ function factureFournisseurToRow(companyId: string, f: FactureFournisseur): Row 
     paid: f.payee,
     paid_at: f.paidAt,
     pennylane_id: f.pennylaneId ?? null,
+    // Ni l'étage P&L ni les catégories Pennylane ne sont renvoyés ici (voir affecterEtagePnlManuel).
     pennylane_supplier_id: f.pennylaneSupplierId ?? null,
   };
 }
@@ -148,6 +160,10 @@ function rowToFactureFournisseur(row: Row): FactureFournisseur {
     paidAt: (row.paid_at as string | null) ?? null,
     settledOn: (row.settled_on as string | null) ?? null,
     pennylaneId: (row.pennylane_id as string | null) ?? null,
+    // Colonnes absentes avant la migration « étage P&L Futur » : « À classer ».
+    etagePnlManuel: etageManuelOuNull(row.pnl_stage_manual),
+    categoriesPennylane: categoriesOuNull(row.pennylane_categories),
+    categoriesLuesLe: (row.pennylane_categories_synced_at as string | null | undefined) ?? null,
     pennylaneSupplierId: (row.pennylane_supplier_id as string | null | undefined) ?? null,
   };
 }
@@ -184,6 +200,7 @@ function rowToChargeFixe(row: Row): ChargeFixe {
     sourceCalculType: (row.source_calcul_type as ChargeFixe["sourceCalculType"] | undefined) ?? null,
     // Colonne absente sur une ligne créée avant la migration "à couper" : reste incluse (false).
     aCouper: Boolean(row.a_couper),
+    etagePnlManuel: etageManuelOuNull(row.pnl_stage_manual),
   };
 }
 
@@ -210,6 +227,7 @@ function rowToAutreDepense(row: Row): AutreDepense {
     facturee: Boolean(row.facturee),
     // Colonne absente sur une ligne créée avant la migration "Payée" : reste incluse (false).
     payee: Boolean(row.payee),
+    etagePnlManuel: etageManuelOuNull(row.pnl_stage_manual),
   };
 }
 
@@ -556,6 +574,26 @@ export async function supprimerRentreeReguliere(id: string): Promise<void> {
   await deleteOne("recurring_income", id);
 }
 
+export type TableDepense = "fixed_charges" | "supplier_invoices" | "other_expenses";
+
+/**
+ * Seule écriture de l'étage P&L (cellule du tableau, « Affecter un étage P&L », « Reprendre le
+ * classement automatique ») : le SEUL choix manuel (null = le retirer) sur les lignes désignées de
+ * la société. Aucune autre colonne n'est envoyée : montants, dates, récurrence, réglages de
+ * prévision restent intacts. À l'inverse, les sauvegardes habituelles d'une ligne n'envoient
+ * jamais pnl_stage_manual : une saisie en cours ne peut pas effacer un étage choisi entre-temps.
+ */
+export async function affecterEtagePnlManuel(
+  table: TableDepense,
+  companyId: string,
+  ids: string[],
+  etage: EtageDepense | null
+): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await client().from(table).update({ pnl_stage_manual: etage }).eq("company_id", companyId).in("id", ids);
+  if (error) throw error;
+}
+
 // --- Rapprochement Charges fixes / factures fournisseurs (voir lib/rapprochementChargesFixes.ts) ---
 
 // Synchronisation Pennylane : renseigne l'identifiant fournisseur d'une facture déjà importée.
@@ -646,6 +684,17 @@ export async function enregistrerPaireDistincte(companyId: string, sens: SensFac
 }
 
 /**
+ * Correspondance catégorie -> étage de la société, lue par la fonction future_pnl_correspondance
+ * (identifiants et étages seulement) : disponible sans le module Passé. Absente (migration non
+ * passée, erreur) : aucune correspondance, tout reste classable à la main.
+ */
+export async function chargerCorrespondanceFutur(): Promise<CorrespondanceFutur> {
+  const { data, error } = await client().rpc("future_pnl_correspondance");
+  if (error) throw error;
+  return lireCorrespondance(data);
+}
+
+/**
  * Fusion confirmée, dans un ordre qui ne perd rien en cas d'échec et qu'on peut rejouer :
  *  1. la décision est enregistrée avec l'état des deux lignes AVANT fusion et les choix faits
  *     (historique : qui, quand, quoi — rejouer la même fusion la met simplement à jour) ;
@@ -707,4 +756,77 @@ export async function actualiserDocumentsFactures(
       .eq("id", m.id);
     if (error) throw error;
   }
+}
+
+// --- Lecture serveur (clé service_role) : prévision de référence, lib/fiabiliteProjection.ts ---
+
+const TAILLE_PAGE_SERVEUR = 1000;
+
+/** Toutes les lignes d'une table pour une société, paginées : jamais une liste tronquée. */
+async function selectToutServeur(admin: SupabaseClient, table: string, companyId: string, siTableExiste = false): Promise<Row[]> {
+  const toutes: Row[] = [];
+  for (let debut = 0; ; debut += TAILLE_PAGE_SERVEUR) {
+    const { data, error } = await admin
+      .from(table)
+      .select("*")
+      .eq("company_id", companyId)
+      .order("id", { ascending: true })
+      .range(debut, debut + TAILLE_PAGE_SERVEUR - 1);
+    if (error) {
+      if (siTableExiste && (error.code === "42P01" || error.code === "PGRST205")) return [];
+      throw error;
+    }
+    const lignes = (data ?? []) as Row[];
+    toutes.push(...lignes);
+    if (lignes.length < TAILLE_PAGE_SERVEUR) return toutes;
+  }
+}
+
+/** Données de prévision d'une société, lues côté serveur (aucune donnée de démonstration créée). */
+export async function chargerDonneesPrevisionServeur(admin: SupabaseClient, companyId: string) {
+  const [clients, fournisseurs, charges, depenses, financementsRows, rentrees, liens] = await Promise.all([
+    selectToutServeur(admin, "customer_invoices", companyId),
+    selectToutServeur(admin, "supplier_invoices", companyId),
+    selectToutServeur(admin, "fixed_charges", companyId),
+    selectToutServeur(admin, "other_expenses", companyId),
+    selectToutServeur(admin, "financings", companyId),
+    selectToutServeur(admin, "recurring_income", companyId),
+    selectToutServeur(admin, "fixed_charge_invoice_links", companyId, true),
+  ]);
+  return {
+    facturesClients: clients.map(rowToFactureClient),
+    facturesFournisseurs: fournisseurs.map(rowToFactureFournisseur),
+    chargesFixes: charges.map(rowToChargeFixe),
+    autresDepenses: depenses.map(rowToAutreDepense),
+    financements: financementsRows.map(rowToFinancement),
+    rentreesRegulieres: rentrees.map(rowToRentreeReguliere),
+    liensRapprochement: liens.map(rowToLienRapprochement),
+  };
+}
+
+/** Correspondance P&L de la société lue côté serveur (même contenu que future_pnl_correspondance). */
+export async function chargerCorrespondanceServeur(admin: SupabaseClient, companyId: string): Promise<CorrespondanceFutur> {
+  const [{ data: reglages, error: e1 }, mappings] = await Promise.all([
+    admin.from("past_settings").select("reporting_analytic_group_id").eq("organization_id", companyId).maybeSingle(),
+    (async () => {
+      const toutes: Row[] = [];
+      for (let debut = 0; ; debut += TAILLE_PAGE_SERVEUR) {
+        const { data, error } = await admin
+          .from("past_category_mappings")
+          .select("source_category_id, source_group_id, pnl_stage")
+          .eq("organization_id", companyId)
+          .not("pnl_stage", "is", null)
+          .order("source_category_id", { ascending: true })
+          .range(debut, debut + TAILLE_PAGE_SERVEUR - 1);
+        if (error) throw error;
+        toutes.push(...((data ?? []) as Row[]));
+        if ((data ?? []).length < TAILLE_PAGE_SERVEUR) return toutes;
+      }
+    })(),
+  ]);
+  if (e1) throw e1;
+  return lireCorrespondance({
+    axe: (reglages as Row | null)?.reporting_analytic_group_id ?? null,
+    correspondances: mappings.map((m) => ({ id: m.source_category_id, axe: m.source_group_id, etage: m.pnl_stage })),
+  });
 }

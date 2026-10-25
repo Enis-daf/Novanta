@@ -178,6 +178,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Trace de la synchronisation réussie (période, instant, complétude) : la fiabilité de la projection
+  // de Futur ne note une période que si son réalisé a été récupéré en entier après sa fin.
+  const { error: erreurTrace } = await supabaseAdmin.from("past_sync_runs").insert({
+    organization_id: organizationId,
+    period_start: periode.debut,
+    period_end: periode.fin,
+    synced_at: syncedAt,
+    complete,
+    transaction_count: nombreSynchronisees,
+  });
+  if (erreurTrace) console.error(`[passe/sync] trace de synchronisation non enregistrée code=${erreurTrace.code ?? "inconnu"}`);
+
   console.log(`[passe/sync] OK company=${organizationId} synchronisees=${nombreSynchronisees} retirees=${nombreRetirees} complete=${complete}`);
   return NextResponse.json({
     nombreSynchronisees,

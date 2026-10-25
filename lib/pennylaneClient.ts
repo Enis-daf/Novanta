@@ -456,6 +456,21 @@ export async function listMatchedTransactions(
   return paginerParCurseur<PennylaneMatchedTransactionRaw>(bearer, endpoint, {});
 }
 
+/**
+ * Catégories analytiques d'une facture fournisseur (GET /supplier_invoices/{id}/categories,
+ * pagination par curseur, scope supplier_invoices:readonly — le même que la liste). La liste des
+ * factures ne renvoie qu'une URL vers cette sous-ressource, jamais les catégories elles-mêmes.
+ * Même forme que les catégories d'une transaction : id stable, label, weight, category_group.
+ */
+export async function listSupplierInvoiceCategories(
+  credentialProvider: PennylaneCredentialProvider,
+  invoiceId: string
+): Promise<PennylaneTransactionCategoryRaw[]> {
+  const bearer = await credentialProvider.getBearerToken();
+  const endpoint = `${ENDPOINT_SUPPLIER_INVOICES}/${encodeURIComponent(invoiceId)}/categories`;
+  return paginerParCurseur<PennylaneTransactionCategoryRaw>(bearer, endpoint, {});
+}
+
 /** Groupe de catégories analytiques (un "axe" analytique côté Pennylane). */
 export interface PennylaneCategoryGroupRaw {
   id: number | string;
