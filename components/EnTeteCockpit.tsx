@@ -1,8 +1,8 @@
 import Link from "next/link";
-import NavigationModules from "@/components/NavigationModules";
+import NavigationModules, { ModuleCockpit } from "@/components/NavigationModules";
 
 interface EnTeteCockpitProps {
-  moduleActif: "passe" | "futur";
+  moduleActif: ModuleCockpit;
   // Absent tant que la session n'est pas là (Futur en mode local) : seul le titre est affiché.
   compte?: {
     email: string | undefined;
@@ -11,10 +11,14 @@ interface EnTeteCockpitProps {
   };
 }
 
-// Titre de chaque module, sous la ligne de l'en-tête : même emplacement et même style pour les deux.
-const TITRES_ECRAN = { passe: "Analyse des flux de trésorerie", futur: "Projection de trésorerie" } as const;
+// Titre de chaque module, sous la ligne de l'en-tête : même emplacement et même style pour tous.
+const TITRES_ECRAN: Record<ModuleCockpit, string> = {
+  passe: "Analyse des flux de trésorerie",
+  action: "Chantier de rentabilité",
+  futur: "Projection de trésorerie",
+};
 
-// En-tête commun aux deux modules (Futur et Passé) : même titre, même navigation, mêmes actions de
+// En-tête commun aux modules (Passé, Action, Futur) : même titre, même navigation, mêmes actions de
 // compte, puis le titre de l'écran. Chaque page garde sa propre logique (session, déconnexion) et
 // la lui passe.
 export default function EnTeteCockpit({ moduleActif, compte }: EnTeteCockpitProps) {
