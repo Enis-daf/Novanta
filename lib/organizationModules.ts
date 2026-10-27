@@ -6,6 +6,9 @@ export type ModuleKey = "past";
 
 export const ROUTE_FUTUR = "/";
 export const ROUTE_PASSE = "/passe";
+// Module Action (le chantier de rentabilité prioritaire) : lit les données du module Passé, donc
+// soumis au même entitlement "past".
+export const ROUTE_ACTION = "/action";
 
 // Fail-closed : un module n'est actif que si une ligne existe ET enabled vaut exactement true.
 export function ligneModuleActive(ligne: { enabled?: unknown } | null | undefined): boolean {
