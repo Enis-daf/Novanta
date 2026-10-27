@@ -3,18 +3,17 @@
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  CATALOGUE_KPI,
-  CLE_PERSONNALISE,
-  formatEcartKpi,
-  formatFraction,
+  CarteKpi,
   formatJourCourt,
   formatValeurKpi,
+  libelleAtteinte,
+  libelleEcartReference,
+  LibellesReference,
   PointSerie,
   StatutMois,
   SuiviKpi,
 } from "@/lib/actionChantier";
 import { graduationsAxe, NEUTRES, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
-import { MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
 import { libelleMois, libelleMoisCourt } from "@/lib/pastDetail";
 
 // Convention du module Passé (onglet BFR) : barreau plein = définitif, clair = provisoire.
@@ -25,7 +24,9 @@ const MAX_MOIS_AVEC_LIBELLES = 6;
 const LIBELLES_STATUT: Record<StatutMois, string> = { clos: "Mois clos", en_cours: "En cours — provisoire", a_venir: "À venir" };
 
 interface ActionKpiCarteProps {
-  suivi: SuiviKpi;
+  carte: CarteKpi;
+  // Fiche d'un chantier clôturé : photographie de la clôture, aucune saisie.
+  figee?: boolean;
   // Indicateur personnalisé : mois saisissables et enregistrement d'une valeur.
   saisie?: {
     mois: string[];
@@ -33,19 +34,13 @@ interface ActionKpiCarteProps {
   };
 }
 
-function mentionDe(suivi: SuiviKpi): string | null {
-  const { kpi } = suivi;
-  if (kpi.cle === CLE_PERSONNALISE) return "Saisie manuelle";
-  if (kpi.cle === "bfr") return "HT · situations validées";
-  return CATALOGUE_KPI[kpi.cle].base === "ttc" ? MENTION_TTC : MENTION_HT_ESTIME;
-}
-
 function nomMois(mois: string): string {
   return libelleMois(mois).split(" ")[0];
 }
 
-export default function ActionKpiCarte({ suivi, saisie }: ActionKpiCarteProps) {
-  const { kpi, actuelle, atteinte, nature } = suivi;
+export default function ActionKpiCarte({ carte, figee = false, saisie }: ActionKpiCarteProps) {
+  const { suivi, mention, reference: libelles } = carte;
+  const { kpi, actuelle, nature } = suivi;
   const uniteLibre = kpi.unitePersonnalisee;
   const format = (valeur: number) => formatValeurKpi(valeur, suivi.unite, uniteLibre);
   const reference = kpi.reference;
@@ -54,7 +49,7 @@ export default function ActionKpiCarte({ suivi, saisie }: ActionKpiCarteProps) {
     <article className="action-kpi" aria-label={suivi.libelle}>
       <header className="action-kpi__entete">
         <h3 className="eyebrow eyebrow--encre">{suivi.libelle}</h3>
-        {mentionDe(suivi) && <span className="action-kpi__mention">{mentionDe(suivi)}</span>}
+        <span className="action-kpi__mention">{mention}</span>
       </header>
 
       <p className={`action-kpi__valeur${actuelle ? "" : " action-kpi__valeur--absente"}`}>
@@ -66,12 +61,12 @@ export default function ActionKpiCarte({ suivi, saisie }: ActionKpiCarteProps) {
 
       <Jauge suivi={suivi} />
 
-      <p className={`action-kpi__evolution${evolutionDefavorable(suivi) ? " action-kpi__evolution--recul" : ""}`}>{libelleEvolution(suivi, format)}</p>
+      <p className={`action-kpi__evolution${evolutionDefavorable(suivi) ? " action-kpi__evolution--recul" : ""}`}>{libelleEvolution(suivi, format, libelles)}</p>
 
       <p className="action-kpi__reference">
         {reference.valeur !== null ? (
           <>
-            Référence : {format(reference.valeur)} — {reference.libelle}
+            Référence : {format(reference.valeur)} — {libelles.detail}
             {reference.origine === "indicative" && <span className="action-badge">Indicative</span>}
           </>
         ) : (
@@ -80,7 +75,7 @@ export default function ActionKpiCarte({ suivi, saisie }: ActionKpiCarteProps) {
       </p>
 
       <p className="action-kpi__donnee">
-        <StatutDonnee suivi={suivi} />
+        <StatutDonnee suivi={suivi} figee={figee} />
       </p>
 
       {suivi.messages.length > 0 && (
@@ -93,31 +88,16 @@ export default function ActionKpiCarte({ suivi, saisie }: ActionKpiCarteProps) {
 
       <GraphiqueMensuel suivi={suivi} format={format} />
 
-      {saisie && <SaisieManuelle suivi={suivi} saisie={saisie} />}
+      {saisie && !figee && <SaisieManuelle suivi={suivi} saisie={saisie} />}
     </article>
   );
 }
 
 function Jauge({ suivi }: { suivi: SuiviKpi }) {
   const { atteinte } = suivi;
+  // La jauge se remplit au plus à 100 % : un dépassement se lit dans le texte, pas dans la jauge.
   const remplissage = atteinte.etat === "calcule" ? atteinte.jauge : atteinte.etat === "maintien" && atteinte.atteint ? 1 : 0;
-  let texte: string;
-  switch (atteinte.etat) {
-    case "calcule":
-      texte = atteinte.recul
-        ? `${formatFraction(atteinte.fraction)} : recul par rapport au point de départ`
-        : `${formatFraction(atteinte.fraction)} de l'objectif atteint`;
-      break;
-    case "maintien":
-      texte = atteinte.atteint ? "Objectif de maintien : tenu" : "Objectif de maintien : pas tenu";
-      break;
-    case "sans_reference":
-      texte = "Atteinte non calculable : aucune référence";
-      break;
-    case "sans_valeur":
-      texte = suivi.etat === "a_venir" ? "Le suivi commence avec le chantier" : "Atteinte non calculable : aucune valeur";
-      break;
-  }
+  const { texte, recul } = libelleAtteinte(atteinte, suivi.etat);
   const mesurable = atteinte.etat === "calcule" || atteinte.etat === "maintien";
   return (
     <div className="action-jauge">
@@ -132,7 +112,7 @@ function Jauge({ suivi }: { suivi: SuiviKpi }) {
       >
         <div className="action-jauge__remplissage" style={{ width: `${remplissage * 100}%` }} />
       </div>
-      <p className={`action-jauge__texte${atteinte.etat === "calcule" && atteinte.recul ? " action-jauge__texte--recul" : ""}`}>{texte}</p>
+      <p className={`action-jauge__texte${recul ? " action-jauge__texte--recul" : ""}`}>{texte}</p>
     </div>
   );
 }
@@ -144,21 +124,20 @@ function evolutionDefavorable(suivi: SuiviKpi): boolean {
   return kpi.sens === "up" ? ecart < 0 : ecart > 0;
 }
 
-function libelleEvolution(suivi: SuiviKpi, format: (v: number) => string): string {
+function libelleEvolution(suivi: SuiviKpi, format: (v: number) => string, libelles: LibellesReference): string {
   const { actuelle, kpi, nature } = suivi;
   if (!actuelle) return "Évolution non mesurable pour le moment.";
   if (nature === "cumulatif") {
     // Un cumul repart de zéro : on dit ce qu'il reste à faire, pas un écart à une période entière.
     const reste = kpi.cible - actuelle.valeur;
-    return reste > 0 ? `Reste ${format(reste)} à réaliser d'ici la fin du chantier` : `Objectif dépassé de ${format(-reste)}`;
+    if (format(Math.abs(reste)) === format(0)) return "Montant visé atteint";
+    return reste > 0 ? `Reste ${format(reste)} à réaliser d'ici la fin du chantier` : `${format(-reste)} au-delà du montant visé`;
   }
   if (kpi.reference.valeur === null) return "Évolution non mesurable : aucune référence.";
-  const ecart = actuelle.valeur - kpi.reference.valeur;
-  if (ecart === 0) return "Stable depuis la référence";
-  return `${formatEcartKpi(ecart, suivi.unite, kpi.unitePersonnalisee)} depuis la référence`;
+  return libelleEcartReference(actuelle.valeur - kpi.reference.valeur, suivi.unite, kpi.unitePersonnalisee, libelles) ?? "Évolution non mesurable : aucune référence.";
 }
 
-function StatutDonnee({ suivi }: { suivi: SuiviKpi }) {
+function StatutDonnee({ suivi, figee }: { suivi: SuiviKpi; figee: boolean }) {
   const { actuelle } = suivi;
   if (!actuelle) return <span className="action-statut">{suivi.etat === "a_venir" ? "Pas encore commencé" : "Aucune donnée"}</span>;
   if (actuelle.source === "manuel") {
@@ -167,7 +146,7 @@ function StatutDonnee({ suivi }: { suivi: SuiviKpi }) {
   if (actuelle.source === "en_cours") {
     return (
       <>
-        <span className="action-statut action-statut--en-cours">{nomMois(actuelle.mois)} — en cours</span>
+        <span className="action-statut action-statut--en-cours">{nomMois(actuelle.mois)} — en cours{figee ? " à la clôture" : ""}</span>
         <span>
           {actuelle.derniereOperation
             ? ` · provisoire, dernière opération le ${formatJourCourt(actuelle.derniereOperation)}`
@@ -245,7 +224,10 @@ function GraphiqueMensuel({ suivi, format }: { suivi: SuiviKpi; format: (v: numb
               dataKey="mois"
               tick={<GraduationMois points={points} plusieursAnnees={plusieursAnnees} />}
               height={34}
-              interval={0}
+              // Jusqu'à 6 mois, chaque mois est nommé ; au-delà, Recharts saute des mois plutôt que de
+              // les superposer sur une carte étroite (téléphone, chantier annuel).
+              interval={points.length > MAX_MOIS_AVEC_LIBELLES ? "preserveStartEnd" : 0}
+              minTickGap={6}
               axisLine={false}
               tickLine={false}
             />
