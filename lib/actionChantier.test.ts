@@ -1,7 +1,14 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  Atteinte,
   calculerAtteinte,
+  carteDuSuivi,
+  libelleAtteinte,
+  libelleEcartReference,
+  libellesReference,
+  lirePhotographie,
+  photographierChantier,
   Chantier,
   CLE_PERSONNALISE,
   decalerMois,
@@ -188,7 +195,7 @@ describe("Périodes", () => {
     assert.equal(mois.libelle, "Octobre 2026");
     const [, semestre] = periodesProposees("semester", "2026-10-27", EXERCICE_PAR_DEFAUT);
     assert.equal(semestre.libelle, "S1 2027");
-    assert.equal(periodesProposees("year", "2026-10-27", EXERCICE_PAR_DEFAUT)[0].libelle, "Année 2026");
+    assert.equal(periodesProposees("year", "2026-10-27", EXERCICE_PAR_DEFAUT)[0].libelle, "Exercice 2026");
   });
 
   test("exercice décalé : rang dans l'exercice", () => {
@@ -362,5 +369,145 @@ describe("Séries mensuelles", () => {
     const ca = mesurerSurPeriode("encaissements", tva, { debut: "2026-10-01", fin: "2026-10-31" });
     assert.equal(cash.valeur, 30_000); // TTC : 80 000 − 50 000
     assert.ok(Math.abs((ca.valeur as number) - 80_000 / 1.2) < 1e-6); // HT estimé
+  });
+});
+
+describe("Libellé de l'atteinte : progression métier, jamais « 123 % de l'objectif atteint »", () => {
+  const texte = (depart: number, cible: number, realise: number, sens: "up" | "down") =>
+    libelleAtteinte(calculerAtteinte(depart, cible, realise, sens), "ok").texte;
+
+  test("sous l'objectif : 0 %, 25 %, 75 %, 99 %", () => {
+    assert.equal(texte(20, 60, 20, "up"), "0\u00a0% de l'objectif atteint");
+    assert.equal(texte(20, 60, 30, "up"), "25\u00a0% de l'objectif atteint");
+    assert.equal(texte(20, 60, 50, "up"), "75\u00a0% de l'objectif atteint");
+    assert.equal(texte(20, 60, 59.6, "up"), "99\u00a0% de l'objectif atteint");
+    // 99,9 % ne s'affiche jamais « 100 % » : arrondi par défaut tant que la cible n'est pas atteinte.
+    assert.equal(texte(20, 60, 59.96, "up"), "99\u00a0% de l'objectif atteint");
+  });
+
+  test("exactement à l'objectif : « Objectif atteint »", () => {
+    assert.equal(texte(20, 60, 60, "up"), "Objectif atteint");
+    assert.equal(texte(60, 40, 40, "down"), "Objectif atteint");
+  });
+
+  test("au-dessus : « Objectif dépassé de 5 % / 23 % »", () => {
+    assert.equal(texte(20, 60, 62, "up"), "Objectif dépassé de 5\u00a0%");
+    assert.equal(texte(20, 60, 69.2, "up"), "Objectif dépassé de 23\u00a0%");
+    assert.equal(texte(20, 60, 76, "up"), "Objectif dépassé de 40\u00a0%");
+    for (const t of [texte(20, 60, 69.2, "up"), texte(20, 60, 200, "up")]) assert.doesNotMatch(t, /de l'objectif atteint/);
+  });
+
+  test("plus bas = mieux : passer sous la cible est un dépassement, lu dans le même sens", () => {
+    // DSO : référence 60 j, objectif 40 j, réalisé 35 j → progression 125 %.
+    assert.equal(texte(60, 40, 35, "down"), "Objectif dépassé de 25\u00a0%");
+    assert.equal(texte(60, 40, 45, "down"), "75\u00a0% de l'objectif atteint");
+    // Plus haut = mieux, objectif 55 %, réalisé 62,9 % depuis 40 % : progression 153 %.
+    assert.equal(texte(40, 55, 62.9, "up"), "Objectif dépassé de 53\u00a0%");
+  });
+
+  test("dégradation par rapport à la référence : recul signalé", () => {
+    const up = libelleAtteinte(calculerAtteinte(30, 48, 26.4, "up"), "ok");
+    assert.deepEqual(up, { texte: "−20\u00a0% : recul par rapport au point de départ", recul: true });
+    const down = libelleAtteinte(calculerAtteinte(60, 40, 66, "down"), "ok");
+    assert.equal(down.recul, true);
+  });
+
+  test("états sans calcul et maintien", () => {
+    assert.equal(libelleAtteinte({ etat: "sans_reference" }, "ok").texte, "Atteinte non calculable : aucune référence");
+    assert.equal(libelleAtteinte({ etat: "sans_valeur" }, "a_venir").texte, "Le suivi commence avec le chantier");
+    const maintien: Atteinte = { etat: "maintien", atteint: true };
+    assert.equal(libelleAtteinte(maintien, "ok").texte, "Objectif de maintien : tenu");
+  });
+});
+
+describe("Référence nommée explicitement", () => {
+  const ref = (origine: KpiChantier["reference"]["origine"], periode: { debut: string; fin: string } | null, libelle = "x", valeur = 20.7) => ({ valeur, libelle, origine, periode });
+
+  test("trimestre exact (période équivalente et précédente)", () => {
+    const eq = libellesReference(ref("equivalent", { debut: "2026-04-01", fin: "2026-06-30" }), "quarter", EXERCICE_PAR_DEFAUT);
+    assert.deepEqual(eq, { court: "T2 2026", detail: "T2 2026 · même période un an plus tôt" });
+    const prec = libellesReference(ref("previous", { debut: "2026-07-01", fin: "2026-09-30" }, "Trimestre précédent (T3 2026)"), "quarter", EXERCICE_PAR_DEFAUT);
+    assert.deepEqual(prec, { court: "T3 2026", detail: "T3 2026 · trimestre précédent" });
+  });
+
+  test("exercice", () => {
+    const eq = libellesReference(ref("equivalent", { debut: "2025-01-01", fin: "2025-12-31" }), "year", EXERCICE_PAR_DEFAUT);
+    assert.equal(eq.court, "Exercice 2025");
+    const decale = libellesReference(ref("previous", { debut: "2025-07-01", fin: "2026-06-30" }), "year", { mois: 7, jour: 1 });
+    assert.equal(decale.court, "Exercice 2025-26");
+  });
+
+  test("moyenne historique", () => {
+    const l = libellesReference(ref("indicative", { debut: "2026-06-01", fin: "2026-09-30" }, "Indicative : sur les 4 mois disponibles (juin–sept. 2026)"), "year", EXERCICE_PAR_DEFAUT);
+    assert.equal(l.court, "la moyenne des 4 mois disponibles (juin–sept. 2026)");
+    assert.equal(l.detail, "Indicative : sur les 4 mois disponibles (juin–sept. 2026)");
+  });
+
+  test("l'écart nomme la référence, jamais « depuis la référence »", () => {
+    const t2 = libellesReference(ref("equivalent", { debut: "2026-04-01", fin: "2026-06-30" }), "quarter", EXERCICE_PAR_DEFAUT);
+    assert.equal(libelleEcartReference(42.2, "pct", null, t2), "+42,2\u00a0pts vs T2 2026");
+    assert.equal(libelleEcartReference(0, "pct", null, t2), "Stable vs T2 2026");
+    const manuel = libellesReference(ref("manual", null, "Saisie au lancement", 60), "quarter", EXERCICE_PAR_DEFAUT);
+    assert.equal(libelleEcartReference(-12, "libre", "jours", manuel), "−12\u00a0jours vs la valeur de départ");
+    const bfr = libellesReference(ref("situation", { debut: "2026-06-30", fin: "2026-06-30" }, "Situation validée au 30 juin 2026"), "quarter", EXERCICE_PAR_DEFAUT);
+    assert.match(libelleEcartReference(-14_000, "eur", null, bfr) ?? "", /vs la situation au 30 juin 2026$/);
+    assert.equal(libelleEcartReference(5, "pct", null, libellesReference(SANS_REFERENCE, "quarter", EXERCICE_PAR_DEFAUT)), null);
+  });
+});
+
+describe("Photographie de clôture", () => {
+  const aujourdhui = "2026-11-15";
+  const chantier: Chantier = {
+    id: "c",
+    titre: "Remonter la marge",
+    changement: "Hausse des tarifs",
+    typePeriode: "quarter",
+    periode: T4,
+    statut: "active",
+    kpis: [
+      kpi({ cle: "encaissements", cible: 300_000 }),
+      kpi({ cle: "taux_marge_brute", position: 2, cible: 48, reference: { valeur: 30, libelle: "T4 2025", origine: "equivalent", periode: { debut: "2025-10-01", fin: "2025-12-31" } } }),
+      kpi({ cle: CLE_PERSONNALISE, position: 3, nomPersonnalise: "Délai", unitePersonnalisee: "jours", sens: "down", cible: 40, reference: { valeur: 60, libelle: "Saisie", origine: "manual", periode: null } }),
+    ],
+  };
+  const sources = donnees([...moisType("2026-10", 80_000, -50_000), ...moisType("2026-11", 95_000, -40_000)]);
+  const manuelles = [{ kpiId: "k-custom", mois: "2026-10", valeur: 48 }];
+  const cartes = () => chantier.kpis.map((k) => carteDuSuivi(suivreKpi(k, chantier, sources, manuelles, aujourdhui), "quarter", EXERCICE_PAR_DEFAUT));
+
+  test("valeurs finales, séries mensuelles, atteinte, libellés et date de clôture conservés", () => {
+    const photo = photographierChantier(chantier, cartes(), EXERCICE_PAR_DEFAUT, aujourdhui, "2026-11-15T10:00:00.000Z");
+    assert.equal(photo.clotureLe, "2026-11-15T10:00:00.000Z");
+    assert.equal(photo.arreteAu, aujourdhui);
+    assert.equal(photo.libellePeriode, "T4 2026");
+    assert.equal(photo.titre, "Remonter la marge");
+    assert.equal(photo.changement, "Hausse des tarifs");
+    assert.equal(photo.cartes[0].suivi.actuelle?.valeur, 175_000);
+    assert.deepEqual(photo.cartes[0].suivi.points.map((p) => [p.statut, p.valeur]), [["clos", 80_000], ["en_cours", 175_000], ["a_venir", null]]);
+    assert.equal(photo.cartes[1].reference.court, "T4 2025");
+    assert.equal(photo.cartes[1].mention, "HT estimé");
+    assert.equal(photo.cartes[2].suivi.kpi.unitePersonnalisee, "jours");
+    assert.equal(photo.cartes[2].suivi.atteinte.etat === "calcule" && Math.round(photo.cartes[2].suivi.atteinte.fraction * 100), 60);
+  });
+
+  test("une modification ultérieure des données sources ne change pas la photographie", () => {
+    const vivantes = cartes();
+    const photo = photographierChantier(chantier, vivantes, EXERCICE_PAR_DEFAUT, aujourdhui, "2026-11-15T10:00:00.000Z");
+    // Stockée en base puis relue (JSON), comme en production.
+    const relue = lirePhotographie(JSON.parse(JSON.stringify(photo)));
+    assert.ok(relue);
+    // Plus tard : une écriture retraitée, un mapping changé, un nouvel état vivant.
+    sources.transactions.push(tx("2026-10-20", 500_000, "ca"));
+    vivantes[0].suivi.points[0].valeur = -1;
+    const recalcule = suivreKpi(chantier.kpis[0], chantier, sources, manuelles, aujourdhui);
+    assert.notEqual(recalcule.actuelle?.valeur, 175_000);
+    assert.equal(relue!.cartes[0].suivi.actuelle?.valeur, 175_000);
+    assert.equal(relue!.cartes[0].suivi.points[0].valeur, 80_000);
+    assert.equal(photo.cartes[0].suivi.points[0].valeur, 80_000);
+  });
+
+  test("photographie illisible ou absente : jamais reconstituée", () => {
+    assert.equal(lirePhotographie(null), null);
+    assert.equal(lirePhotographie({ version: 2 }), null);
+    assert.equal(lirePhotographie({ version: 1, titre: "x", clotureLe: "x", periode: T4, typePeriode: "quarter", cartes: [] }), null);
   });
 });

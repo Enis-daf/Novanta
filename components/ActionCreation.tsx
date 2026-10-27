@@ -14,6 +14,7 @@ import {
   formatValeurKpi,
   KPI_NON_DISPONIBLES,
   libellePeriode,
+  libellesReference,
   LIBELLES_FAMILLE,
   NOMBRE_KPI,
   periodesProposees,
@@ -355,6 +356,9 @@ export default function ActionCreation({ aujourdhui, exercice, chargerDonnees, l
                   />
                 ) : (
                   <ObjectifAuto
+                    libelleReference={
+                      references.parCle[cle] ? libellesReference(references.parCle[cle]!, typePeriode, exercice).detail : null
+                    }
                     key={cle}
                     cle={cle}
                     reference={references.parCle[cle]}
@@ -402,12 +406,14 @@ export default function ActionCreation({ aujourdhui, exercice, chargerDonnees, l
 function ObjectifAuto({
   cle,
   reference,
+  libelleReference,
   cible,
   onCible,
   erreur,
 }: {
   cle: CleKpiAuto;
   reference: ReferenceProposee | undefined;
+  libelleReference: string | null;
   cible: string;
   onCible: (v: string) => void;
   erreur?: string;
@@ -425,7 +431,7 @@ function ObjectifAuto({
       </p>
       {reference && reference.valeur !== null ? (
         <p className="action-objectif__reference">
-          Référence : <strong>{formatValeurKpi(reference.valeur, definition.unite)}</strong> — {reference.libelle}
+          Référence : <strong>{formatValeurKpi(reference.valeur, definition.unite)}</strong> — {libelleReference ?? reference.libelle}
           <span className={`action-badge${reference.origine === "indicative" ? "" : " action-badge--neutre"}`}>{LIBELLES_ORIGINE[reference.origine]}</span>
         </p>
       ) : (

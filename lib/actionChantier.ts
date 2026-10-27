@@ -1,5 +1,5 @@
 import { parseDateISO, toISODate } from "./dates";
-import { formatKiloEuros } from "./format";
+import { formatKiloEuros, MENTION_HT_ESTIME, MENTION_TTC } from "./format";
 import {
   ConfigExercice,
   getCurrentFiscalQuarterRange,
@@ -403,7 +403,7 @@ export function periodesProposees(type: TypePeriode, aujourdhui: string, config:
 const exerciceCivil = (config: ConfigExercice) => config.mois === 1 && config.jour === 1;
 
 /**
- * Nom court d'une période : « Octobre 2026 », « T4 2026 », « S2 2026 », « Année 2026 » sur un
+ * Nom court d'une période : « Octobre 2026 », « T4 2026 », « S2 2026 », « Exercice 2026 » sur un
  * exercice civil ; sur un exercice décalé, le rang dans l'exercice (« T2 · exercice 2026-27 »).
  * Les dates exactes sont toujours affichées à côté.
  */
@@ -413,7 +413,7 @@ export function libellePeriode(type: TypePeriode, periode: Periode, config: Conf
   const rang = Math.floor(moisEcartes(exercice.debut, periode.debut) / nombreMoisDuType(type)) + 1;
   const anneeDebut = exercice.debut.slice(0, 4);
   if (exerciceCivil(config)) {
-    if (type === "year") return `Année ${anneeDebut}`;
+    if (type === "year") return `Exercice ${anneeDebut}`;
     return `${type === "quarter" ? "T" : "S"}${rang} ${anneeDebut}`;
   }
   const nomExercice = `exercice ${anneeDebut}-${exercice.fin.slice(2, 4)}`;
@@ -856,10 +856,164 @@ export function formatEcartKpi(ecart: number, unite: Unite | "libre", uniteLibre
   return `${signe}${formatValeurKpi(absolu, unite, uniteLibre)}`;
 }
 
-/** « 67 % de l'objectif atteint », « 112 % de l'objectif atteint », « −20 % … ». */
+/** Fraction en pourcentage entier signé : « 67 % », « −20 % ». */
 export function formatFraction(fraction: number): string {
   const pct = Math.round(fraction * 100);
-  return `${pct < 0 ? "−" : ""}${Math.abs(pct)} %`;
+  return `${pct < 0 ? "−" : ""}${Math.abs(pct)}\u00a0%`;
+}
+
+/**
+ * Libellé de l'atteinte, toujours fondé sur la progression métier (chemin référence → cible, sens
+ * compris), jamais sur réalisé − cible :
+ *  - sous la cible : « 75 % de l'objectif atteint » — arrondi par défaut, pour ne jamais lire
+ *    « 100 % » tant que la cible n'est pas atteinte ;
+ *  - cible atteinte (dépassement arrondi nul) : « Objectif atteint » ;
+ *  - au-delà : « Objectif dépassé de 23 % » — même formulation pour « plus haut = mieux » et
+ *    « plus bas = mieux », où dépasser l'objectif veut dire descendre sous la cible ;
+ *  - recul : « −20 % : recul par rapport au point de départ ».
+ */
+export function libelleAtteinte(atteinte: Atteinte, etat: EtatDonnees): { texte: string; recul: boolean } {
+  switch (atteinte.etat) {
+    case "calcule": {
+      const { fraction } = atteinte;
+      if (fraction < 0) return { texte: `${formatFraction(fraction)} : recul par rapport au point de départ`, recul: true };
+      if (fraction < 1) return { texte: `${Math.floor(fraction * 100 + 1e-9)}\u00a0% de l'objectif atteint`, recul: false };
+      const depassement = Math.round((fraction - 1) * 100);
+      return { texte: depassement === 0 ? "Objectif atteint" : `Objectif dépassé de ${depassement}\u00a0%`, recul: false };
+    }
+    case "maintien":
+      return { texte: atteinte.atteint ? "Objectif de maintien : tenu" : "Objectif de maintien : pas tenu", recul: !atteinte.atteint };
+    case "sans_reference":
+      return { texte: "Atteinte non calculable : aucune référence", recul: false };
+    case "sans_valeur":
+      return { texte: etat === "a_venir" ? "Le suivi commence avec le chantier" : "Atteinte non calculable : aucune valeur", recul: false };
+  }
+}
+
+// --- Libellés de la référence -----------------------------------------------------------------
+
+export interface LibellesReference {
+  // Ce que l'écart nomme : « +42,2 pts vs T2 2026 ». null : aucune référence.
+  court: string | null;
+  // La ligne détaillée : « Référence : 20,7 % — T2 2026 · même période un an plus tôt ».
+  detail: string | null;
+}
+
+/**
+ * Libellés d'une référence, construits à partir de ce qui est stocké (origine, période, type de
+ * période du chantier) plutôt qu'à partir d'un texte figé : la période exacte est toujours nommée
+ * quand elle est connue. Le libellé stocké ne sert que de repli (référence sans période connue).
+ */
+export function libellesReference(reference: Reference, typePeriode: TypePeriode, config: ConfigExercice): LibellesReference {
+  if (reference.valeur === null || reference.origine === "none") return { court: null, detail: null };
+  const p = reference.periode;
+  const repli = { court: reference.libelle, detail: reference.libelle };
+  switch (reference.origine) {
+    case "equivalent": {
+      if (!p) return repli;
+      const nom = libellePeriode(typePeriode, p, config);
+      return { court: nom, detail: `${nom} · même période un an plus tôt` };
+    }
+    case "previous": {
+      if (!p) return repli;
+      const nom = libellePeriode(typePeriode, p, config);
+      return { court: nom, detail: `${nom} · ${LIBELLE_PERIODE_PRECEDENTE[typePeriode].toLocaleLowerCase("fr")}` };
+    }
+    case "indicative": {
+      if (!p) return repli;
+      const premier = moisDe(p.debut);
+      const dernier = moisDe(p.fin);
+      const k = moisEcartes(premier, dernier) + 1;
+      const plage = libellePlageMois(premier, dernier);
+      return {
+        court: k === 1 ? `le seul mois disponible (${plage})` : `la moyenne des ${k} mois disponibles (${plage})`,
+        detail: reference.libelle,
+      };
+    }
+    case "situation":
+      return p ? { court: `la situation au ${formatJourLong(p.fin)}`, detail: reference.libelle } : repli;
+    case "manual":
+      return { court: "la valeur de départ", detail: "valeur de départ saisie au lancement" };
+  }
+}
+
+/** « +42,2 pts vs T2 2026 », « −12 jours vs la valeur de départ », « Stable vs T2 2026 ». */
+export function libelleEcartReference(ecart: number, unite: Unite | "libre", uniteLibre: string | null, reference: LibellesReference): string | null {
+  if (reference.court === null) return null;
+  if (ecart === 0) return `Stable vs ${reference.court}`;
+  return `${formatEcartKpi(ecart, unite, uniteLibre)} vs ${reference.court}`;
+}
+
+/** Lecture des montants d'un indicateur, affichée sur sa carte. */
+export function mentionDuKpi(cle: KpiChantier["cle"]): string {
+  if (cle === CLE_PERSONNALISE) return "Saisie manuelle";
+  if (cle === "bfr") return "HT · situations validées";
+  return CATALOGUE_KPI[cle].base === "ttc" ? MENTION_TTC : MENTION_HT_ESTIME;
+}
+
+// --- Carte et photographie de clôture ---------------------------------------------------------
+
+/** Ce qu'une carte KPI affiche : le suivi et ses libellés. Même forme vivante ou figée. */
+export interface CarteKpi {
+  suivi: SuiviKpi;
+  mention: string;
+  reference: LibellesReference;
+}
+
+export function carteDuSuivi(suivi: SuiviKpi, typePeriode: TypePeriode, config: ConfigExercice): CarteKpi {
+  return { suivi, mention: mentionDuKpi(suivi.kpi.cle), reference: libellesReference(suivi.kpi.reference, typePeriode, config) };
+}
+
+export const VERSION_PHOTOGRAPHIE = 1;
+
+/**
+ * Photographie d'un chantier à sa clôture : tout ce que la fiche historique affiche, tel que le
+ * dirigeant le voyait pour piloter — valeurs, séries mensuelles (statut clos / en cours compris),
+ * atteinte, libellés. Jamais recalculée ensuite : ni une écriture modifiée, ni un mapping changé,
+ * ni une évolution du calcul ne la touchent.
+ */
+export interface PhotographieChantier {
+  version: typeof VERSION_PHOTOGRAPHIE;
+  clotureLe: string; // horodatage ISO de la clôture
+  arreteAu: string; // date (YYYY-MM-DD) à laquelle les données étaient arrêtées
+  titre: string;
+  changement: string;
+  typePeriode: TypePeriode;
+  periode: Periode;
+  libellePeriode: string;
+  cartes: CarteKpi[];
+}
+
+export function photographierChantier(
+  chantier: Pick<Chantier, "titre" | "changement" | "typePeriode" | "periode">,
+  cartes: CarteKpi[],
+  config: ConfigExercice,
+  aujourdhui: string,
+  clotureLe: string
+): PhotographieChantier {
+  // Copie profonde : la photographie ne partage rien avec l'état vivant de la page.
+  const copie = JSON.parse(JSON.stringify(cartes)) as CarteKpi[];
+  return {
+    version: VERSION_PHOTOGRAPHIE,
+    clotureLe,
+    arreteAu: aujourdhui,
+    titre: chantier.titre,
+    changement: chantier.changement,
+    typePeriode: chantier.typePeriode,
+    periode: { ...chantier.periode },
+    libellePeriode: libellePeriode(chantier.typePeriode, chantier.periode, config),
+    cartes: copie,
+  };
+}
+
+/** Photographie relue de la base ; null si absente ou illisible (jamais reconstituée). */
+export function lirePhotographie(brut: unknown): PhotographieChantier | null {
+  if (typeof brut !== "object" || brut === null) return null;
+  const p = brut as Partial<PhotographieChantier>;
+  if (p.version !== VERSION_PHOTOGRAPHIE || !Array.isArray(p.cartes) || p.cartes.length !== NOMBRE_KPI) return null;
+  if (typeof p.titre !== "string" || typeof p.clotureLe !== "string" || !p.periode || !estTypePeriode(p.typePeriode)) return null;
+  const valides = p.cartes.every((c) => c && c.suivi && Array.isArray(c.suivi.points) && c.suivi.kpi && typeof c.mention === "string" && c.reference);
+  return valides ? (p as PhotographieChantier) : null;
 }
 
 /** Jours écoulés de la période (bornés à sa durée), pour l'en-tête du chantier. */

@@ -6,7 +6,9 @@ import {
   estCleKpiAuto,
   estTypePeriode,
   KpiChantier,
+  lirePhotographie,
   OrigineReference,
+  PhotographieChantier,
   Reference,
   Sens,
   TypePeriode,
@@ -141,14 +143,57 @@ export async function lancerChantier(
   return data as string;
 }
 
-/** Clôture le chantier actif : il cesse d'être suivi, un autre peut être lancé. */
-export async function cloturerChantier(supabase: SupabaseClient, organizationId: string, chantierId: string): Promise<void> {
-  const { error } = await supabase
+/**
+ * Clôture le chantier actif, en une seule écriture : statut, date et photographie de la fiche.
+ * Rien n'est supprimé ; le chantier passe dans l'historique, en lecture seule.
+ */
+export async function cloturerChantier(
+  supabase: SupabaseClient,
+  organizationId: string,
+  chantierId: string,
+  photographie: PhotographieChantier
+): Promise<void> {
+  const { data, error } = await supabase
     .from("action_initiatives")
-    .update({ status: "completed", completed_at: new Date().toISOString() })
+    .update({ status: "completed", completed_at: photographie.clotureLe, closing_snapshot: photographie })
     .eq("organization_id", organizationId)
-    .eq("id", chantierId);
+    .eq("id", chantierId)
+    .eq("status", "active")
+    .select("id");
   if (error) throw error;
+  if (!data || data.length === 0) throw new Error("Ce chantier n'est plus actif.");
+}
+
+export interface ChantierCloture {
+  id: string;
+  titre: string;
+  typePeriode: TypePeriode;
+  periode: Periode;
+  clotureLe: string;
+  // null : chantier clôturé sans photographie lisible (antérieur à l'historisation).
+  photographie: PhotographieChantier | null;
+}
+
+/** Historique : les chantiers clôturés de l'organisation, du plus récent au plus ancien. */
+export async function chargerChantiersClotures(supabase: SupabaseClient, organizationId: string): Promise<ChantierCloture[]> {
+  const { data, error } = await supabase
+    .from("action_initiatives")
+    .select("id, title, period_type, start_date, end_date, completed_at, closing_snapshot")
+    .eq("organization_id", organizationId)
+    .eq("status", "completed")
+    .order("completed_at", { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as Row[]).map((row) => {
+    const typePeriode = row.period_type as string;
+    return {
+      id: row.id as string,
+      titre: row.title as string,
+      typePeriode: estTypePeriode(typePeriode) ? typePeriode : "quarter",
+      periode: { debut: row.start_date as string, fin: row.end_date as string },
+      clotureLe: row.completed_at as string,
+      photographie: lirePhotographie(row.closing_snapshot),
+    };
+  });
 }
 
 /** Saisit (ou corrige) la valeur observée d'un mois pour l'indicateur personnalisé. */
