@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabaseServer";
 import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseAdmin";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
+import { chargerDroitsOrganisation, refusOffre } from "@/lib/offres";
 import { moduleActifPourOrganisation } from "@/lib/organizationModules";
 import { marquerResultatTestPennylane, obtenirTokenPennylane, resumeErreurSupabaseSansSecret } from "@/lib/pennylaneRepository";
 import { CompanyApiTokenCredentialProvider } from "@/lib/pennylaneCredentialProvider";
@@ -83,6 +84,10 @@ export async function POST(req: NextRequest) {
     }
     if (!(await moduleActifPourOrganisation(supabase, company.id, "past"))) {
       return NextResponse.json({ error: "Accès au module Passé refusé." }, { status: 403 });
+    }
+    // Onglet BFR : réservé aux offres qui l'incluent, revérifié ici (le verrou de l'onglet ne suffit pas).
+    if (!(await chargerDroitsOrganisation(supabase, company.id)).capacites.canViewWorkingCapital) {
+      return NextResponse.json(refusOffre("canViewWorkingCapital"), { status: 403 });
     }
     organizationId = company.id;
   } catch (erreur) {
