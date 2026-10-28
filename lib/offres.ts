@@ -5,7 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // le BFR ? »), jamais « suis-je en Pilotage ? ».
 //
 // Chaîne : organisation (companies.plan, plan_override, plan_override_until — voir
-// supabase/migrations/20261028_organization_plan.sql) -> offre effective -> capacités -> accès.
+// supabase/migrations/20261028_organization_plan.sql — et l'essai Stripe) -> offre effective ->
+// capacités -> accès.
 // Les rôles utilisateur n'entrent pas ici : l'offre appartient à l'organisation.
 
 // Ordre croissant : sert à trouver l'offre minimale qui ouvre une capacité.
@@ -76,14 +77,23 @@ export interface OffreOrganisationBrute {
   plan?: unknown;
   plan_override?: unknown;
   plan_override_until?: unknown;
+  // Essai Stripe (écrits par app/api/stripe/webhook) : pendant un essai, la fin de période Stripe
+  // est la fin de l'essai.
+  subscription_status?: unknown;
+  subscription_current_period_end?: unknown;
 }
+
+// Offre accordée pendant un essai actif : l'essai n'est pas un niveau à part, il ouvre Pilotage.
+export const OFFRE_ESSAI: Offre = "steering";
 
 export interface DroitsOrganisation {
   // Offre contractuelle (companies.plan), après repli éventuel.
   offreContractuelle: Offre;
-  // Offre qui détermine les droits : l'override s'il est valide, sinon l'offre contractuelle.
+  // Offre qui détermine les droits : l'override s'il est valide, sinon Pilotage pendant un essai
+  // actif, sinon l'offre contractuelle.
   offreEffective: Offre;
   overrideActif: boolean;
+  essaiActif: boolean;
   capacites: Capacites;
 }
 
@@ -100,14 +110,30 @@ function overrideValide(brute: OffreOrganisationBrute, maintenant: Date): Offre 
   return brute.plan_override;
 }
 
+// Essai actif : statut Stripe exactement "trialing" ET fin d'essai lisible encore à venir. La date
+// fait foi même si le webhook de fin d'essai n'est pas encore arrivé : l'essai s'éteint de lui-même
+// à l'échéance, sans intervention. Sans date lisible, pas d'essai (jamais d'accès sur une valeur
+// douteuse).
+function essaiEnCours(brute: OffreOrganisationBrute, maintenant: Date): boolean {
+  if (brute.subscription_status !== "trialing") return false;
+  if (typeof brute.subscription_current_period_end !== "string") return false;
+  const fin = new Date(brute.subscription_current_period_end).getTime();
+  return !Number.isNaN(fin) && fin > maintenant.getTime();
+}
+
+// Priorité : override manuel de Novanta (décision explicite, y compris pour montrer une offre
+// inférieure en démo) > essai actif > offre contractuelle. Ni l'essai ni l'override ne modifient
+// companies.plan : à leur fin, l'organisation retrouve son offre contractuelle.
 export function droitsOrganisation(brute: OffreOrganisationBrute, maintenant: Date = new Date()): DroitsOrganisation {
   const offreContractuelle = estOffre(brute.plan) ? brute.plan : OFFRE_DE_REPLI;
   const override = overrideValide(brute, maintenant);
-  const offreEffective = override ?? offreContractuelle;
+  const essaiActif = override === null && essaiEnCours(brute, maintenant);
+  const offreEffective = override ?? (essaiActif ? OFFRE_ESSAI : offreContractuelle);
   return {
     offreContractuelle,
     offreEffective,
     overrideActif: override !== null,
+    essaiActif,
     capacites: capacitesDeLOffre(offreEffective),
   };
 }
@@ -122,7 +148,7 @@ export async function chargerDroitsOrganisation(
 ): Promise<DroitsOrganisation> {
   const { data, error } = await supabase
     .from("companies")
-    .select("plan, plan_override, plan_override_until")
+    .select("plan, plan_override, plan_override_until, subscription_status, subscription_current_period_end")
     .eq("id", organizationId)
     .maybeSingle();
   if (error) throw error;
