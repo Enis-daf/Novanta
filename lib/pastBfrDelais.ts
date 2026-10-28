@@ -1,0 +1,243 @@
+import { FactureBfr, TypeFactureBfr } from "./pastBfr";
+import { SEUIL_COUVERTURE_REGLEMENT } from "./pennylaneInvoiceAdapter";
+
+/**
+ * Délai clients / délai fournisseurs de l'onglet BFR — fonctions pures, sur les mêmes faits Pennylane
+ * que le BFR (past_bfr_invoices). Ce ne sont pas des DSO / DPO comptables : on mesure le délai
+ * RÉEL de paiement des factures.
+ *
+ *  - Cohorte : les factures ÉMISES sur la période (date d'émission), quelle que soit la date de leur
+ *    règlement — une facture de septembre payée en novembre reste dans septembre.
+ *  - Facture réglée : soldée aujourd'hui chez Pennylane (règle du projet : reste dû nul ; côté
+ *    fournisseurs, couverte à SEUIL_COUVERTURE_REGLEMENT comme pour la synchronisation des
+ *    factures). Sa date de règlement est celle de sa DERNIÈRE transaction bancaire rapprochée : la
+ *    date où son solde est apuré. Jamais l'échéance, jamais une date prévue, jamais un statut seul.
+ *  - Délai réel = date de règlement − date d'émission, en jours calendaires.
+ *  - Moyenne pondérée par le montant HT de la facture ; écart à l'échéance de même.
+ *  - Une facture encore ouverte n'entre jamais dans la moyenne : elle a son ancienneté, à part.
+ *  - Une facture dont le délai ne peut pas être établi (pas de date de règlement, règlement avant
+ *    émission, montant HT absent, facture annulée ou remplacée) est exclue ET comptée, avec sa raison.
+ *
+ * Avoirs, brouillons, devis : ce ne sont pas des factures émises, ils n'entrent pas dans la cohorte.
+ */
+
+export type CoteDelai = TypeFactureBfr;
+
+export const SEUIL_REPRESENTATIF = 3; // en dessous, la moyenne est affichée mais signalée
+export const SEUIL_DISPERSION = 10; // en dessous, pas d'intervalle de dispersion
+
+export type RaisonExclusion =
+  | "annulee"
+  | "remplacee"
+  | "sans_date_reglement"
+  | "reglements_non_recuperes"
+  | "reglement_avant_emission"
+  | "montant_ht_absent";
+
+export const LIBELLES_EXCLUSION: Record<RaisonExclusion, string> = {
+  annulee: "Facture annulée",
+  remplacee: "Version remplacée (archivée chez Pennylane)",
+  sans_date_reglement: "Réglée sans transaction bancaire rapprochée : date de règlement inconnue",
+  reglements_non_recuperes: "Règlements pas encore récupérés de Pennylane",
+  reglement_avant_emission: "Règlement antérieur à l'émission : anomalie de données",
+  montant_ht_absent: "Montant HT absent ou nul",
+};
+
+interface FactureCohorte {
+  pennylaneId: string;
+  numero: string;
+  tiers: string;
+  montantHt: number;
+  dateEmission: string;
+  echeance: string | null;
+}
+
+export interface FactureReglee extends FactureCohorte {
+  dateReglement: string;
+  delai: number; // jours, ≥ 0
+  ecartEcheance: number | null; // règlement − échéance : + après, − avant ; null sans échéance
+}
+
+export interface FactureOuverte extends FactureCohorte {
+  anciennete: number; // jours depuis l'émission, à la date de référence
+}
+
+export interface FactureExclue extends Omit<FactureCohorte, "montantHt"> {
+  montantHt: number | null;
+  raison: RaisonExclusion;
+}
+
+export interface TrancheDelai {
+  cle: string;
+  libelle: string;
+  min: number;
+  max: number | null; // null : sans borne haute
+  factures: FactureReglee[];
+  partNombre: number; // 0..1
+  partMontant: number; // 0..1
+}
+
+export const BORNES_TRANCHES: readonly { min: number; max: number | null }[] = [
+  { min: 0, max: 15 },
+  { min: 16, max: 30 },
+  { min: 31, max: 45 },
+  { min: 46, max: 60 },
+  { min: 61, max: 90 },
+  { min: 91, max: null },
+];
+
+export interface Dispersion {
+  part: number; // 0,8 : 80 % des factures
+  min: number; // P10
+  max: number; // P90
+}
+
+export interface DelaisCohorte {
+  cote: CoteDelai;
+  reglees: FactureReglee[];
+  ouvertes: FactureOuverte[];
+  exclues: FactureExclue[];
+  delaiMoyen: number | null; // pondéré HT, null sans facture réglée
+  ecartEcheanceMoyen: number | null; // pondéré HT, sur les factures réglées qui ont une échéance
+  sansEcheance: number; // factures réglées sans échéance (exclues de l'écart seulement)
+  ancienneteMoyenneOuvertes: number | null; // pondérée HT
+  tranches: TrancheDelai[];
+  dispersion: Dispersion | null; // null sous SEUIL_DISPERSION factures réglées
+  representatif: boolean; // au moins SEUIL_REPRESENTATIF factures réglées
+  // Provisoire : des factures de la cohorte sont encore ouvertes, ou leurs règlements pas encore
+  // récupérés — la moyenne peut encore bouger. Stabilisé sinon.
+  statut: "provisoire" | "stabilise";
+}
+
+const MS_JOUR = 86_400_000;
+
+/** Jours calendaires entre deux dates YYYY-MM-DD (b − a), sans effet d'heure d'été. */
+export function joursEntre(a: string, b: string): number {
+  return Math.round((Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10)) - Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10))) / MS_JOUR);
+}
+
+const EPSILON = 0.01;
+
+/** Facture soldée aujourd'hui chez Pennylane, avoirs déduits — mêmes seuils que la synchronisation. */
+function estSoldee(f: FactureBfr, avoirsTtc: number): boolean {
+  const du = f.montantTtc - avoirsTtc;
+  if (f.resteTtc <= EPSILON) return true;
+  return f.type === "fournisseur" && du > 0 && du - f.resteTtc >= SEUIL_COUVERTURE_REGLEMENT * du;
+}
+
+const moyennePonderee = (lignes: { poids: number; valeur: number }[]): number | null => {
+  const poids = lignes.reduce((s, l) => s + l.poids, 0);
+  return poids > 0 ? lignes.reduce((s, l) => s + l.poids * l.valeur, 0) / poids : null;
+};
+
+/** Rang le plus proche : la valeur au rang ceil(p·n) des délais triés. Stable, sans interpolation. */
+function percentile(trie: number[], p: number): number {
+  return trie[Math.min(trie.length, Math.max(1, Math.ceil(p * trie.length))) - 1];
+}
+
+export interface PeriodeDelai {
+  debut: string; // YYYY-MM-DD inclus
+  fin: string; // YYYY-MM-DD inclus
+}
+
+export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, periode: PeriodeDelai, aujourdhui: string): DelaisCohorte {
+  const avoirsTtc = new Map<string, number>();
+  for (const f of factures) {
+    if (f.exclusion === "avoir" && f.factureAvoireeId !== null && f.type === cote) {
+      avoirsTtc.set(f.factureAvoireeId, (avoirsTtc.get(f.factureAvoireeId) ?? 0) + f.montantTtc);
+    }
+  }
+
+  const reglees: FactureReglee[] = [];
+  const ouvertes: FactureOuverte[] = [];
+  const exclues: FactureExclue[] = [];
+  for (const f of factures) {
+    if (f.type !== cote || f.dateEmission === null || f.dateEmission < periode.debut || f.dateEmission > periode.fin) continue;
+    if (f.exclusion === "avoir" || f.exclusion === "brouillon" || f.exclusion === "hors_facture") continue;
+    const base = { pennylaneId: f.pennylaneId, numero: f.numero, tiers: f.tiers, dateEmission: f.dateEmission, echeance: f.echeance };
+    const exclure = (raison: RaisonExclusion) => exclues.push({ ...base, montantHt: f.montantHt, raison });
+
+    if (f.exclusion === "annulee") {
+      exclure("annulee");
+      continue;
+    }
+    if (f.exclusion === "archivee") {
+      exclure("remplacee");
+      continue;
+    }
+    const avoirs = avoirsTtc.get(f.pennylaneId) ?? 0;
+    if (avoirs >= f.montantTtc - EPSILON) {
+      exclure("annulee"); // entièrement annulée par avoir : jamais payée, pas de délai
+      continue;
+    }
+    if (f.montantHt === null || f.montantHt <= 0) {
+      exclure("montant_ht_absent");
+      continue;
+    }
+    if (!estSoldee(f, avoirs)) {
+      ouvertes.push({ ...base, montantHt: f.montantHt, anciennete: Math.max(0, joursEntre(f.dateEmission, aujourdhui)) });
+      continue;
+    }
+    if (f.reglements === null) {
+      exclure("reglements_non_recuperes");
+      continue;
+    }
+    if (f.reglements.length === 0) {
+      exclure("sans_date_reglement");
+      continue;
+    }
+    const dateReglement = f.reglements.reduce((max, r) => (r.date > max ? r.date : max), f.reglements[0].date);
+    const delai = joursEntre(f.dateEmission, dateReglement);
+    if (delai < 0) {
+      exclure("reglement_avant_emission");
+      continue;
+    }
+    reglees.push({ ...base, montantHt: f.montantHt, dateReglement, delai, ecartEcheance: f.echeance ? joursEntre(f.echeance, dateReglement) : null });
+  }
+
+  const totalNombre = reglees.length;
+  const totalMontant = reglees.reduce((s, f) => s + f.montantHt, 0);
+  const tranches = BORNES_TRANCHES.map(({ min, max }) => {
+    const dedans = reglees.filter((f) => f.delai >= min && (max === null || f.delai <= max)).sort((a, b) => b.delai - a.delai);
+    return {
+      cle: max === null ? `${min}+` : `${min}-${max}`,
+      libelle: max === null ? `+${min - 1} j` : `${min}–${max} j`,
+      min,
+      max,
+      factures: dedans,
+      partNombre: totalNombre > 0 ? dedans.length / totalNombre : 0,
+      partMontant: totalMontant > 0 ? dedans.reduce((s, f) => s + f.montantHt, 0) / totalMontant : 0,
+    };
+  });
+
+  const delaisTries = reglees.map((f) => f.delai).sort((a, b) => a - b);
+  const avecEcheance = reglees.filter((f) => f.ecartEcheance !== null);
+  return {
+    cote,
+    reglees,
+    ouvertes,
+    exclues,
+    delaiMoyen: moyennePonderee(reglees.map((f) => ({ poids: f.montantHt, valeur: f.delai }))),
+    ecartEcheanceMoyen: moyennePonderee(avecEcheance.map((f) => ({ poids: f.montantHt, valeur: f.ecartEcheance as number }))),
+    sansEcheance: reglees.length - avecEcheance.length,
+    ancienneteMoyenneOuvertes: moyennePonderee(ouvertes.map((f) => ({ poids: f.montantHt, valeur: f.anciennete }))),
+    tranches,
+    dispersion:
+      delaisTries.length >= SEUIL_DISPERSION ? { part: 0.8, min: percentile(delaisTries, 0.1), max: percentile(delaisTries, 0.9) } : null,
+    representatif: reglees.length >= SEUIL_REPRESENTATIF,
+    statut: ouvertes.length > 0 || exclues.some((f) => f.raison === "reglements_non_recuperes") ? "provisoire" : "stabilise",
+  };
+}
+
+/** « +8 j après échéance », « 6 j avant échéance », « à l'échéance ». */
+export function libelleEcartEcheance(jours: number): string {
+  const arrondi = Math.round(jours);
+  if (arrondi === 0) return "à l'échéance";
+  return arrondi > 0 ? `+${arrondi} j après échéance` : `${-arrondi} j avant échéance`;
+}
+
+/** « +4 j », « −2 j », « 0 j » : variation d'un délai moyen. */
+export function libelleVariationJours(jours: number): string {
+  const arrondi = Math.round(jours);
+  return arrondi > 0 ? `+${arrondi} j` : arrondi < 0 ? `−${-arrondi} j` : "0 j";
+}

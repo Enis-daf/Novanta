@@ -4448,3 +4448,89 @@ button.passe-cible--lien:focus-visible,
   font-style: normal;
   color: var(--couleur-texte);
 }
+
+/* BFR : délais clients / fournisseurs — deux cartes cliquables, puis la distribution et le détail. */
+.passe-bfr__delais-bloc {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.passe-bfr__delais {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.passe-bfr__delais .passe-message {
+  margin: 0;
+}
+
+.passe-bfr__delais-cartes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+.passe-bfr__delai {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--space-3);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 2px;
+  background: var(--couleur-fond);
+  font: inherit;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  text-align: left;
+  cursor: pointer;
+}
+
+.passe-bfr__delai:hover,
+.passe-bfr__delai:focus-visible {
+  border-color: var(--couleur-texte);
+}
+
+.passe-bfr__delai-titre {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--couleur-texte);
+}
+
+.passe-bfr__delai strong {
+  font-size: 28px;
+  color: var(--couleur-texte);
+  font-variant-numeric: tabular-nums;
+}
+
+.passe-bfr__delai .passe-bfr__statut {
+  margin-top: var(--space-1);
+}
+
+.passe-bfr__vue-delais {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.passe-bfr__vue-delais > div:not(.passe-bfr__barre),
+.passe-bfr__vue-delais > table {
+  width: 100%;
+}
+
+.passe-bfr__vue-delais .passe-kpi__montant,
+.passe-bfr__vue-delais .passe-kpi__ratio,
+.passe-bfr__vue-delais .eyebrow {
+  margin: 0;
+}
+
+.passe-bfr__tranches {
+  max-width: 640px;
+}
