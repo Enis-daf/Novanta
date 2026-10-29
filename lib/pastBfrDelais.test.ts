@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { FactureBfr } from "./pastBfr";
-import { delaisDeLaCohorte, joursEntre, libelleEcartEcheance, libelleVariationJours } from "./pastBfrDelais";
+import { delaisDeLaCohorte, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
 
 const SEPTEMBRE = { debut: "2026-09-01", fin: "2026-09-30" };
 const AUJOURDHUI = "2026-10-28";
@@ -189,5 +189,70 @@ describe("libellés", () => {
     assert.equal(libelleVariationJours(4.2), "+4 j");
     assert.equal(libelleVariationJours(-2), "−2 j");
     assert.equal(libelleEcartEcheance(0.2), "à l'échéance");
+  });
+});
+
+describe("dispersion : écart-type pondéré HT et niveau relatif à la moyenne", () => {
+  const regleesA = (delais: number[], montants?: number[]) =>
+    delais.map((d, i) => facture({ montantHt: montants?.[i] ?? 1_000, regleeLe: new Date(Date.UTC(2026, 8, 1 + d)).toISOString().slice(0, 10) }));
+
+  test("même moyenne de 45 j : 100 % à 45 j faible, 30/60 modérée, 5/85 forte", () => {
+    const homogene = cohorte(regleesA([45, 45, 45]));
+    assert.deepEqual([homogene.ecartType, homogene.niveauDispersion], [0, "faible"]);
+    const moyenne = cohorte(regleesA([30, 60, 30, 60]));
+    proche(moyenne.ecartType, 15);
+    assert.equal(moyenne.niveauDispersion, "moderee");
+    const dispersee = cohorte(regleesA([5, 85, 5, 85]));
+    proche(dispersee.ecartType, 40);
+    assert.equal(dispersee.niveauDispersion, "forte");
+  });
+
+  test("écart-type pondéré par les montants HT, pas par le nombre", () => {
+    // 10 j sur 1 000 €, 60 j sur 9 000 € : μ = 55, σ = √((1 000·45² + 9 000·5²) / 10 000) = 15.
+    const c = cohorte(regleesA([10, 60, 60], [1_000, 4_500, 4_500]));
+    proche(c.delaiMoyen, 55);
+    proche(c.ecartType, 15);
+  });
+
+  test("relatif à la moyenne : σ 20 j est faible autour de 90 j, fort autour de 15 j", () => {
+    assert.equal(niveauDeDispersion(90, 20), "faible");
+    assert.equal(niveauDeDispersion(15, 20), "forte");
+    assert.equal(niveauDeDispersion(0, 0), "faible", "moyenne nulle sans division invalide");
+  });
+
+  test("moins de 3 factures réglées : pas de niveau de dispersion", () => {
+    assert.equal(cohorte(regleesA([10, 80])).niveauDispersion, null);
+  });
+
+  test("les factures ouvertes n'entrent ni dans la moyenne ni dans l'écart-type", () => {
+    const avecOuvertes = cohorte([...regleesA([45, 45, 45]), facture({ regleeLe: null, dateEmission: "2026-09-01" })]);
+    assert.deepEqual([avecOuvertes.delaiMoyen, avecOuvertes.ecartType, avecOuvertes.niveauDispersion], [45, 0, "faible"]);
+  });
+
+  test("tranche dominante : « 67 % des factures réglées en ≤ 15 j »", () => {
+    const c = cohorte(regleesA([5, 10, 40]));
+    assert.equal(c.trancheDominante!.tranche.cle, "0-15");
+    proche(c.trancheDominante!.part, 2 / 3);
+    assert.equal(libelleTrancheDansPhrase(c.trancheDominante!.tranche), "en ≤ 15 j");
+    assert.equal(libelleTrancheDansPhrase({ min: 31, max: 45 }), "entre 31 et 45 j");
+    assert.equal(libelleTrancheDansPhrase({ min: 91, max: null }), "en plus de 90 j");
+  });
+});
+
+describe("factures encore ouvertes", () => {
+  test("nombre, montant HT, ancienneté pondérée ; retard à date par rapport à l'échéance", () => {
+    const c = cohorte([
+      facture({ regleeLe: null, dateEmission: "2026-09-01", echeance: "2026-09-16", montantHt: 3_000 }),
+      facture({ regleeLe: null, dateEmission: "2026-09-30", echeance: "2026-11-09", montantHt: 1_000 }),
+      facture(),
+    ]);
+    assert.equal(c.ouvertes.length, 2);
+    assert.equal(c.montantOuvertes, 4_000);
+    // 57 j sur 3 000 €, 28 j sur 1 000 € : 49,75 j.
+    proche(c.ancienneteMoyenneOuvertes, 49.75);
+    assert.deepEqual(c.ouvertes.map((f) => f.retardEcheance), [42, -12]);
+    assert.equal(libelleRetardOuverte(42), "+42 j de retard");
+    assert.equal(libelleRetardOuverte(-12), "échéance dans 12 j");
+    proche(c.delaiMoyen, 45);
   });
 });

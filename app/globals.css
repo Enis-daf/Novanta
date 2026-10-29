@@ -4045,11 +4045,23 @@ button.passe-cible--lien:focus-visible,
   gap: var(--space-6);
 }
 
-@media (min-width: 960px) {
-  .passe-bfr__haut {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-    align-items: start;
-  }
+/* Synthèse puis décomposition, l'une sous l'autre : la décomposition, pleine largeur, porte les
+   délais clients et fournisseurs sous les composantes qu'ils expliquent. */
+.passe-bfr__decomposition-zone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.passe-bfr__delais-periode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.passe-bfr__delais-periode .passe-message {
+  margin: 0;
 }
 
 .passe-bfr__synthese {
@@ -4449,29 +4461,9 @@ button.passe-cible--lien:focus-visible,
   color: var(--couleur-texte);
 }
 
-/* BFR : délais clients / fournisseurs — deux cartes cliquables, puis la distribution et le détail. */
-.passe-bfr__delais-bloc {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-2);
-}
-
-.passe-bfr__delais {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  width: 100%;
-}
-
-.passe-bfr__delais .passe-message {
-  margin: 0;
-}
-
-.passe-bfr__delais-cartes {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: var(--space-3);
+/* BFR : délai clients / fournisseurs — cartouche compact sous la composante, cliquable. */
+.passe-bfr__decomposition {
+  align-items: stretch;
 }
 
 .passe-bfr__delai {
@@ -4479,38 +4471,83 @@ button.passe-cible--lien:focus-visible,
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: var(--space-3);
-  border: 1px solid var(--couleur-bordure);
-  border-radius: 2px;
-  background: var(--couleur-fond);
+  margin-top: var(--space-2);
+  padding: var(--space-2) 0 0;
+  border: none;
+  border-top: 1px solid var(--couleur-bordure);
+  background: none;
   font: inherit;
   font-size: 12px;
-  color: var(--couleur-texte-secondaire);
+  line-height: 1.35;
+  color: var(--couleur-texte);
   text-align: left;
   cursor: pointer;
+  width: 100%;
 }
 
-.passe-bfr__delai:hover,
-.passe-bfr__delai:focus-visible {
-  border-color: var(--couleur-texte);
+.passe-bfr__delai:hover .passe-bfr__delai-titre,
+.passe-bfr__delai:focus-visible .passe-bfr__delai-titre {
+  text-decoration: underline;
 }
 
 .passe-bfr__delai-titre {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--couleur-texte);
+  color: var(--couleur-texte-secondaire);
 }
 
-.passe-bfr__delai strong {
-  font-size: 28px;
-  color: var(--couleur-texte);
+.passe-bfr__delai-titre::after {
+  content: " →";
+}
+
+.passe-bfr__delai-moyenne strong {
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
 }
 
-.passe-bfr__delai .passe-bfr__statut {
+.passe-bfr__delai-note {
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-bfr__delai-ouvertes {
   margin-top: var(--space-1);
+  font-weight: 600;
+}
+
+/* Dispersion : vert faible, orange modérée, rouge forte — une pastille et le libellé, rien de plus. */
+.passe-bfr__dispersion {
+  font-weight: 600;
+}
+
+.passe-bfr__dispersion::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: middle;
+  background: currentColor;
+}
+
+.passe-bfr__dispersion--faible {
+  color: #0f766e;
+}
+
+.passe-bfr__dispersion--moderee {
+  color: #b45309;
+}
+
+.passe-bfr__dispersion--forte {
+  color: #b91c1c;
+}
+
+.passe-bfr__ligne-ouvertes td {
+  border-top: 1px solid var(--couleur-texte);
+  color: var(--couleur-texte-secondaire);
 }
 
 .passe-bfr__vue-delais {

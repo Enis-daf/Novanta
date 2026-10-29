@@ -24,7 +24,19 @@ import { SEUIL_COUVERTURE_REGLEMENT } from "./pennylaneInvoiceAdapter";
 export type CoteDelai = TypeFactureBfr;
 
 export const SEUIL_REPRESENTATIF = 3; // en dessous, la moyenne est affichée mais signalée
-export const SEUIL_DISPERSION = 10; // en dessous, pas d'intervalle de dispersion
+export const SEUIL_DISPERSION = 10; // en dessous, pas d'intervalle de dispersion (10e–90e centiles)
+
+/**
+ * Niveau de dispersion des délais réglés, lu sur le coefficient de variation : écart-type pondéré
+ * HT / moyenne pondérée HT — relatif à la moyenne, pour qu'un écart-type de 20 j ne se lise pas pareil
+ * autour de 15 j et autour de 90 j. Seuils (documentés, à revoir sur données réelles) :
+ *   ≤ 0,25 faible · ≤ 0,50 modérée · au-delà forte.
+ * Repères : 100 % à 45 j -> 0 (faible) ; moitié à 30 j, moitié à 60 j -> 0,33 (modérée) ;
+ * moitié à 5 j, moitié à 85 j -> 0,89 (forte).
+ * Au moins SEUIL_REPRESENTATIF factures réglées, sinon pas de niveau.
+ */
+export const SEUILS_DISPERSION = { faible: 0.25, moderee: 0.5 } as const;
+export type NiveauDispersion = "faible" | "moderee" | "forte";
 
 export type RaisonExclusion =
   | "annulee"
@@ -60,6 +72,8 @@ export interface FactureReglee extends FactureCohorte {
 
 export interface FactureOuverte extends FactureCohorte {
   anciennete: number; // jours depuis l'émission, à la date de référence
+  // Date de référence − échéance : + en retard, − pas encore échue ; null sans échéance.
+  retardEcheance: number | null;
 }
 
 export interface FactureExclue extends Omit<FactureCohorte, "montantHt"> {
@@ -101,6 +115,12 @@ export interface DelaisCohorte {
   ecartEcheanceMoyen: number | null; // pondéré HT, sur les factures réglées qui ont une échéance
   sansEcheance: number; // factures réglées sans échéance (exclues de l'écart seulement)
   ancienneteMoyenneOuvertes: number | null; // pondérée HT
+  montantOuvertes: number; // total HT des factures encore ouvertes
+  // Écart-type pondéré HT des délais réglés, et son niveau relatif à la moyenne (voir SEUILS_DISPERSION).
+  ecartType: number | null;
+  niveauDispersion: NiveauDispersion | null;
+  // Tranche qui regroupe le plus de factures réglées, et sa part (lecture « 67 % en ≤ 15 j »).
+  trancheDominante: { tranche: TrancheDelai; part: number } | null;
   tranches: TrancheDelai[];
   dispersion: Dispersion | null; // null sous SEUIL_DISPERSION factures réglées
   representatif: boolean; // au moins SEUIL_REPRESENTATIF factures réglées
@@ -175,7 +195,12 @@ export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, perio
       continue;
     }
     if (!estSoldee(f, avoirs)) {
-      ouvertes.push({ ...base, montantHt: f.montantHt, anciennete: Math.max(0, joursEntre(f.dateEmission, aujourdhui)) });
+      ouvertes.push({
+        ...base,
+        montantHt: f.montantHt,
+        anciennete: Math.max(0, joursEntre(f.dateEmission, aujourdhui)),
+        retardEcheance: f.echeance ? joursEntre(f.echeance, aujourdhui) : null,
+      });
       continue;
     }
     if (f.reglements === null) {
@@ -212,21 +237,49 @@ export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, perio
 
   const delaisTries = reglees.map((f) => f.delai).sort((a, b) => a - b);
   const avecEcheance = reglees.filter((f) => f.ecartEcheance !== null);
+  const delaiMoyen = moyennePonderee(reglees.map((f) => ({ poids: f.montantHt, valeur: f.delai })));
+  // Écart-type pondéré HT (population) : √(Σ w·(x − μ)² / Σ w). Factures ouvertes jamais comprises.
+  const ecartType =
+    delaiMoyen === null ? null : Math.sqrt(moyennePonderee(reglees.map((f) => ({ poids: f.montantHt, valeur: (f.delai - delaiMoyen) ** 2 }))) as number);
+  const dominante = tranches.reduce<TrancheDelai | null>((max, t) => (t.factures.length > (max?.factures.length ?? 0) ? t : max), null);
   return {
     cote,
     reglees,
     ouvertes,
     exclues,
-    delaiMoyen: moyennePonderee(reglees.map((f) => ({ poids: f.montantHt, valeur: f.delai }))),
+    delaiMoyen,
     ecartEcheanceMoyen: moyennePonderee(avecEcheance.map((f) => ({ poids: f.montantHt, valeur: f.ecartEcheance as number }))),
     sansEcheance: reglees.length - avecEcheance.length,
     ancienneteMoyenneOuvertes: moyennePonderee(ouvertes.map((f) => ({ poids: f.montantHt, valeur: f.anciennete }))),
+    montantOuvertes: ouvertes.reduce((s, f) => s + f.montantHt, 0),
+    ecartType,
+    niveauDispersion: reglees.length >= SEUIL_REPRESENTATIF && delaiMoyen !== null && ecartType !== null ? niveauDeDispersion(delaiMoyen, ecartType) : null,
+    trancheDominante: dominante ? { tranche: dominante, part: dominante.partNombre } : null,
     tranches,
     dispersion:
       delaisTries.length >= SEUIL_DISPERSION ? { part: 0.8, min: percentile(delaisTries, 0.1), max: percentile(delaisTries, 0.9) } : null,
     representatif: reglees.length >= SEUIL_REPRESENTATIF,
     statut: ouvertes.length > 0 || exclues.some((f) => f.raison === "reglements_non_recuperes") ? "provisoire" : "stabilise",
   };
+}
+
+/** Niveau de dispersion d'après le coefficient de variation σ / μ ; moyenne nulle : faible si σ nul. */
+export function niveauDeDispersion(moyenne: number, ecartType: number): NiveauDispersion {
+  if (moyenne <= 0) return ecartType === 0 ? "faible" : "forte";
+  const cv = ecartType / moyenne;
+  return cv <= SEUILS_DISPERSION.faible ? "faible" : cv <= SEUILS_DISPERSION.moderee ? "moderee" : "forte";
+}
+
+/** « en ≤ 15 j », « entre 31 et 45 j », « en plus de 90 j » : lecture d'une tranche. */
+export function libelleTrancheDansPhrase(t: { min: number; max: number | null }): string {
+  if (t.max === null) return `en plus de ${t.min - 1} j`;
+  return t.min === 0 ? `en ≤ ${t.max} j` : `entre ${t.min} et ${t.max} j`;
+}
+
+/** « +42 j de retard », « échéance dans 12 j », « échue aujourd'hui ». */
+export function libelleRetardOuverte(retard: number): string {
+  if (retard > 0) return `+${retard} j de retard`;
+  return retard === 0 ? "échue aujourd'hui" : `échéance dans ${-retard} j`;
 }
 
 /** « +8 j après échéance », « 6 j avant échéance », « à l'échéance ». */

@@ -25,7 +25,7 @@ import {
   variationBfr,
 } from "@/lib/pastBfr";
 import { CoteDelai, delaisDeLaCohorte, DelaisCohorte } from "@/lib/pastBfrDelais";
-import { KpisDelais, MesureDistribution, VueDelais } from "./PasseBfrDelais";
+import { CartoucheDelai, MesureDistribution, VueDelais } from "./PasseBfrDelais";
 import {
   chargerFacturesBfr,
   chargerSituationsValidees,
@@ -425,11 +425,32 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
           )}
         </section>
 
-        {/* B. Décomposition */}
-        <section className="passe-bfr__decomposition" aria-label="Décomposition du BFR">
+        {/* B. Décomposition — chaque délai sous la composante qu'il explique. */}
+        <section className="passe-bfr__decomposition-zone" aria-label="Décomposition du BFR">
+        {delais && (
+          <div className="passe-bfr__delais-periode">
+            <span className="passe-message">Délais de paiement des factures émises {delais.libelle}</span>
+            <div className="selecteur" role="group" aria-label="Période des délais de paiement">
+              {(
+                [
+                  ["mois", "Mois"],
+                  ["trimestre", "Trimestre"],
+                ] as [PeriodeDelais, string][]
+              ).map(([cle, libelle]) => (
+                <button key={cle} type="button" className={`btn-secondaire${periodeDelais === cle ? " btn-module--actif" : ""}`} aria-pressed={periodeDelais === cle} onClick={() => setPeriodeDelais(cle)}>
+                  {libelle}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="passe-bfr__decomposition">
           <div className="passe-bfr__terme">
             <span>Créances clients HT</span>
             <strong>{validee ? enK(validee.creances) : enK(situation.totalCreances)}</strong>
+            {delais && (
+              <CartoucheDelai cohorte={delais.client} precedente={delais.clientPrecedent} onOuvrir={() => setVueDelais({ cote: "client", tranche: null, mesure: "nombre" })} />
+            )}
           </div>
           <span className="passe-bfr__operateur" aria-hidden="true">+</span>
           <div className="passe-bfr__terme">
@@ -440,39 +461,22 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
           <div className="passe-bfr__terme">
             <span>Dettes fournisseurs HT</span>
             <strong>{validee ? enK(validee.dettes) : enK(situation.totalDettes)}</strong>
+            {delais && (
+              <CartoucheDelai
+                cohorte={delais.fournisseur}
+                precedente={delais.fournisseurPrecedent}
+                onOuvrir={() => setVueDelais({ cote: "fournisseur", tranche: null, mesure: "nombre" })}
+              />
+            )}
           </div>
           <span className="passe-bfr__operateur" aria-hidden="true">=</span>
           <div className="passe-bfr__terme passe-bfr__terme--total">
             <span>BFR HT</span>
             <strong>{totaux ? enK(totaux.bfr) : "Incomplet"}</strong>
           </div>
+        </div>
         </section>
       </div>
-
-      {delais && (
-        <div className="passe-bfr__delais-bloc">
-          <div className="selecteur" role="group" aria-label="Période des délais de paiement">
-            {(
-              [
-                ["mois", "Mois"],
-                ["trimestre", "Trimestre"],
-              ] as [PeriodeDelais, string][]
-            ).map(([cle, libelle]) => (
-              <button key={cle} type="button" className={`btn-secondaire${periodeDelais === cle ? " btn-module--actif" : ""}`} aria-pressed={periodeDelais === cle} onClick={() => setPeriodeDelais(cle)}>
-                {libelle}
-              </button>
-            ))}
-          </div>
-          <KpisDelais
-            clients={delais.client}
-            fournisseurs={delais.fournisseur}
-            clientsPrecedents={delais.clientPrecedent}
-            fournisseursPrecedents={delais.fournisseurPrecedent}
-            libellePeriode={delais.libelle}
-            onOuvrir={(cote) => setVueDelais({ cote, tranche: null, mesure: "nombre" })}
-          />
-        </div>
-      )}
 
       {/* C. Évolution : seuls les mois fiables ont un barreau ; le provisoire est plus clair. */}
       <section className="passe-structure">
