@@ -142,3 +142,157 @@ describe("textePdf", () => {
     assert.equal(textePdf("VIR SEPA\n- Reason: facture"), "VIR SEPA - Reason: facture");
   });
 });
+
+// --- Rapport par période : structure, BFR, Analyse d'écarts ---
+
+import { FactureBfr } from "./pastBfr";
+import { delaisDuMois } from "./pastBfrDelais";
+import { evolutionBfr, lectureBfrDuMois, SourcesBfr } from "./pastBfrLecture";
+import { EXERCICE_PAR_DEFAUT } from "./fiscalPeriods";
+import { entetePnl, PagePdf, pageBfrPdf, pageEcartsPdf } from "./pastPdfModel";
+import { planRapport } from "./pastPdfPeriodes";
+import { comparerPeriodes, donneesPeriode } from "./pastVariance";
+
+const AUJ = "2026-10-15";
+const PLAN_SEPTEMBRE = planRapport({ type: "mois", mois: "2026-09" }, AUJ, EXERCICE_PAR_DEFAUT);
+
+function factureBfr(n: number, champs: Partial<FactureBfr> = {}): FactureBfr {
+  return {
+    pennylaneId: `p${n}`,
+    type: "client",
+    numero: `F-${n}`,
+    tiers: "Client",
+    dateEmission: "2026-09-05",
+    echeance: "2026-10-05",
+    devise: "EUR",
+    montantTtc: 1_200,
+    montantHt: 1_000,
+    resteTtc: 0,
+    resteHt: 0,
+    exclusion: null,
+    factureAvoireeId: null,
+    reglements: [{ date: "2026-10-01", montant: 1_200 }],
+    ...champs,
+  };
+}
+
+const SOURCES_BFR: SourcesBfr = {
+  factures: [
+    factureBfr(1),
+    factureBfr(2, { montantHt: 3_000, montantTtc: 3_600, reglements: [{ date: "2026-10-10", montant: 3_600 }] }),
+    // Toujours due aujourd'hui.
+    factureBfr(3, { dateEmission: "2026-09-20", resteTtc: 6_000, resteHt: 5_000, montantTtc: 6_000, montantHt: 5_000, reglements: null }),
+    factureBfr(4, { type: "fournisseur", dateEmission: "2026-09-10", echeance: "2026-10-10", reglements: [{ date: "2026-10-12", montant: 1_200 }] }),
+  ],
+  validees: [],
+  stocks: [{ mois: "2026-09", valeur: 7_000 }],
+  sansStock: false,
+  synchroniseLe: "2026-10-14",
+};
+
+describe("Rapport PDF — structure", () => {
+  test("ordre : Général, Encaissements, marges, EBITDA, Cash flow, BFR, Analyse d'écarts ; aucune page Stocks, Objectifs ni Correspondance", () => {
+    const transactions = [tx("1", 1_000, "ca", "2026-09-03"), tx("2", -300, "direct", "2026-09-04")];
+    const pages: PagePdf[] = [
+      ...pagesExportPdf(source(transactions, { periode: PLAN_SEPTEMBRE.periode, entete: entetePnl(PLAN_SEPTEMBRE, AUJ) })),
+      pageBfrPdf(PLAN_SEPTEMBRE, SOURCES_BFR, AUJ),
+      pageEcartsPdf({ plan: PLAN_SEPTEMBRE.ecarts, transactionsA: [tx("3", 800, "ca", "2026-08-03")], transactionsB: transactions, axeId: AXE, mappings, ajustements: [], financementCompris: false }),
+    ];
+    assert.deepEqual(
+      pages.map((p) => p.titre),
+      ["Général", "Encaissements", "Marge brute", "Marge contributive", "EBITDA", "Cash flow", "BFR", "Analyse d'écarts"]
+    );
+    assert.ok(pages.every((p) => !["Stocks", "Objectifs", "Correspondance P&L"].includes(p.titre)));
+  });
+
+  test("chaque page dit sa période : le mois pour le P&L, la fin de mois pour le BFR, les deux mois pour les écarts", () => {
+    const [general] = pagesExportPdf(source([], { periode: PLAN_SEPTEMBRE.periode, entete: entetePnl(PLAN_SEPTEMBRE, AUJ) }));
+    assert.deepEqual(general.entete, { titre: "Période analysée", valeur: "Septembre 2026", detail: "01/09/2026 — 30/09/2026" });
+    assert.deepEqual(pageBfrPdf(PLAN_SEPTEMBRE, SOURCES_BFR, AUJ).entete, { titre: "Situation", valeur: "Au 30 septembre 2026", detail: null });
+    const ecarts = pageEcartsPdf({ plan: PLAN_SEPTEMBRE.ecarts, transactionsA: [], transactionsB: [], axeId: AXE, mappings, ajustements: [], financementCompris: false });
+    assert.equal(ecarts.entete.valeur, "Septembre 2026 vs août 2026");
+  });
+
+  test("mois en cours : le P&L est dit « à date », le BFR « dernier mois complet disponible »", () => {
+    const plan = planRapport({ type: "mois", mois: "2026-10" }, AUJ, EXERCICE_PAR_DEFAUT);
+    assert.deepEqual(entetePnl(plan, AUJ), { titre: "Période analysée", valeur: "Octobre 2026, à date", detail: "01/10/2026 — 15/10/2026" });
+    assert.deepEqual(pageBfrPdf(plan, SOURCES_BFR, AUJ).entete, { titre: "Situation", valeur: "Au 30 septembre 2026", detail: "Dernier mois complet disponible" });
+  });
+});
+
+describe("Rapport PDF — page BFR", () => {
+  const page = pageBfrPdf(PLAN_SEPTEMBRE, SOURCES_BFR, AUJ);
+
+  test("mêmes valeurs que l'onglet BFR : créances, stocks, dettes, BFR et statut", () => {
+    assert.deepEqual(page.lecture, lectureBfrDuMois(SOURCES_BFR, "2026-09"));
+    // Au 30/09, les factures réglées en octobre sont encore dues : 1 000 + 3 000 + 5 000 de créances.
+    assert.deepEqual(page.lecture?.totaux, { creances: 9_000, stock: 7_000, dettes: 1_000, bfr: 15_000 });
+  });
+
+  test("mêmes délais que les cartouches du mois, et le mois précédent pour l'évolution", () => {
+    assert.deepEqual(page.delais?.client, delaisDuMois(SOURCES_BFR.factures, "client", "2026-09", AUJ));
+    assert.deepEqual(page.delais?.fournisseur, delaisDuMois(SOURCES_BFR.factures, "fournisseur", "2026-09", AUJ));
+    assert.deepEqual(page.delais?.clientPrecedent, delaisDuMois(SOURCES_BFR.factures, "client", "2026-08", AUJ));
+  });
+
+  test("évolution : 12 mois se terminant sur la date de la situation ; un mois sans données n'est jamais 0", () => {
+    assert.deepEqual(page.evolution, evolutionBfr(SOURCES_BFR, "2026-09", AUJ));
+    assert.equal(page.evolution.length, 12);
+    assert.equal(page.evolution[11].mois, "2026-09");
+    assert.equal(page.evolution[0].mois, "2025-10");
+    assert.equal(page.evolution[10].valeur, null); // août : stock non renseigné
+    assert.equal(page.evolution[11].delaiClients, page.delais?.client.delaiMoyen);
+  });
+
+  test("aucune fin de mois utilisable : page explicite, aucune valeur fabriquée", () => {
+    const plan = planRapport({ type: "exercice", debut: "2026-10-01" }, AUJ, { mois: 10, jour: 1 });
+    const vide = pageBfrPdf(plan, SOURCES_BFR, AUJ);
+    assert.equal(vide.lecture, null);
+    assert.equal(vide.evolution.length, 0);
+    assert.match(vide.indisponible ?? "", /^BFR non disponible : aucune fin de mois terminée/);
+  });
+
+  test("situation incomplète (stock manquant) : BFR non chiffré, créances et dettes connues conservées", () => {
+    const incomplete = pageBfrPdf(PLAN_SEPTEMBRE, { ...SOURCES_BFR, stocks: [] }, AUJ);
+    assert.equal(incomplete.lecture?.totaux, null);
+    assert.equal(incomplete.lecture?.statut, "incomplete");
+    assert.equal(incomplete.lecture?.situation.totalCreances, 9_000);
+    assert.equal(incomplete.lecture?.situation.totalDettes, 1_000);
+  });
+});
+
+describe("Rapport PDF — page Analyse d'écarts", () => {
+  const a = [tx("a1", 1_000, "ca", "2026-08-03"), tx("a2", -400, "pub", "2026-08-10")];
+  const b = [tx("b1", 1_500, "ca", "2026-09-03"), tx("b2", -200, "pub", "2026-09-10"), tx("b3", -100, "structure", "2026-09-11")];
+  const page = pageEcartsPdf({ plan: PLAN_SEPTEMBRE.ecarts, transactionsA: a, transactionsB: b, axeId: AXE, mappings, ajustements: [], financementCompris: false });
+
+  test("même calcul que l'écran, sur les périodes du plan (septembre vs août), sans normalisation", () => {
+    const attendu = comparerPeriodes(
+      donneesPeriode(a, AXE, mappings, [], PLAN_SEPTEMBRE.ecarts.a),
+      donneesPeriode(b, AXE, mappings, [], PLAN_SEPTEMBRE.ecarts.b),
+      { financementCompris: false }
+    );
+    assert.deepEqual(page.comparaison, attendu);
+    assert.equal(page.comparaison?.cashFlowA, 600);
+    assert.equal(page.comparaison?.cashFlowB, 1_200);
+  });
+
+  test("waterfall cohérente : la somme des contributions est l'écart", () => {
+    const somme = (page.comparaison?.etages ?? []).reduce((t, e) => t + e.contribution, 0);
+    assert.equal(somme, page.comparaison?.ecart);
+  });
+
+  test("mouvements explicatifs : par impact décroissant, avec leur étage", () => {
+    assert.deepEqual(
+      page.mouvements.map((m) => [m.nom, m.contribution]),
+      [["Catégorie ca", 500], ["Catégorie pub", 200], ["Catégorie structure", -100]]
+    );
+    assert.equal(page.mouvements[0].libelleEtage, "Encaissements");
+  });
+
+  test("période précédente sans transaction : « Comparaison indisponible », jamais une autre période", () => {
+    const vide = pageEcartsPdf({ plan: PLAN_SEPTEMBRE.ecarts, transactionsA: [], transactionsB: b, axeId: AXE, mappings, ajustements: [], financementCompris: false });
+    assert.equal(vide.comparaison, null);
+    assert.equal(vide.indisponible, "Comparaison indisponible : aucune transaction synchronisée du 01/08/2026 au 31/08/2026.");
+  });
+});

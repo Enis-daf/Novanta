@@ -78,6 +78,18 @@ export async function chargerPastTransactions(
   return toutes;
 }
 
+/** Date de la plus ancienne transaction de l'organisation (YYYY-MM-DD), null s'il n'y en a aucune. */
+export async function chargerPremiereDateTransaction(supabase: SupabaseClient, organizationId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("past_transactions")
+    .select("transaction_date")
+    .eq("organization_id", organizationId)
+    .order("transaction_date", { ascending: true })
+    .limit(1);
+  if (error) throw error;
+  return ((data ?? [])[0]?.transaction_date as string | undefined) ?? null;
+}
+
 /** Axes analytiques connus de l'organisation, triés par libellé. */
 export async function chargerAxesAnalytiques(supabase: SupabaseClient, organizationId: string): Promise<AxeAnalytique[]> {
   const { data, error } = await supabase
