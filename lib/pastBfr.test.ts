@@ -1,6 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  libelleFinDeMois,
+  moisGlissants,
   FactureBfr,
   photographier,
   photographieDepassee,
@@ -286,5 +288,48 @@ describe("BFR — lecture des factures Pennylane", () => {
     assert.equal(reglementsNecessaires(facture()), false);
     assert.equal(reglementsNecessaires(facture({ resteTtc: 0 })), true);
     assert.equal(reglementsNecessaires(facture({ resteTtc: 0, exclusion: "archivee" })), false);
+  });
+});
+
+describe("BFR — évolution sur 12 mois glissants", () => {
+  test("septembre 2026 -> octobre 2025 à septembre 2026, 12 mois exactement", () => {
+    const m = moisGlissants("2026-09");
+    assert.equal(m.length, 12);
+    assert.deepEqual([m[0], m[2], m[3], m[11]], ["2025-10", "2025-12", "2026-01", "2026-09"]);
+  });
+
+  test("janvier : décembre et onze mois de l'année précédente, sans trou", () => {
+    assert.deepEqual(moisGlissants("2026-01", 3), ["2025-11", "2025-12", "2026-01"]);
+  });
+
+  test("un mois sans stock reste sans valeur : jamais 0", () => {
+    const s = situationBfr({ factures: [], date: "2026-03-31", stock: null, synchroniseLe: "2026-10-02" });
+    assert.equal(s.bfr, null);
+    assert.equal(totauxRetenus(s, null), null);
+  });
+});
+
+describe("BFR — axe de l'évolution : dernier jour calendaire du mois", () => {
+  test("mois de 30 et de 31 jours", () => {
+    assert.equal(libelleFinDeMois("2026-09"), "30/09/2026");
+    assert.equal(libelleFinDeMois("2026-04"), "30/04/2026");
+    assert.equal(libelleFinDeMois("2026-01"), "31/01/2026");
+    assert.equal(libelleFinDeMois("2025-12"), "31/12/2025");
+  });
+
+  test("février normal et février d'une année bissextile", () => {
+    assert.equal(libelleFinDeMois("2026-02"), "28/02/2026");
+    assert.equal(libelleFinDeMois("2028-02"), "29/02/2028");
+    assert.equal(libelleFinDeMois("2100-02"), "28/02/2100");
+  });
+
+  test("format compact : jour et mois seuls", () => {
+    assert.equal(libelleFinDeMois("2026-09", true), "30/09");
+  });
+
+  test("fenêtre de septembre 2026 : du 31/10/2025 au 30/09/2026, 12 dates", () => {
+    const dates = moisGlissants("2026-09").map((m) => libelleFinDeMois(m));
+    assert.equal(dates.length, 12);
+    assert.deepEqual([dates[0], dates[1], dates[4], dates[11]], ["31/10/2025", "30/11/2025", "28/02/2026", "30/09/2026"]);
   });
 });
