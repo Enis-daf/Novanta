@@ -2,7 +2,7 @@
 
 import MentionTTC from "./MentionTTC";
 import Cartouche from "@/components/Cartouche";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import PasseEcarts, { SelectionsEcarts } from "./PasseEcarts";
 import PasseObjectifs from "./PasseObjectifs";
@@ -41,8 +41,11 @@ import {
   ajustementsDepuisStocks,
   StockFinDeMois,
 } from "@/lib/pastAdjustments";
-import { estMetriqueDetail, FiltresDetail, moisDeLaPeriode, partsMappees } from "@/lib/pastDetail";
-import { nomFichierPdf, pagesExportPdf } from "@/lib/pastPdfModel";
+import { estMetriqueDetail, moisDeLaPeriode, partsMappees } from "@/lib/pastDetail";
+import { entetePnl, nomFichierPdf, pageBfrPdf, pageEcartsPdf, pagesExportPdf } from "@/lib/pastPdfModel";
+import { ChoixRapport, dernierMoisTermine, exercicesProposes, libelleExercice, moisProposes, planRapport, PlanRapport, resumeDuPlan } from "@/lib/pastPdfPeriodes";
+import { chargerFacturesBfr, chargerSituationsValidees } from "@/lib/pastBfrRepository";
+import { libelleMois } from "@/lib/pastDetail";
 import { calculerPnl } from "@/lib/pastPnl";
 import { donneesDeGestionACompleter, moisTerminesDeLaPeriode } from "@/lib/pastManagementData";
 import {
@@ -93,6 +96,7 @@ import {
   chargerMappingsCategories,
   chargerStocks,
   chargerPastTransactions,
+  chargerPremiereDateTransaction,
   chargerValidationsSigne,
   sauvegarderAxeConfigure,
   sauvegarderEtageCategorie,
@@ -260,14 +264,15 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   const [syncEnCours, setSyncEnCours] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncErreur, setSyncErreur] = useState<string | null>(null);
-  // Export PDF. Les filtres locaux de l'écran de détail affiché sont seulement LUS ici (une
-  // référence, pas un état) : ils restent propres à cet écran et se réinitialisent avec lui.
+  // Export PDF : UNE période choisie au moment de l'export (un mois ou un exercice), traduite pour
+  // chaque section (lib/pastPdfPeriodes.ts). Indépendante de la période et des filtres de l'écran.
   const [exportEnCours, setExportEnCours] = useState(false);
   const [exportErreur, setExportErreur] = useState<string | null>(null);
-  const filtresOngletOuvert = useRef<FiltresDetail>({ categorie: null, mois: null });
-  const retenirFiltresOnglet = useCallback((filtres: FiltresDetail) => {
-    filtresOngletOuvert.current = filtres;
-  }, []);
+  const [exportOuvert, setExportOuvert] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
+  const [choixExport, setChoixExport] = useState<ChoixRapport>(() => ({ type: "mois", mois: dernierMoisTermine(todayISO()) }));
+  // Plus ancienne transaction : borne des mois et exercices proposés. undefined = pas encore lue.
+  const [premiereDate, setPremiereDate] = useState<string | null | undefined>(undefined);
 
   const periodeOk = periodeValide(periode);
 
@@ -388,6 +393,15 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       annule = true;
     };
   }, [organizationId, periode, periodeOk, rechargement, exercice]);
+
+  useEffect(() => {
+    if (!exportOuvert) return;
+    const gererClicExterieur = (e: MouseEvent) => {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setExportOuvert(false);
+    };
+    document.addEventListener("mousedown", gererClicExterieur);
+    return () => document.removeEventListener("mousedown", gererClicExterieur);
+  }, [exportOuvert]);
 
   useEffect(() => {
     if (!filtreOuvert) return;
@@ -819,49 +833,101 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     }
   };
 
-  // Export PDF : une page par onglet de résultats, sur la période active. Seul l'onglet affiché a
-  // des filtres locaux connus ; les autres pages sont exportées sans filtre.
-  const exportPossible = periodeOk && !chargement && !erreurChargement && !axeAConfigurer;
-  const exporterPdf = async () => {
+  // Avertissements de tête du rapport, sur les transactions de SA période (mêmes règles que l'écran).
+  const avertissementsDuRapport = (lignes: PastTransactionStockee[], pnlTtc: ReturnType<typeof calculerPnl>, pnlBase: ReturnType<typeof calculerPnlEnBase>): string[] => {
+    const avertissements: string[] = [];
+    const nonCategorisees = compterNonCategorisees(appliquerAxe(lignes, axe.axeId));
+    if (nonCategorisees > 0) {
+      avertissements.push(`${pluriel(nonCategorisees, "transaction non catégorisée", "transactions non catégorisées")} sur la période, hors reporting.`);
+    }
+    if (pnlTtc.nonMappees.nombreCategories > 0) {
+      avertissements.push(
+        `Reporting incomplet : ${pluriel(pnlTtc.nonMappees.nombreCategories, "catégorie reste", "catégories restent")} à mapper (${formatMontantComptable(pnlTtc.nonMappees.montant)} exclus des calculs).`
+      );
+    }
+    const signesInhabituels = compterTransactionsAvecAnomalie(repartirAnomalies(anomaliesDeSigne(lignes, axe.axeId, mappingsIndexes), validationsSigne).aVerifier);
+    if (signesInhabituels > 0) {
+      avertissements.push(`${pluriel(signesInhabituels, "transaction avec un signe inhabituel", "transactions avec un signe inhabituel")}, prises en compte telles quelles.`);
+    }
+    // Lecture HT : la couverture de la TVA est dite en tête, comme à l'écran.
+    if (base === "ht" && pnlBase.couvertures && !pnlBase.couvertures.ebitda.complete) {
+      avertissements.push(`Estimation incomplète : ${libelleCouverture(pnlBase.couvertures.ebitda).toLocaleLowerCase("fr")}`);
+    }
+    return avertissements;
+  };
+
+  // Export PDF : le rapport de la période choisie à l'export. Les transactions sont relues pour CETTE
+  // période (et pour la période comparée), les factures pour le BFR : rien ne dépend de la période
+  // ou des sélecteurs affichés à l'écran. Calculs : ceux des écrans, jamais réécrits ici.
+  const exportPossible = !chargement && !erreurChargement && !axeAConfigurer;
+  const moisExport = useMemo(() => moisProposes(premiereDate ?? null, aujourdhui), [premiereDate, aujourdhui]);
+  const exercicesExport = useMemo(() => exercicesProposes(premiereDate ?? null, aujourdhui, configExercice), [premiereDate, aujourdhui, configExercice]);
+  // Choix effectif : toujours l'une des périodes proposées.
+  const choixEffectif: ChoixRapport =
+    choixExport.type === "mois"
+      ? { type: "mois", mois: moisExport.includes(choixExport.mois) ? choixExport.mois : moisExport[0] }
+      : { type: "exercice", debut: exercicesExport.some((e) => e.debut === choixExport.debut) ? choixExport.debut : exercicesExport[0].debut };
+  const planExport = planRapport(choixEffectif, aujourdhui, configExercice);
+
+  const ouvrirExport = () => {
+    setExportErreur(null);
+    setExportOuvert((ouvert) => !ouvert);
+    if (premiereDate !== undefined) return;
+    chargerPremiereDateTransaction(supabase!, organizationId)
+      .then(setPremiereDate)
+      .catch((error) => {
+        const code = (error as { code?: string } | null)?.code ?? "inconnu";
+        console.error(`[passe/export] step=load-first-date organization=${organizationId} code=${code}`);
+        setPremiereDate(null);
+      });
+  };
+
+  const exporterPdf = async (plan: PlanRapport) => {
     if (exportEnCours || !exportPossible) return;
     setExportEnCours(true);
     setExportErreur(null);
     try {
-      const avertissements: string[] = [];
-      if (nombreNonCategorisees > 0) {
-        avertissements.push(
-          `${pluriel(nombreNonCategorisees, "transaction non catégorisée", "transactions non catégorisées")} sur la période, hors reporting.`
-        );
-      }
-      if (pnl.nonMappees.nombreCategories > 0) {
-        avertissements.push(
-          `Reporting incomplet : ${pluriel(pnl.nonMappees.nombreCategories, "catégorie reste", "catégories restent")} à mapper (${formatMontantComptable(pnl.nonMappees.montant)} exclus des calculs).`
-        );
-      }
-      if (nombreSignesInhabituels > 0) {
-        avertissements.push(
-          `${pluriel(nombreSignesInhabituels, "transaction avec un signe inhabituel", "transactions avec un signe inhabituel")}, prises en compte telles quelles.`
-        );
-      }
-      // Lecture HT : la couverture de la TVA est dite en tête, comme à l'écran.
-      if (base === "ht" && pnlAffiche.couvertures && !pnlAffiche.couvertures.ebitda.complete) {
-        avertissements.push(`Estimation incomplète : ${libelleCouverture(pnlAffiche.couvertures.ebitda).toLocaleLowerCase("fr")}`);
-      }
-      // L'export suit la lecture affichée ; le Cash flow reste sur les parts TTC.
-      const pages = pagesExportPdf({
-        pnl: pnlAffiche,
-        parts: partsDetailAffichees,
-        partsTtc: partsDetail,
+      const [lignesRapport, lignesA, faitsBfr, validees] = await Promise.all([
+        chargerPastTransactions(supabase!, organizationId, plan.periode),
+        chargerPastTransactions(supabase!, organizationId, plan.ecarts.a),
+        chargerFacturesBfr(supabase!, organizationId),
+        chargerSituationsValidees(supabase!, organizationId),
+      ]);
+      // B est toujours contenue dans la période du rapport (entière, ou à date) : pas de second chargement.
+      const lignesB = lignesRapport.filter((t) => t.transactionDate >= plan.ecarts.b.debut && t.transactionDate <= plan.ecarts.b.fin);
+
+      const ajustementsRapport = ajustementsDeLaPeriode(tousLesAjustements, plan.periode);
+      const pnlTtc = calculerPnl(lignesRapport, axe.axeId, mappingsIndexes, ajustementsRapport);
+      const pnlBase = calculerPnlEnBase(lignesRapport, axe.axeId, mappingsIndexes, ajustementsRapport, base);
+      const partsTtc = partsMappees(lignesRapport, axe.axeId, mappingsIndexes);
+      // L'export suit la lecture affichée ; le Cash flow reste sur les parts TTC, le BFR en HT.
+      const pagesPnl = pagesExportPdf({
+        pnl: pnlBase,
+        parts: partsEnBase(partsTtc, tauxParCategorie(mappingsIndexes), base),
+        partsTtc,
         base,
-        periode,
-        ajustements,
-        avertissements,
-        ongletOuvert: vue,
-        filtresOngletOuvert: estMetriqueDetail(vue) ? filtresOngletOuvert.current : { categorie: null, mois: null },
+        periode: plan.periode,
+        ajustements: ajustementsRapport,
+        avertissements: avertissementsDuRapport(lignesRapport, pnlTtc, pnlBase),
+        ongletOuvert: "general",
+        filtresOngletOuvert: { categorie: null, mois: null },
+        entete: entetePnl(plan, aujourdhui),
+      });
+      const synchroniseLe = faitsBfr.synchroniseesLe ? toISODate(new Date(faitsBfr.synchroniseesLe)) : null;
+      const pageBfr = pageBfrPdf(plan, { factures: faitsBfr.factures, validees, stocks, sansStock, synchroniseLe }, aujourdhui);
+      const pageEcarts = pageEcartsPdf({
+        plan: plan.ecarts,
+        transactionsA: lignesA,
+        transactionsB: lignesB,
+        axeId: axe.axeId,
+        mappings: mappingsIndexes,
+        ajustements: tousLesAjustements,
+        financementCompris: ecartsFinancementCompris,
       });
       const { genererPdfPasse, telechargerPdf } = await import("@/lib/pastPdfDocument");
-      const blob = await genererPdfPasse({ organisation: organizationName, periode, pages, teintes: teintesCategories });
-      telechargerPdf(blob, nomFichierPdf(organizationName, periode));
+      const blob = await genererPdfPasse({ organisation: organizationName, pages: [...pagesPnl, pageBfr, pageEcarts], teintes: teintesParCategorie(pnlTtc.categories) });
+      telechargerPdf(blob, nomFichierPdf(organizationName, plan.periode));
+      setExportOuvert(false);
     } catch (error) {
       console.error("Échec de l'export PDF du module Passé :", error);
       setExportErreur("Le PDF n'a pas pu être généré. Réessayez.");
@@ -984,9 +1050,74 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         )}
 
         <div className="passe-controles__actions">
-          <button type="button" className="btn-secondaire" onClick={exporterPdf} disabled={exportEnCours || !exportPossible}>
-            {exportEnCours ? "Génération du PDF…" : "Exporter en PDF"}
-          </button>
+          <div className="passe-filtre" ref={exportRef}>
+            <button
+              type="button"
+              className="btn-secondaire"
+              aria-haspopup="true"
+              aria-expanded={exportOuvert}
+              onClick={ouvrirExport}
+              disabled={exportEnCours || !exportPossible}
+            >
+              {exportEnCours ? "Génération du PDF…" : "Exporter en PDF"}
+            </button>
+            {exportOuvert && (
+              <div className="passe-filtre__popover passe-export" role="dialog" aria-label="Période du rapport PDF">
+                <span className="passe-controle__label">Période du rapport</span>
+                <div className="passe-tri selecteur" role="group" aria-label="Type de période">
+                  {(["mois", "exercice"] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      className={`btn-secondaire${choixEffectif.type === type ? " btn-module--actif" : ""}`}
+                      aria-pressed={choixEffectif.type === type}
+                      onClick={() =>
+                        setChoixExport(type === "mois" ? { type, mois: dernierMoisTermine(aujourdhui) } : { type, debut: exercicesExport[0].debut })
+                      }
+                    >
+                      {type === "mois" ? "Mois" : "Exercice"}
+                    </button>
+                  ))}
+                </div>
+                {premiereDate === undefined ? (
+                  <p className="passe-message">Chargement des périodes disponibles…</p>
+                ) : choixEffectif.type === "mois" ? (
+                  <select aria-label="Mois du rapport" value={choixEffectif.mois} onChange={(e) => setChoixExport({ type: "mois", mois: e.target.value })}>
+                    {moisExport.map((m) => (
+                      <option key={m} value={m}>
+                        {libelleMois(m)}
+                        {m === aujourdhui.slice(0, 7) ? " (en cours)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select aria-label="Exercice du rapport" value={choixEffectif.debut} onChange={(e) => setChoixExport({ type: "exercice", debut: e.target.value })}>
+                    {exercicesExport.map((e) => (
+                      <option key={e.debut} value={e.debut}>
+                        {libelleExercice(e)} · {formatDateCourte(e.debut)} → {formatDateCourte(e.fin)}
+                        {e.fin >= aujourdhui ? " (en cours)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <span className="passe-controle__label">Le rapport contiendra</span>
+                <ul className="passe-export__resume">
+                  {resumeDuPlan(planExport).map((ligne) => (
+                    <li key={ligne}>{ligne}</li>
+                  ))}
+                </ul>
+                <p className="passe-message">
+                  Montants du P&amp;L en {base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC} (Cash flow en {MENTION_TTC}) · BFR toujours HT · Analyse
+                  d&apos;écarts en {MENTION_TTC}, {ecartsFinancementCompris ? "financement compris" : "hors financement"}. Stocks, Objectifs et Correspondance
+                  P&amp;L ne sont pas exportés.
+                </p>
+                <button type="button" className="btn-add" onClick={() => exporterPdf(planExport)} disabled={exportEnCours || premiereDate === undefined}>
+                  {exportEnCours ? "Génération du PDF…" : "Générer le PDF"}
+                </button>
+                {exportErreur && <p className="login-erreur">{exportErreur}</p>}
+              </div>
+            )}
+          </div>
           {pennylaneConnecte === true && (
             <button type="button" className="btn-add" onClick={synchroniser} disabled={syncEnCours || !periodeOk}>
               {syncEnCours ? "Synchronisation…" : "Synchroniser Pennylane"}
@@ -1236,7 +1367,6 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               periode={periode}
               ajustements={ajustements}
               teintes={teintesCategories}
-              onFiltresChange={retenirFiltresOnglet}
               // Objectifs exclusivement HT : aucune cible en lecture TTC, ni sur le Cash flow.
               cibles={base === "ht" && vue !== "cash_flow" ? cibles : undefined}
             />

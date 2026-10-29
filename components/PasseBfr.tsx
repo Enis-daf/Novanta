@@ -1,24 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bar, CartesianGrid, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, toISODate } from "@/lib/dates";
 import { formatKiloEuros, formatMontant } from "@/lib/format";
-import { FAMILLE_BLEU_VERT, graduationsAxe, NEUTRES } from "@/lib/dataviz";
 import { finDeMois, StockFinDeMois } from "@/lib/pastAdjustments";
 import { libelleMois } from "@/lib/pastDetail";
 import {
   FactureBfr,
   LIBELLES_STATUT_BFR,
-  libelleFinDeMois,
-  moisGlissants,
   LigneBfr,
   photographier,
   photographieDepassee,
   reviser,
   SituationBfr,
-  situationBfr,
   SituationValidee,
   StatutBfr,
   statutBfr,
@@ -26,7 +21,9 @@ import {
   totauxRetenus,
   variationBfr,
 } from "@/lib/pastBfr";
-import { CoteDelai, delaisDeLaCohorte, DelaisCohorte, delaisDuMois, libelleEcartEcheance } from "@/lib/pastBfrDelais";
+import { CoteDelai, delaisDeLaCohorte, DelaisCohorte, delaisDuMois } from "@/lib/pastBfrDelais";
+import { evolutionBfr, PointBfr, situationBfrDuMois, SourcesBfr, stockBfrDuMois, valideeDuMois } from "@/lib/pastBfrLecture";
+import PasseBfrEvolutionChart, { bfrAfficheDe, LegendeEvolution } from "./PasseBfrEvolutionChart";
 import { CartoucheDelai, MesureDistribution, VueDelais } from "./PasseBfrDelais";
 import {
   chargerFacturesBfr,
@@ -119,154 +116,6 @@ function ListeFactures({ lignes, libelleTiers }: { lignes: LigneBfr[]; libelleTi
   );
 }
 
-// Délai d'une cohorte mensuelle tel que le KPI du mois l'affiche (null : aucune facture réglée).
-interface DelaiDuPoint {
-  moyen: number | null;
-  ecartEcheance: number | null;
-  reglees: number;
-  ouvertes: number;
-  provisoire: boolean;
-}
-
-interface PointBfr {
-  mois: string;
-  valeur: number | null;
-  totaux: TotauxBfr | null;
-  statut: StatutBfr;
-  // Délais réels de la cohorte du mois (factures émises ce mois-là), en jours ; null sans facture réglée.
-  delaiClients: number | null;
-  delaiFournisseurs: number | null;
-  clients: DelaiDuPoint;
-  fournisseurs: DelaiDuPoint;
-}
-
-function delaiDuPoint(c: DelaisCohorte): DelaiDuPoint {
-  return {
-    moyen: c.delaiMoyen,
-    ecartEcheance: c.ecartEcheanceMoyen,
-    reglees: c.reglees.length,
-    ouvertes: c.ouvertes.length,
-    provisoire: c.statut === "provisoire",
-  };
-}
-
-// Séries de l'évolution, dans la famille bleue de la DA (jamais vert / rouge : un délai qui monte
-// n'est ni bon ni mauvais sans contexte). BFR en barres sombres (axe k€) ; les deux délais en courbes
-// plus claires de la même teinte (axe jours), distinguées par le trait : plein / tirets.
-const COULEUR_BFR = FAMILLE_BLEU_VERT[0];
-const COULEUR_DELAIS = FAMILLE_BLEU_VERT[2];
-const TIRETS_FOURNISSEURS = "6 4";
-// Format des dates de l'axe selon la largeur du graphique, sans jamais retirer de mois : « 30/09/2026 »,
-// puis « 30/09 » avec l'année sur une seconde ligne, puis « 30/09/26 » incliné sur téléphone.
-type FormatDates = "complet" | "deux_lignes" | "incline";
-const LARGEUR_DATES_COMPLETES = 760;
-const LARGEUR_DATES_DEUX_LIGNES = 520;
-
-function LigneDelaiInfoBulle({ titre, d }: { titre: string; d: DelaiDuPoint }) {
-  return (
-    <>
-      <span>
-        {titre} : <strong>{d.moyen === null ? "Non disponible" : `${Math.round(d.moyen)} j`}</strong>
-        {d.reglees > 0 && <span className="passe-structure__note"> ({d.reglees} réglée{d.reglees > 1 ? "s" : ""})</span>}
-      </span>
-      {d.moyen !== null && d.ecartEcheance !== null && <span className="passe-structure__note">{libelleEcartEcheance(d.ecartEcheance)}</span>}
-      {d.moyen !== null && d.provisoire && (
-        <span className="passe-structure__note">
-          Provisoire
-          {d.ouvertes > 0 ? ` — ${d.ouvertes} facture${d.ouvertes > 1 ? "s" : ""} encore ouverte${d.ouvertes > 1 ? "s" : ""}` : ""}
-        </span>
-      )}
-    </>
-  );
-}
-
-function InfoBulleBfr({ active, payload }: { active?: boolean; payload?: { payload: PointBfr }[] }) {
-  if (!active || !payload?.length) return null;
-  const { mois, totaux, statut, clients, fournisseurs } = payload[0].payload;
-  return (
-    <div className="passe-structure__infobulle">
-      <strong>{libelleFinDeMois(mois)}</strong>
-      {totaux === null ? (
-        <>
-          <span>
-            BFR HT : <strong>Non disponible</strong>
-          </span>
-          <span className="passe-structure__note">BFR incomplet : données manquantes ou non fiables</span>
-        </>
-      ) : (
-        <>
-          <span>
-            BFR HT : <strong>{enK(totaux.bfr)}</strong>
-          </span>
-          <span className="passe-structure__note">
-            Créances {enK(totaux.creances)} · Stocks {enK(totaux.stock)} · Dettes {enK(totaux.dettes)}
-          </span>
-          <span className="passe-structure__note">{LIBELLES_STATUT_BFR[statut]}</span>
-        </>
-      )}
-      <LigneDelaiInfoBulle titre="Délai clients" d={clients} />
-      <LigneDelaiInfoBulle titre="Délai fournisseurs" d={fournisseurs} />
-    </div>
-  );
-}
-
-// Date de fin de mois sur l'axe (dernier jour calendaire du mois, jamais une date technique).
-function GraduationFinDeMois({ x, y, payload, format }: { x?: number; y?: number; payload?: { value: string }; format: FormatDates }) {
-  if (x === undefined || y === undefined || !payload) return null;
-  const mois = payload.value;
-  if (format === "incline") {
-    const date = libelleFinDeMois(mois);
-    return (
-      <text x={x} y={y + 8} textAnchor="end" fontSize={10} fill={NEUTRES.secondaire} transform={`rotate(-50 ${x} ${y + 8})`}>
-        {`${date.slice(0, 6)}${date.slice(8)}`}
-      </text>
-    );
-  }
-  return (
-    <text x={x} y={y + 12} textAnchor="middle" fontSize={format === "complet" ? 11 : 10} fill={NEUTRES.secondaire}>
-      {format === "complet" ? (
-        libelleFinDeMois(mois)
-      ) : (
-        <>
-          <tspan x={x}>{libelleFinDeMois(mois, true)}</tspan>
-          <tspan x={x} dy={12}>
-            {mois.slice(0, 4)}
-          </tspan>
-        </>
-      )}
-    </text>
-  );
-}
-
-// Légende fidèle aux marques : carré plein (BFR), trait plein (clients), tirets (fournisseurs).
-function LegendeEvolution({ bfrAffiche }: { bfrAffiche: boolean }) {
-  const trait = (tirets?: string) => (
-    <svg width={22} height={10} aria-hidden="true">
-      <line x1={1} y1={5} x2={21} y2={5} stroke={COULEUR_DELAIS} strokeWidth={2.5} strokeDasharray={tirets} />
-    </svg>
-  );
-  return (
-    <div className="passe-bfr__legende">
-      {bfrAffiche && (
-        <span>
-          <svg width={12} height={12} aria-hidden="true">
-            <rect width={12} height={12} rx={2} fill={COULEUR_BFR} />
-          </svg>
-          BFR HT (k€)
-        </span>
-      )}
-      <span>
-        {trait()}
-        Délai clients (j)
-      </span>
-      <span>
-        {trait(TIRETS_FOURNISSEURS)}
-        Délai fournisseurs (j)
-      </span>
-    </div>
-  );
-}
-
 export default function PasseBfr({ organizationId, accessToken, mois, stocks, sansStock, pennylaneConnecte, onOuvrirStocks }: PasseBfrProps) {
   const [factures, setFactures] = useState<FactureBfr[]>([]);
   const [synchroniseesLe, setSynchroniseesLe] = useState<string | null>(null);
@@ -280,7 +129,6 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
   const [action, setAction] = useState<Action>("creances");
   // Délais de paiement : vue détaillée ouverte (null : synthèse BFR).
   const [vueDelais, setVueDelais] = useState<{ cote: CoteDelai; tranche: string | null; mesure: MesureDistribution } | null>(null);
-  const [largeurEvolution, setLargeurEvolution] = useState(LARGEUR_DATES_COMPLETES);
 
   const charger = useCallback(async () => {
     const [faits, situations] = await Promise.all([chargerFacturesBfr(supabase!, organizationId), chargerSituationsValidees(supabase!, organizationId)]);
@@ -309,20 +157,11 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
 
   // Jour de la synchronisation, en date locale : c'est lui qui se compare à la date de référence.
   const synchroniseLe = synchroniseesLe ? toISODate(new Date(synchroniseesLe)) : null;
-  const stockDuMois = useCallback(
-    (m: string): number | null => {
-      const saisi = stocks.find((s) => s.mois === m);
-      if (saisi) return saisi.valeur;
-      // Société déclarée sans stock (et aucun stock saisi) : un stock nul est une donnée, pas un manque.
-      return sansStock && stocks.length === 0 ? 0 : null;
-    },
-    [stocks, sansStock]
-  );
-  const situationDu = useCallback(
-    (m: string): SituationBfr => situationBfr({ factures, date: finDeMois(m), stock: stockDuMois(m), synchroniseLe }),
-    [factures, stockDuMois, synchroniseLe]
-  );
-  const valideeDu = useCallback((m: string) => validees.find((v) => v.date === finDeMois(m)) ?? null, [validees]);
+  // Lecture partagée avec l'export PDF (lib/pastBfrLecture.ts) : mêmes chiffres pour un même mois.
+  const sources = useMemo<SourcesBfr>(() => ({ factures, validees, stocks, sansStock, synchroniseLe }), [factures, validees, stocks, sansStock, synchroniseLe]);
+  const stockDuMois = useCallback((m: string): number | null => stockBfrDuMois(stocks, sansStock, m), [stocks, sansStock]);
+  const situationDu = useCallback((m: string): SituationBfr => situationBfrDuMois(sources, m), [sources]);
+  const valideeDu = useCallback((m: string) => valideeDuMois(validees, m), [validees]);
 
   const courant = moisChoisi !== null && mois.includes(moisChoisi) ? moisChoisi : mois[mois.length - 1] ?? null;
 
@@ -344,32 +183,10 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
     };
   }, [factures, courant, aujourdhuiDelais]);
 
-  // Évolution : les 12 derniers mois glissants jusqu'au mois choisi, même hors de la période du
-  // module — BFR (situation de fin de mois) et délais clients / fournisseurs (cohorte du mois). Un mois
-  // sans valeur exploitable n'a pas de point (jamais 0, jamais interpolé).
+  // Évolution : les 12 derniers mois glissants jusqu'au mois choisi (lib/pastBfrLecture.ts).
   const evolution = useMemo<PointBfr[]>(
-    () =>
-      courant === null
-        ? []
-        : moisGlissants(courant).map((m) => {
-            const situation = situationDu(m);
-            const validee = valideeDu(m);
-            const totaux = totauxRetenus(situation, validee);
-            // Même calcul que le KPI du mois (delaisDuMois) : aucune logique propre au graphique.
-            const clients = delaisDuMois(factures, "client", m, aujourdhuiDelais);
-            const fournisseurs = delaisDuMois(factures, "fournisseur", m, aujourdhuiDelais);
-            return {
-              mois: m,
-              valeur: totaux?.bfr ?? null,
-              totaux,
-              statut: statutBfr(situation, validee),
-              delaiClients: clients.delaiMoyen,
-              delaiFournisseurs: fournisseurs.delaiMoyen,
-              clients: delaiDuPoint(clients),
-              fournisseurs: delaiDuPoint(fournisseurs),
-            };
-          }),
-    [courant, situationDu, valideeDu, factures, aujourdhuiDelais]
+    () => (courant === null ? [] : evolutionBfr(sources, courant, aujourdhuiDelais)),
+    [courant, sources, aujourdhuiDelais]
   );
 
   // Deux étapes (voir app/api/passe/bfr/route.ts) : les factures, puis la datation des règlements,
@@ -466,12 +283,7 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
     }
   };
 
-  const valeurs = evolution.map((p) => p.valeur).filter((v): v is number => v !== null);
-  const bfrAffiche = valeurs.length > 0;
-  const delaisAffiches = evolution.some((p) => p.delaiClients !== null || p.delaiFournisseurs !== null);
-  const graduations = graduationsAxe(valeurs.length > 0 ? valeurs : [0]);
-  const formatDates: FormatDates =
-    largeurEvolution >= LARGEUR_DATES_COMPLETES ? "complet" : largeurEvolution >= LARGEUR_DATES_DEUX_LIGNES ? "deux_lignes" : "incline";
+  const bfrAffiche = bfrAfficheDe(evolution);
 
   return (
     <div className="passe-bfr">
@@ -621,93 +433,14 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
       <section className="passe-structure">
         <h3 className="eyebrow eyebrow--encre">Évolution sur 12 mois — BFR HT et délais de paiement</h3>
         <LegendeEvolution bfrAffiche={bfrAffiche} />
-        <div style={{ fontFamily: "var(--font-lexend), sans-serif", cursor: "pointer" }}>
-          <ResponsiveContainer width="100%" height={260} onResize={(largeur) => setLargeurEvolution(largeur)}>
-            <ComposedChart
-              data={evolution}
-              margin={{ top: 12, right: 8, left: bfrAffiche ? 0 : 24, bottom: formatDates === "complet" ? 0 : formatDates === "deux_lignes" ? 12 : 26 }}
-              barCategoryGap="28%"
-              onClick={(etat) => {
-                // Clic sur un mois de la période du module : il devient le mois consulté.
-                if (typeof etat?.activeLabel === "string" && mois.includes(etat.activeLabel)) setMoisChoisi(etat.activeLabel);
-              }}
-            >
-              <CartesianGrid vertical={false} stroke={NEUTRES.bordure} />
-              <XAxis
-                dataKey="mois"
-                tick={<GraduationFinDeMois format={formatDates} />}
-                axisLine={false}
-                tickLine={false}
-                interval={0}
-              />
-              <YAxis
-                yAxisId="k"
-                hide={!bfrAffiche}
-                tickFormatter={(v: number) => formatKiloEuros(v, 0)}
-                ticks={graduations}
-                domain={[graduations[0], graduations[graduations.length - 1]]}
-                width={formatDates === "complet" ? 72 : 56}
-                fontSize={11}
-                tick={{ fill: NEUTRES.secondaire }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                yAxisId="j"
-                orientation="right"
-                hide={!delaisAffiches}
-                tickFormatter={(v: number) => `${v} j`}
-                domain={[0, "auto"]}
-                allowDecimals={false}
-                width={44}
-                fontSize={11}
-                tick={{ fill: NEUTRES.secondaire }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip content={<InfoBulleBfr />} cursor={{ fill: NEUTRES.bordure, fillOpacity: 0.45 }} />
-              {/* Barre pleine : situation validée ; atténuée : provisoire ; absente : mois incomplet. */}
-              <Bar yAxisId="k" dataKey="valeur" name="BFR HT (k€)" maxBarSize={40} radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                {evolution.map((p) => (
-                  <Cell
-                    key={p.mois}
-                    fill={COULEUR_BFR}
-                    fillOpacity={p.statut === "validee" ? 1 : 0.78}
-                    stroke={p.mois === courant ? NEUTRES.encre : "none"}
-                    strokeWidth={p.mois === courant ? 1.5 : 0}
-                  />
-                ))}
-              </Bar>
-              {/* Lissage purement graphique (monotone) : les points restent les valeurs mensuelles réelles,
-                  un mois sans valeur coupe la courbe (connectNulls à false), rien n'est interpolé. */}
-              <Line
-                type="monotone"
-                dataKey="delaiClients"
-                name="Délai clients (j)"
-                yAxisId="j"
-                stroke={COULEUR_DELAIS}
-                strokeWidth={2.5}
-                connectNulls={false}
-                isAnimationActive={false}
-                dot={{ r: 3.5, fill: COULEUR_DELAIS, stroke: "#ffffff", strokeWidth: 1.5 }}
-                activeDot={false}
-              />
-              <Line
-                type="monotone"
-                dataKey="delaiFournisseurs"
-                name="Délai fournisseurs (j)"
-                yAxisId="j"
-                stroke={COULEUR_DELAIS}
-                strokeWidth={2.5}
-                strokeDasharray={TIRETS_FOURNISSEURS}
-                connectNulls={false}
-                isAnimationActive={false}
-                dot={{ r: 3.5, fill: "#ffffff", stroke: COULEUR_DELAIS, strokeWidth: 2 }}
-                activeDot={false}
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
+        <PasseBfrEvolutionChart
+          evolution={evolution}
+          courant={courant}
+          // Clic sur un mois de la période du module : il devient le mois consulté.
+          onSelect={(m) => {
+            if (mois.includes(m)) setMoisChoisi(m);
+          }}
+        />
         <p className="passe-message">
           {bfrAffiche
             ? "BFR (barres, axe de gauche, k€) : barre pleine = validé, barre claire = provisoire, pas de barre = mois incomplet, jamais estimé ; le mois consulté est encadré. "

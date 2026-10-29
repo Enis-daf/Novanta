@@ -3200,6 +3200,35 @@ button.passe-cible--lien:focus-visible,
   align-self: flex-start;
 }
 
+/* Export PDF : une seule période choisie, puis le résumé de ce que chaque section utilisera.
+   Ancré à droite : le bouton est en fin de barre. */
+.passe-export {
+  left: auto;
+  right: 0;
+  width: min(380px, calc(100vw - 32px));
+  max-height: none;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.passe-export select {
+  width: 100%;
+}
+
+.passe-export__resume {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.passe-export .btn-add {
+  margin-top: 0;
+  align-self: flex-start;
+}
+
 /* Onglet Écarts : deux sélecteurs de période, les trois chiffres du Cash flow, puis la waterfall. */
 .passe-ecarts__periodes {
   display: flex;
