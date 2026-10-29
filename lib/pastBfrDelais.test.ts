@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { FactureBfr } from "./pastBfr";
-import { delaisDeLaCohorte, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
+import { comparerAvecPrecedente, delaisDeLaCohorte, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
 
 const SEPTEMBRE = { debut: "2026-09-01", fin: "2026-09-30" };
 const AUJOURDHUI = "2026-10-28";
@@ -254,5 +254,82 @@ describe("factures encore ouvertes", () => {
     assert.equal(libelleRetardOuverte(42), "+42 j de retard");
     assert.equal(libelleRetardOuverte(-12), "échéance dans 12 j");
     proche(c.delaiMoyen, 45);
+  });
+});
+
+describe("évolution vs période précédente : chaque indicateur contre lui-même", () => {
+  const AOUT = { debut: "2026-08-01", fin: "2026-08-31" };
+  // Factures réglées d'une cohorte : [émission, échéance, règlement, montant HT].
+  const lot = (lignes: [string, string | null, string, number][]) =>
+    lignes.map(([emission, echeance, regleeLe, montantHt]) => facture({ dateEmission: emission, echeance, regleeLe, montantHt }));
+  const deuxPeriodes = (aout: FactureBfr[], septembre: FactureBfr[]) => {
+    const tout = [...aout, ...septembre];
+    const a = delaisDeLaCohorte(tout, "client", AOUT, AUJOURDHUI);
+    const s = delaisDeLaCohorte(tout, "client", SEPTEMBRE, AUJOURDHUI);
+    return { a, s, comparaison: comparerAvecPrecedente(s, a) };
+  };
+
+  test("CAS 1 : écart août +2 j, septembre −8 j -> delta d'écart −10 j", () => {
+    const { a, s, comparaison } = deuxPeriodes(
+      lot([["2026-08-01", "2026-08-31", "2026-09-02", 1_000], ["2026-08-05", "2026-09-04", "2026-09-06", 1_000], ["2026-08-10", "2026-09-09", "2026-09-11", 1_000]]),
+      lot([["2026-09-01", "2026-10-01", "2026-09-23", 1_000], ["2026-09-05", "2026-10-05", "2026-09-27", 1_000], ["2026-09-10", "2026-10-10", "2026-10-02", 1_000]])
+    );
+    proche(a.ecartEcheanceMoyen, 2);
+    proche(s.ecartEcheanceMoyen, -8);
+    proche(comparaison.ecartEcheance, -10);
+  });
+
+  test("CAS 2 (cas observé) : écart +14 j puis −8 j -> −22 j, alors que le délai baisse de 10 j seulement", () => {
+    // Août : termes à 30 j, payées 44 j après émission (délai 44, écart +14).
+    // Septembre : termes à 42 j, payées 34 j après émission (délai 34, écart −8).
+    const { a, s, comparaison } = deuxPeriodes(
+      lot([["2026-08-01", "2026-08-31", "2026-09-14", 2_000], ["2026-08-10", "2026-09-09", "2026-09-23", 3_000], ["2026-08-20", "2026-09-19", "2026-10-03", 5_000]]),
+      lot([["2026-09-01", "2026-10-13", "2026-10-05", 2_000], ["2026-09-10", "2026-10-22", "2026-10-14", 3_000], ["2026-09-20", "2026-11-01", "2026-10-24", 5_000]])
+    );
+    proche(a.delaiMoyen, 44);
+    proche(a.ecartEcheanceMoyen, 14);
+    proche(s.delaiMoyen, 34);
+    proche(s.ecartEcheanceMoyen, -8);
+    // Deux métriques, deux deltas : le −10 j est celui du délai, pas de l'écart.
+    proche(comparaison.delai, -10);
+    proche(comparaison.ecartEcheance, -22);
+  });
+
+  test("CAS 3 : facture sans échéance comptée dans le délai, exclue de l'écart", () => {
+    const { s } = deuxPeriodes([], lot([["2026-09-01", null, "2026-10-01", 1_000], ["2026-09-01", "2026-10-01", "2026-10-11", 1_000]]));
+    proche(s.delaiMoyen, 35);
+    proche(s.ecartEcheanceMoyen, 10);
+    assert.equal(s.sansEcheance, 1);
+  });
+
+  test("CAS 4 : facture ouverte exclue des deux moyennes réalisées, et du delta", () => {
+    const base = lot([["2026-09-01", "2026-10-01", "2026-10-11", 1_000]]);
+    const sans = delaisDeLaCohorte(base, "client", SEPTEMBRE, AUJOURDHUI);
+    const avec = delaisDeLaCohorte([...base, facture({ regleeLe: null, montantHt: 50_000 })], "client", SEPTEMBRE, AUJOURDHUI);
+    assert.deepEqual([avec.delaiMoyen, avec.ecartEcheanceMoyen], [sans.delaiMoyen, sans.ecartEcheanceMoyen]);
+  });
+
+  test("CAS 5 : pondération HT identique pour le délai et l'écart, des deux côtés", () => {
+    const { s } = deuxPeriodes([], lot([["2026-09-01", "2026-10-01", "2026-09-21", 1_000], ["2026-09-01", "2026-10-01", "2026-10-31", 9_000]]));
+    proche(s.delaiMoyen, (1_000 * 20 + 9_000 * 60) / 10_000);
+    proche(s.ecartEcheanceMoyen, (1_000 * -10 + 9_000 * 30) / 10_000);
+  });
+
+  test("CAS 6 : mois précédent sans données fiables -> aucun delta", () => {
+    const { comparaison } = deuxPeriodes(lot([["2026-08-01", "2026-08-31", "2026-09-02", 1_000]]), lot([["2026-09-01", "2026-10-01", "2026-10-11", 1_000]]));
+    assert.deepEqual(comparaison, { delai: null, ecartEcheance: null });
+    const vide = deuxPeriodes([], lot([["2026-09-01", "2026-10-01", "2026-10-11", 1_000]]));
+    assert.deepEqual(vide.comparaison, { delai: null, ecartEcheance: null });
+  });
+
+  test("fournisseurs : même règle", () => {
+    const f = (emission: string, echeance: string, regleeLe: string) => facture({ type: "fournisseur", dateEmission: emission, echeance, regleeLe });
+    const tout = [
+      f("2026-08-01", "2026-08-31", "2026-09-10"), f("2026-08-02", "2026-09-01", "2026-09-11"), f("2026-08-03", "2026-09-02", "2026-09-12"),
+      f("2026-09-01", "2026-10-01", "2026-10-01"), f("2026-09-02", "2026-10-02", "2026-10-02"), f("2026-09-03", "2026-10-03", "2026-10-03"),
+    ];
+    const c = comparerAvecPrecedente(delaisDeLaCohorte(tout, "fournisseur", SEPTEMBRE, AUJOURDHUI), delaisDeLaCohorte(tout, "fournisseur", AOUT, AUJOURDHUI));
+    proche(c.delai, -10);
+    proche(c.ecartEcheance, -10);
   });
 });

@@ -263,6 +263,36 @@ export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, perio
   };
 }
 
+/**
+ * Évolution de CHAQUE indicateur par rapport à la période précédente comparable (mois civil
+ * précédent, ou trimestre précédent) : la même métrique des deux côtés, jamais le délai d'une période
+ * contre l'écart à l'échéance de l'autre.
+ *   délai :  délai moyen actuel − délai moyen précédent ;
+ *   écart :  écart moyen à l'échéance actuel − écart moyen précédent.
+ * Les deux bougent différemment dès que les conditions de paiement (échéance − émission) changent
+ * d'une cohorte à l'autre : écart = délai − terme moyen, à pondération égale.
+ * null quand la période précédente n'a pas au moins SEUIL_REPRESENTATIF factures réglées (avec
+ * échéance, pour l'écart) : pas de delta trompeur.
+ */
+export interface ComparaisonDelais {
+  delai: number | null;
+  ecartEcheance: number | null;
+}
+
+export function comparerAvecPrecedente(actuelle: DelaisCohorte, precedente: DelaisCohorte): ComparaisonDelais {
+  const avecEcheance = (c: DelaisCohorte) => c.reglees.length - c.sansEcheance;
+  return {
+    delai:
+      actuelle.delaiMoyen !== null && precedente.delaiMoyen !== null && precedente.reglees.length >= SEUIL_REPRESENTATIF
+        ? actuelle.delaiMoyen - precedente.delaiMoyen
+        : null,
+    ecartEcheance:
+      actuelle.ecartEcheanceMoyen !== null && precedente.ecartEcheanceMoyen !== null && avecEcheance(precedente) >= SEUIL_REPRESENTATIF
+        ? actuelle.ecartEcheanceMoyen - precedente.ecartEcheanceMoyen
+        : null,
+  };
+}
+
 /** Niveau de dispersion d'après le coefficient de variation σ / μ ; moyenne nulle : faible si σ nul. */
 export function niveauDeDispersion(moyenne: number, ecartType: number): NiveauDispersion {
   if (moyenne <= 0) return ecartType === 0 ? "faible" : "forte";

@@ -12,6 +12,7 @@ import {
   libelleRetardOuverte,
   libelleTrancheDansPhrase,
   libelleVariationJours,
+  comparerAvecPrecedente,
   NiveauDispersion,
   RaisonExclusion,
   SEUIL_DISPERSION,
@@ -46,8 +47,23 @@ const pluriel = (n: number, expression: string) =>
  * Cartouche compact, sous Créances clients HT ou Dettes fournisseurs HT. Ordre de lecture : moyenne,
  * qualification, dispersion, factures ouvertes. Un clic ouvre la distribution.
  */
-export function CartoucheDelai({ cohorte, precedente, onOuvrir }: { cohorte: DelaisCohorte; precedente: DelaisCohorte | null; onOuvrir: () => void }) {
-  const variation = cohorte.delaiMoyen !== null && precedente?.delaiMoyen != null ? cohorte.delaiMoyen - precedente.delaiMoyen : null;
+export function CartoucheDelai({
+  cohorte,
+  precedente,
+  periode,
+  periodePrecedente,
+  onOuvrir,
+}: {
+  cohorte: DelaisCohorte;
+  precedente: DelaisCohorte;
+  periode: string; // « septembre 2026 », « T3 2026 » : exactement la cohorte affichée
+  periodePrecedente: string; // « août 2026 », « T2 2026 »
+  onOuvrir: () => void;
+}) {
+  // Un delta par indicateur, à côté de lui : délai vs délai, écart vs écart.
+  const comparaison = comparerAvecPrecedente(cohorte, precedente);
+  const delta = (valeur: number | null) =>
+    valeur === null ? `comparaison avec ${periodePrecedente} indisponible` : `${libelleVariationJours(valeur)} vs ${periodePrecedente}`;
   return (
     <button type="button" className="passe-bfr__delai" onClick={onOuvrir} aria-label={`${TITRES[cohorte.cote]} : voir la distribution des délais`}>
       <span className="passe-bfr__delai-titre">{TITRES[cohorte.cote]}</span>
@@ -56,11 +72,21 @@ export function CartoucheDelai({ cohorte, precedente, onOuvrir }: { cohorte: Del
       ) : (
         <>
           <span className="passe-bfr__delai-moyenne">
-            <strong>{jours(cohorte.delaiMoyen)}</strong> en moyenne
+            <strong>{jours(cohorte.delaiMoyen)}</strong> en moyenne sur {periode}
           </span>
           <span className="passe-bfr__delai-note">{QUALIFICATION}</span>
-          {cohorte.ecartEcheanceMoyen !== null && <span>{libelleEcartEcheance(cohorte.ecartEcheanceMoyen)}</span>}
-          {variation !== null && <span className="passe-bfr__delai-note">{libelleVariationJours(variation)} vs période précédente</span>}
+          <span className="passe-bfr__delai-note">Délai : {delta(comparaison.delai)}</span>
+          {cohorte.ecartEcheanceMoyen !== null && (
+            <>
+              <span>
+                {libelleEcartEcheance(cohorte.ecartEcheanceMoyen)}
+                {cohorte.sansEcheance > 0 && (
+                  <span className="passe-bfr__delai-note"> · sur {pluriel(cohorte.reglees.length - cohorte.sansEcheance, "facture")} avec échéance</span>
+                )}
+              </span>
+              <span className="passe-bfr__delai-note">Écart à l&apos;échéance : {delta(comparaison.ecartEcheance)}</span>
+            </>
+          )}
           {cohorte.niveauDispersion !== null && cohorte.ecartType !== null ? (
             <span className={`passe-bfr__dispersion passe-bfr__dispersion--${cohorte.niveauDispersion}`} title={INFOBULLE_DISPERSION}>
               {LIBELLES_DISPERSION[cohorte.niveauDispersion]} <span className="passe-bfr__delai-note">· σ {jours(cohorte.ecartType)}</span>
@@ -111,6 +137,7 @@ function InfoBulleTranche({ active, payload }: { active?: boolean; payload?: { p
 export function VueDelais({
   cohorte,
   libellePeriode,
+  periode,
   mesure,
   onMesure,
   tranche,
@@ -119,6 +146,7 @@ export function VueDelais({
 }: {
   cohorte: DelaisCohorte;
   libellePeriode: string;
+  periode: string; // « septembre 2026 », « T3 2026 »
   mesure: MesureDistribution;
   onMesure: (mesure: MesureDistribution) => void;
   tranche: string | null;
@@ -163,7 +191,7 @@ export function VueDelais({
       </p>
       {cohorte.delaiMoyen !== null && (
         <p className="passe-kpi__montant">
-          {jours(cohorte.delaiMoyen)} <span className="passe-kpi__contexte">en moyenne</span>
+          {jours(cohorte.delaiMoyen)} <span className="passe-kpi__contexte">en moyenne sur {periode}</span>
         </p>
       )}
       <p className="passe-kpi__ratio">

@@ -62,12 +62,22 @@ function moisPrecedent(mois: string): string {
 // Délais de paiement : cohorte du mois de référence, ou de son trimestre civil.
 type PeriodeDelais = "mois" | "trimestre";
 
-function periodeDesDelais(mois: string, type: PeriodeDelais): { debut: string; fin: string; precedente: { debut: string; fin: string }; libelle: string } {
+function periodeDesDelais(
+  mois: string,
+  type: PeriodeDelais
+): { debut: string; fin: string; precedente: { debut: string; fin: string }; libelle: string; court: string; courtPrecedent: string } {
   const annee = Number(mois.slice(0, 4));
   const numero = Number(mois.slice(5, 7));
   if (type === "mois") {
     const prec = moisPrecedent(mois);
-    return { debut: `${mois}-01`, fin: finDeMois(mois), precedente: { debut: `${prec}-01`, fin: finDeMois(prec) }, libelle: `en ${libelleMois(mois).toLowerCase()}` };
+    return {
+      debut: `${mois}-01`,
+      fin: finDeMois(mois),
+      precedente: { debut: `${prec}-01`, fin: finDeMois(prec) },
+      libelle: `en ${libelleMois(mois).toLowerCase()}`,
+      court: libelleMois(mois).toLowerCase(),
+      courtPrecedent: libelleMois(prec).toLowerCase(),
+    };
   }
   const t = Math.floor((numero - 1) / 3);
   const premier = (a: number, q: number) => `${a}-${String(q * 3 + 1).padStart(2, "0")}`;
@@ -78,6 +88,8 @@ function periodeDesDelais(mois: string, type: PeriodeDelais): { debut: string; f
     fin: finDeMois(dernier(annee, t)),
     precedente: { debut: `${premier(ap, tp)}-01`, fin: finDeMois(dernier(ap, tp)) },
     libelle: `au ${t + 1}${t === 0 ? "er" : "e"} trimestre ${annee}`,
+    court: `T${t + 1} ${annee}`,
+    courtPrecedent: `T${tp + 1} ${ap}`,
   };
 }
 
@@ -211,6 +223,8 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
     const cohorte = (cote: CoteDelai, periode: { debut: string; fin: string }): DelaisCohorte => delaisDeLaCohorte(factures, cote, periode, aujourdhuiDelais);
     return {
       libelle: p.libelle,
+      court: p.court,
+      courtPrecedent: p.courtPrecedent,
       client: cohorte("client", p),
       fournisseur: cohorte("fournisseur", p),
       clientPrecedent: cohorte("client", p.precedente),
@@ -359,6 +373,7 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
         <VueDelais
           cohorte={delais[vueDelais.cote]}
           libellePeriode={delais.libelle}
+          periode={delais.court}
           mesure={vueDelais.mesure}
           onMesure={(mesure) => setVueDelais({ ...vueDelais, mesure })}
           tranche={vueDelais.tranche}
@@ -449,7 +464,13 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
             <span>Créances clients HT</span>
             <strong>{validee ? enK(validee.creances) : enK(situation.totalCreances)}</strong>
             {delais && (
-              <CartoucheDelai cohorte={delais.client} precedente={delais.clientPrecedent} onOuvrir={() => setVueDelais({ cote: "client", tranche: null, mesure: "nombre" })} />
+              <CartoucheDelai
+                cohorte={delais.client}
+                precedente={delais.clientPrecedent}
+                periode={delais.court}
+                periodePrecedente={delais.courtPrecedent}
+                onOuvrir={() => setVueDelais({ cote: "client", tranche: null, mesure: "nombre" })}
+              />
             )}
           </div>
           <span className="passe-bfr__operateur" aria-hidden="true">+</span>
@@ -465,6 +486,8 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
               <CartoucheDelai
                 cohorte={delais.fournisseur}
                 precedente={delais.fournisseurPrecedent}
+                periode={delais.court}
+                periodePrecedente={delais.courtPrecedent}
                 onOuvrir={() => setVueDelais({ cote: "fournisseur", tranche: null, mesure: "nombre" })}
               />
             )}
