@@ -5,18 +5,25 @@ import { useState } from "react";
 import { formatMontant } from "@/lib/format";
 import { estEtageConvertiEnHt, estTauxTvaValide, LIBELLE_TVA_NON_APPLICABLE, LIBELLE_TVA_SANS_OBJET, TAUX_TVA_PROPOSES } from "@/lib/pastHtEstime";
 import {
-  EtagePnl,
-  ETAGES_PNL,
+  DestinationMapping,
+  destinationDe,
+  destinationsMapping,
+  estAMapper,
   FiltreMapping,
   filtrerLignesMapping,
   LigneMapping,
+  natureAClasser,
 } from "@/lib/pastCategoryMapping";
 
 interface PasseMappingTableProps {
   lignes: LigneMapping[];
   filtre: FiltreMapping;
   onChangeFiltre: (filtre: FiltreMapping) => void;
-  onChangeEtage: (sourceCategoryId: string, etage: EtagePnl) => void;
+  // Une catégorie -> une ligne analytique : un étage, ou l'une des deux lignes d'Encaissements.
+  onChangeDestination: (sourceCategoryId: string, destination: DestinationMapping) => void;
+  // Nature du revenu (offre Pilotage) : « Encaissements : revenu récurrent / ponctuel » remplacent
+  // la ligne « Encaissements ».
+  natureActive?: boolean;
   // Taux de TVA estimé (null = « Non défini ») : sert à la lecture HT estimé du reporting.
   onChangeTva: (sourceCategoryId: string, taux: number | null) => void;
 }
@@ -96,8 +103,9 @@ const formatNombre = new Intl.NumberFormat("fr-FR");
 // Table de correspondance catégorie source -> étage P&L. Toujours accessible et modifiable : ce
 // n'est pas un écran d'onboarding. Le nombre et le montant suivent la période affichée ; le
 // mapping lui-même en est indépendant.
-export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onChangeEtage, onChangeTva }: PasseMappingTableProps) {
-  const lignesFiltrees = filtrerLignesMapping(lignes, filtre);
+export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onChangeDestination, onChangeTva, natureActive = false }: PasseMappingTableProps) {
+  const lignesFiltrees = filtrerLignesMapping(lignes, filtre, natureActive);
+  const destinations = destinationsMapping(natureActive);
 
   return (
     <div className="passe-mapping">
@@ -114,9 +122,9 @@ export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onCh
           <option value="a_mapper">À mapper</option>
           <option value="mappees">Mappées</option>
           <optgroup label="Par étage P&L">
-            {ETAGES_PNL.map((etage) => (
-              <option key={etage.cle} value={etage.cle}>
-                {etage.libelle}
+            {destinations.map((d) => (
+              <option key={d.valeur} value={d.valeur}>
+                {d.libelle}
               </option>
             ))}
           </optgroup>
@@ -155,13 +163,14 @@ export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onCh
                   <td className="passe-axe">
                     <select
                       aria-label={`Étage P&L de la catégorie ${ligne.sourceCategoryName}`}
-                      value={ligne.pnlStage ?? ""}
-                      onChange={(e) => e.target.value && onChangeEtage(ligne.sourceCategoryId, e.target.value as EtagePnl)}
+                      value={destinationDe(ligne, natureActive) ?? ""}
+                      onChange={(e) => e.target.value && onChangeDestination(ligne.sourceCategoryId, e.target.value as DestinationMapping)}
                     >
-                      {ligne.pnlStage === null && <option value="">À choisir…</option>}
-                      {ETAGES_PNL.map((etage) => (
-                        <option key={etage.cle} value={etage.cle}>
-                          {etage.libelle}
+                      {/* Encaissements sans nature : à choisir entre les deux lignes, jamais une troisième. */}
+                      {destinationDe(ligne, natureActive) === null && <option value="">{natureAClasser(ligne, natureActive) ? "Encaissements — à classer…" : "À choisir…"}</option>}
+                      {destinations.map((d) => (
+                        <option key={d.valeur} value={d.valeur}>
+                          {d.libelle}
                         </option>
                       ))}
                     </select>
@@ -170,7 +179,7 @@ export default function PasseMappingTable({ lignes, filtre, onChangeFiltre, onCh
                     <SelecteurTva key={`${ligne.sourceCategoryId}:${ligne.vatRate ?? "nd"}`} ligne={ligne} onChange={(taux) => onChangeTva(ligne.sourceCategoryId, taux)} />
                   </td>
                   <td>
-                    {ligne.pnlStage === null ? (
+                    {estAMapper(ligne, natureActive) ? (
                       <span className="passe-statut passe-statut--a-mapper">À mapper</span>
                     ) : (
                       <span className="passe-statut">Mappé</span>

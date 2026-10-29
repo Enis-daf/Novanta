@@ -31,6 +31,7 @@ export const CAPACITES = [
   "canViewDSO",
   "canViewDPO",
   "canViewActions",
+  "canViewRevenueRecurrence",
 ] as const;
 export type Capacite = (typeof CAPACITES)[number];
 export type Capacites = Record<Capacite, boolean>;
@@ -43,6 +44,9 @@ export type Capacites = Record<Capacite, boolean>;
 //  - canViewWorkingCapital   : onglet « BFR » du module Passé.
 //  - canViewDSO / canViewDPO : délais clients / fournisseurs (pas encore d'écran dédié).
 //  - canViewActions          : module Action.
+//  - canViewRevenueRecurrence: récurrence du revenu — onglet « Revenu récurrent » du module Passé et
+//                              lignes « Encaissements : revenu récurrent / ponctuel » de la
+//                              correspondance P&L.
 const OFFRES_PAR_CAPACITE: Record<Capacite, readonly Offre[]> = {
   canViewReporting: ["essential", "forecast", "steering"],
   canViewForecast: ["forecast", "steering"],
@@ -51,6 +55,7 @@ const OFFRES_PAR_CAPACITE: Record<Capacite, readonly Offre[]> = {
   canViewDSO: ["steering"],
   canViewDPO: ["steering"],
   canViewActions: ["steering"],
+  canViewRevenueRecurrence: ["steering"],
 };
 
 export function estOffre(valeur: unknown): valeur is Offre {

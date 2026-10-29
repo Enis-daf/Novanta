@@ -76,14 +76,17 @@ import {
 } from "@/lib/pastTransactions";
 import {
   compterAMapper,
-  EtagePnl,
   FiltreMapping,
   libelleEtagePnl,
   indexerMappings,
   lignesMapping,
   MappingCategorie,
   LIBELLE_ENCAISSEMENTS,
+  DestinationMapping,
+  decomposerDestination,
 } from "@/lib/pastCategoryMapping";
+import PasseRecurrence from "./PasseRecurrence";
+import { recurrenceDuRevenu } from "@/lib/pastRecurrence";
 import {
   annulerValidationSigne,
   chargerAxeConfigure,
@@ -139,6 +142,9 @@ const LIGNES_PAR_PAGE = 50;
 const ONGLETS = [
   { cle: "general", libelle: "Général" },
   { cle: "ca", libelle: LIBELLE_ENCAISSEMENTS },
+  // Offre Pilotage : quelle part des Encaissements provient d'un revenu récurrent. Juste après les
+  // Encaissements, qu'il ventile sans les remplacer.
+  { cle: "recurrence", libelle: "Revenu récurrent" },
   { cle: "marge_brute", libelle: "Marge brute" },
   { cle: "marge_contributive", libelle: "Marge contributive" },
   { cle: "ebitda", libelle: "EBITDA" },
@@ -166,6 +172,7 @@ type Vue = (typeof ONGLETS)[number]["cle"];
 const CAPACITE_PAR_VUE: Partial<Record<Vue, { capacite: Capacite; fonctionnalite: string }>> = {
   ecarts: { capacite: "canViewVarianceAnalysis", fonctionnalite: "L'analyse d'écarts" },
   bfr: { capacite: "canViewWorkingCapital", fonctionnalite: "Le BFR" },
+  recurrence: { capacite: "canViewRevenueRecurrence", fonctionnalite: "La récurrence du revenu" },
 };
 
 function vueVerrouillee(vue: Vue, droits: DroitsOrganisation): boolean {
@@ -461,11 +468,16 @@ export default function PasseTransactions({ organizationId, organizationName, ac
 
   // Tableau de correspondance : toutes les catégories connues de l'axe retenu, avec leur activité
   // sur la période. Le compteur "à mapper" porte sur ces catégories, quelle que soit la période.
+  // Nature du revenu (offre Pilotage) : les deux lignes « Encaissements : revenu récurrent /
+  // ponctuel » remplacent « Encaissements », et une catégorie d'Encaissements sans nature compte
+  // parmi les catégories à mapper. Seulement si la colonne existe en base (natureDisponible).
+  const natureDisponible = mappings.length === 0 || mappings.some((m) => m.revenueNature !== undefined);
+  const natureActive = droits.capacites.canViewRevenueRecurrence && natureDisponible;
   const lignesCorrespondance = useMemo(
-    () => lignesMapping(mappings, axe.axeId, stockees),
-    [mappings, axe.axeId, stockees]
+    () => lignesMapping(mappings, axe.axeId, stockees, natureActive),
+    [mappings, axe.axeId, stockees, natureActive]
   );
-  const nombreAMapper = useMemo(() => compterAMapper(lignesCorrespondance), [lignesCorrespondance]);
+  const nombreAMapper = useMemo(() => compterAMapper(lignesCorrespondance, natureActive), [lignesCorrespondance, natureActive]);
 
   // P&L de la période : transaction -> catégories pondérées -> mapping courant -> étage. Recalculé
   // dès qu'un mapping change, sans relire ni réécrire les transactions.
@@ -525,6 +537,12 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     () => partsEnBase(partsDetail, tauxParCategorie(mappingsIndexes), base),
     [partsDetail, mappingsIndexes, base]
   );
+  // Récurrence du revenu (offre Pilotage) : les parts d'Encaissements de la lecture affichée,
+  // réparties selon la nature de leur catégorie (lib/pastRecurrence.ts).
+  const recurrence = useMemo(
+    () => recurrenceDuRevenu(partsDetailAffichees, mappingsIndexes, ajustements, periode),
+    [partsDetailAffichees, mappingsIndexes, ajustements, periode]
+  );
   // Réalisé de la période face aux cibles en vigueur : lu dans Général. Les objectifs sont
   // exclusivement HT — en lecture TTC, aucune cible ni aucun écart n'est calculé (null).
   const ecartsCibles = useMemo(
@@ -532,14 +550,26 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     [cibles, partsDetailAffichees, ajustements, periode, base]
   );
 
-  const changerEtage = (sourceCategoryId: string, etage: EtagePnl) => {
-    const precedent = mappings.find((m) => m.sourceCategoryId === sourceCategoryId)?.pnlStage ?? null;
-    if (precedent === etage) return;
-    const appliquer = (valeur: EtagePnl | null) =>
-      setMappings((prev) => prev.map((m) => (m.sourceCategoryId === sourceCategoryId ? { ...m, pnlStage: valeur } : m)));
-    appliquer(etage);
+  // Une catégorie -> une ligne analytique : l'étage, et en Encaissements la nature du revenu
+  // (offre Pilotage). Hors Encaissements, la nature est effacée ; sans la colonne en base, elle
+  // n'est jamais écrite. Changer la nature reclasse tout l'historique de la catégorie, à la lecture.
+  const changerDestination = (sourceCategoryId: string, destination: DestinationMapping) => {
+    const mapping = mappings.find((m) => m.sourceCategoryId === sourceCategoryId);
+    if (!mapping) return;
+    const { etage, nature: natureChoisie } = decomposerDestination(destination);
+    const precedent = { pnlStage: mapping.pnlStage, revenueNature: mapping.revenueNature };
+    // Hors offre Pilotage, « Encaissements » garde la nature éventuellement déjà posée.
+    const nature = etage !== "revenue" ? null : natureActive ? natureChoisie : (mapping.revenueNature ?? null);
+    if (precedent.pnlStage === etage && (precedent.revenueNature ?? null) === nature) return;
+    const appliquer = (valeur: Pick<MappingCategorie, "pnlStage" | "revenueNature">) =>
+      setMappings((prev) =>
+        prev.map((m) =>
+          m.sourceCategoryId === sourceCategoryId ? { ...m, pnlStage: valeur.pnlStage, ...(natureDisponible ? { revenueNature: valeur.revenueNature ?? null } : {}) } : m
+        )
+      );
+    appliquer({ pnlStage: etage, revenueNature: nature });
     setErreurMapping(null);
-    sauvegarderEtageCategorie(supabase!, organizationId, sourceCategoryId, etage).catch((error) => {
+    sauvegarderEtageCategorie(supabase!, organizationId, sourceCategoryId, etage, natureDisponible ? nature : undefined).catch((error) => {
       const code = (error as { code?: string } | null)?.code ?? "inconnu";
       console.error(
         `[passe/mapping] step=update_pnl_stage organization=${organizationId} category=${sourceCategoryId} code=${code}`
@@ -1400,6 +1430,13 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               fonctionnalite={CAPACITE_PAR_VUE[vue].fonctionnalite}
               offreActuelle={droits.offreEffective}
             />
+          ) : vue === "recurrence" ? (
+            <PasseRecurrence
+              recurrence={recurrence}
+              mention={base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC}
+              parametrageIndisponible={!natureDisponible}
+              onClasser={voirCategoriesAMapper}
+            />
           ) : vue === "ecarts" ? (
             <>
             {base === "ht" && <p className="passe-message">{LIBELLE_ECARTS_EN_TTC}</p>}
@@ -1454,8 +1491,9 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               lignes={lignesCorrespondance}
               filtre={filtreMapping}
               onChangeFiltre={setFiltreMapping}
-              onChangeEtage={changerEtage}
+              onChangeDestination={changerDestination}
               onChangeTva={changerTauxTva}
+              natureActive={natureActive}
             />
           ) : transactions.length === 0 ? (
             <div className="passe-etat">

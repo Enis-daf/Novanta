@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AjustementGestion, StockFinDeMois } from "./pastAdjustments";
 import { ConfigExercice, configExerciceValide, normaliserConfigExercice } from "./fiscalPeriods";
-import { CategorieSource, EtagePnl, estEtagePnl, MappingCategorie } from "./pastCategoryMapping";
+import { CategorieSource, EtagePnl, estEtagePnl, estNatureRevenu, MappingCategorie, NatureRevenu } from "./pastCategoryMapping";
 import { GroupeManuel } from "./flowGroups";
 import { CleEnregistree, clesARecalculer, FLOW_ENGINE_VERSION, FlowAlias } from "./flowMatching";
 import { ValidationSigne } from "./pastSignChecks";
@@ -192,12 +192,20 @@ const COLONNES_MAPPING = "source_category_id, source_category_name, source_group
  * Toutes les catégories connues de l'organisation, leur étage P&L courant (null = à mapper) et leur
  * taux de TVA estimé (null = non défini). Si la colonne vat_rate n'existe pas encore sur cette base
  * (migration 20261020_past_category_vat_rate.sql non appliquée), les correspondances se chargent
- * quand même, sans taux : le reporting TTC n'en dépend pas.
+ * quand même, sans taux : le reporting TTC n'en dépend pas. De même sans la colonne revenue_nature
+ * (migration 20261029_past_revenue_nature.sql) : revenueNature reste alors absent (undefined), et
+ * l'application n'écrit jamais cette colonne.
  */
 export async function chargerMappingsCategories(supabase: SupabaseClient, organizationId: string): Promise<MappingCategorie[]> {
   const charger = (colonnes: string) => supabase.from("past_category_mappings").select(colonnes).eq("organization_id", organizationId);
-  let { data, error } = await charger(`${COLONNES_MAPPING}, vat_rate`);
-  if (error && (error.code === "42703" || /vat_rate/.test(error.message ?? ""))) ({ data, error } = await charger(COLONNES_MAPPING));
+  const colonneAbsente = (e: { code?: string; message?: string } | null, colonne: string) => !!e && (e.code === "42703" || new RegExp(colonne).test(e.message ?? ""));
+  let { data, error } = await charger(`${COLONNES_MAPPING}, vat_rate, revenue_nature`);
+  let avecNature = true;
+  if (colonneAbsente(error, "revenue_nature")) {
+    avecNature = false;
+    ({ data, error } = await charger(`${COLONNES_MAPPING}, vat_rate`));
+  }
+  if (colonneAbsente(error, "vat_rate")) ({ data, error } = await charger(COLONNES_MAPPING));
   if (error) throw error;
   return ((data ?? []) as unknown as Row[]).map((row) => {
     const taux = row.vat_rate === null || row.vat_rate === undefined ? null : Number(row.vat_rate);
@@ -207,6 +215,7 @@ export async function chargerMappingsCategories(supabase: SupabaseClient, organi
       sourceGroupId: (row.source_group_id as string | null) ?? null,
       pnlStage: estEtagePnl(row.pnl_stage) ? row.pnl_stage : null,
       vatRate: Number.isFinite(taux) ? taux : null,
+      ...(avecNature ? { revenueNature: estNatureRevenu(row.revenue_nature) ? row.revenue_nature : null } : {}),
     };
   });
 }
@@ -236,15 +245,22 @@ export async function sauvegarderTauxTvaCategorie(
  * d'historique sont posés par le trigger de la table (voir 20261009_past_category_mappings.sql).
  * Lève une erreur si aucune ligne n'a été modifiée (catégorie inconnue ou accès refusé).
  */
+/**
+ * Étage P&L d'une catégorie, et sa nature de revenu quand la colonne existe (`nature` undefined :
+ * colonne absente, jamais écrite). Hors Encaissements, la nature est effacée (contrainte en base) ;
+ * en Encaissements, `nature` null la laisse à classer.
+ */
 export async function sauvegarderEtageCategorie(
   supabase: SupabaseClient,
   organizationId: string,
   sourceCategoryId: string,
-  etage: EtagePnl
+  etage: EtagePnl,
+  nature?: NatureRevenu | null
 ): Promise<void> {
+  const modification = nature === undefined ? { pnl_stage: etage } : { pnl_stage: etage, revenue_nature: etage === "revenue" ? nature : null };
   const { data, error } = await supabase
     .from("past_category_mappings")
-    .update({ pnl_stage: etage })
+    .update(modification)
     .eq("organization_id", organizationId)
     .eq("source_category_id", sourceCategoryId)
     .select("source_category_id");

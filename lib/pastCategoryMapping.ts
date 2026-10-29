@@ -52,6 +52,67 @@ export function libelleEtagePnl(etage: EtagePnl): string {
   return ETAGES_PNL.find((e) => e.cle === etage)!.libelle;
 }
 
+/**
+ * Nature du revenu d'une catégorie d'Encaissements (offre Pilotage) : deux destinations métier,
+ * jamais une troisième « Non classé ». Une catégorie d'Encaissements sans nature n'est pas une
+ * catégorie métier de plus : c'est un état transitoire de paramétrage, signalé « à mapper » comme
+ * une catégorie sans étage. La nature ne change jamais l'étage : Encaissements = revenu récurrent +
+ * revenu ponctuel (+ ce qui reste à classer), partout dans le produit.
+ */
+export const NATURES_REVENU = [
+  { cle: "recurring", libelle: `${LIBELLE_ENCAISSEMENTS} : revenu récurrent`, court: "Revenu récurrent" },
+  { cle: "one_off", libelle: `${LIBELLE_ENCAISSEMENTS} : revenu ponctuel`, court: "Revenu ponctuel" },
+] as const;
+
+export type NatureRevenu = (typeof NATURES_REVENU)[number]["cle"];
+
+export function estNatureRevenu(valeur: unknown): valeur is NatureRevenu {
+  return NATURES_REVENU.some((n) => n.cle === valeur);
+}
+
+/**
+ * Destination d'une ligne de la correspondance P&L : un étage, ou — nature du revenu active — l'une
+ * des deux lignes d'Encaissements. Une seule liste, une catégorie -> une ligne analytique.
+ */
+export type DestinationMapping = Exclude<EtagePnl, "revenue"> | `revenue:${NatureRevenu}` | "revenue";
+
+export interface OptionDestination {
+  valeur: DestinationMapping;
+  libelle: string;
+}
+
+/** Lignes proposées : avec la nature du revenu, les deux lignes d'Encaissements remplacent la ligne générique. */
+export function destinationsMapping(natureActive: boolean): OptionDestination[] {
+  return ETAGES_PNL.flatMap((etage): OptionDestination[] =>
+    etage.cle === "revenue" && natureActive
+      ? NATURES_REVENU.map((n) => ({ valeur: `revenue:${n.cle}` as const, libelle: n.libelle }))
+      : [{ valeur: etage.cle, libelle: etage.libelle }]
+  );
+}
+
+/** Destination actuelle d'une catégorie ; null = à choisir (sans étage, ou Encaissements sans nature si elle est active). */
+export function destinationDe(mapping: MappingCategorie, natureActive: boolean): DestinationMapping | null {
+  if (mapping.pnlStage === null) return null;
+  if (mapping.pnlStage !== "revenue" || !natureActive) return mapping.pnlStage;
+  return mapping.revenueNature ? `revenue:${mapping.revenueNature}` : null;
+}
+
+/** Étage et nature écrits pour une destination. La nature ne vit qu'avec l'étage Encaissements. */
+export function decomposerDestination(destination: DestinationMapping): { etage: EtagePnl; nature: NatureRevenu | null } {
+  if (destination.startsWith("revenue:")) return { etage: "revenue", nature: destination.slice("revenue:".length) as NatureRevenu };
+  return { etage: destination as EtagePnl, nature: null };
+}
+
+/** Encaissements sans nature, quand la nature est active : à classer, jamais comptés comme ponctuels. */
+export function natureAClasser(mapping: MappingCategorie, natureActive: boolean): boolean {
+  return natureActive && mapping.pnlStage === "revenue" && !mapping.revenueNature;
+}
+
+/** Catégorie à mapper : sans étage, ou Encaissements sans nature quand la nature est active. */
+export function estAMapper(mapping: MappingCategorie, natureActive = false): boolean {
+  return mapping.pnlStage === null || natureAClasser(mapping, natureActive);
+}
+
 /** Ligne de past_category_mappings. pnlStage null = catégorie connue, pas encore rattachée. */
 export interface MappingCategorie {
   sourceCategoryId: string;
@@ -61,6 +122,9 @@ export interface MappingCategorie {
   // Taux de TVA estimé de la catégorie, en % (lecture HT estimé, lib/pastHtEstime.ts). null ou
   // absent = « Non défini », jamais assimilé à 0 % ; 0 est un taux valide.
   vatRate?: number | null;
+  // Nature du revenu (étage Encaissements seulement) ; null = non renseignée. Absent (undefined)
+  // quand la colonne n'existe pas encore en base (migration 20261029_past_revenue_nature.sql).
+  revenueNature?: NatureRevenu | null;
 }
 
 /** Catégorie rencontrée par une synchronisation, à faire connaître à la table de mapping. */
@@ -166,7 +230,8 @@ export interface LigneMapping extends MappingCategorie {
 export function lignesMapping(
   mappings: MappingCategorie[],
   axeId: string | null,
-  transactionsPeriode: PastTransactionStockee[]
+  transactionsPeriode: PastTransactionStockee[],
+  natureActive = false
 ): LigneMapping[] {
   const activite = new Map<string, { nombre: number; montant: number }>();
   for (const t of transactionsPeriode) {
@@ -186,20 +251,22 @@ export function lignesMapping(
     }))
     .sort(
       (a, b) =>
-        Number(a.pnlStage !== null) - Number(b.pnlStage !== null) ||
+        Number(!estAMapper(a, natureActive)) - Number(!estAMapper(b, natureActive)) ||
         a.sourceCategoryName.localeCompare(b.sourceCategoryName, "fr", { sensitivity: "base" })
     );
 }
 
-export type FiltreMapping = "toutes" | "mappees" | "a_mapper" | EtagePnl;
+export type FiltreMapping = "toutes" | "mappees" | "a_mapper" | DestinationMapping;
 
-export function filtrerLignesMapping<T extends MappingCategorie>(lignes: T[], filtre: FiltreMapping): T[] {
+export function filtrerLignesMapping<T extends MappingCategorie>(lignes: T[], filtre: FiltreMapping, natureActive = false): T[] {
   if (filtre === "toutes") return lignes;
-  if (filtre === "mappees") return lignes.filter((l) => l.pnlStage !== null);
-  if (filtre === "a_mapper") return lignes.filter((l) => l.pnlStage === null);
+  if (filtre === "mappees") return lignes.filter((l) => !estAMapper(l, natureActive));
+  if (filtre === "a_mapper") return lignes.filter((l) => estAMapper(l, natureActive));
+  if (filtre.startsWith("revenue:")) return lignes.filter((l) => destinationDe(l, true) === filtre);
   return lignes.filter((l) => l.pnlStage === filtre);
 }
 
-export function compterAMapper(lignes: MappingCategorie[]): number {
-  return lignes.filter((l) => l.pnlStage === null).length;
+/** Catégories à mapper — avec la nature du revenu active, les Encaissements sans nature en font partie. */
+export function compterAMapper(lignes: MappingCategorie[], natureActive = false): number {
+  return lignes.filter((l) => estAMapper(l, natureActive)).length;
 }
