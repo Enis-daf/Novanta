@@ -1,13 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, toISODate } from "@/lib/dates";
 import { formatKiloEuros, formatMontant } from "@/lib/format";
-import { graduationsAxe, NEUTRES, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
 import { finDeMois, StockFinDeMois } from "@/lib/pastAdjustments";
-import { libelleMois, libelleMoisCourt } from "@/lib/pastDetail";
+import { libelleMois } from "@/lib/pastDetail";
 import {
   FactureBfr,
   LIBELLES_STATUT_BFR,
@@ -16,7 +14,6 @@ import {
   photographieDepassee,
   reviser,
   SituationBfr,
-  situationBfr,
   SituationValidee,
   StatutBfr,
   statutBfr,
@@ -24,6 +21,10 @@ import {
   totauxRetenus,
   variationBfr,
 } from "@/lib/pastBfr";
+import { CoteDelai, delaisDeLaCohorte, DelaisCohorte, delaisDuMois } from "@/lib/pastBfrDelais";
+import { evolutionBfr, PointBfr, situationBfrDuMois, SourcesBfr, stockBfrDuMois, valideeDuMois } from "@/lib/pastBfrLecture";
+import PasseBfrEvolutionChart, { bfrAfficheDe, LegendeEvolution } from "./PasseBfrEvolutionChart";
+import { CartoucheDelai, MesureDistribution, VueDelais } from "./PasseBfrDelais";
 import {
   chargerFacturesBfr,
   chargerSituationsValidees,
@@ -55,6 +56,20 @@ function moisPrecedent(mois: string): string {
   const annee = Number(mois.slice(0, 4));
   const numero = Number(mois.slice(5, 7));
   return numero === 1 ? `${annee - 1}-12` : `${annee}-${String(numero - 1).padStart(2, "0")}`;
+}
+
+// Délais de paiement : cohorte du mois de référence (factures émises ce mois-là), comparée au mois
+// civil précédent. L'onglet BFR est mensuel : un seul mois pour tout l'écran.
+function periodeDesDelais(mois: string): { debut: string; fin: string; precedente: { debut: string; fin: string }; libelle: string; court: string; courtPrecedent: string } {
+  const prec = moisPrecedent(mois);
+  return {
+    debut: `${mois}-01`,
+    fin: finDeMois(mois),
+    precedente: { debut: `${prec}-01`, fin: finDeMois(prec) },
+    libelle: `en ${libelleMois(mois).toLowerCase()}`,
+    court: libelleMois(mois).toLowerCase(),
+    courtPrecedent: libelleMois(prec).toLowerCase(),
+  };
 }
 
 function Statut({ statut }: { statut: StatutBfr }) {
@@ -101,24 +116,6 @@ function ListeFactures({ lignes, libelleTiers }: { lignes: LigneBfr[]; libelleTi
   );
 }
 
-interface PointBfr {
-  mois: string;
-  valeur: number | null;
-  statut: StatutBfr;
-}
-
-function InfoBulleBfr({ active, payload }: { active?: boolean; payload?: { payload: PointBfr }[] }) {
-  if (!active || !payload?.length) return null;
-  const { mois, valeur, statut } = payload[0].payload;
-  return (
-    <div className="passe-structure__infobulle">
-      <strong>{libelleMois(mois)}</strong>
-      <span>{valeur === null ? "BFR incomplet" : `${formatMontant(valeur)} HT`}</span>
-      <span className="passe-structure__note">{LIBELLES_STATUT_BFR[statut]}</span>
-    </div>
-  );
-}
-
 export default function PasseBfr({ organizationId, accessToken, mois, stocks, sansStock, pennylaneConnecte, onOuvrirStocks }: PasseBfrProps) {
   const [factures, setFactures] = useState<FactureBfr[]>([]);
   const [synchroniseesLe, setSynchroniseesLe] = useState<string | null>(null);
@@ -130,6 +127,8 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
   const [enregistrement, setEnregistrement] = useState(false);
   const [moisChoisi, setMoisChoisi] = useState<string | null>(null);
   const [action, setAction] = useState<Action>("creances");
+  // Délais de paiement : vue détaillée ouverte (null : synthèse BFR).
+  const [vueDelais, setVueDelais] = useState<{ cote: CoteDelai; tranche: string | null; mesure: MesureDistribution } | null>(null);
 
   const charger = useCallback(async () => {
     const [faits, situations] = await Promise.all([chargerFacturesBfr(supabase!, organizationId), chargerSituationsValidees(supabase!, organizationId)]);
@@ -158,31 +157,36 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
 
   // Jour de la synchronisation, en date locale : c'est lui qui se compare à la date de référence.
   const synchroniseLe = synchroniseesLe ? toISODate(new Date(synchroniseesLe)) : null;
-  const stockDuMois = useCallback(
-    (m: string): number | null => {
-      const saisi = stocks.find((s) => s.mois === m);
-      if (saisi) return saisi.valeur;
-      // Société déclarée sans stock (et aucun stock saisi) : un stock nul est une donnée, pas un manque.
-      return sansStock && stocks.length === 0 ? 0 : null;
-    },
-    [stocks, sansStock]
-  );
-  const situationDu = useCallback(
-    (m: string): SituationBfr => situationBfr({ factures, date: finDeMois(m), stock: stockDuMois(m), synchroniseLe }),
-    [factures, stockDuMois, synchroniseLe]
-  );
-  const valideeDu = useCallback((m: string) => validees.find((v) => v.date === finDeMois(m)) ?? null, [validees]);
+  // Lecture partagée avec l'export PDF (lib/pastBfrLecture.ts) : mêmes chiffres pour un même mois.
+  const sources = useMemo<SourcesBfr>(() => ({ factures, validees, stocks, sansStock, synchroniseLe }), [factures, validees, stocks, sansStock, synchroniseLe]);
+  const stockDuMois = useCallback((m: string): number | null => stockBfrDuMois(stocks, sansStock, m), [stocks, sansStock]);
+  const situationDu = useCallback((m: string): SituationBfr => situationBfrDuMois(sources, m), [sources]);
+  const valideeDu = useCallback((m: string) => valideeDuMois(validees, m), [validees]);
 
   const courant = moisChoisi !== null && mois.includes(moisChoisi) ? moisChoisi : mois[mois.length - 1] ?? null;
 
+  // Délais clients / fournisseurs de la cohorte (factures émises sur la période) et de la période
+  // précédente (mois civil précédent) — lecture analytique, sans effet sur le BFR ni sur les situations validées.
+  const aujourdhuiDelais = toISODate(new Date());
+  const delais = useMemo(() => {
+    if (courant === null) return null;
+    const p = periodeDesDelais(courant);
+    const cohorte = (cote: CoteDelai, periode: { debut: string; fin: string }): DelaisCohorte => delaisDeLaCohorte(factures, cote, periode, aujourdhuiDelais);
+    return {
+      libelle: p.libelle,
+      court: p.court,
+      courtPrecedent: p.courtPrecedent,
+      client: delaisDuMois(factures, "client", courant, aujourdhuiDelais),
+      fournisseur: delaisDuMois(factures, "fournisseur", courant, aujourdhuiDelais),
+      clientPrecedent: cohorte("client", p.precedente),
+      fournisseurPrecedent: cohorte("fournisseur", p.precedente),
+    };
+  }, [factures, courant, aujourdhuiDelais]);
+
+  // Évolution : les 12 derniers mois glissants jusqu'au mois choisi (lib/pastBfrLecture.ts).
   const evolution = useMemo<PointBfr[]>(
-    () =>
-      mois.map((m) => {
-        const situation = situationDu(m);
-        const validee = valideeDu(m);
-        return { mois: m, valeur: totauxRetenus(situation, validee)?.bfr ?? null, statut: statutBfr(situation, validee) };
-      }),
-    [mois, situationDu, valideeDu]
+    () => (courant === null ? [] : evolutionBfr(sources, courant, aujourdhuiDelais)),
+    [courant, sources, aujourdhuiDelais]
   );
 
   // Deux étapes (voir app/api/passe/bfr/route.ts) : les factures, puis la datation des règlements,
@@ -279,9 +283,7 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
     }
   };
 
-  const plusieursAnnees = new Set(mois.map((m) => m.slice(0, 4))).size > 1;
-  const valeurs = evolution.map((p) => p.valeur).filter((v): v is number => v !== null);
-  const graduations = graduationsAxe(valeurs.length > 0 ? valeurs : [0]);
+  const bfrAffiche = bfrAfficheDe(evolution);
 
   return (
     <div className="passe-bfr">
@@ -312,6 +314,19 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
       {erreur && <p className="login-erreur">{erreur}</p>}
       {message && <p className="passe-message">{message}</p>}
 
+      {vueDelais && delais ? (
+        <VueDelais
+          cohorte={delais[vueDelais.cote]}
+          libellePeriode={delais.libelle}
+          periode={delais.court}
+          mesure={vueDelais.mesure}
+          onMesure={(mesure) => setVueDelais({ ...vueDelais, mesure })}
+          tranche={vueDelais.tranche}
+          onTranche={(tranche) => setVueDelais({ ...vueDelais, tranche })}
+          onRetour={() => setVueDelais(null)}
+        />
+      ) : (
+        <>
       <div className="passe-bfr__haut">
         {/* A. Synthèse */}
         <section className="passe-kpi passe-bfr__synthese">
@@ -370,11 +385,21 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
           )}
         </section>
 
-        {/* B. Décomposition */}
-        <section className="passe-bfr__decomposition" aria-label="Décomposition du BFR">
+        {/* B. Décomposition — chaque délai sous la composante qu'il explique. */}
+        <section className="passe-bfr__decomposition-zone" aria-label="Décomposition du BFR">
+        <div className="passe-bfr__decomposition">
           <div className="passe-bfr__terme">
             <span>Créances clients HT</span>
             <strong>{validee ? enK(validee.creances) : enK(situation.totalCreances)}</strong>
+            {delais && (
+              <CartoucheDelai
+                cohorte={delais.client}
+                precedente={delais.clientPrecedent}
+                periode={delais.court}
+                periodePrecedente={delais.courtPrecedent}
+                onOuvrir={() => setVueDelais({ cote: "client", tranche: null, mesure: "nombre" })}
+              />
+            )}
           </div>
           <span className="passe-bfr__operateur" aria-hidden="true">+</span>
           <div className="passe-bfr__terme">
@@ -385,62 +410,43 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
           <div className="passe-bfr__terme">
             <span>Dettes fournisseurs HT</span>
             <strong>{validee ? enK(validee.dettes) : enK(situation.totalDettes)}</strong>
+            {delais && (
+              <CartoucheDelai
+                cohorte={delais.fournisseur}
+                precedente={delais.fournisseurPrecedent}
+                periode={delais.court}
+                periodePrecedente={delais.courtPrecedent}
+                onOuvrir={() => setVueDelais({ cote: "fournisseur", tranche: null, mesure: "nombre" })}
+              />
+            )}
           </div>
           <span className="passe-bfr__operateur" aria-hidden="true">=</span>
           <div className="passe-bfr__terme passe-bfr__terme--total">
             <span>BFR HT</span>
             <strong>{totaux ? enK(totaux.bfr) : "Incomplet"}</strong>
           </div>
+        </div>
         </section>
       </div>
 
-      {/* C. Évolution : seuls les mois fiables ont un barreau ; le provisoire est plus clair. */}
+      {/* C. Évolution : 12 derniers mois jusqu'au mois consulté — BFR en barres, délais en courbes. */}
       <section className="passe-structure">
-        <h3 className="eyebrow eyebrow--encre">Évolution du BFR HT</h3>
-        <div style={{ fontFamily: "var(--font-lexend), sans-serif", cursor: "pointer" }}>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart
-              data={evolution}
-              margin={{ top: 12, right: 8, left: 0, bottom: 0 }}
-              onClick={(etat) => {
-                if (typeof etat?.activeLabel === "string") setMoisChoisi(etat.activeLabel);
-              }}
-            >
-              <CartesianGrid vertical={false} stroke={NEUTRES.bordure} />
-              <XAxis
-                dataKey="mois"
-                tickFormatter={(m: string) => libelleMoisCourt(m, plusieursAnnees)}
-                fontSize={11}
-                tick={{ fill: NEUTRES.secondaire }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tickFormatter={(v: number) => formatKiloEuros(v, 0)}
-                ticks={graduations}
-                domain={[graduations[0], graduations[graduations.length - 1]]}
-                width={72}
-                fontSize={11}
-                tick={{ fill: NEUTRES.secondaire }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip content={<InfoBulleBfr />} cursor={{ fill: NEUTRES.bordure, fillOpacity: 0.5 }} />
-              <Bar dataKey="valeur" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={false}>
-                {evolution.map((p) => (
-                  <Cell
-                    key={p.mois}
-                    fill={TEINTE_SERIE_PRINCIPALE}
-                    fillOpacity={p.statut === "validee" ? 1 : 0.4}
-                    stroke={p.mois === courant ? NEUTRES.encre : undefined}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <h3 className="eyebrow eyebrow--encre">Évolution sur 12 mois — BFR HT et délais de paiement</h3>
+        <LegendeEvolution bfrAffiche={bfrAffiche} />
+        <PasseBfrEvolutionChart
+          evolution={evolution}
+          courant={courant}
+          // Clic sur un mois de la période du module : il devient le mois consulté.
+          onSelect={(m) => {
+            if (mois.includes(m)) setMoisChoisi(m);
+          }}
+        />
         <p className="passe-message">
-          Barreau plein : validé · clair : provisoire · absent : incomplet (données manquantes ou non fiables), jamais estimé.
+          {bfrAffiche
+            ? "BFR (barres, axe de gauche, k€) : barre pleine = validé, barre claire = provisoire, pas de barre = mois incomplet, jamais estimé ; le mois consulté est encadré. "
+            : "BFR non affiché : aucun des 12 mois n'a de situation complète (stock HT non renseigné ou factures au solde inconnu). "}
+          Délais (courbes, axe de droite, jours) : délai moyen réel des factures émises chaque mois, pondéré par le montant HT — le même
+          chiffre que le KPI du mois ; pas de point sans facture réglée. Chaque mois est daté à son dernier jour.
         </p>
       </section>
 
@@ -542,6 +548,8 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
           </div>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

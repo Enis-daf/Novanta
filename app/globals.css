@@ -3241,6 +3241,35 @@ button.passe-cible--lien:focus-visible,
   align-self: flex-start;
 }
 
+/* Export PDF : une seule période choisie, puis le résumé de ce que chaque section utilisera.
+   Ancré à droite : le bouton est en fin de barre. */
+.passe-export {
+  left: auto;
+  right: 0;
+  width: min(380px, calc(100vw - 32px));
+  max-height: none;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.passe-export select {
+  width: 100%;
+}
+
+.passe-export__resume {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.passe-export .btn-add {
+  margin-top: 0;
+  align-self: flex-start;
+}
+
 /* Onglet Écarts : deux sélecteurs de période, les trois chiffres du Cash flow, puis la waterfall. */
 .passe-ecarts__periodes {
   display: flex;
@@ -4086,12 +4115,29 @@ button.passe-cible--lien:focus-visible,
   gap: var(--space-6);
 }
 
-@media (min-width: 960px) {
-  .passe-bfr__haut {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-    align-items: start;
-  }
+/* Synthèse puis décomposition, l'une sous l'autre : la décomposition, pleine largeur, porte les
+   délais clients et fournisseurs sous les composantes qu'ils expliquent. */
+.passe-bfr__legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
 }
+
+.passe-bfr__legende span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.passe-bfr__decomposition-zone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
 
 .passe-bfr__synthese {
   display: flex;
@@ -4488,4 +4534,115 @@ button.passe-cible--lien:focus-visible,
   font-size: 12px;
   font-style: normal;
   color: var(--couleur-texte);
+}
+
+/* BFR : délai clients / fournisseurs — cartouche compact sous la composante, cliquable. */
+.passe-bfr__decomposition {
+  align-items: stretch;
+}
+
+.passe-bfr__delai {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-top: var(--space-2);
+  padding: var(--space-2) 0 0;
+  border: none;
+  border-top: 1px solid var(--couleur-bordure);
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--couleur-texte);
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.passe-bfr__delai:hover .passe-bfr__delai-titre,
+.passe-bfr__delai:focus-visible .passe-bfr__delai-titre {
+  text-decoration: underline;
+}
+
+.passe-bfr__delai-titre {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-bfr__delai-titre::after {
+  content: " →";
+}
+
+.passe-bfr__delai-moyenne strong {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.passe-bfr__delai-note {
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-bfr__delai-ouvertes {
+  margin-top: var(--space-1);
+  font-weight: 600;
+}
+
+/* Dispersion : vert faible, orange modérée, rouge forte — une pastille et le libellé, rien de plus. */
+.passe-bfr__dispersion {
+  font-weight: 600;
+}
+
+.passe-bfr__dispersion::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  vertical-align: middle;
+  background: currentColor;
+}
+
+.passe-bfr__dispersion--faible {
+  color: #0f766e;
+}
+
+.passe-bfr__dispersion--moderee {
+  color: #b45309;
+}
+
+.passe-bfr__dispersion--forte {
+  color: #b91c1c;
+}
+
+.passe-bfr__ligne-ouvertes td {
+  border-top: 1px solid var(--couleur-texte);
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-bfr__vue-delais {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.passe-bfr__vue-delais > div:not(.passe-bfr__barre),
+.passe-bfr__vue-delais > table {
+  width: 100%;
+}
+
+.passe-bfr__vue-delais .passe-kpi__montant,
+.passe-bfr__vue-delais .passe-kpi__ratio,
+.passe-bfr__vue-delais .eyebrow {
+  margin: 0;
+}
+
+.passe-bfr__tranches {
+  max-width: 640px;
 }

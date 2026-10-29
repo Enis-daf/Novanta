@@ -1,22 +1,38 @@
 import type { jsPDF } from "jspdf";
 import { ReactElement } from "react";
 import { createRoot } from "react-dom/client";
+import PasseBfrEvolutionChart, { COULEUR_BFR, COULEUR_DELAIS, TIRETS_FOURNISSEURS } from "@/components/PasseBfrEvolutionChart";
 import PasseCategoriesChart from "@/components/PasseCategoriesChart";
 import PasseEvolutionChart from "@/components/PasseEvolutionChart";
 import PasseStructureChart from "@/components/PasseStructureChart";
+import PasseWaterfallChart from "@/components/PasseWaterfallChart";
 import { formatDateCourte } from "./dates";
 import { NEUTRES, teintesDesParts } from "./dataviz";
 import { formatKiloEuros, formatMontant, formatMontantComptable, formatPourcentage, MENTION_TTC } from "./format";
 import { LigneAjustement } from "./pastAdjustments";
 import { libelleEtagePnl, LIBELLE_ENCAISSEMENTS } from "./pastCategoryMapping";
 import { METRIQUES_DETAIL } from "./pastDetail";
-import { BaseMontants, IndicateurEconomique, LIBELLE_VOIR_TTC } from "./pastHtEstime";
-import { disclaimerPdf, mentionDeLaBase, PageDetailPdf, PageGeneralPdf, PagePdf, textePdf } from "./pastPdfModel";
+import { IndicateurEconomique, LIBELLE_VOIR_TTC } from "./pastHtEstime";
+import { LIBELLES_STATUT_BFR, moisGlissants } from "./pastBfr";
+import { comparerAvecPrecedente, DelaisCohorte, libelleEcartEcheance, libelleTrancheDansPhrase, libelleVariationJours, SEUIL_REPRESENTATIF } from "./pastBfrDelais";
+import {
+  DISCLAIMER_PDF_BFR,
+  disclaimerPdf,
+  EntetePeriode,
+  mentionDeLaBase,
+  PageBfrPdf,
+  PageDetailPdf,
+  PageEcartsPdf,
+  PageGeneralPdf,
+  PagePdf,
+  textePdf,
+} from "./pastPdfModel";
 import { ETAGES_COUTS, ETAGES_REVENUS, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
-import { Periode } from "./pastTransactions";
+import { libelleMois } from "./pastDetail";
+import { libelleVariation } from "./pastVariance";
 
 /**
- * Dessin du PDF du module "Passé" (A4 paysage, une page par onglet). Chaque page est composée à
+ * Dessin du PDF du module "Passé" (A4 paysage, une page par onglet de reporting). Chaque page est composée à
  * des coordonnées fixes : rien ne s'écoule d'une page à l'autre, donc rien ne peut être coupé.
  * Les graphiques sont ceux de l'écran — les mêmes composants, rendus hors écran puis convertis en
  * tracés vectoriels — et le texte est écrit dans la police du produit.
@@ -84,6 +100,16 @@ function trait(doc: jsPDF, x1: number, y: number, x2: number, couleur: string = 
   doc.line(x1, y, x2, y);
 }
 
+/** Texte sur plusieurs lignes dans une largeur donnée ; renvoie l'ordonnée sous la dernière ligne. */
+function paragraphe(doc: jsPDF, texte: string, x: number, y: number, largeur: number, style: Omit<Style, "aDroite" | "largeurMax" | "capitales">): number {
+  doc.setFont(POLICE, style.gras ? "bold" : "normal");
+  doc.setFontSize(style.taille);
+  const lignes = doc.splitTextToSize(textePdf(texte), largeur) as string[];
+  const interligne = style.taille * 1.35;
+  lignes.forEach((ligne, i) => ecrire(doc, ligne, x, y + i * interligne, style));
+  return y + lignes.length * interligne;
+}
+
 function titreBloc(doc: jsPDF, texte: string, x: number, y: number, largeurMax?: number): number {
   return ecrire(doc, texte, x, y, { taille: 7.5, gras: true, capitales: true, largeurMax });
 }
@@ -141,7 +167,7 @@ const rien = () => {};
 
 // --- Cadre commun à toutes les pages ---
 
-function cadre(doc: jsPDF, organisation: string, titre: string, periode: Periode, filtres: string[], numero: number, total: number, base: BaseMontants) {
+function cadre(doc: jsPDF, organisation: string, titre: string, entete: EntetePeriode, filtres: string[], numero: number, total: number, mention: string) {
   doc.setFillColor(NEUTRES.fond);
   doc.rect(0, 0, PAGE.largeur, PAGE.hauteur, "F");
 
@@ -151,16 +177,18 @@ function cadre(doc: jsPDF, organisation: string, titre: string, periode: Periode
   doc.setFillColor(ROSE);
   doc.rect(PAGE.marge, 78, 30, 2.4, "F");
 
-  ecrire(doc, "Période analysée", DROITE, 44, { taille: 7.5, gras: true, capitales: true, couleur: NEUTRES.secondaire, aDroite: true });
-  ecrire(doc, `${formatDateCourte(periode.debut)} — ${formatDateCourte(periode.fin)}`, DROITE, 59, { taille: 11.5, gras: true, aDroite: true });
-  if (filtres.length > 0) {
+  // Chaque page dit SA période : celle du rapport, une fin de mois (BFR) ou deux périodes (écarts).
+  ecrire(doc, entete.titre, DROITE, 44, { taille: 7.5, gras: true, capitales: true, couleur: NEUTRES.secondaire, aDroite: true });
+  ecrire(doc, entete.valeur, DROITE, 59, { taille: 11.5, gras: true, aDroite: true, largeurMax: 420 });
+  if (entete.detail) ecrire(doc, entete.detail, DROITE, 72, { taille: 7.5, couleur: NEUTRES.secondaire, aDroite: true, largeurMax: 420 });
+  else if (filtres.length > 0) {
     const largeur = ecrire(doc, filtres.join(" · "), DROITE, 76, { taille: 9, gras: true, aDroite: true, largeurMax: 330 });
     ecrire(doc, "Filtre", DROITE - largeur - 8, 76, { taille: 7.5, gras: true, capitales: true, couleur: ROSE, aDroite: true });
   }
   trait(doc, PAGE.marge, 88, DROITE);
 
   trait(doc, PAGE.marge, PAGE.hauteur - 42, DROITE);
-  ecrire(doc, disclaimerPdf(base), PAGE.marge, PAGE.hauteur - 28, { taille: 7.5, couleur: NEUTRES.secondaire, largeurMax: DROITE - PAGE.marge - 110 });
+  ecrire(doc, mention, PAGE.marge, PAGE.hauteur - 28, { taille: 7.5, couleur: NEUTRES.secondaire, largeurMax: DROITE - PAGE.marge - 110 });
   ecrire(doc, `Novanta · Passé · ${numero} / ${total}`, DROITE, PAGE.hauteur - 28, { taille: 7.5, couleur: NEUTRES.secondaire, aDroite: true });
 }
 
@@ -501,6 +529,264 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
   }
 }
 
+// --- Page BFR ---
+
+const enK = (montant: number) => `${formatKiloEuros(montant, Math.abs(montant) < 10_000 ? 1 : 0)} HT`;
+const jours = (valeur: number) => `${Math.round(valeur)} j`;
+const LIBELLES_DISPERSION = { faible: "Dispersion faible", moderee: "Dispersion modérée", forte: "Dispersion forte" } as const;
+const plurielFr = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`;
+
+/** Bloc d'un délai : les lignes de la cartouche de l'onglet BFR, dans le même ordre. */
+function blocDelai(doc: jsPDF, titre: string, cohorte: DelaisCohorte, precedente: DelaisCohorte, mois: string, x: number, y: number, largeur: number): number {
+  const periode = libelleMois(mois).toLowerCase();
+  const periodePrecedente = libelleMois(moisGlissants(mois, 2)[0]).toLowerCase();
+  titreBloc(doc, titre, x, y, largeur);
+  y += 16;
+  if (cohorte.delaiMoyen === null) {
+    ecrire(doc, `Aucune facture émise en ${periode} n'est réglée.`, x, y, { taille: 8.5, couleur: NEUTRES.secondaire, largeurMax: largeur });
+    y += 12;
+  } else {
+    const comparaison = comparerAvecPrecedente(cohorte, precedente);
+    const delta = (valeur: number | null) =>
+      valeur === null ? `comparaison avec ${periodePrecedente} indisponible` : `${libelleVariationJours(valeur)} vs ${periodePrecedente}`;
+    const l = ecrire(doc, jours(cohorte.delaiMoyen), x, y + 2, { taille: 15, gras: true });
+    ecrire(doc, `en moyenne sur ${periode}`, x + l + 5, y + 2, { taille: 8.5, largeurMax: largeur - l - 5 });
+    y += 13;
+    const note = { taille: 7, couleur: NEUTRES.secondaire, largeurMax: largeur };
+    ecrire(doc, "Moyenne pondérée par les montants HT des factures réglées", x, y, note);
+    y += 10;
+    ecrire(doc, `Délai : ${delta(comparaison.delai)}`, x, y, note);
+    y += 11;
+    if (cohorte.ecartEcheanceMoyen !== null) {
+      const avecEcheance = cohorte.reglees.length - cohorte.sansEcheance;
+      ecrire(doc, `${libelleEcartEcheance(cohorte.ecartEcheanceMoyen)}${cohorte.sansEcheance > 0 ? ` · sur ${plurielFr(avecEcheance, "facture")} avec échéance` : ""}`, x, y, { taille: 8, largeurMax: largeur });
+      y += 10;
+      ecrire(doc, `Écart à l'échéance : ${delta(comparaison.ecartEcheance)}`, x, y, note);
+      y += 11;
+    }
+    if (cohorte.niveauDispersion !== null && cohorte.ecartType !== null) {
+      ecrire(doc, `${LIBELLES_DISPERSION[cohorte.niveauDispersion]} · écart-type ${jours(cohorte.ecartType)}`, x, y, { taille: 8, largeurMax: largeur });
+    } else {
+      ecrire(doc, `Seulement ${plurielFr(cohorte.reglees.length, "facture réglée")} : moyenne peu représentative.`, x, y, note);
+    }
+    y += 10;
+    if (cohorte.trancheDominante && cohorte.reglees.length >= SEUIL_REPRESENTATIF) {
+      ecrire(doc, `${Math.round(cohorte.trancheDominante.part * 100)} % des factures réglées ${libelleTrancheDansPhrase(cohorte.trancheDominante.tranche)}`, x, y, { taille: 8, largeurMax: largeur });
+      y += 10;
+    }
+  }
+  if (cohorte.ouvertes.length > 0) {
+    ecrire(doc, `${plurielFr(cohorte.ouvertes.length, "facture")} encore ouverte${cohorte.ouvertes.length > 1 ? "s" : ""} · ${enK(cohorte.montantOuvertes)}`, x, y + 2, { taille: 8, gras: true, largeurMax: largeur });
+    y += 12;
+    // Délai provisoire : la cohorte compte encore des factures ouvertes ; la moyenne peut bouger.
+    if (cohorte.delaiMoyen !== null) {
+      ecrire(doc, "Délai provisoire : il évoluera quand ces factures seront réglées.", x, y, { taille: 7, couleur: NEUTRES.secondaire, largeurMax: largeur });
+      y += 10;
+    }
+  }
+  return y;
+}
+
+async function pageBfr(doc: jsPDF, page: PageBfrPdf) {
+  if (page.indisponible !== null || page.lecture === null || page.mois === null) {
+    paragraphe(doc, page.indisponible ?? "BFR non disponible.", PAGE.marge, HAUT_CONTENU + 12, 520, { taille: 10, couleur: NEUTRES.encre });
+    return;
+  }
+  const { situation, validee, statut, totaux } = page.lecture;
+  const gauche = { x: PAGE.marge, l: 250 };
+
+  // Situation : BFR HT, statut, puis la décomposition — les mêmes montants que l'onglet BFR.
+  let y = HAUT_CONTENU + 9;
+  titreBloc(doc, "BFR HT", gauche.x, y);
+  const largeurBfr = ecrire(doc, totaux ? formatKiloEuros(totaux.bfr, Math.abs(totaux.bfr) < 10_000 ? 1 : 0) : "Incomplet", gauche.x, y + 29, { taille: 24, gras: true });
+  if (totaux) ecrireMentionTTC(doc, gauche.x + largeurBfr, y + 29, 9, "HT");
+  y += 45;
+  ecrire(doc, LIBELLES_STATUT_BFR[statut] + (validee ? ` · photographie validée le ${formatDateCourte(validee.valideeLe.slice(0, 10))}` : ""), gauche.x, y, {
+    taille: 8.5,
+    gras: true,
+    couleur: statut === "incomplete" ? ROSE : NEUTRES.secondaire,
+    largeurMax: gauche.l,
+  });
+  y += 4;
+  if (totaux === null && situation.raisons.length > 0) {
+    y = paragraphe(doc, situation.raisons.join(" "), gauche.x, y + 10, gauche.l, { taille: 7, couleur: NEUTRES.secondaire });
+  }
+  y += 12;
+  const termes: [string, string, boolean][] = [
+    ["Créances clients HT", enK(validee ? validee.creances : situation.totalCreances), false],
+    ["+ Stocks HT", validee ? enK(validee.stock) : situation.stock === null ? "Non renseigné" : enK(situation.stock), false],
+    ["− Dettes fournisseurs HT", enK(validee ? validee.dettes : situation.totalDettes), false],
+    ["= BFR HT", totaux ? enK(totaux.bfr) : "Incomplet", true],
+  ];
+  for (const [libelle, montant, total] of termes) {
+    if (total) trait(doc, gauche.x, y - 3, gauche.x + gauche.l, NEUTRES.encre, 0.8);
+    ecrire(doc, libelle, gauche.x, y + 9, { taille: total ? 9.5 : 9, gras: total, couleur: total ? NEUTRES.encre : NEUTRES.secondaire });
+    ecrire(doc, montant, gauche.x + gauche.l, y + 9, { taille: total ? 9.5 : 9, gras: true, aDroite: true });
+    y += 18;
+  }
+
+
+  // Évolution sur 12 mois : le graphique de l'onglet, rendu hors écran.
+  const x = PAGE.marge + 280;
+  const largeur = DROITE - x;
+  let yd = HAUT_CONTENU + 9;
+  titreBloc(doc, "Évolution sur 12 mois — BFR HT et délais de paiement", x, yd, largeur);
+  yd += 14;
+  // Légende fidèle aux marques du graphique : carré (BFR), trait plein (clients), tirets (fournisseurs).
+  let xl = x;
+  const bfrAffiche = page.evolution.some((p) => p.valeur !== null);
+  if (bfrAffiche) {
+    doc.setFillColor(COULEUR_BFR);
+    doc.roundedRect(xl, yd - 6, 7, 7, 1.2, 1.2, "F");
+    xl += 11 + ecrire(doc, "BFR HT (k€)", xl + 11, yd, { taille: 7.5, couleur: NEUTRES.secondaire }) + 14;
+  }
+  const traitLegende = (tirets: number[] | null, texte: string) => {
+    doc.setDrawColor(COULEUR_DELAIS);
+    doc.setLineWidth(1.6);
+    if (tirets) doc.setLineDashPattern(tirets, 0);
+    doc.line(xl, yd - 2.5, xl + 16, yd - 2.5);
+    doc.setLineDashPattern([], 0);
+    xl += 20 + ecrire(doc, texte, xl + 20, yd, { taille: 7.5, couleur: NEUTRES.secondaire }) + 14;
+  };
+  traitLegende(null, "Délai clients (j)");
+  traitLegende(TIRETS_FOURNISSEURS.split(" ").map(Number), "Délai fournisseurs (j)");
+  yd += 6;
+  // Dates de l'axe sur deux lignes (« 30/09 » / « 2026 ») : lisibles une fois le graphique réduit.
+  const svg = await capturerSvg(<PasseBfrEvolutionChart evolution={page.evolution} courant={page.mois} formatImpose="deux_lignes" />, 640);
+  const zone = svg ? await dessinerSvg(doc, svg, { x, y: yd, l: largeur, h: 215 }) : { x, y: yd, l: largeur, h: 0 };
+  const yNote = paragraphe(
+    doc,
+    (bfrAffiche
+      ? "BFR (barres, axe de gauche, k€) : barre pleine = validé, barre claire = provisoire, pas de barre = mois incomplet, jamais estimé ; le mois de la situation est encadré. "
+      : "BFR non affiché : aucun des 12 mois n'a de situation complète (stock HT non renseigné ou factures au solde inconnu). ") +
+      "Délais (courbes, axe de droite, jours) : délai moyen réel des factures émises chaque mois, pondéré par le montant HT ; pas de point sans facture réglée. Chaque mois est daté à son dernier jour.",
+    x,
+    zone.y + zone.h + 12,
+    largeur,
+    { taille: 7, couleur: NEUTRES.secondaire }
+  );
+
+  // Délais : la cohorte du mois de la situation, comme les cartouches de l'onglet — en bas de page,
+  // côte à côte sur toute la largeur.
+  if (page.delais) {
+    const yDelais = Math.max(y, yNote) + 16;
+    trait(doc, PAGE.marge, yDelais - 12, DROITE);
+    const colonne = (DROITE - PAGE.marge - 30) / 2;
+    blocDelai(doc, "Délai clients", page.delais.client, page.delais.clientPrecedent, page.mois, PAGE.marge, yDelais, colonne);
+    blocDelai(doc, "Délai fournisseurs", page.delais.fournisseur, page.delais.fournisseurPrecedent, page.mois, PAGE.marge + colonne + 30, yDelais, colonne);
+  }
+}
+
+// --- Page Analyse d'écarts ---
+
+const signeMontant = (montant: number) => (montant > 0 ? `+${formatMontant(montant)}` : formatMontant(montant));
+const signeK = (montant: number) => (montant > 0 ? `+${formatKiloEuros(montant)}` : formatKiloEuros(montant));
+
+async function pageEcarts(doc: jsPDF, page: PageEcartsPdf) {
+  const { plan, comparaison } = page;
+  if (comparaison === null) {
+    let y = paragraphe(doc, page.indisponible ?? "Comparaison indisponible.", PAGE.marge, HAUT_CONTENU + 12, 560, { taille: 10, couleur: NEUTRES.encre });
+    y = paragraphe(
+      doc,
+      `Le rapport compare toujours la période choisie à la période précédente comparable (${plan.libelle}) ; aucune autre période n'est prise à sa place.`,
+      PAGE.marge,
+      y + 6,
+      560,
+      { taille: 8, couleur: NEUTRES.secondaire }
+    );
+    return;
+  }
+
+  // Indicateurs : A (période précédente comparable), B (période du rapport), écart — convention de l'écran.
+  const colonnes = [PAGE.marge, PAGE.marge + 260, PAGE.marge + 520];
+  const bornes = (p: { debut: string; fin: string }) => `${formatDateCourte(p.debut)} — ${formatDateCourte(p.fin)}`;
+  const kpi = (x: number, libelle: string, detail: string, valeur: string) => {
+    ecrire(doc, libelle, x, HAUT_CONTENU + 8, { taille: 7.5, gras: true, capitales: true, couleur: NEUTRES.secondaire, largeurMax: 240 });
+    ecrire(doc, detail, x, HAUT_CONTENU + 19, { taille: 7.5, couleur: NEUTRES.secondaire, largeurMax: 240 });
+    const l = ecrire(doc, valeur, x, HAUT_CONTENU + 42, { taille: 17, gras: true });
+    ecrireMentionTTC(doc, x + l, HAUT_CONTENU + 42, 8);
+  };
+  kpi(colonnes[0], `${comparaison.metrique} A`, `${plan.libelleA.charAt(0).toUpperCase()}${plan.libelleA.slice(1)} · ${bornes(plan.a)}`, formatMontant(comparaison.cashFlowA));
+  kpi(colonnes[1], `${comparaison.metrique} B`, `${plan.libelleB} · ${bornes(plan.b)}`, formatMontant(comparaison.cashFlowB));
+  kpi(
+    colonnes[2],
+    "Écart",
+    comparaison.ecartRelatif === null ? "—" : `${comparaison.ecartRelatif > 0 ? "+" : ""}${formatPourcentage(comparaison.ecartRelatif)}`,
+    signeMontant(comparaison.ecart)
+  );
+  let y = HAUT_CONTENU + 58;
+  const reserves = [
+    comparaison.financementCompris ? "Lecture : financement compris (Variation de trésorerie)." : "Lecture : hors financement (Cash flow opérationnel).",
+    ...(plan.portion ? [`Période en cours : comparée à la même portion de la période précédente (${bornes(plan.b)} vs ${bornes(plan.a)}), jamais à une période entière.`] : []),
+  ];
+  for (const reserve of reserves) {
+    ecrire(doc, reserve, PAGE.marge, y, { taille: 7.5, couleur: NEUTRES.secondaire, largeurMax: DROITE - PAGE.marge });
+    y += 10;
+  }
+
+  // Waterfall : le graphique de l'écran, sans sélection.
+  const gauche = { x: PAGE.marge, y: y + 8, l: 470 };
+  titreBloc(doc, comparaison.financementCompris ? "Ce qui fait varier la trésorerie" : "Ce qui fait varier le Cash flow opérationnel", gauche.x, gauche.y, gauche.l);
+  const svg = await capturerSvg(<PasseWaterfallChart comparaison={comparaison} libelleA="A" libelleB="B" selection={null} onSelect={rien} />, 780);
+  const hauteurWaterfall = BAS_CONTENU - gauche.y - 44;
+  const zone = svg ? await dessinerSvg(doc, svg, { x: gauche.x, y: gauche.y + 8, l: gauche.l, h: hauteurWaterfall }) : { x: gauche.x, y: gauche.y, l: gauche.l, h: 0 };
+  const dont = [
+    `Dont variation d'EBITDA : ${signeMontant(comparaison.variationEbitda)}`,
+    `variation d'Extra P&L : ${signeMontant(comparaison.variationExtraPnl)}`,
+    ...(comparaison.variationTva !== 0 ? [`variation de TVA : ${signeMontant(comparaison.variationTva)}`] : []),
+    ...(comparaison.financementCompris ? [`variation des virements internes & financement : ${signeMontant(comparaison.variationFinancements)}`] : []),
+  ].join(" · ");
+  paragraphe(doc, dont, gauche.x, zone.y + zone.h + 14, gauche.l, { taille: 7.5, couleur: NEUTRES.secondaire });
+
+  // Contributions par étage, puis les mouvements qui pèsent le plus.
+  const x = PAGE.marge + 494;
+  const largeur = DROITE - x;
+  const col = { a: x + largeur - 120, b: x + largeur - 62, impact: x + largeur };
+  let yt = gauche.y;
+  const enteteTableau = (premiere: string, colonnesMontants: [number, string][]) => {
+    const style = { taille: 6.5, gras: true, capitales: true, couleur: NEUTRES.secondaire };
+    ecrire(doc, premiere, x, yt, style);
+    for (const [xc, libelle] of colonnesMontants) ecrire(doc, libelle, xc, yt, { ...style, aDroite: true });
+    yt += 5;
+    trait(doc, x, yt, x + largeur, NEUTRES.secondaire, 0.5);
+  };
+  titreBloc(doc, "Contribution par étage", x, yt, largeur);
+  yt += 14;
+  enteteTableau(`Étage · ${MENTION_TTC}`, [[col.a, "A"], [col.b, "B"], [col.impact, "Impact"]]);
+  for (const etage of comparaison.etages) {
+    const base = yt + 11;
+    ecrire(doc, etage.libelle, x, base, { taille: 7.5, largeurMax: col.a - x - 52 });
+    ecrire(doc, formatKiloEuros(etage.montantA), col.a, base, { taille: 7.5, couleur: NEUTRES.secondaire, aDroite: true });
+    ecrire(doc, formatKiloEuros(etage.montantB), col.b, base, { taille: 7.5, couleur: NEUTRES.secondaire, aDroite: true });
+    ecrire(doc, signeK(etage.contribution), col.impact, base, { taille: 7.5, gras: true, aDroite: true });
+    yt += 15;
+    trait(doc, x, yt, x + largeur);
+  }
+
+  yt += 22;
+  titreBloc(doc, "Principaux mouvements", x, yt, largeur);
+  yt += 14;
+  if (page.mouvements.length === 0) {
+    ecrire(doc, "Aucun mouvement significatif entre les deux périodes.", x, yt + 4, { taille: 8, couleur: NEUTRES.secondaire, largeurMax: largeur });
+    return;
+  }
+  enteteTableau("Catégorie", [[col.b, "Variation"], [col.impact, "Impact"]]);
+  for (const mouvement of page.mouvements) {
+    if (yt + 20 > BAS_CONTENU) break;
+    const base = yt + 10;
+    ecrire(doc, mouvement.nom, x, base, { taille: 7.5, largeurMax: col.b - x - 60 });
+    ecrire(doc, mouvement.horsBanque ? `${mouvement.libelleEtage} · ajustement de gestion` : mouvement.libelleEtage, x, base + 7.5, {
+      taille: 5.8,
+      couleur: NEUTRES.secondaire,
+      largeurMax: col.b - x - 60,
+    });
+    ecrire(doc, libelleVariation(mouvement.variation, (m) => formatKiloEuros(m)), col.b, base, { taille: 7.5, couleur: NEUTRES.secondaire, aDroite: true });
+    ecrire(doc, signeK(mouvement.contribution), col.impact, base, { taille: 7.5, gras: true, aDroite: true });
+    yt += 19;
+    trait(doc, x, yt, x + largeur);
+  }
+}
+
 // --- Document ---
 
 async function chargerPolice(doc: jsPDF, fichier: string, style: "normal" | "bold") {
@@ -515,23 +801,28 @@ async function chargerPolice(doc: jsPDF, fichier: string, style: "normal" | "bol
 
 export interface DocumentPdfPasse {
   organisation: string;
-  periode: Periode;
   pages: PagePdf[];
   teintes: ReadonlyMap<string, string>;
 }
 
 /** Compose le PDF et le renvoie ; le téléchargement est l'affaire de l'appelant. */
-export async function genererPdfPasse({ organisation, periode, pages, teintes }: DocumentPdfPasse): Promise<Blob> {
+export async function genererPdfPasse({ organisation, pages, teintes }: DocumentPdfPasse): Promise<Blob> {
   const [{ jsPDF: JsPdf }] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);
   const doc = new JsPdf({ orientation: "landscape", unit: "pt", format: "a4", compress: true });
   await Promise.all([chargerPolice(doc, "Lexend-Regular.ttf", "normal"), chargerPolice(doc, "Lexend-SemiBold.ttf", "bold")]);
   doc.setProperties({ title: `Novanta — Passé — ${organisation}`, creator: "Novanta" });
 
+  // Pied de page : la lecture du rapport (Général) pour les pages P&L ; le BFR est toujours HT, l'Analyse
+  // d'écarts toujours TTC.
+  const baseRapport = pages[0]?.type === "general" ? pages[0].base : "ttc";
+  const mention = (page: PagePdf) => (page.type === "bfr" ? DISCLAIMER_PDF_BFR : disclaimerPdf(page.type === "ecarts" ? "ttc" : baseRapport));
   for (const [index, page] of pages.entries()) {
     if (index > 0) doc.addPage("a4", "landscape");
-    cadre(doc, organisation, page.titre, periode, page.type === "detail" ? page.libellesFiltres : [], index + 1, pages.length, pages[0]?.type === "general" ? pages[0].base : "ttc");
+    cadre(doc, organisation, page.titre, page.entete, page.type === "detail" ? page.libellesFiltres : [], index + 1, pages.length, mention(page));
     if (page.type === "general") await pageGeneral(doc, page, teintes);
-    else await pageDetail(doc, page, teintes);
+    else if (page.type === "detail") await pageDetail(doc, page, teintes);
+    else if (page.type === "bfr") await pageBfr(doc, page);
+    else await pageEcarts(doc, page);
   }
   return doc.output("blob");
 }

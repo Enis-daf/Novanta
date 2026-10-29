@@ -1,4 +1,5 @@
 import { formatDateCourte } from "./dates";
+import { finDeMois } from "./pastAdjustments";
 import { libelleMois } from "./pastDetail";
 
 /**
@@ -322,4 +323,27 @@ export function reviser(ancienne: SituationValidee, nouvelle: SituationValidee, 
  */
 export function photographieDepassee(validee: SituationValidee, situation: SituationBfr): boolean {
   return situation.complete && situation.bfr !== null && Math.abs(validee.bfr - situation.bfr) > EPSILON;
+}
+
+/**
+ * Fenêtre glissante de l'évolution du BFR : le mois choisi et les `nombre − 1` mois civils
+ * précédents, du plus ancien au plus récent (septembre 2026 -> octobre 2025 … septembre 2026).
+ */
+export function moisGlissants(mois: string, nombre = 12): string[] {
+  const annee = Number(mois.slice(0, 4));
+  const numero = Number(mois.slice(5, 7));
+  return Array.from({ length: nombre }, (_, i) => {
+    const index = annee * 12 + (numero - 1) - (nombre - 1 - i);
+    return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
+  });
+}
+
+/**
+ * Date affichée pour un mois sur l'axe de l'évolution : son dernier jour calendaire (30/09/2026,
+ * 28/02/2026, 29/02/2028). C'est une date de période métier, jamais la date technique d'un snapshot,
+ * d'une synchronisation ou d'une saisie. `compact` : « 30/09 » (l'année va sur une seconde ligne).
+ */
+export function libelleFinDeMois(mois: string, compact = false): string {
+  const date = formatDateCourte(finDeMois(mois));
+  return compact ? date.slice(0, 5) : date;
 }
