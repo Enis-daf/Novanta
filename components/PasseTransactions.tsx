@@ -16,6 +16,9 @@ import { baseEnregistree, cleStockageBase, LIBELLE_ECARTS_EN_TTC, libelleCouvert
 import PasseBfr from "./PasseBfr";
 import PasseStocks from "./PasseStocks";
 import PastDetailDashboard from "./PastDetailDashboard";
+import OffreVerrouillee from "./OffreVerrouillee";
+import IconCadenas from "./IconCadenas";
+import { Capacite, DroitsOrganisation, messageOffreRequise } from "@/lib/offres";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, todayISO, toISODate } from "@/lib/dates";
 import {
@@ -124,6 +127,8 @@ interface PasseTransactionsProps {
   // Nom affiché en tête de l'export PDF et repris dans le nom du fichier.
   organizationName: string;
   accessToken: string;
+  // Droits de l'offre de l'organisation, déjà résolus par la page avant tout affichage.
+  droits: DroitsOrganisation;
 }
 
 const LIGNES_PAR_PAGE = 50;
@@ -156,6 +161,17 @@ const ONGLETS = [
 ] as const;
 
 type Vue = (typeof ONGLETS)[number]["cle"];
+
+// Onglets soumis à une capacité de l'offre (lib/offres.ts) ; les autres suivent l'accès au module.
+const CAPACITE_PAR_VUE: Partial<Record<Vue, { capacite: Capacite; fonctionnalite: string }>> = {
+  ecarts: { capacite: "canViewVarianceAnalysis", fonctionnalite: "L'analyse d'écarts" },
+  bfr: { capacite: "canViewWorkingCapital", fonctionnalite: "Le BFR" },
+};
+
+function vueVerrouillee(vue: Vue, droits: DroitsOrganisation): boolean {
+  const restriction = CAPACITE_PAR_VUE[vue];
+  return restriction !== undefined && !droits.capacites[restriction.capacite];
+}
 const formatNombre = new Intl.NumberFormat("fr-FR");
 
 function pluriel(nombre: number, singulier: string, plurielTexte: string): string {
@@ -164,7 +180,7 @@ function pluriel(nombre: number, singulier: string, plurielTexte: string): strin
 
 // Tableau des transactions du module Passé. Lit uniquement past_transactions (jamais Pennylane
 // directement) : la source d'une transaction n'a aucune incidence sur l'affichage.
-export default function PasseTransactions({ organizationId, organizationName, accessToken }: PasseTransactionsProps) {
+export default function PasseTransactions({ organizationId, organizationName, accessToken, droits }: PasseTransactionsProps) {
   const router = useRouter();
   // PÉRIODE DU MODULE — source unique pour tous les onglets. Elle tient en deux états :
   //  - l'exercice de l'organisation (en base ; null tant qu'il n'est pas lu) ;
@@ -1141,23 +1157,29 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       <div className="passe-onglets" role="tablist">
         {[false, true].map((actions) => (
           <div key={String(actions)} className="passe-onglets__groupe" role="presentation">
-            {ONGLETS.filter((onglet) => !("horsNavigation" in onglet) && "actions" in onglet === actions).map((onglet) => (
-              <button
-                key={onglet.cle}
-                type="button"
-                role="tab"
-                aria-selected={vue === onglet.cle}
-                className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}${
-                  "vedette" in onglet ? " passe-onglet--vedette" : ""
-                }`}
-                onClick={() => setVue(onglet.cle)}
-              >
-                {onglet.libelle}
-                {onglet.cle === "mapping" && nombreAMapper > 0 && (
-                  <span className="passe-onglet__pastille">{nombreAMapper}</span>
-                )}
-              </button>
-            ))}
+            {ONGLETS.filter((onglet) => !("horsNavigation" in onglet) && "actions" in onglet === actions).map((onglet) => {
+              const verrouille = vueVerrouillee(onglet.cle, droits);
+              const restriction = CAPACITE_PAR_VUE[onglet.cle];
+              return (
+                <button
+                  key={onglet.cle}
+                  type="button"
+                  role="tab"
+                  aria-selected={vue === onglet.cle}
+                  className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}${
+                    verrouille ? " passe-onglet--verrouille" : "vedette" in onglet ? " passe-onglet--vedette" : ""
+                  }`}
+                  title={verrouille && restriction ? messageOffreRequise(restriction.capacite) : undefined}
+                  onClick={() => setVue(onglet.cle)}
+                >
+                  {verrouille && <IconCadenas />}
+                  {onglet.libelle}
+                  {onglet.cle === "mapping" && nombreAMapper > 0 && (
+                    <span className="passe-onglet__pastille">{nombreAMapper}</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>
@@ -1370,6 +1392,14 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               // Objectifs exclusivement HT : aucune cible en lecture TTC, ni sur le Cash flow.
               cibles={base === "ht" && vue !== "cash_flow" ? cibles : undefined}
             />
+          ) : vueVerrouillee(vue, droits) && CAPACITE_PAR_VUE[vue] ? (
+            // Jamais monté hors offre : l'écran verrouillé remplace le composant, qui n'appelle donc
+            // aucune route (la route BFR refuse de toute façon, voir app/api/passe/bfr).
+            <OffreVerrouillee
+              capacite={CAPACITE_PAR_VUE[vue].capacite}
+              fonctionnalite={CAPACITE_PAR_VUE[vue].fonctionnalite}
+              offreActuelle={droits.offreEffective}
+            />
           ) : vue === "ecarts" ? (
             <>
             {base === "ht" && <p className="passe-message">{LIBELLE_ECARTS_EN_TTC}</p>}
@@ -1503,7 +1533,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         ]}
       />
       {/* Rappel permanent, commun à tous les onglets du module, selon la lecture choisie. */}
-      {vue === "bfr" ? (
+      {vue === "bfr" && vueVerrouillee(vue, droits) ? null : vue === "bfr" ? (
         <p className="passe-disclaimer">
           BFR toujours en HT : montants HT des factures Pennylane réelles et stocks saisis HT. Aucun taux de TVA appliqué,
           aucune facture prévisionnelle.
