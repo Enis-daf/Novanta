@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  moisGlissants,
   FactureBfr,
   photographier,
   photographieDepassee,
@@ -286,5 +287,23 @@ describe("BFR — lecture des factures Pennylane", () => {
     assert.equal(reglementsNecessaires(facture()), false);
     assert.equal(reglementsNecessaires(facture({ resteTtc: 0 })), true);
     assert.equal(reglementsNecessaires(facture({ resteTtc: 0, exclusion: "archivee" })), false);
+  });
+});
+
+describe("BFR — évolution sur 12 mois glissants", () => {
+  test("septembre 2026 -> octobre 2025 à septembre 2026, 12 mois exactement", () => {
+    const m = moisGlissants("2026-09");
+    assert.equal(m.length, 12);
+    assert.deepEqual([m[0], m[2], m[3], m[11]], ["2025-10", "2025-12", "2026-01", "2026-09"]);
+  });
+
+  test("janvier : décembre et onze mois de l'année précédente, sans trou", () => {
+    assert.deepEqual(moisGlissants("2026-01", 3), ["2025-11", "2025-12", "2026-01"]);
+  });
+
+  test("un mois sans stock reste sans valeur : jamais 0", () => {
+    const s = situationBfr({ factures: [], date: "2026-03-31", stock: null, synchroniseLe: "2026-10-02" });
+    assert.equal(s.bfr, null);
+    assert.equal(totauxRetenus(s, null), null);
   });
 });

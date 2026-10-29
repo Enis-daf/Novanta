@@ -4053,16 +4053,6 @@ button.passe-cible--lien:focus-visible,
   gap: var(--space-2);
 }
 
-.passe-bfr__delais-periode {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.passe-bfr__delais-periode .passe-message {
-  margin: 0;
-}
 
 .passe-bfr__synthese {
   display: flex;
