@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { FactureBfr } from "./pastBfr";
-import { comparerAvecPrecedente, delaisDeLaCohorte, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
+import { comparerAvecPrecedente, delaisDeLaCohorte, delaisDuMois, periodeDuMois, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
 
 const SEPTEMBRE = { debut: "2026-09-01", fin: "2026-09-30" };
 const AUJOURDHUI = "2026-10-28";
@@ -331,5 +331,31 @@ describe("évolution vs période précédente : chaque indicateur contre lui-mê
     const c = comparerAvecPrecedente(delaisDeLaCohorte(tout, "fournisseur", SEPTEMBRE, AUJOURDHUI), delaisDeLaCohorte(tout, "fournisseur", AOUT, AUJOURDHUI));
     proche(c.delai, -10);
     proche(c.ecartEcheance, -10);
+  });
+});
+
+describe("Délais — cohorte mensuelle partagée par le KPI et le graphique", () => {
+  test("période du mois : du 1er au dernier jour calendaire, février bissextile compris", () => {
+    assert.deepEqual(periodeDuMois("2026-09"), { debut: "2026-09-01", fin: "2026-09-30" });
+    assert.deepEqual(periodeDuMois("2026-02"), { debut: "2026-02-01", fin: "2026-02-28" });
+    assert.deepEqual(periodeDuMois("2028-02"), { debut: "2028-02-01", fin: "2028-02-29" });
+    assert.deepEqual(periodeDuMois("2026-10"), { debut: "2026-10-01", fin: "2026-10-31" });
+  });
+
+  test("le point de septembre est exactement la moyenne du KPI de septembre", () => {
+    const factures = [
+      facture({ dateEmission: "2026-09-02", regleeLe: "2026-10-12" }),
+      facture({ dateEmission: "2026-09-30", regleeLe: "2026-10-05", montantHt: 3_000 }),
+      facture({ dateEmission: "2026-10-01", regleeLe: "2026-10-02" }),
+      facture({ dateEmission: "2026-08-31", regleeLe: "2026-09-01" }),
+    ];
+    const graphique = delaisDuMois(factures, "client", "2026-09", AUJOURDHUI);
+    assert.equal(graphique.delaiMoyen, cohorte(factures).delaiMoyen);
+    assert.equal(graphique.reglees.length, 2);
+  });
+
+  test("un mois sans facture réglée n'a pas de délai : jamais 0", () => {
+    assert.equal(delaisDuMois([facture({ regleeLe: null })], "client", "2026-09", AUJOURDHUI).delaiMoyen, null);
+    assert.equal(delaisDuMois([], "fournisseur", "2026-03", AUJOURDHUI).delaiMoyen, null);
   });
 });

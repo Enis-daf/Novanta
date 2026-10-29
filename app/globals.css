@@ -4047,6 +4047,21 @@ button.passe-cible--lien:focus-visible,
 
 /* Synthèse puis décomposition, l'une sous l'autre : la décomposition, pleine largeur, porte les
    délais clients et fournisseurs sous les composantes qu'ils expliquent. */
+.passe-bfr__legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 4px 0 8px;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-bfr__legende span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .passe-bfr__decomposition-zone {
   display: flex;
   flex-direction: column;

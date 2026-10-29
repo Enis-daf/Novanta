@@ -1,4 +1,5 @@
 import { formatDateCourte } from "./dates";
+import { finDeMois } from "./pastAdjustments";
 import { libelleMois } from "./pastDetail";
 
 /**
@@ -335,4 +336,14 @@ export function moisGlissants(mois: string, nombre = 12): string[] {
     const index = annee * 12 + (numero - 1) - (nombre - 1 - i);
     return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
   });
+}
+
+/**
+ * Date affichée pour un mois sur l'axe de l'évolution : son dernier jour calendaire (30/09/2026,
+ * 28/02/2026, 29/02/2028). C'est une date de période métier, jamais la date technique d'un snapshot,
+ * d'une synchronisation ou d'une saisie. `compact` : « 30/09 » (l'année va sur une seconde ligne).
+ */
+export function libelleFinDeMois(mois: string, compact = false): string {
+  const date = formatDateCourte(finDeMois(mois));
+  return compact ? date.slice(0, 5) : date;
 }

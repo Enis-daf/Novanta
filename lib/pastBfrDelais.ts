@@ -1,3 +1,4 @@
+import { finDeMois } from "./pastAdjustments";
 import { FactureBfr, TypeFactureBfr } from "./pastBfr";
 import { SEUIL_COUVERTURE_REGLEMENT } from "./pennylaneInvoiceAdapter";
 
@@ -323,4 +324,17 @@ export function libelleEcartEcheance(jours: number): string {
 export function libelleVariationJours(jours: number): string {
   const arrondi = Math.round(jours);
   return arrondi > 0 ? `+${arrondi} j` : arrondi < 0 ? `−${-arrondi} j` : "0 j";
+}
+
+/** Période d'une cohorte mensuelle : du 1er au dernier jour calendaire du mois. */
+export function periodeDuMois(mois: string): { debut: string; fin: string } {
+  return { debut: `${mois}-01`, fin: finDeMois(mois) };
+}
+
+/**
+ * Délais d'une cohorte mensuelle. Seule entrée utilisée par le KPI du mois ET par le graphique sur
+ * 12 mois : le point de septembre est exactement « XX j en moyenne sur septembre ».
+ */
+export function delaisDuMois(factures: FactureBfr[], cote: CoteDelai, mois: string, aujourdhui: string): DelaisCohorte {
+  return delaisDeLaCohorte(factures, cote, periodeDuMois(mois), aujourdhui);
 }
