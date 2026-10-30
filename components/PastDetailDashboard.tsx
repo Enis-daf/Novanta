@@ -27,6 +27,7 @@ import {
 } from "@/lib/pastDetail";
 import { Cible, ecartsVsCibles, enK } from "@/lib/pastTargets";
 import { Periode } from "@/lib/pastTransactions";
+import { FluxHorsPnl, lignesFinalesDuCashFlow } from "@/lib/pastPnlCashEstime";
 
 interface PastDetailDashboardProps {
   metrique: MetriqueDetail;
@@ -47,6 +48,8 @@ interface PastDetailDashboardProps {
   // cibles ne sont fournies qu'en lecture HT : les objectifs sont exclusivement HT.
   base?: BaseMontants;
   onConfigurerTva?: () => void;
+  // Écran Cash flow, nouvelle présentation : flux sans affectation, en lignes finales.
+  fluxHorsPnl?: FluxHorsPnl;
 }
 
 const PAS_AFFICHAGE = 100;
@@ -86,6 +89,7 @@ export default function PastDetailDashboard({
   cibles,
   base = "ttc",
   onConfigurerTva,
+  fluxHorsPnl,
 }: PastDetailDashboardProps) {
   const mention = base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC;
   // Écran Cash flow : « hors financement » (par défaut, la lecture la plus exploitable) ou
@@ -121,6 +125,7 @@ export default function PastDetailDashboard({
   );
 
   const filtreActif = filtres.categorie !== null || filtres.mois !== null;
+  const lignesCashFlow = fluxHorsPnl ? lignesFinalesDuCashFlow(vue.kpi.montant, fluxHorsPnl, filtres.mois) : null;
   // Lecture HT : une partie des montants de l'indicateur n'a pas de taux de TVA. Aucun total n'est
   // alors présenté comme fiable.
   const estimationIncomplete = base === "ht" && vue.couvertureKpi !== null && !vue.couvertureKpi.complete;
@@ -254,6 +259,21 @@ export default function PastDetailDashboard({
             onSelect={basculerCategorie}
             mention={mention}
           />
+        )}
+
+        {metrique === "cash_flow" && fluxHorsPnl && filtres.categorie === null && lignesCashFlow && (
+          <section className="passe-pnl__bloc passe-flux-final" aria-label="Flux sans affectation">
+            {lignesCashFlow.lignes.map((ligne) => (
+              <p key={ligne.libelle} className="passe-flux-hors-pnl__ligne">
+                <span>{ligne.libelle}</span>
+                <span className="passe-pnl__montant">{formatMontant(ligne.montant)}</span>
+              </p>
+            ))}
+            <p className="passe-flux-hors-pnl__ligne passe-flux-final__total">
+              <span>{lignesCashFlow.libelleTotal}</span>
+              <span className="passe-pnl__montant">{formatMontant(lignesCashFlow.total)}</span>
+            </p>
+          </section>
         )}
 
         {/* Histogramme et, à côté, les ajustements de gestion compris dans ses barreaux. Le bloc suit

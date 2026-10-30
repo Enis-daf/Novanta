@@ -7,6 +7,9 @@ import { useRouter } from "next/navigation";
 import PasseEcarts, { SelectionsEcarts } from "./PasseEcarts";
 import PasseObjectifs from "./PasseObjectifs";
 import PasseGeneral from "./PasseGeneral";
+import PassePnlCashEstime from "./PassePnlCashEstime";
+import { pnlCashEstimeActif } from "@/lib/featureFlags";
+import { calculerPnlCashEstime, fluxHorsPnl, lignesAvertissementFlux } from "@/lib/pastPnlCashEstime";
 import PasseMappingTable from "./PasseMappingTable";
 import PasseSelecteurPeriode from "./PasseSelecteurPeriode";
 import PasseSelecteurBase from "./PasseSelecteurBase";
@@ -240,13 +243,16 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   // l'autre et, comme la période, relu du stockage local de CETTE organisation au montage. Seul un
   // choix explicite y est écrit : une préférence TTC reste TTC. Ne modifie aucune donnée ; la
   // trésorerie reste TTC dans les deux lectures.
-  const [base, setBase] = useState<BaseMontants>(() => {
+  const [baseChoisie, setBase] = useState<BaseMontants>(() => {
     try {
       return baseEnregistree(window.localStorage.getItem(cleStockageBase(organizationId)));
     } catch {
       return baseEnregistree(null);
     }
   });
+  // Nouvelle présentation : reporting exclusivement HT estimé, le choix enregistré n'est plus lu.
+  const cashEstime = pnlCashEstimeActif();
+  const base: BaseMontants = cashEstime ? "ht" : baseChoisie;
   const choisirBase = (suivante: BaseMontants) => {
     setBase(suivante);
     try {
@@ -536,6 +542,10 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   const partsDetailAffichees = useMemo(
     () => partsEnBase(partsDetail, tauxParCategorie(mappingsIndexes), base),
     [partsDetail, mappingsIndexes, base]
+  );
+  const pnlCashEstime = useMemo(
+    () => (cashEstime ? calculerPnlCashEstime(stockees, axe.axeId, mappingsIndexes, ajustements) : null),
+    [cashEstime, stockees, axe.axeId, mappingsIndexes, ajustements]
   );
   // Récurrence du revenu (offre Pilotage) : les parts d'Encaissements de la lecture affichée,
   // réparties selon la nature de leur catégorie (lib/pastRecurrence.ts).
@@ -883,10 +893,13 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   const avertissementsDuRapport = (lignes: PastTransactionStockee[], pnlTtc: ReturnType<typeof calculerPnl>, pnlBase: ReturnType<typeof calculerPnlEnBase>): string[] => {
     const avertissements: string[] = [];
     const nonCategorisees = compterNonCategorisees(appliquerAxe(lignes, axe.axeId));
-    if (nonCategorisees > 0) {
+    // Nouvelle présentation : les mêmes signaux, chiffrés avec leur signe, sans répéter les lignes ci-dessous.
+    if (cashEstime) {
+      avertissements.push(...lignesAvertissementFlux(fluxHorsPnl(lignes, axe.axeId, mappingsIndexes)));
+    } else if (nonCategorisees > 0) {
       avertissements.push(`${pluriel(nonCategorisees, "transaction non catégorisée", "transactions non catégorisées")} sur la période, hors reporting.`);
     }
-    if (pnlTtc.nonMappees.nombreCategories > 0) {
+    if (!cashEstime && pnlTtc.nonMappees.nombreCategories > 0) {
       avertissements.push(
         `Reporting incomplet : ${pluriel(pnlTtc.nonMappees.nombreCategories, "catégorie reste", "catégories restent")} à mapper (${formatMontantComptable(pnlTtc.nonMappees.montant)} exclus des calculs).`
       );
@@ -952,6 +965,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         parts: partsEnBase(partsTtc, tauxParCategorie(mappingsIndexes), base),
         partsTtc,
         base,
+        presentation: cashEstime ? "cash_estime" : "historique",
+        fluxHorsPnl: cashEstime ? fluxHorsPnl(lignesRapport, axe.axeId, mappingsIndexes) : undefined,
         periode: plan.periode,
         ajustements: ajustementsRapport,
         avertissements: avertissementsDuRapport(lignesRapport, pnlTtc, pnlBase),
@@ -988,7 +1003,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         <div className="passe-controle passe-axe">
           {/* L'onglet Écarts compare deux périodes qui lui sont propres : la période du module n'y
               joue pas, elle est masquée pour ne pas laisser croire le contraire. */}
-          {(vue === "general" || estMetriqueDetail(vue)) && <PasseSelecteurBase base={base} onChange={choisirBase} />}
+          {!cashEstime && (vue === "general" || estMetriqueDetail(vue)) && <PasseSelecteurBase base={base} onChange={choisirBase} />}
           {vue !== "ecarts" && (
             <PasseSelecteurPeriode
               id="passe-periode-preset"
@@ -1397,7 +1412,16 @@ export default function PasseTransactions({ organizationId, organizationName, ac
             </p>
           )}
 
-          {axeAConfigurer ? null : vue === "general" ? (
+          {axeAConfigurer ? null : vue === "general" && pnlCashEstime ? (
+            <PassePnlCashEstime
+              pnl={pnlCashEstime}
+              teintes={teintesCategories}
+              cibles={ecartsCibles}
+              onOuvrir={setVue}
+              onDefinirCible={voirCibles}
+              onConfigurer={voirCategoriesAMapper}
+            />
+          ) : vue === "general" ? (
             <PasseGeneral
               pnl={pnlAffiche}
               teintes={teintesCategories}
@@ -1421,6 +1445,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               teintes={teintesCategories}
               // Objectifs exclusivement HT : aucune cible en lecture TTC, ni sur le Cash flow.
               cibles={base === "ht" && vue !== "cash_flow" ? cibles : undefined}
+              fluxHorsPnl={vue === "cash_flow" ? pnlCashEstime?.flux : undefined}
             />
           ) : vueVerrouillee(vue, droits) && CAPACITE_PAR_VUE[vue] ? (
             // Jamais monté hors offre : l'écran verrouillé remplace le composant, qui n'appelle donc

@@ -36,7 +36,7 @@ interface PasseGeneralProps {
   teintes: ReadonlyMap<string, string>;
 }
 
-function Ligne({
+export function Ligne({
   libelle,
   montant,
   ratio,
@@ -51,6 +51,7 @@ function Ligne({
   ratio?: number | null;
   niveau?: "titre" | "solde" | "total";
   // Base de l'indicateur principal : « TTC » ou « HT estimé ». La trésorerie reste toujours TTC.
+  // Vide : pas de mention, le titre du reporting pose déjà le contexte.
   mention?: string;
   // Lecture HT : TVA non renseignée sur une partie des montants — pas de chiffre trompeur.
   incomplet?: boolean;
@@ -65,7 +66,7 @@ function Ligne({
         {libelle}
         {/* Indicateurs principaux seulement (titre, soldes, total) : ils posent le contexte (TTC ou
             HT estimé) pour les lignes de coûts qui les précèdent, qui restent sans mention. */}
-        {niveau && !texte && <MentionTTC libelle={mention} />}
+        {niveau && !texte && mention && <MentionTTC libelle={mention} />}
       </span>
       <span className="passe-pnl__montant">
         {vide ? null : texte ? (
@@ -82,7 +83,7 @@ function Ligne({
 }
 
 // Ajustements de gestion d'un étage : chacun sur sa propre ligne, jamais fondu dans les coûts.
-function LignesAjustements({ lignes }: { lignes: LigneAjustement[] }) {
+export function LignesAjustements({ lignes }: { lignes: LigneAjustement[] }) {
   return (
     <>
       {lignes.map((ligne) => (

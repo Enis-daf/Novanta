@@ -5322,3 +5322,43 @@ button.passe-cible--lien:focus-visible,
   color: var(--couleur-texte-option);
   white-space: nowrap;
 }
+
+/* ============================================================================================
+   P&L CASH ESTIMÉ / P&L COMPTABLE — titre de rapport, flux sans affectation.
+   ============================================================================================ */
+.passe-pnl__titre {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+}
+
+.passe-flux-hors-pnl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.passe-flux-hors-pnl p {
+  margin: 0;
+}
+
+.passe-flux-hors-pnl__ligne {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: 13px;
+}
+
+.passe-flux-final {
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--couleur-bordure);
+}
+
+.passe-flux-final__total {
+  font-weight: 600;
+  color: var(--couleur-texte);
+}

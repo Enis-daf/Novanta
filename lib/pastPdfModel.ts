@@ -19,6 +19,7 @@ import {
 import { MENTION_HT_ESTIME, MENTION_TTC } from "./format";
 import type { BaseMontants, IndicateurEconomique, PnlEnBase } from "./pastHtEstime";
 import { Pnl } from "./pastPnl";
+import { FluxHorsPnl, LignesFinalesCashFlow, lignesFinalesDuCashFlow, TITRE_PNL_CASH_ESTIME } from "./pastPnlCashEstime";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
 
 /**
@@ -77,7 +78,11 @@ export interface PageGeneralPdf {
   // Lecture HT : indicateurs dont la TVA n'est pas renseignée sur tous les montants — « Incomplet ».
   incomplets: IndicateurEconomique[];
   avertissements: string[];
+  // « cash_estime » : la cascade s'arrête au Solde de gestion estimé, comme l'écran.
+  presentation: PresentationPnl;
 }
+
+export type PresentationPnl = "historique" | "cash_estime";
 
 export interface PageDetailPdf {
   type: "detail";
@@ -95,6 +100,8 @@ export interface PageDetailPdf {
   base: BaseMontants;
   // Lecture HT : TVA non renseignée sur une partie des montants de l'indicateur.
   estimationIncomplete: boolean;
+  // Cash flow, nouvelle présentation : flux sans affectation, avec leur signe.
+  lignesFinales: LignesFinalesCashFlow | null;
 }
 
 export interface PageBfrPdf {
@@ -133,6 +140,8 @@ export interface SourceExportPdf {
   pnl: Pnl | PnlEnBase;
   parts: PartMappee[];
   base?: BaseMontants;
+  presentation?: PresentationPnl;
+  fluxHorsPnl?: FluxHorsPnl;
   // Parts TTC, pour le Cash flow : des flux bancaires réels, jamais convertis. Par défaut `parts`.
   partsTtc?: PartMappee[];
   periode: Periode;
@@ -164,7 +173,8 @@ export function pagesExportPdf(source: SourceExportPdf): PagePdf[] {
   const couvertures = "couvertures" in source.pnl ? source.pnl.couvertures : null;
   const incomplets = couvertures ? (Object.keys(couvertures) as IndicateurEconomique[]).filter((cle) => !couvertures[cle].complete) : [];
   const entete = source.entete ?? { titre: "Période analysée", valeur: `${formatDateCourte(source.periode.debut)} — ${formatDateCourte(source.periode.fin)}`, detail: null };
-  const pages: PagePdf[] = [{ type: "general", titre: "Général", entete, pnl: source.pnl, base, incomplets, avertissements: source.avertissements }];
+  const presentation = source.presentation ?? "historique";
+  const pages: PagePdf[] = [{ type: "general", titre: presentation === "cash_estime" ? TITRE_PNL_CASH_ESTIME : "Général", entete, pnl: source.pnl, base, incomplets, avertissements: source.avertissements, presentation }];
   for (const metrique of ORDRE_DETAILS) {
     const filtres = metrique === source.ongletOuvert ? source.filtresOngletOuvert : SANS_FILTRE;
     const tresorerie = metrique === "cash_flow";
@@ -182,6 +192,7 @@ export function pagesExportPdf(source: SourceExportPdf): PagePdf[] {
       nombreTransactions: vue.transactions.length,
       base: basePage,
       estimationIncomplete: basePage === "ht" && vue.couvertureKpi !== null && !vue.couvertureKpi.complete,
+      lignesFinales: tresorerie && source.fluxHorsPnl ? lignesFinalesDuCashFlow(vue.kpi.montant, source.fluxHorsPnl, filtres.mois) : null,
     });
   }
   return pages;

@@ -27,6 +27,7 @@ import {
   PagePdf,
   textePdf,
 } from "./pastPdfModel";
+import { LIBELLE_AUTRES_ELEMENTS, LIBELLE_REVENUS_HT_ESTIMES, LIBELLE_SOLDE_GESTION_ESTIME } from "./pastPnlCashEstime";
 import { ETAGES_COUTS, ETAGES_REVENUS, Structure, structureParCategorie, LIBELLE_CASH_FLOW_OPERATIONNEL, LIBELLE_VARIATION_TRESORERIE } from "./pastPnl";
 import { libelleMois } from "./pastDetail";
 import { libelleVariation } from "./pastVariance";
@@ -263,13 +264,23 @@ type LignePnl =
 function lignesPnl(page: PageGeneralPdf): LignePnl[] {
   const { pnl } = page;
   const ht = page.base === "ht";
+  const cashEstime = page.presentation === "cash_estime";
   const ajustements = (lignes: LigneAjustement[]): LignePnl[] =>
     lignes.flatMap((ligne) => [
       { type: "ligne", libelle: ligne.label, montant: ligne.montant } as LignePnl,
       ...ligne.notes.map((texte) => ({ type: "note", texte }) as LignePnl),
     ]);
+  // Comme à l'écran : après l'EBITDA, Autres éléments puis Solde de gestion estimé, et rien d'autre.
+  const fin: LignePnl[] = cashEstime
+    ? [
+        { type: "bloc", cash: true },
+        { type: "ligne", libelle: LIBELLE_AUTRES_ELEMENTS, montant: pnl.extraPnl },
+        ...ajustements(pnl.ajustements.extra_pnl),
+        { type: "ligne", libelle: LIBELLE_SOLDE_GESTION_ESTIME, montant: pnl.cashFlowOperationnel, niveau: "titre", indicateur: "cashFlowOperationnel" },
+      ]
+    : [];
   return [
-    { type: "ligne", libelle: LIBELLE_ENCAISSEMENTS, montant: pnl.ca, niveau: "titre", indicateur: "ca" },
+    { type: "ligne", libelle: cashEstime ? LIBELLE_REVENUS_HT_ESTIMES : LIBELLE_ENCAISSEMENTS, montant: pnl.ca, niveau: "titre", indicateur: "ca" },
     ...ajustements(pnl.ajustements.revenue),
     { type: "bloc" },
     { type: "ligne", libelle: "Coûts directs", montant: pnl.coutsDirects },
@@ -283,7 +294,8 @@ function lignesPnl(page: PageGeneralPdf): LignePnl[] {
     { type: "ligne", libelle: "Coûts de structure", montant: pnl.coutsStructure },
     ...ajustements(pnl.ajustements.ebitda),
     { type: "ligne", libelle: "EBITDA", montant: pnl.ebitda, ratio: pnl.ratios.ebitda, niveau: "solde", indicateur: "ebitda" },
-    { type: "bloc", cash: true },
+    ...(cashEstime ? fin : []),
+    ...(cashEstime ? [] : ([{ type: "bloc", cash: true },
     { type: "ligne", libelle: libelleEtagePnl("extra_pnl"), montant: pnl.extraPnl },
     ...ajustements(pnl.ajustements.extra_pnl),
     // Comme à l'écran : ligne TVA en lecture TTC seulement ; la trésorerie la compte toujours.
@@ -299,6 +311,7 @@ function lignesPnl(page: PageGeneralPdf): LignePnl[] {
     // Total final de la section : filet plein juste au-dessus.
     { type: "bloc", cash: true },
     { type: "ligne", libelle: LIBELLE_VARIATION_TRESORERIE, montant: pnl.variationTresorerie, niveau: "titre", tresorerie: true, texte: ht ? LIBELLE_VOIR_TTC : undefined },
+    ] as LignePnl[])),
   ];
 }
 
@@ -497,6 +510,17 @@ async function pageDetail(doc: jsPDF, page: PageDetailPdf, teintes: ReadonlyMap<
       ecrire(doc, part.sourceCategoryName, colonnes.categorie, base, { taille: 7.5, couleur: NEUTRES.secondaire, largeurMax: x + largeur - colonnes.categorie });
       y += HAUTEUR_LIGNE_TRANSACTION;
       trait(doc, x, y, x + largeur);
+    }
+  }
+
+  // Cash flow, nouvelle présentation : flux sans affectation, en lignes finales et avec leur signe.
+  if (page.lignesFinales) {
+    y += 16;
+    for (const ligne of [...page.lignesFinales.lignes, { libelle: page.lignesFinales.libelleTotal, montant: page.lignesFinales.total }]) {
+      if (y + 11 > BAS_CONTENU) break;
+      ecrire(doc, ligne.libelle, x, y, { taille: 7.5, largeurMax: largeur - 80 });
+      ecrire(doc, formatMontant(ligne.montant), x + largeur, y, { taille: 7.5, aDroite: true });
+      y += 11;
     }
   }
 
