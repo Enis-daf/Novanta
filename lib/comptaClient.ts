@@ -3,7 +3,7 @@ import { PnlComptable, SoldeCompte, SourceStock } from "./comptaPnl";
 import type { CompteConnu, EtatSynchroComptable } from "./comptaRepository";
 import { Periode } from "./pastTransactions";
 
-/** Appels du navigateur aux routes du P&L comptable. Aucun accès direct aux tables accounting_*. */
+/** Appels du navigateur aux routes du P&L comptable : le navigateur ne lit jamais les tables comptables. */
 
 export interface ReponseCompta {
   pnl: PnlComptable;

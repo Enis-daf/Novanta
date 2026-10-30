@@ -43,10 +43,17 @@ export function filtrerComptes<T extends Pick<CompteAnalyse, "statut">>(lignes: 
   }
 }
 
-/** Compte vu pour la première fois lors de la dernière synchronisation (ou après). */
-export function comptesNouveaux(comptes: { numero: string; premiereVue: string }[], depuis: string | null): Set<string> {
-  if (!depuis) return new Set();
-  return new Set(comptes.filter((c) => c.premiereVue >= depuis).map((c) => c.numero));
+const FENETRE_NOUVEAU_COMPTE_MS = 7 * 86_400_000;
+
+/**
+ * Comptes apparus dans les 7 jours précédant la dernière synchronisation terminée. Une fenêtre, et non
+ * « après la fin » : un compte est enregistré PENDANT la synchronisation, une lecture se fait mois par
+ * mois, et la première vue précède donc toujours la date de fin.
+ */
+export function comptesNouveaux(comptes: { numero: string; premiereVue: string }[], derniereSynchro: string | null): Set<string> {
+  if (!derniereSynchro) return new Set();
+  const depuis = new Date(derniereSynchro).getTime() - FENETRE_NOUVEAU_COMPTE_MS;
+  return new Set(comptes.filter((c) => new Date(c.premiereVue).getTime() >= depuis).map((c) => c.numero));
 }
 
 export interface LigneRapport {

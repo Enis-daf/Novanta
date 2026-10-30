@@ -78,9 +78,10 @@ describe("Écran de correspondance", () => {
   });
 
   test("détection des nouveaux comptes depuis la dernière synchronisation", () => {
-    const nouveaux = comptesNouveaux([{ numero: "1", premiereVue: "2026-03-01T00:00:00Z" }, { numero: "2", premiereVue: "2026-01-01T00:00:00Z" }], "2026-02-01T00:00:00Z");
+    // Le compte est enregistré pendant la synchronisation : sa première vue précède la date de fin.
+    const nouveaux = comptesNouveaux([{ numero: "1", premiereVue: "2026-03-01T10:00:00Z" }, { numero: "2", premiereVue: "2026-01-01T00:00:00Z" }], "2026-03-01T10:00:30Z");
     assert.deepEqual([...nouveaux], ["1"]);
-    assert.equal(comptesNouveaux([{ numero: "1", premiereVue: "x" }], null).size, 0);
+    assert.equal(comptesNouveaux([{ numero: "1", premiereVue: "2026-03-01T10:00:00Z" }], null).size, 0);
   });
 });
 
