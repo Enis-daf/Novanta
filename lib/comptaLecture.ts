@@ -1,5 +1,7 @@
 import { affecterCompte, IndexRegles, LIGNES_COMPTABLES, RegleCorrespondance } from "./comptaCorrespondance";
-import { CompteAnalyse, PnlComptable } from "./comptaPnl";
+import { CompteAnalyse, periodeEnMoisEntiers, PnlComptable } from "./comptaPnl";
+import { moisDeLaPeriode } from "./pastDetail";
+import { Periode } from "./pastTransactions";
 import { PnlCategorie, Structure, structureParCategorie } from "./pastPnl";
 import type { EtagePnl } from "./pastCategoryMapping";
 
@@ -10,6 +12,21 @@ export const TITRE_PNL_COMPTABLE = "P&L comptable";
 // Texte générique : le DAF reste responsable de l'interprétation. Pas de rapprochement automatique.
 export const TEXTE_DEUX_PNL =
   "Le P&L cash estimé se lit sur les transactions bancaires, en HT estimé : il pilote l'activité même quand la comptabilité n'est pas à jour. Le P&L comptable se lit sur les écritures de Pennylane : il reconnaît le chiffre d'affaires et les charges selon les règles comptables. Ce sont deux lectures différentes, qui n'ont pas vocation à donner le même chiffre.";
+
+// Ce que le diagnostic a montré : la balance ne distingue pas ce qui est validé de ce qui ne l'est pas.
+export const MENTION_BALANCE =
+  "Ce P&L reprend la balance de Pennylane : toutes ses écritures, y compris celles en attente de validation, et il peut donc évoluer pour un mois déjà passé.";
+
+/** La période choisie ne tombe pas sur des mois entiers : la balance en couvrira davantage. */
+export function periodePartielle(periode: Periode): boolean {
+  const entiers = periodeEnMoisEntiers(periode);
+  return entiers.debut !== periode.debut || entiers.fin !== periode.fin;
+}
+
+/** Mois à lire chez Pennylane : ceux de la période, sans aller au-delà du mois en cours. */
+export function moisALire(periode: Periode, aujourdhui: string): string[] {
+  return moisDeLaPeriode(periode).filter((mois) => mois <= aujourdhui.slice(0, 7));
+}
 
 export type FiltreComptes = "tous" | "non_affectes" | "affectes" | "hors_perimetre" | "bilan";
 

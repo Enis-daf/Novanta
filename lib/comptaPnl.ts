@@ -29,7 +29,7 @@ export interface LigneEcriture {
   exclue?: boolean;
 }
 
-/** Cumul d'un compte sur un mois : ce que renvoie la base (accounting_balances) ou soldesDepuisLignes. */
+/** Cumul d'un compte sur un mois : une ligne de balance mensuelle, ou soldesDepuisLignes. */
 export interface SoldeCompte {
   compte: string;
   mois: string; // YYYY-MM
@@ -116,6 +116,8 @@ export interface PnlComptable {
   comptes: CompteAnalyse[];
   stock: DecisionStock;
   nonAffectes: { comptes: CompteAnalyse[]; montant: number; montantAbsolu: number; significatif: boolean };
+  // Numéros que la source renvoie mais que Novanta ne sait pas lire : hors calcul, jamais en silence.
+  comptesIllisibles: number;
   // Une ligne d'écriture qui existe mais dont le P&L ne peut rien dire avec certitude.
   complet: boolean;
   controle: ControleExhaustivite;
@@ -164,9 +166,13 @@ export function deciderStock(aEcritures: boolean, montantPennylane: number, vari
 export function calculerPnlComptable(options: OptionsPnlComptable): PnlComptable {
   const index = indexerRegles(options.regles);
   const parCompte = new Map<string, { debit: number; credit: number; nombreLignes: number }>();
+  const illisibles = new Set<string>();
   for (const solde of options.soldes) {
     const compte = normaliserCompte(solde.compte);
-    if (!compte) continue;
+    if (!compte) {
+      illisibles.add(solde.compte);
+      continue;
+    }
     const cumul = parCompte.get(compte) ?? { debit: 0, credit: 0, nombreLignes: 0 };
     cumul.debit += centimes(solde.debit);
     cumul.credit += centimes(solde.credit);
@@ -263,12 +269,14 @@ export function calculerPnlComptable(options: OptionsPnlComptable): PnlComptable
     comptes: comptes.sort((a, b) => a.compte.localeCompare(b.compte)),
     stock,
     nonAffectes: {
-      comptes: comptes.filter((c) => c.statut === "non_affecte" && (c.montant !== 0 || c.nombreLignes > 0)).sort((a, b) => Math.abs(b.montant) - Math.abs(a.montant)),
+      // Mouvementé même à solde nul : la balance ne donne pas de nombre de lignes.
+      comptes: comptes.filter((c) => c.statut === "non_affecte" && (c.debit !== 0 || c.credit !== 0 || c.nombreLignes > 0)).sort((a, b) => Math.abs(b.montant) - Math.abs(a.montant)),
       montant: totalNonAffecte / 100,
       montantAbsolu: absoluNonAffecte / 100,
       significatif,
     },
-    complet: !significatif && !stock.conflit,
+    comptesIllisibles: illisibles.size,
+    complet: !significatif && !stock.conflit && illisibles.size === 0,
     controle: {
       totalComptesDeResultat: totalResultat / 100,
       totalAffecte: totalAffecte / 100,
@@ -281,6 +289,16 @@ export function calculerPnlComptable(options: OptionsPnlComptable): PnlComptable
 }
 
 /** Soldes d'une période : un mois de solde appartient à la période s'il la recoupe. */
+/** Mois entiers couverts : la balance est mensuelle, une période partielle s'élargit à ses mois. */
+export function periodeEnMoisEntiers(periode: Periode): Periode {
+  return { debut: `${periode.debut.slice(0, 7)}-01`, fin: finDuMois(periode.fin.slice(0, 7)) };
+}
+
+function finDuMois(mois: string): string {
+  const [annee, numero] = mois.split("-").map(Number);
+  return new Date(Date.UTC(annee, numero, 0)).toISOString().slice(0, 10);
+}
+
 export function soldesDeLaPeriode(soldes: SoldeCompte[], periode: Periode): SoldeCompte[] {
   const debut = periode.debut.slice(0, 7);
   const fin = periode.fin.slice(0, 7);

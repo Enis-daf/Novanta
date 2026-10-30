@@ -1,39 +1,42 @@
 import { test, describe, afterEach, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { depuisCompteBrut, depuisLigneBrute, FormatComptableInattendu, sourcePennylane } from "./comptaPennylaneAdapter";
+import { comptesParNumero, depuisCompteBrut, depuisSoldeBrut, FormatComptableInattendu, sourcePennylane } from "./comptaPennylaneAdapter";
 import { synchroComptableReelleActive } from "./featureFlags";
 
-const LIGNE = {
-  id: 12,
-  debit: "100.50",
-  credit: "0.00",
-  label: "Facture",
-  date: "2026-03-15",
-  ledger_account: { id: 7, number: "607000" },
-  journal: { id: 3 },
-  ledger_entry: { id: 99 },
-  created_at: "2026-03-16T10:00:00Z",
-  updated_at: "2026-03-16T10:00:00Z",
-};
+// Forme observée lors du diagnostic réel, avec des valeurs inventées.
+const SOLDE = { number: "607000", formatted_number: "607000", label: "Achats", debits: "100.50", credits: "0.00" };
 
-describe("Lecture des champs documentés", () => {
-  test("ligne d'écriture", () => {
-    const ligne = depuisLigneBrute(LIGNE);
-    assert.deepEqual([ligne.idSource, ligne.idEcriture, ligne.idJournal, ligne.compte, ligne.date, ligne.debit, ligne.credit], ["12", "99", "3", "607000", "2026-03-15", 100.5, 0]);
-    assert.equal(ligne.exclue, undefined, "aucun statut documenté : aucune exclusion supposée");
-    assert.equal(ligne.statutSource, null);
+describe("Lecture des champs observés", () => {
+  test("ligne de balance", () => {
+    assert.deepEqual(depuisSoldeBrut(SOLDE), { compte: "607000", libelle: "Achats", debit: 100.5, credit: 0 });
+  });
+
+  test("le numéro retenu est `number`, celui des écritures, pas `formatted_number`", () => {
+    assert.equal(depuisSoldeBrut({ ...SOLDE, number: "607", formatted_number: "607000" }).compte, "607");
   });
 
   test("compte", () => {
-    assert.deepEqual(depuisCompteBrut({ id: 7, number: "607000", label: "Achats", type: "expense", enabled: true }), { idSource: "7", numero: "607000", libelle: "Achats", type: "expense", actif: true });
+    assert.deepEqual(depuisCompteBrut({ id: 7, number: "607000", label: "Achats", type: "generic", enabled: true }), { idSource: "7", numero: "607000", libelle: "Achats", type: "generic", actif: true });
   });
 
-  test("un format inattendu s'arrête net, jamais une ligne à 0", () => {
-    assert.throws(() => depuisLigneBrute({ ...LIGNE, debit: "abc" }), FormatComptableInattendu);
-    assert.throws(() => depuisLigneBrute({ ...LIGNE, credit: "" }), FormatComptableInattendu);
-    assert.throws(() => depuisLigneBrute({ ...LIGNE, ledger_account: null }), FormatComptableInattendu);
-    assert.throws(() => depuisLigneBrute({ ...LIGNE, date: "" }), FormatComptableInattendu);
+  test("un format inattendu s'arrête net, jamais un solde à 0", () => {
+    assert.throws(() => depuisSoldeBrut({ ...SOLDE, debits: "abc" }), FormatComptableInattendu);
+    assert.throws(() => depuisSoldeBrut({ ...SOLDE, credits: "" }), FormatComptableInattendu);
+    assert.throws(() => depuisSoldeBrut({ ...SOLDE, number: "" }), FormatComptableInattendu);
     assert.throws(() => depuisCompteBrut({ id: 1, number: "" }), FormatComptableInattendu);
+  });
+});
+
+describe("Numéros de compte en double", () => {
+  const compte = (idSource: string, numero: string, actif: boolean) => ({ idSource, numero, libelle: idSource, type: null, actif });
+
+  test("un seul compte par numéro : l'enregistrement ne peut plus échouer sur un doublon", () => {
+    assert.deepEqual(comptesParNumero([compte("1", "606", true), compte("2", "606", true), compte("3", "607", true)]).map((c) => c.numero), ["606", "607"]);
+  });
+
+  test("le compte actif est préféré, dans les deux ordres", () => {
+    assert.equal(comptesParNumero([compte("1", "606", false), compte("2", "606", true)])[0].idSource, "2");
+    assert.equal(comptesParNumero([compte("1", "606", true), compte("2", "606", false)])[0].idSource, "1");
   });
 });
 
@@ -46,7 +49,7 @@ describe("Source Pennylane, sur une réponse simulée", () => {
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
       appels.push({ url: String(url), method: init?.method, authorization: (init?.headers as Record<string, string>).Authorization });
       const u = new URL(String(url));
-      const body = u.searchParams.get("cursor") ? { items: [{ ...LIGNE, id: 13 }], has_more: false, next_cursor: null } : { items: [LIGNE], has_more: true, next_cursor: "suite" };
+      const body = u.searchParams.get("cursor") ? { items: [{ ...SOLDE, number: "706000" }], has_more: false, next_cursor: null } : { items: [SOLDE], has_more: true, next_cursor: "suite" };
       return new Response(JSON.stringify(body), { status: 200 });
     }) as typeof fetch;
   });
@@ -56,30 +59,28 @@ describe("Source Pennylane, sur une réponse simulée", () => {
 
   const source = sourcePennylane({ getBearerToken: async () => "jeton-de-test" });
 
-  test("pagination par curseur, filtre de date documenté, GET uniquement", async () => {
-    const { lignes, complete } = await source.lirePeriode({ debut: "2026-03-01", fin: "2026-03-31" });
-    assert.deepEqual(lignes.map((l) => l.idSource), ["12", "13"]);
+  test("un mois entier, comptes auxiliaires compris, par curseur, en GET", async () => {
+    const { soldes, complete } = await source.lireBalanceDuMois("2026-02");
+    assert.deepEqual(soldes.map((s) => s.compte), ["607000", "706000"]);
     assert.equal(complete, true);
     assert.equal(appels.length, 2);
     assert.ok(appels.every((a) => a.method === "GET"));
     const url = new URL(appels[0].url);
-    assert.equal(url.pathname, "/api/external/v2/ledger_entry_lines");
-    assert.deepEqual(JSON.parse(url.searchParams.get("filter")!), [
-      { field: "date", operator: "gteq", value: "2026-03-01" },
-      { field: "date", operator: "lteq", value: "2026-03-31" },
-    ]);
-    assert.equal(url.searchParams.get("cursor"), null);
+    assert.equal(url.pathname, "/api/external/v2/trial_balance");
+    assert.equal(url.searchParams.get("period_start"), "2026-02-01");
+    assert.equal(url.searchParams.get("period_end"), "2026-02-28");
+    assert.equal(url.searchParams.get("is_auxiliary"), "true");
     assert.equal(new URL(appels[1].url).searchParams.get("cursor"), "suite");
   });
 
   test("le token ne sort jamais dans l'URL", async () => {
-    await source.lirePeriode({ debut: "2026-03-01", fin: "2026-03-31" });
+    await source.lireBalanceDuMois("2026-02");
     assert.ok(appels.every((a) => !a.url.includes("jeton-de-test") && a.authorization === "Bearer jeton-de-test"));
   });
 
   test("403 : l'absence de droit remonte telle quelle", async () => {
     globalThis.fetch = (async () => new Response("{}", { status: 403 })) as typeof fetch;
-    await assert.rejects(source.lireComptes(), (e: Error & { reason?: string }) => e.reason === "insufficient_scope");
+    await assert.rejects(source.lireBalanceDuMois("2026-02"), (e: Error & { reason?: string }) => e.reason === "insufficient_scope");
   });
 });
 

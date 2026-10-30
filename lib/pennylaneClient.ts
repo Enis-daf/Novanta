@@ -415,9 +415,8 @@ export async function listSupplierInvoices(
 
 // --- Comptabilité (lecture seule) ---
 //
-// Routes, scopes et champs tels que décrits par la documentation officielle (readme.io,
-// getLedgerAccounts et getLedgerEntryLines). Pas encore exécutées avec un vrai token : voir
-// docs/pnl-comptable-pennylane.md. Appelées uniquement par lib/comptaPennylaneAdapter.ts.
+// Routes et champs vérifiés avec un vrai token lors du diagnostic du 30/10/2026 (un seul dossier). Appelées
+// uniquement par lib/comptaPennylaneAdapter.ts.
 
 export interface PennylaneLedgerAccountRaw {
   id: number | string;
@@ -427,43 +426,41 @@ export interface PennylaneLedgerAccountRaw {
   enabled?: boolean | null;
 }
 
-export interface PennylaneLedgerEntryLineRaw {
-  id: number | string;
-  debit: string;
-  credit: string;
+export interface PennylaneTrialBalanceRaw {
+  number: string;
+  formatted_number?: string | null;
   label?: string | null;
-  date: string;
-  ledger_account?: { id?: number | string; number?: string } | null;
-  ledger_entry?: { id?: number | string } | null;
-  journal?: { id?: number | string } | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+  debits: string;
+  credits: string;
 }
 
 const ENDPOINT_LEDGER_ACCOUNTS = "/api/external/v2/ledger_accounts";
-const ENDPOINT_LEDGER_ENTRY_LINES = "/api/external/v2/ledger_entry_lines";
-// Par tranche de lecture (un mois en pratique) : 100 lignes × 200 pages.
-const MAX_PAGES_ECRITURES = 200;
+const ENDPOINT_TRIAL_BALANCE = "/api/external/v2/trial_balance";
+// Par mois : 100 comptes × 200 pages.
+const MAX_PAGES_BALANCE = 200;
 
 export async function listLedgerAccounts(credentialProvider: PennylaneCredentialProvider): Promise<PennylaneLedgerAccountRaw[]> {
   const bearer = await credentialProvider.getBearerToken();
   return paginerParCurseur<PennylaneLedgerAccountRaw>(bearer, ENDPOINT_LEDGER_ACCOUNTS, {});
 }
 
-/** Lignes d'écriture d'une période. `complete` à false si la borne de pagination a été atteinte. */
-export async function listLedgerEntryLines(
+/**
+ * Balance d'une période, comptes auxiliaires compris : sans eux, les comptes sont regroupés sous leur
+ * collectif (31 comptes contre 104 sur le mois testé). `complete` à false si la borne a été atteinte.
+ */
+export async function listTrialBalance(
   credentialProvider: PennylaneCredentialProvider,
   dateDebut: string,
   dateFin: string
-): Promise<{ lignes: PennylaneLedgerEntryLineRaw[]; complete: boolean }> {
+): Promise<{ soldes: PennylaneTrialBalanceRaw[]; complete: boolean }> {
   const bearer = await credentialProvider.getBearerToken();
-  const lignes = await paginerParCurseur<PennylaneLedgerEntryLineRaw>(
+  const soldes = await paginerParCurseur<PennylaneTrialBalanceRaw>(
     bearer,
-    ENDPOINT_LEDGER_ENTRY_LINES,
-    { filter: construireFiltreDate(dateDebut, dateFin), sort: "id" },
-    MAX_PAGES_ECRITURES
+    ENDPOINT_TRIAL_BALANCE,
+    { period_start: dateDebut, period_end: dateFin, is_auxiliary: "true" },
+    MAX_PAGES_BALANCE
   );
-  return { lignes, complete: lignes.length < MAX_PAGES_ECRITURES * LIMITE_PAR_PAGE };
+  return { soldes, complete: soldes.length < MAX_PAGES_BALANCE * LIMITE_PAR_PAGE };
 }
 
 /** Nombre maximal de factures qu'une liste peut renvoyer (pagination bornée) : au-delà, tronquée. */

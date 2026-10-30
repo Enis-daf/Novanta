@@ -14,6 +14,8 @@ export interface ReponseCompta {
   synchro: EtatSynchroComptable | null;
   synchroDisponible: boolean;
   premiereEcriture: string | null;
+  // La balance est mensuelle : la période réellement couverte, en mois entiers.
+  moisEntiers: Periode;
 }
 
 export type ActionCompta =
@@ -43,11 +45,18 @@ export async function modifierCompta(accessToken: string, action: ActionCompta):
   await lireReponse(reponse, "La modification n'a pas pu être enregistrée.");
 }
 
-export async function synchroniserCompta(accessToken: string, periode: Periode): Promise<{ nombreLignes: number; nouveauxComptes: number; complete: boolean }> {
+export interface ResultatSynchroMois {
+  nombreComptes: number;
+  nouveauxComptes: number;
+  complete: boolean;
+  illisibles: number;
+}
+
+export async function synchroniserCompta(accessToken: string, mois: string, avecComptes: boolean): Promise<ResultatSynchroMois> {
   const reponse = await fetch("/api/passe/compta/sync", {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify(periode),
+    body: JSON.stringify({ mois, avecComptes }),
   });
   return lireReponse(reponse, "La synchronisation comptable a échoué.");
 }

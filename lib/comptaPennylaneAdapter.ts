@@ -1,16 +1,15 @@
 import { PennylaneCredentialProvider } from "./pennylaneCredentialProvider";
-import { listLedgerAccounts, listLedgerEntryLines, PennylaneLedgerAccountRaw, PennylaneLedgerEntryLineRaw } from "./pennylaneClient";
-import { CompteSource, LecturePeriode, LigneSource, SourceComptable } from "./comptaSource";
-import { Periode } from "./pastTransactions";
+import { periodeEnMoisEntiers } from "./comptaPnl";
+import { listLedgerAccounts, listTrialBalance, PennylaneLedgerAccountRaw, PennylaneTrialBalanceRaw } from "./pennylaneClient";
+import { CompteSource, LectureBalance, SoldeSource, SourceComptable } from "./comptaSource";
 
 /**
- * Source réelle : comptes et lignes d'écriture Pennylane, en lecture seule. DÉSACTIVÉE par défaut
- * (lib/featureFlags.ts::synchroComptableReelleActive) et jamais exécutée contre une société réelle à ce
- * jour. Elle ne lit que les champs décrits par la documentation officielle (getLedgerAccounts,
- * getLedgerEntryLines) ; ce que Pennylane doit encore confirmer est listé dans
- * docs/pnl-comptable-pennylane.md.
+ * Source réelle : plan de comptes et balance mensuelle Pennylane, en lecture seule. DÉSACTIVÉE par défaut
+ * (lib/featureFlags.ts::synchroComptableReelleActive). Champs observés lors du diagnostic réel du
+ * 30/10/2026, sur un seul dossier : voir docs/pnl-comptable-pennylane.md.
  *
- * La documentation ne décrit aucun statut sur une ligne d'écriture : aucune n'est donc exclue ici.
+ * La balance reprend toutes les écritures, quel que soit leur statut (sur le dossier testé, tous les
+ * produits et charges du mois étaient en attente de validation) : le P&L le dit à l'écran.
  */
 
 export class FormatComptableInattendu extends Error {
@@ -37,23 +36,22 @@ export function depuisCompteBrut(brut: PennylaneLedgerAccountRaw): CompteSource 
   };
 }
 
-export function depuisLigneBrute(brut: PennylaneLedgerEntryLineRaw): LigneSource {
-  const numero = brut.ledger_account?.number;
-  if (typeof numero !== "string" || numero === "") throw new FormatComptableInattendu("Ligne d'écriture sans numéro de compte.");
-  if (typeof brut.date !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(brut.date)) throw new FormatComptableInattendu("Ligne d'écriture sans date.");
-  return {
-    idSource: String(brut.id),
-    idEcriture: brut.ledger_entry?.id !== undefined ? String(brut.ledger_entry.id) : null,
-    idJournal: brut.journal?.id !== undefined ? String(brut.journal.id) : null,
-    compte: numero,
-    date: brut.date.slice(0, 10),
-    debit: montant(brut.debit, "debit"),
-    credit: montant(brut.credit, "credit"),
-    libelle: brut.label ?? null,
-    statutSource: null,
-    creeeLe: brut.created_at ?? null,
-    modifieeLe: brut.updated_at ?? null,
-  };
+export function depuisSoldeBrut(brut: PennylaneTrialBalanceRaw): SoldeSource {
+  if (typeof brut.number !== "string" || brut.number === "") throw new FormatComptableInattendu("Ligne de balance sans numéro de compte.");
+  return { compte: brut.number, libelle: brut.label ?? null, debit: montant(brut.debits, "debits"), credit: montant(brut.credits, "credits") };
+}
+
+/**
+ * Un même numéro peut exister sous plusieurs identifiants (observé sur 41 numéros du dossier testé) : il
+ * n'en reste qu'un par numéro, le compte actif de préférence. La table impose un compte par numéro.
+ */
+export function comptesParNumero(comptes: CompteSource[]): CompteSource[] {
+  const parNumero = new Map<string, CompteSource>();
+  for (const compte of comptes) {
+    const connu = parNumero.get(compte.numero);
+    if (!connu || (!connu.actif && compte.actif)) parNumero.set(compte.numero, compte);
+  }
+  return [...parNumero.values()];
 }
 
 export function sourcePennylane(credentialProvider: PennylaneCredentialProvider): SourceComptable {
@@ -62,9 +60,10 @@ export function sourcePennylane(credentialProvider: PennylaneCredentialProvider)
     async lireComptes() {
       return (await listLedgerAccounts(credentialProvider)).map(depuisCompteBrut);
     },
-    async lirePeriode(periode: Periode): Promise<LecturePeriode> {
-      const { lignes, complete } = await listLedgerEntryLines(credentialProvider, periode.debut, periode.fin);
-      return { lignes: lignes.map(depuisLigneBrute), complete };
+    async lireBalanceDuMois(mois: string): Promise<LectureBalance> {
+      const { debut, fin } = periodeEnMoisEntiers({ debut: `${mois}-01`, fin: `${mois}-01` });
+      const { soldes, complete } = await listTrialBalance(credentialProvider, debut, fin);
+      return { soldes: soldes.map(depuisSoldeBrut), complete };
     },
   };
 }

@@ -1,7 +1,7 @@
-import type { ReponseCompta } from "./comptaClient";
+import type { ReponseCompta, ResultatSynchroMois } from "./comptaClient";
 import { MODELE_CORRESPONDANCE, RegleCorrespondance } from "./comptaCorrespondance";
 import { COMPTES_FIXTURES, LIGNES_FIXTURES } from "./comptaFixtures";
-import { calculerPnlComptable, soldesDepuisLignes, SourceStock } from "./comptaPnl";
+import { calculerPnlComptable, periodeEnMoisEntiers, soldesDepuisLignes, SourceStock } from "./comptaPnl";
 import { ajustementsDeLaPeriode, ajustementsDepuisStocks, StockFinDeMois } from "./pastAdjustments";
 import { MappingCategorie } from "./pastCategoryMapping";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
@@ -89,7 +89,8 @@ export function servicesDemo(options: { reglesInitiales?: RegleCorrespondance[];
         sourceStock,
         synchro: null,
         synchroDisponible: false,
-        premiereEcriture: "2026-01-20",
+        premiereEcriture: "2026-01-01",
+        moisEntiers: periodeEnMoisEntiers(periode),
       };
     },
     async modifier(action: { action: string; prefixe?: string; destination?: string; categorie?: string; source?: SourceStock | null }): Promise<void> {
@@ -104,7 +105,7 @@ export function servicesDemo(options: { reglesInitiales?: RegleCorrespondance[];
         sourceStock = action.source ?? null;
       }
     },
-    async synchroniser() {
+    async synchroniser(): Promise<ResultatSynchroMois> {
       throw new Error("Aucune lecture réelle en démonstration.");
     },
   };

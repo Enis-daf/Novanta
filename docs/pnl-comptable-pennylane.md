@@ -1,49 +1,74 @@
-# P&L comptable : ce qui est vérifié chez Pennylane, et ce qui ne l'est pas
+# P&L comptable : ce qui est vérifié chez Pennylane
 
-Aucun appel n'a été fait à l'API comptable de Pennylane, ni avec un vrai token, ni sur une société réelle. La source réelle (`lib/comptaPennylaneAdapter.ts`) existe mais reste éteinte (`NOVANTA_COMPTA_SYNC_REELLE`). Tout ce qui est calculé aujourd'hui l'est sur des données simulées (`lib/comptaFixtures.ts`).
+Décision du 30/10/2026 : **le P&L comptable se fonde sur la balance mensuelle** (`trial_balance`), pas sur une copie des lignes d'écriture.
 
-## Lu dans la documentation officielle (pennylane.readme.io, 30/10/2026)
+La lecture réelle reste éteinte dans le produit (`NOVANTA_COMPTA_SYNC_REELLE`). Pennylane n'a pas encore répondu aux questions ci-dessous.
 
-Lecture de documentation seulement : rien de ce tableau n'a été observé sur une réponse réelle.
+## Diagnostic réel du 30/10/2026
 
-| Sujet | `GET /api/external/v2/ledger_entry_lines` | `GET /api/external/v2/ledger_accounts` |
+Lecture seule (GET), avec un Company API Token, sur **un seul dossier** : jeune, de faible volume, sans clôture. Aucune réponse brute n'a été conservée. Ce document ne contient que des constats anonymisés.
+
+### Routes
+
+| Route | Résultat | Utilisation par Novanta |
 |---|---|---|
-| Scope indiqué | `ledger_entries:readonly` ou `ledger_entries:all` | `ledger_accounts:readonly` ou `ledger_accounts:all` |
-| Pagination | curseur : `cursor`, `limit` de 1 à 100, `has_more`, `next_cursor` | curseur : `cursor`, `limit` de 1 à 1000 |
-| Filtres | `id`, `journal_id`, `ledger_account_id`, `ledger_entry_id`, `date` | `id`, `number`, `enabled` |
-| Champs utilisés | `id`, `debit`, `credit`, `label`, `date`, `ledger_account.number`, `ledger_entry.id`, `journal.id`, `created_at`, `updated_at` | `id`, `number`, `label`, `type`, `enabled` |
+| `GET /me` | 200 : dossier, plan comptable, scopes | Diagnostic |
+| `GET /ledger_accounts` | 200, `limit` jusqu'à 1000 | Plan de comptes et libellés |
+| `GET /trial_balance` | 200, `period_start`, `period_end`, `is_auxiliary` | **Source du P&L** |
+| `GET /ledger_entry_lines` | 200, `limit` jusqu'à 100 | Non utilisée |
+| `GET /ledger_entries` | 200, porte le `status` | Non utilisée |
+| `GET /journals`, `GET /fiscal_years` | 200 | Non utilisées |
+| `GET /changelogs/ledger_entry_lines` | 200, environ 28 jours d'historique, 422 au-delà | Non utilisée |
 
-Existe aussi `GET /api/external/v2/trial_balance` (`period_start`, `period_end`, `debits` et `credits` par compte). Non utilisé : il ne donne pas le détail nécessaire à l'exclusion de lignes ni le mois de chaque montant sur une période longue. Il pourrait servir de contrôle de cohérence.
+Scopes réellement accordés : `ledger_accounts:readonly`, `ledger_entries:readonly`, `journals:readonly`, `fiscal_years:readonly`, `trial_balance:readonly` (entre autres). Le scope `ledger` cité par la documentation n'apparaît pas. L'API ne renvoie pas l'offre du dossier : l'absence de restriction sur Essentiel repose sur l'indication que le dossier y est abonné.
 
-## Incohérences relevées dans la documentation
+### Pourquoi la balance
 
-- Chaque page annonce un scope propre, alors que son schéma de sécurité et son message 403 ne citent que `ledger`.
-- La page `ledger_accounts` place `next_cursor` tantôt dans `metadata`, tantôt à la racine de la réponse. L'adaptateur suit le schéma (racine), comme les autres listes déjà utilisées.
+- Lignes contre balance avec auxiliaires, sur un mois : 104 comptes sur 104 exacts au centime.
+- Somme de 10 balances mensuelles contre balance de la période : 325 comptes sur 325 exacts, et même résultat net. Les mois s'additionnent donc sans écart.
+- 10 mois lus en 4,5 secondes, contre plusieurs dizaines de pages de lignes.
+- Les lignes sont réécrites en permanence : 1376 suppressions en 28 jours, dont 1292 dans la même minute qu'une insertion. Une copie obligerait à suivre ces événements, sur une fenêtre de 4 semaines.
+- 72 % d'un échantillon de lignes récemment insérées portent sur un mois antérieur : le passé bouge, et relire le mois courant ne suffit pas.
+
+### Conséquences observées, à respecter
+
+- **`is_auxiliary=true` est obligatoire.** Sans lui, les comptes sont regroupés sous leur collectif (31 comptes contre 104).
+- **Le numéro à retenir est `number`,** pas `formatted_number`, qui diffère sur certains comptes.
+- **Un même numéro peut exister sous plusieurs identifiants** (41 numéros, surtout en classes 6 et 7). La clé du plan de comptes est le numéro, et il faut dédoublonner avant d'enregistrer.
+- **Des numéros alphanumériques existent** (une racine en chiffres, puis des lettres).
+- **La balance reprend toutes les écritures, quel que soit leur statut.** Sur le mois testé, tous les produits et charges étaient en `validation_needed`. Le statut ne peut donc pas servir de filtre, et l'écran le dit.
+- **Une balance relue peut changer pour un mois passé.** Tous les exercices sont `open`, y compris à venir : rien ne signale une clôture. Une référence figée reste figée dans Novanta, jamais recalculée.
+- **Une écriture peut être datée dans le futur.** Novanta ne lit pas les mois qui n'ont pas commencé.
+- **Une période partielle s'élargit à ses mois entiers,** et l'écran le signale.
+- **Débit :** limite annoncée de 25 confirmée par les en-têtes `ratelimit-*`.
+
+### Ce que la balance ne donne pas
+
+Pas de nombre de lignes, de statut, de pièce ni de journal. Si un contrôle du non-validé devient nécessaire, il se fera à part, à partir de `ledger_entries`.
+
+## Non vérifié
+
+Stocks, amortissements, éléments financiers, exceptionnel et impôts : absents du dossier testé (racines 603, 681, 66, 69, 67 et 77). Avoirs et extournes : seulement des indices (lignes en sens inverse, paires de montants opposés), avec des soldes exacts contre la balance. **Il faut un dossier clôturé pour valider le bas du P&L.**
+
+Comportement à fort volume : inconnu. La documentation Pennylane signale des risques de timeout sur la relecture des lignes, pas sur la balance.
 
 ## Questions à poser à Pennylane
 
-1. Un Company API Token peut-il lire `ledger_entry_lines` et `ledger_accounts` sur un abonnement Essentiel ? Quel scope exact faut-il cocher : `ledger`, `ledger_entries:readonly`, `ledger_accounts:readonly` ?
-2. Les lignes renvoyées comprennent-elles des écritures provisoires, en brouillon ou non validées ? La documentation ne décrit aucun statut. Comment les distinguer ?
-3. Une écriture supprimée ou annulée disparaît-elle de la liste ? Existe-t-il un moyen d'être informé d'une suppression ?
-4. Un filtre sur `updated_at` existe-t-il ? La documentation n'en décrit aucun sur les lignes. Sans lui, la synchronisation relit toute la période, mois par mois, et c'est ce qui est développé.
-5. Quelles limites s'appliquent à ces routes (25 requêtes par 5 secondes comme ailleurs ?) et sur quel volume d'historique ?
-6. `ledger_account.number` est-il bien le numéro complet du plan de comptes (par exemple `607000`) ?
-7. Le signe de `debit` et `credit` : toujours positif, y compris sur une extourne ?
-8. Les périodes clôturées sont-elles lisibles sans restriction ?
-
-## Ce qui change selon les réponses
-
-- Statut disponible (question 2) : le renseigner dans `depuisLigneBrute` (`statutSource`, `exclue`). Le moteur l'exclut déjà, et c'est testé.
-- Suppressions signalées (question 3) : remplacer la relecture complète par une lecture incrémentale.
-- Droits refusés sur Essentiel (question 1) : la route remonte déjà « Le token Pennylane n'a pas accès aux écritures comptables » ; le P&L cash estimé reste intact.
+1. Les Company API Tokens sont-ils autorisés pour un usage en production multi-clients, ou OAuth est-il requis ? À vérifier dans la documentation source : un résumé de recherche l'évoquait.
+2. Que signifient exactement `accounting_needed` et `validation_needed` ? Une écriture `draft` entre-t-elle dans la balance ?
+3. Pourquoi des lignes sont-elles réécrites, et un même numéro peut-il rester durablement sous plusieurs identifiants ?
+4. Existe-t-il un indicateur de clôture d'exercice via l'API ?
+5. Quelles sont les limites de `trial_balance` à fort volume ?
 
 ## Pour activer sur un environnement isolé
 
-1. Passer `supabase/migrations/20261030_accounting_pnl.sql`. Attention : les Preview partagent la base de production.
+1. Passer `supabase/migrations/20261030_accounting_pnl.sql`, puis `supabase/migrations/20261031_accounting_monthly_balances.sql`. Attention : les Preview partagent la base de production.
 2. Poser `NEXT_PUBLIC_NOVANTA_PNL_COMPTABLE=1`.
-3. Avec un token de test autorisé, poser `NOVANTA_COMPTA_SYNC_REELLE=1` et lire un seul mois.
+3. Avec un token autorisé, poser `NOVANTA_COMPTA_SYNC_REELLE=1` et lire un seul mois.
 
-Vérifier la migration sur un Postgres jetable, sans base distante :
+`accounting_entry_lines` et `accounting_balances` restent en place, vides et inutilisées.
+
+Vérifier les migrations sur un Postgres jetable, sans base distante :
 
 ```bash
 PGLITE_PATH=/chemin/vers/@electric-sql/pglite/dist/index.js node scripts/migrations/verifierMigrationComptable.mjs

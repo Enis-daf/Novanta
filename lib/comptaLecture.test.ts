@@ -2,7 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { indexerRegles, MODELE_CORRESPONDANCE } from "./comptaCorrespondance";
 import { servicesDemo, TRANSACTIONS_DEMO, MAPPINGS_DEMO, AXE_DEMO } from "./comptaDemo";
-import { comptesNouveaux, filtrerComptes, lignesCorrespondance, lignesDuRapport, structuresDuRapport, TEXTE_DEUX_PNL } from "./comptaLecture";
+import { comptesNouveaux, filtrerComptes, lignesCorrespondance, lignesDuRapport, MENTION_BALANCE, moisALire, periodePartielle, structuresDuRapport, TEXTE_DEUX_PNL } from "./comptaLecture";
 import { calculerPnlComptable, soldesDepuisLignes } from "./comptaPnl";
 import { LIGNES_FIXTURES } from "./comptaFixtures";
 import { indexerMappings } from "./pastCategoryMapping";
@@ -82,6 +82,24 @@ describe("Écran de correspondance", () => {
     const nouveaux = comptesNouveaux([{ numero: "1", premiereVue: "2026-03-01T10:00:00Z" }, { numero: "2", premiereVue: "2026-01-01T00:00:00Z" }], "2026-03-01T10:00:30Z");
     assert.deepEqual([...nouveaux], ["1"]);
     assert.equal(comptesNouveaux([{ numero: "1", premiereVue: "2026-03-01T10:00:00Z" }], null).size, 0);
+  });
+});
+
+describe("Balance mensuelle à l'écran", () => {
+  test("période partielle détectée ; mois entiers non signalés", () => {
+    assert.equal(periodePartielle({ debut: "2026-03-10", fin: "2026-03-31" }), true);
+    assert.equal(periodePartielle({ debut: "2026-03-01", fin: "2026-03-20" }), true);
+    assert.equal(periodePartielle({ debut: "2026-01-01", fin: "2026-03-31" }), false);
+  });
+
+  test("les mois à venir ne sont jamais lus, le mois en cours l'est", () => {
+    assert.deepEqual(moisALire({ debut: "2026-09-01", fin: "2026-12-31" }, "2026-10-30"), ["2026-09", "2026-10"]);
+  });
+
+  test("l'écran dit que la balance comprend le non-validé et peut changer", () => {
+    assert.match(MENTION_BALANCE, /en attente de validation/);
+    assert.match(MENTION_BALANCE, /évoluer/);
+    assert.match(readFileSync(join(process.cwd(), "components/PasseCompta.tsx"), "utf8"), /MENTION_BALANCE/);
   });
 });
 

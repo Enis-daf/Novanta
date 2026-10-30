@@ -13,7 +13,7 @@ import {
   RegleCorrespondance,
 } from "./comptaCorrespondance";
 import { COMPTES_FIXTURES, LIGNES_FIXTURES } from "./comptaFixtures";
-import { calculerPnlComptable, deciderStock, estSignificatif, LigneEcriture, soldesDeLaPeriode, soldesDepuisLignes } from "./comptaPnl";
+import { calculerPnlComptable, deciderStock, estSignificatif, LigneEcriture, periodeEnMoisEntiers, SoldeCompte, soldesDeLaPeriode, soldesDepuisLignes } from "./comptaPnl";
 
 const ANNEE = { debut: "2026-01-01", fin: "2026-12-31" };
 const R = (prefixe: string, destination: RegleCorrespondance["destination"], categorie = prefixe): RegleCorrespondance => ({ prefixe, destination, categorie });
@@ -76,6 +76,8 @@ describe("Racines de comptes", () => {
   test("numéros normalisés, jamais devinés", () => {
     assert.equal(normaliserCompte("706 000"), "706000");
     assert.equal(normaliserCompte("ABC"), "");
+    assert.equal(normaliserCompte("401ABCDEF"), "401ABCDEF");
+    assert.equal(normaliserCompte("401-A"), "");
     assert.equal(estCompteDeResultat("512000"), false);
   });
 
@@ -254,6 +256,45 @@ describe("Exhaustivité", () => {
 
   test("un nouveau compte sans racine apparaît immédiatement comme non affecté", () => {
     assert.equal(pnlDe([L("654321", 10, 0)], REGLES).nonAffectes.comptes[0].compte, "654321");
+  });
+});
+
+describe("Lecture par balance mensuelle", () => {
+  const solde = (compte: string, mois: string, debit: number, credit: number): SoldeCompte => ({ compte, mois, debit, credit, nombreLignes: 0 });
+
+  test("les soldes de plusieurs mois se cumulent par numéro, sans nombre de lignes", () => {
+    const p = calculerPnlComptable({ soldes: [solde("706000", "2026-01", 0, 100), solde("706000", "2026-02", 10, 50)], regles: REGLES });
+    assert.equal(p.chiffreAffaires, 140);
+    assert.equal(p.aDesEcritures, true);
+  });
+
+  test("balance et lignes donnent le même P&L", () => {
+    const parLignes = pnlDe([L("706000", 0, 100, "2026-03-05"), L("706000", 10, 0, "2026-03-20"), L("601000", 40, 0, "2026-03-07")], REGLES);
+    const parBalance = calculerPnlComptable({ soldes: [solde("706000", "2026-03", 10, 100), solde("601000", "2026-03", 40, 0)], regles: REGLES });
+    assert.equal(parBalance.resultatNet, parLignes.resultatNet);
+    assert.equal(parBalance.margeBrute, parLignes.margeBrute);
+  });
+
+  test("compte non affecté à solde nul mais mouvementé : encore listé", () => {
+    const p = calculerPnlComptable({ soldes: [solde("658000", "2026-03", 25, 25)], regles: REGLES });
+    assert.deepEqual(p.nonAffectes.comptes.map((c) => c.compte), ["658000"]);
+  });
+
+  test("compte de résultat à numéro alphanumérique : suit sa racine, ne disparaît pas", () => {
+    const p = calculerPnlComptable({ soldes: [solde("613ABC", "2026-03", 25, 0)], regles: REGLES });
+    assert.equal(p.coutsStructure, -25);
+  });
+
+  test("numéro illisible : compté, et le résultat n'est plus présenté comme complet", () => {
+    const p = calculerPnlComptable({ soldes: [solde("706000", "2026-03", 0, 100), solde("???", "2026-03", 5, 0)], regles: REGLES });
+    assert.equal(p.comptesIllisibles, 1);
+    assert.equal(p.complet, false);
+    assert.equal(p.chiffreAffaires, 100);
+  });
+
+  test("période partielle : élargie à ses mois entiers", () => {
+    assert.deepEqual(periodeEnMoisEntiers({ debut: "2026-03-10", fin: "2026-04-05" }), { debut: "2026-03-01", fin: "2026-04-30" });
+    assert.deepEqual(periodeEnMoisEntiers({ debut: "2024-02-01", fin: "2024-02-29" }), { debut: "2024-02-01", fin: "2024-02-29" });
   });
 });
 

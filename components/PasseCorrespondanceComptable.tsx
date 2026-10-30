@@ -43,7 +43,6 @@ function LigneCompte({ ligne, onAffecter }: { ligne: LigneCompteCorrespondance; 
         {ligne.nouveau && <span className="passe-statut passe-statut--a-mapper"> Nouveau</span>}
       </td>
       <td className="passe-table__libelle">{ligne.libelle ?? "—"}</td>
-      <td className="col-montant passe-table__montant">{formatNombre.format(ligne.nombreLignes)}</td>
       <td className="col-montant passe-table__montant">{formatMontant(ligne.montant)}</td>
       <td>{ligne.regle ? `${ligne.regle.prefixe} · ${ligne.regle.categorie}` : "—"}</td>
       <td>
@@ -154,7 +153,6 @@ export default function PasseCorrespondanceComptable({ comptes, regles, nouveaux
               <tr>
                 <th>Compte</th>
                 <th>Libellé</th>
-                <th className="col-montant">Lignes sur la période</th>
                 <th className="col-montant">Montant sur la période</th>
                 <th>Racine appliquée</th>
                 <th>Affectation</th>

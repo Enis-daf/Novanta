@@ -157,6 +157,34 @@ assert.equal((await db.query(`select count(*)::int n from accounting_entry_lines
 assert.equal((await db.query(`select count(*)::int n from accounting_mapping_rule_history where organization_id = $1`, [org2])).rows[0].n, 0);
 ok("suppression d'une société : cascade complète, sans blocage du journal");
 
+// --- 20261031 : soldes mensuels ---
+const MIGRATION_SOLDES = "20261031_accounting_monthly_balances.sql";
+const comptesAvant = (await db.query(`select count(*)::int n from accounting_accounts`)).rows[0].n;
+await db.query(`insert into accounting_accounts (organization_id, account_number, source) values ($1, '706000', 'fixtures')`, [org]);
+await db.exec(lire(`supabase/migrations/${MIGRATION_SOLDES}`));
+await db.exec(lire(`supabase/migrations/${MIGRATION_SOLDES}`));
+assert.equal((await db.query(`select count(*)::int n from accounting_accounts`)).rows[0].n, comptesAvant + 1);
+ok("20261031 appliquée deux fois, sur une table de comptes déjà remplie, sans perte");
+const sqlSoldes = lire(`supabase/migrations/${MIGRATION_SOLDES}`).split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+assert.doesNotMatch(sqlSoldes, /drop\s+(table|column)|truncate|delete\s+from|\bupdate\s+\w+\s+set/i);
+ok("20261031 : ni DROP de table ou de colonne, ni DELETE, ni UPDATE");
+await db.exec(`set role service_role;`);
+await db.query(`insert into accounting_accounts (organization_id, account_number, source) values ($1, '401ABCDEF', 'fixtures')`, [org]);
+await assert.rejects(db.query(`insert into accounting_accounts (organization_id, account_number, source) values ($1, 'ABC', 'fixtures')`, [org]));
+ok("numéro alphanumérique accepté, numéro sans racine en chiffres refusé");
+const solde = (m, n, d, c) => db.query(`insert into accounting_monthly_balances (organization_id, source, month, account_number, debit, credit, sync_run) values ($1, 'fixtures', $2, $3, $4, $5, '${RUN}')`, [org, m, n, d, c]);
+await solde("2026-03-01", "706000", 0, 100.1);
+await assert.rejects(solde("2026-03-01", "706000", 0, 1));
+await assert.rejects(solde("2026-03-15", "706001", 0, 1));
+ok("un compte par mois, un mois commence le 1er");
+await db.exec(`reset role;`);
+for (const role of ["anon", "authenticated"]) {
+  await db.exec(`set test.uid = '${USER}'; set role ${role};`);
+  await assert.rejects(db.query(`select * from accounting_monthly_balances`), /permission denied/);
+  await db.exec(`reset role;`);
+}
+ok("anon et authenticated : aucun accès aux soldes mensuels");
+
 const plan = await db.query(`explain select account_number from accounting_entry_lines where organization_id = '${org}' and entry_date between '2026-01-01' and '2026-12-31'`);
 console.log("  plan :", plan.rows[0]["QUERY PLAN"]);
 console.log("\nMigration vérifiée.");

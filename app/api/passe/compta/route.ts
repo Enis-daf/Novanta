@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exigerAccesCompta } from "@/lib/comptaAcces";
 import { erreurRegle, HORS_PERIMETRE, LigneComptable, MODELE_CORRESPONDANCE, RegleCorrespondance } from "@/lib/comptaCorrespondance";
-import { calculerPnlComptable } from "@/lib/comptaPnl";
+import { calculerPnlComptable, periodeEnMoisEntiers } from "@/lib/comptaPnl";
 import {
   appliquerModele,
   chargerComptes,
   chargerEtatSynchro,
-  chargerPremiereEcriture,
+  chargerPremierMoisDeBalance,
   chargerRegles,
   chargerSoldes,
   chargerSourceStock,
@@ -19,8 +19,7 @@ import { ajustementsDeLaPeriode, ajustementsDepuisStocks } from "@/lib/pastAdjus
 import { periodeValide } from "@/lib/pastTransactions";
 import { chargerStocks } from "@/lib/pastTransactionsRepository";
 
-// P&L comptable de la période et sa correspondance. Calculé ici, sur les cumuls par compte : aucune
-// ligne d'écriture ne part vers le navigateur. Lecture et paramétrage Novanta seulement : rien n'est
+// P&L comptable de la période et sa correspondance. Calculé ici, sur la balance mensuelle. Lecture et paramétrage Novanta seulement : rien n'est
 // écrit chez Pennylane.
 
 const FORMAT_DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -36,6 +35,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Période invalide." }, { status: 400 });
   }
   const periode = { debut, fin };
+  const moisEntiers = periodeEnMoisEntiers(periode);
 
   try {
     const [soldes, regles, comptes, stocks, sourceStock, synchro, premiereEcriture] = await Promise.all([
@@ -45,16 +45,17 @@ export async function GET(req: NextRequest) {
       chargerStocks(admin, organizationId),
       chargerSourceStock(admin, organizationId),
       chargerEtatSynchro(admin, organizationId),
-      chargerPremiereEcriture(admin, organizationId),
+      chargerPremierMoisDeBalance(admin, organizationId),
     ]);
     const pnl = calculerPnlComptable({
       soldes,
       regles,
       libellesComptes: new Map(comptes.map((c) => [c.numero, c.libelle])),
-      variationsStockNovanta: ajustementsDeLaPeriode(ajustementsDepuisStocks(stocks), periode),
+      // Comme les écritures : le mois entier, pour ne jamais rapprocher deux périmètres différents.
+      variationsStockNovanta: ajustementsDeLaPeriode(ajustementsDepuisStocks(stocks), moisEntiers),
       sourceStockChoisie: sourceStock,
     });
-    return NextResponse.json({ pnl, regles, comptes, soldes, sourceStock, synchro, premiereEcriture, synchroDisponible: synchroComptableReelleActive() });
+    return NextResponse.json({ pnl, regles, comptes, soldes, sourceStock, synchro, premiereEcriture, moisEntiers, synchroDisponible: synchroComptableReelleActive() });
   } catch (error) {
     const code = (error as { code?: string } | null)?.code ?? "inconnu";
     console.error(`[passe/compta] step=load organization=${organizationId} code=${code}`);

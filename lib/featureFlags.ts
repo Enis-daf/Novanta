@@ -22,8 +22,8 @@ export function moduleActionActif(): boolean {
 }
 
 /**
- * SERVEUR UNIQUEMENT. Lecture réelle des comptes et écritures Pennylane. Reste éteinte tant que
- * Pennylane n'a pas confirmé droits, champs et limites (docs/pnl-comptable-pennylane.md).
+ * SERVEUR UNIQUEMENT. Lecture réelle du plan de comptes et de la balance Pennylane. Reste éteinte tant
+ * que Pennylane n'a pas répondu sur l'usage du token en production (docs/pnl-comptable-pennylane.md).
  */
 export function synchroComptableReelleActive(): boolean {
   return process.env.NOVANTA_COMPTA_SYNC_REELLE === "1";

@@ -46,10 +46,14 @@ export interface RegleCorrespondance {
   categorie: string; // catégorie analytique élémentaire
 }
 
-/** Numéro de compte sans espace ; vide s'il n'est pas purement numérique (jamais deviné). */
+/**
+ * Numéro de compte sans espace. Une racine en chiffres peut être suivie de lettres : ces comptes existent
+ * chez Pennylane. Vide si le numéro ne commence pas par un chiffre : le moteur le compte alors comme
+ * illisible, il n'est ni deviné ni ignoré en silence.
+ */
 export function normaliserCompte(numero: string): string {
   const net = numero.replace(/\s+/g, "");
-  return /^\d+$/.test(net) ? net : "";
+  return /^\d[0-9A-Za-z]*$/.test(net) ? net : "";
 }
 
 /** Comptes de résultat : classes 6 et 7. Tout le reste (bilan, classes 8 et 9) sort du P&L. */

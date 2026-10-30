@@ -5,11 +5,13 @@ import PasseCorrespondanceComptable from "./PasseCorrespondanceComptable";
 import PasseStructureChart from "./PasseStructureChart";
 import { teintesParCategorie } from "@/lib/dataviz";
 import { formatMontantComptable, formatPourcentage } from "@/lib/format";
-import { chargerCompta, modifierCompta, ReponseCompta, synchroniserCompta } from "@/lib/comptaClient";
+import { chargerCompta, modifierCompta, ReponseCompta, ResultatSynchroMois, synchroniserCompta } from "@/lib/comptaClient";
 import { RegleCorrespondance } from "@/lib/comptaCorrespondance";
 import { comptesNouveaux, lignesDuRapport, structuresDuRapport, TEXTE_DEUX_PNL, TITRE_PNL_COMPTABLE } from "@/lib/comptaLecture";
 import { SourceStock } from "@/lib/comptaPnl";
-import { decouperPeriodeParMois, Periode } from "@/lib/pastTransactions";
+import { moisALire, MENTION_BALANCE, periodePartielle } from "@/lib/comptaLecture";
+import { formatDateCourte, todayISO } from "@/lib/dates";
+import { Periode } from "@/lib/pastTransactions";
 
 type Onglet = "pnl" | "correspondance";
 
@@ -17,14 +19,14 @@ type Onglet = "pnl" | "correspondance";
 export interface ServicesCompta {
   charger: (periode: Periode) => Promise<ReponseCompta>;
   modifier: (action: Parameters<typeof modifierCompta>[1]) => Promise<void>;
-  synchroniser: (periode: Periode) => Promise<{ nombreLignes: number; nouveauxComptes: number; complete: boolean }>;
+  synchroniser: (mois: string, avecComptes: boolean) => Promise<ResultatSynchroMois>;
 }
 
 export function servicesCompta(accessToken: string): ServicesCompta {
   return {
     charger: (periode) => chargerCompta(accessToken, periode),
     modifier: (action) => modifierCompta(accessToken, action),
-    synchroniser: (periode) => synchroniserCompta(accessToken, periode),
+    synchroniser: (mois, avecComptes) => synchroniserCompta(accessToken, mois, avecComptes),
   };
 }
 
@@ -50,8 +52,8 @@ function LignesRapport({ reponse }: { reponse: ReponseCompta }) {
       {lignesDuRapport(pnl).map((bloc) => (
         <div key={bloc[0].cle} className="passe-pnl__bloc">
           {bloc.map((ligne) => {
-            // Comptes significatifs sans affectation : pas de sous-total présenté comme acquis.
-            const masque = ligne.niveau !== undefined && !pnl.complet && pnl.nonAffectes.significatif;
+            // Comptes significatifs sans affectation ou illisibles : pas de sous-total présenté comme acquis.
+            const masque = ligne.niveau !== undefined && (pnl.nonAffectes.significatif || pnl.comptesIllisibles > 0);
             const details = ligne.categories ?? [];
             const depliable = details.length > 0;
             return (
@@ -127,20 +129,23 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
   const lancerSynchro = async () => {
     setSynchro({ enCours: true, message: null, erreur: null });
     try {
-      let lignes = 0;
+      let lus = 0;
       let nouveaux = 0;
+      let illisibles = 0;
       let complete = true;
-      // Un mois à la fois : chaque appel reste dans la durée d'une fonction serveur.
-      for (const tranche of decouperPeriodeParMois(periode)) {
-        const resultat = await synchroniser(tranche);
-        lignes += resultat.nombreLignes;
+      // Un mois à la fois : chaque appel reste dans la durée d'une fonction serveur. Le plan de comptes
+      // n'est relu qu'à la première tranche.
+      for (const [index, mois] of moisALire(periode, todayISO()).entries()) {
+        const resultat = await synchroniser(mois, index === 0);
+        lus += 1;
         nouveaux += resultat.nouveauxComptes;
+        illisibles += resultat.illisibles;
         complete = complete && resultat.complete;
       }
       setSynchro({
         enCours: false,
         erreur: null,
-        message: `${lignes.toLocaleString("fr-FR")} lignes lues depuis Pennylane.${nouveaux > 0 ? ` ${nouveaux} nouveau${nouveaux > 1 ? "x" : ""} compte${nouveaux > 1 ? "s" : ""}.` : ""}${complete ? "" : " Lecture incomplète : réduisez la période."}`,
+        message: `Balance Pennylane lue sur ${lus} mois.${nouveaux > 0 ? ` ${nouveaux} nouveau${nouveaux > 1 ? "x" : ""} compte${nouveaux > 1 ? "s" : ""}.` : ""}${illisibles > 0 ? ` ${illisibles} numéro${illisibles > 1 ? "s" : ""} de compte illisible${illisibles > 1 ? "s" : ""}, hors du calcul.` : ""}${complete ? "" : " Lecture incomplète : réduisez la période."}`,
       });
       setRechargement((n) => n + 1);
     } catch (e) {
@@ -182,7 +187,7 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
         {reponse.synchroDisponible && (
           <div className="passe-controles__actions">
             <button type="button" className="btn-add" onClick={lancerSynchro} disabled={synchro.enCours}>
-              {synchro.enCours ? "Lecture des écritures…" : "Lire les écritures Pennylane"}
+              {synchro.enCours ? "Lecture de la balance…" : "Lire la balance Pennylane"}
             </button>
           </div>
         )}
@@ -197,6 +202,19 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
           <button type="button" className="passe-lien-ligne" onClick={() => setOnglet("correspondance")}>
             Les affecter
           </button>
+        </p>
+      )}
+
+      {periodePartielle(periode) && (
+        <p className="passe-message" role="status">
+          La balance est mensuelle : ce P&amp;L couvre les mois entiers, du {formatDateCourte(reponse.moisEntiers.debut)} au {formatDateCourte(reponse.moisEntiers.fin)}.
+        </p>
+      )}
+
+      {pnl.comptesIllisibles > 0 && (
+        <p className="passe-non-categorise passe-non-categorise--alerte" role="status">
+          <span aria-hidden="true">⚠ </span>
+          {pnl.comptesIllisibles} numéro{pnl.comptesIllisibles > 1 ? "s" : ""} de compte illisible{pnl.comptesIllisibles > 1 ? "s" : ""}, hors du calcul.
         </p>
       )}
 
@@ -260,7 +278,9 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
           </div>
         </div>
       )}
-      <p className="passe-disclaimer">{TEXTE_DEUX_PNL}</p>
+      <p className="passe-disclaimer">
+        {MENTION_BALANCE} {TEXTE_DEUX_PNL}
+      </p>
     </>
   );
 }
