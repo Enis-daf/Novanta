@@ -2,7 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { indexerRegles, MODELE_CORRESPONDANCE } from "./comptaCorrespondance";
 import { servicesDemo, TRANSACTIONS_DEMO, MAPPINGS_DEMO, AXE_DEMO } from "./comptaDemo";
-import { comptesNouveaux, filtrerComptes, lignesCorrespondance, lignesDuRapport, MENTION_BALANCE, moisALire, periodePartielle, structuresDuRapport, TEXTE_DEUX_PNL } from "./comptaLecture";
+import { comptesNouveaux, filtrerComptes, lignesCorrespondance, lignesDuRapport, MENTION_BALANCE, moisALire, periodePartielle, resumeSynchro, structuresDuRapport, TEXTE_DEUX_PNL, TEXTE_PROVISOIRE, TITRE_PROVISOIRE } from "./comptaLecture";
 import { calculerPnlComptable, soldesDepuisLignes } from "./comptaPnl";
 import { LIGNES_FIXTURES } from "./comptaFixtures";
 import { indexerMappings } from "./pastCategoryMapping";
@@ -98,8 +98,26 @@ describe("Balance mensuelle à l'écran", () => {
 
   test("l'écran dit que la balance comprend le non-validé et peut changer", () => {
     assert.match(MENTION_BALANCE, /en attente de validation/);
-    assert.match(MENTION_BALANCE, /évoluer/);
+    assert.match(TEXTE_PROVISOIRE, /évoluer jusqu'à la clôture/);
+    assert.equal(TITRE_PROVISOIRE, "Comptabilité provisoire — exercice non clôturé");
     assert.match(readFileSync(join(process.cwd(), "components/PasseCompta.tsx"), "utf8"), /MENTION_BALANCE/);
+  });
+});
+
+describe("Résumé d'une synchronisation", () => {
+  const bilan = { statut: "partial" as const, moisDemandes: 3, moisActualises: 2, moisEnEchec: [{ mois: "2026-02", raison: "troncature" as const }], nouveauxComptes: 1, comptesIllisibles: 0, limites: [], codeErreur: null };
+
+  test("dit ce qui est actualisé et ce qui garde ses chiffres précédents", () => {
+    const texte = resumeSynchro(bilan);
+    assert.match(texte, /2 mois actualisés sur 3/);
+    assert.match(texte, /garde ses chiffres précédents \(réponse incomplète\)/);
+    assert.match(texte, /1 nouveau compte/);
+  });
+
+  test("aucun score de fiabilité ni blocage dans l'écran", () => {
+    const source = readFileSync(join(process.cwd(), "components/PasseCompta.tsx"), "utf8");
+    assert.doesNotMatch(source, /score|fiabilit/i);
+    assert.match(source, /TITRE_PROVISOIRE/);
   });
 });
 
@@ -138,7 +156,7 @@ describe("Données de démonstration", () => {
   test("services en mémoire : conflit de stocks puis arbitrage", async () => {
     const services = servicesDemo({ avecStocksNovanta: true });
     assert.equal((await services.charger(PERIODE)).pnl.stock.conflit, true);
-    await services.modifier({ action: "source_stock", source: "novanta" });
+    await services.modifier({ action: "source_stock", debut: "2026-01-01", fin: "2026-12-31", source: "novanta" });
     const r = await services.charger(PERIODE);
     assert.equal(r.pnl.stock.source, "novanta");
     assert.equal(r.pnl.stock.conflit, false);

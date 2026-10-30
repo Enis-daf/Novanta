@@ -3,6 +3,10 @@
     {
       "path": "/api/futur/capture",
       "schedule": "50 21 * * *"
+    },
+    {
+      "path": "/api/passe/compta/planifiee",
+      "schedule": "30 2 * * *"
     }
   ]
 }

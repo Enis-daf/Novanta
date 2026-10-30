@@ -32,6 +32,15 @@ describe("routes serveur soumises à l'offre", () => {
     });
   }
 
+  test("la synchronisation planifiée vérifie secret, offre et module pour chaque société", () => {
+    const source = readFileSync(join(process.cwd(), "app/api/passe/compta/planifiee/route.ts"), "utf8");
+    assert.match(source, /Bearer \$\{secret\}/);
+    assert.match(source, /capacites\.canViewAccountingPnl/);
+    assert.match(source, /moduleActifPourOrganisation\(admin, id, "past"\)/);
+    assert.match(source, /synchroComptableReelleActive\(\)/);
+    assert.match(source, /depotSupabase\(admin, id, "pennylane"\)/);
+  });
+
   for (const route of ["app/api/passe/compta/route.ts", "app/api/passe/compta/sync/route.ts"]) {
     test(`${route} passe par la garde du P&L comptable à chaque méthode`, () => {
       const source = readFileSync(join(process.cwd(), route), "utf8");

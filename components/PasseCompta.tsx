@@ -5,12 +5,14 @@ import PasseCorrespondanceComptable from "./PasseCorrespondanceComptable";
 import PasseStructureChart from "./PasseStructureChart";
 import { teintesParCategorie } from "@/lib/dataviz";
 import { formatMontantComptable, formatPourcentage } from "@/lib/format";
-import { chargerCompta, modifierCompta, ReponseCompta, ResultatSynchroMois, synchroniserCompta } from "@/lib/comptaClient";
+import { chargerCompta, DemandeSynchroCompta, modifierCompta, ReponseCompta, synchroniserCompta } from "@/lib/comptaClient";
+import { etatExercice } from "@/lib/comptaExercices";
+import type { BilanSynchro } from "@/lib/comptaSynchro";
 import { RegleCorrespondance } from "@/lib/comptaCorrespondance";
 import { comptesNouveaux, lignesDuRapport, structuresDuRapport, TEXTE_DEUX_PNL, TITRE_PNL_COMPTABLE } from "@/lib/comptaLecture";
 import { SourceStock } from "@/lib/comptaPnl";
-import { moisALire, MENTION_BALANCE, periodePartielle } from "@/lib/comptaLecture";
-import { formatDateCourte, todayISO } from "@/lib/dates";
+import { libellePerimetreMois, MENTION_BALANCE, periodePartielle, resumeSynchro, TEXTE_PROVISOIRE, TEXTE_STATUT_AMBIGU, TITRE_PROVISOIRE } from "@/lib/comptaLecture";
+import { formatDateCourte, toISODate } from "@/lib/dates";
 import { Periode } from "@/lib/pastTransactions";
 
 type Onglet = "pnl" | "correspondance";
@@ -19,14 +21,14 @@ type Onglet = "pnl" | "correspondance";
 export interface ServicesCompta {
   charger: (periode: Periode) => Promise<ReponseCompta>;
   modifier: (action: Parameters<typeof modifierCompta>[1]) => Promise<void>;
-  synchroniser: (mois: string, avecComptes: boolean) => Promise<ResultatSynchroMois>;
+  synchroniser: (demande: DemandeSynchroCompta) => Promise<BilanSynchro>;
 }
 
 export function servicesCompta(accessToken: string): ServicesCompta {
   return {
     charger: (periode) => chargerCompta(accessToken, periode),
     modifier: (action) => modifierCompta(accessToken, action),
-    synchroniser: (mois, avecComptes) => synchroniserCompta(accessToken, mois, avecComptes),
+    synchroniser: (demande) => synchroniserCompta(accessToken, demande),
   };
 }
 
@@ -97,6 +99,8 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
   const [erreurModification, setErreurModification] = useState<string | null>(null);
   const [synchro, setSynchro] = useState<{ enCours: boolean; message: string | null; erreur: string | null }>({ enCours: false, message: null, erreur: null });
   const [rechargement, setRechargement] = useState(0);
+  // Resynchroniser un exercice clôturé demande une seconde action explicite.
+  const [exerciceAConfirmer, setExerciceAConfirmer] = useState<string | null>(null);
   const { charger, modifier, synchroniser } = services;
 
   useEffect(() => {
@@ -126,27 +130,12 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
     [modifier]
   );
 
-  const lancerSynchro = async () => {
+  const lancerSynchro = async (demande: DemandeSynchroCompta) => {
     setSynchro({ enCours: true, message: null, erreur: null });
+    setExerciceAConfirmer(null);
     try {
-      let lus = 0;
-      let nouveaux = 0;
-      let illisibles = 0;
-      let complete = true;
-      // Un mois à la fois : chaque appel reste dans la durée d'une fonction serveur. Le plan de comptes
-      // n'est relu qu'à la première tranche.
-      for (const [index, mois] of moisALire(periode, todayISO()).entries()) {
-        const resultat = await synchroniser(mois, index === 0);
-        lus += 1;
-        nouveaux += resultat.nouveauxComptes;
-        illisibles += resultat.illisibles;
-        complete = complete && resultat.complete;
-      }
-      setSynchro({
-        enCours: false,
-        erreur: null,
-        message: `Balance Pennylane lue sur ${lus} mois.${nouveaux > 0 ? ` ${nouveaux} nouveau${nouveaux > 1 ? "x" : ""} compte${nouveaux > 1 ? "s" : ""}.` : ""}${illisibles > 0 ? ` ${illisibles} numéro${illisibles > 1 ? "s" : ""} de compte illisible${illisibles > 1 ? "s" : ""}, hors du calcul.` : ""}${complete ? "" : " Lecture incomplète : réduisez la période."}`,
-      });
+      const bilan = await synchroniser(demande);
+      setSynchro({ enCours: false, erreur: null, message: resumeSynchro(bilan) });
       setRechargement((n) => n + 1);
     } catch (e) {
       setSynchro({ enCours: false, message: null, erreur: (e as Error).message });
@@ -155,7 +144,7 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
 
   const structures = useMemo(() => (reponse ? structuresDuRapport(reponse.pnl) : null), [reponse]);
   const teintes = useMemo(() => teintesParCategorie(structures?.categories ?? []), [structures]);
-  const nouveaux = useMemo(() => comptesNouveaux(reponse?.comptes ?? [], reponse?.synchro?.termineeLe ?? null), [reponse]);
+  const nouveaux = useMemo(() => comptesNouveaux(reponse?.comptes ?? [], reponse?.derniereSynchroReussie?.termineeLe ?? null), [reponse]);
 
   if (erreur) {
     return (
@@ -170,7 +159,9 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
   if (!reponse || !structures) return <div className="passe-etat">Chargement du P&amp;L comptable…</div>;
 
   const { pnl } = reponse;
-  const choisirSourceStock = (source: SourceStock) => appliquer({ action: "source_stock", source });
+  const choisirSourceStock = (perimetre: { debut: string; fin: string }, source: SourceStock | null) => appliquer({ action: "source_stock", debut: perimetre.debut, fin: perimetre.fin, source });
+  const derniere = reponse.derniereSynchroReussie;
+  const exercicesClotures = reponse.exercices.filter((e) => etatExercice(e.statut) === "cloture");
 
   return (
     <>
@@ -186,14 +177,23 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
         </div>
         {reponse.synchroDisponible && (
           <div className="passe-controles__actions">
-            <button type="button" className="btn-add" onClick={lancerSynchro} disabled={synchro.enCours}>
-              {synchro.enCours ? "Lecture de la balance…" : "Lire la balance Pennylane"}
+            <button type="button" className="btn-add" onClick={() => lancerSynchro({ type: "manuel" })} disabled={synchro.enCours}>
+              {synchro.enCours ? "Actualisation…" : "Actualiser la comptabilité"}
             </button>
           </div>
         )}
       </div>
       {synchro.erreur && <p className="login-erreur">{synchro.erreur}</p>}
       {synchro.message && <p className="passe-message">{synchro.message}</p>}
+
+      {(reponse.provisoire.provisoire || derniere) && (
+        <div className="passe-message compta-provisoire" role="status">
+          {reponse.provisoire.provisoire && <p className="compta-provisoire__titre">{TITRE_PROVISOIRE}</p>}
+          {derniere?.termineeLe && <p>Dernière synchronisation : {formatDateCourte(toISODate(new Date(derniere.termineeLe)))}.</p>}
+          {reponse.provisoire.provisoire && <p>{TEXTE_PROVISOIRE}</p>}
+          {reponse.provisoire.ambigu && <p>{TEXTE_STATUT_AMBIGU}</p>}
+        </div>
+      )}
 
       {pnl.nonAffectes.comptes.length > 0 && (
         <p className={`passe-non-categorise passe-non-categorise--alerte`} role="status">
@@ -218,29 +218,29 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
         </p>
       )}
 
-      {pnl.stock.conflit && (
-        <div className="passe-message passe-flux-hors-pnl" role="alert">
+      {reponse.decisionsStock.filter((d) => d.conflit).map((d) => (
+        <div key={d.perimetre.cle} className="passe-message passe-flux-hors-pnl" role="alert">
           <p>
-            Variation de stocks : Pennylane contient des écritures ({formatMontantComptable(pnl.stock.montantPennylane)}) et des stocks sont saisis dans Novanta (
-            {formatMontantComptable(pnl.stock.montantNovanta)}). Les additionner compterait deux fois la même variation : quelle source ce P&amp;L doit-il utiliser ?
+            Variation de stocks, exercice du {formatDateCourte(d.perimetre.debut)} au {formatDateCourte(d.perimetre.fin)} : Pennylane contient des écritures ({formatMontantComptable(d.montantPennylane)}, {libellePerimetreMois(d.moisPennylane)}) et des stocks sont saisis dans Novanta ({formatMontantComptable(d.montantNovanta)}, {libellePerimetreMois(d.moisNovanta)}). Novanta ne peut pas savoir si elles couvrent le même périmètre, et les additionner risquerait de compter deux fois la même variation. Quelle source retenir pour cet exercice ?
           </p>
           <div className="passe-tri selecteur" role="group" aria-label="Source de la variation de stocks">
-            <button type="button" className="btn-secondaire" onClick={() => choisirSourceStock("pennylane")}>
+            <button type="button" className="btn-secondaire" onClick={() => choisirSourceStock(d.perimetre, "pennylane")}>
               Écritures Pennylane
             </button>
-            <button type="button" className="btn-secondaire" onClick={() => choisirSourceStock("novanta")}>
+            <button type="button" className="btn-secondaire" onClick={() => choisirSourceStock(d.perimetre, "novanta")}>
               Stocks saisis dans Novanta
             </button>
           </div>
         </div>
-      )}
-      {!pnl.stock.conflit && reponse.sourceStock !== null && pnl.stock.montantNovanta !== 0 && pnl.stock.source !== "aucune" && (
-        <p className="passe-message">
-          Variation de stocks : {pnl.stock.source === "novanta" ? "stocks saisis dans Novanta" : "écritures Pennylane"}.{" "}
-          <button type="button" className="passe-lien-ligne" onClick={() => appliquer({ action: "source_stock", source: null })}>
+      ))}
+      {reponse.decisionsStock.filter((d) => d.choix?.source && !d.conflit && d.moisPennylane.length > 0 && d.moisNovanta.length > 0).map((d) => (
+        <p key={d.perimetre.cle} className="passe-message">
+          Variation de stocks de l&apos;exercice du {formatDateCourte(d.perimetre.debut)} : {d.source === "novanta" ? "stocks saisis dans Novanta" : "écritures Pennylane"}, selon votre arbitrage.
+          {d.sourceModifieeDepuisChoix && " Une source a changé depuis ce choix."}{" "}
+          <button type="button" className="passe-lien-ligne" onClick={() => choisirSourceStock(d.perimetre, null)}>
             Changer de source
           </button>
-          {onOuvrirStocks && pnl.stock.source === "novanta" && (
+          {onOuvrirStocks && d.source === "novanta" && (
             <>
               {" · "}
               <button type="button" className="passe-lien-ligne" onClick={onOuvrirStocks}>
@@ -248,6 +248,11 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
               </button>
             </>
           )}
+        </p>
+      ))}
+      {reponse.ajustementsEcartes.length > 0 && (
+        <p className="passe-message">
+          {reponse.ajustementsEcartes.length} ajustement{reponse.ajustementsEcartes.length > 1 ? "s" : ""} de gestion écarté{reponse.ajustementsEcartes.length > 1 ? "s" : ""} : la comptabilité porte déjà des écritures sur cette ligne pour l&apos;exercice.
         </p>
       )}
 
@@ -277,6 +282,28 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
             <PasseStructureChart titre="Structure des coûts" structure={structures.couts} messageVide="Aucun coût sur la période." teintes={teintes} />
           </div>
         </div>
+      )}
+      {reponse.synchroDisponible && exercicesClotures.length > 0 && (
+        <details className="compta-regles">
+          <summary>Exercices clôturés ({exercicesClotures.length})</summary>
+          <p className="passe-message">Leur historique est conservé. Une resynchronisation remplace ses chiffres par ceux de Pennylane aujourd&apos;hui.</p>
+          {exercicesClotures.map((e) => (
+            <p key={e.idSource} className="passe-flux-hors-pnl__ligne">
+              <span>
+                Du {formatDateCourte(e.debut)} au {formatDateCourte(e.fin)}
+              </span>
+              {exerciceAConfirmer === e.idSource ? (
+                <button type="button" className="btn-secondaire" disabled={synchro.enCours} onClick={() => lancerSynchro({ type: "exceptionnel", idExercice: e.idSource, confirmation: true })}>
+                  Confirmer la resynchronisation
+                </button>
+              ) : (
+                <button type="button" className="passe-lien-ligne" onClick={() => setExerciceAConfirmer(e.idSource)}>
+                  Resynchroniser
+                </button>
+              )}
+            </p>
+          ))}
+        </details>
       )}
       <p className="passe-disclaimer">
         {MENTION_BALANCE} {TEXTE_DEUX_PNL}

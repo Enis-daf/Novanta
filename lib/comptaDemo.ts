@@ -1,7 +1,10 @@
-import type { ReponseCompta, ResultatSynchroMois } from "./comptaClient";
+import type { ActionCompta, ReponseCompta } from "./comptaClient";
 import { MODELE_CORRESPONDANCE, RegleCorrespondance } from "./comptaCorrespondance";
 import { COMPTES_FIXTURES, LIGNES_FIXTURES } from "./comptaFixtures";
-import { calculerPnlComptable, periodeEnMoisEntiers, soldesDepuisLignes, SourceStock } from "./comptaPnl";
+import { ExerciceComptable, lectureProvisoire, perimetresStock } from "./comptaExercices";
+import { calculerPnlComptable, periodeEnMoisEntiers, soldesDeLaPeriode, soldesDepuisLignes } from "./comptaPnl";
+import { arbitrageParMois, ChoixStock, deciderStockParExercice } from "./comptaStocks";
+import type { BilanSynchro } from "./comptaSynchro";
 import { ajustementsDeLaPeriode, ajustementsDepuisStocks, StockFinDeMois } from "./pastAdjustments";
 import { MappingCategorie } from "./pastCategoryMapping";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
@@ -67,45 +70,66 @@ export const STOCKS_DEMO: StockFinDeMois[] = [
   { mois: "2026-03", valeur: 34_000 },
 ];
 
+export const EXERCICES_DEMO: ExerciceComptable[] = [
+  { idSource: "demo-2025", debut: "2025-01-01", fin: "2025-12-31", statut: "closed" },
+  { idSource: "demo-2026", debut: "2026-01-01", fin: "2026-12-31", statut: "open" },
+];
+
 /** Services en mémoire pour PasseCompta : le moteur réel, sur des écritures simulées. */
 export function servicesDemo(options: { reglesInitiales?: RegleCorrespondance[]; avecStocksNovanta?: boolean } = {}) {
   let regles = options.reglesInitiales ?? [...MODELE_CORRESPONDANCE];
-  let sourceStock: SourceStock | null = null;
+  const choix = new Map<string, ChoixStock>();
   return {
     async charger(periode: Periode): Promise<ReponseCompta> {
-      const soldes = soldesDepuisLignes(LIGNES_FIXTURES, periode);
+      const moisEntiers = periodeEnMoisEntiers(periode);
+      const toutes = soldesDepuisLignes(LIGNES_FIXTURES, { debut: "2025-01-01", fin: "2026-12-31" });
+      const soldes = soldesDeLaPeriode(toutes, moisEntiers);
       const comptes = COMPTES_FIXTURES.map((c) => ({ numero: c.numero, libelle: c.libelle, premiereVue: "2026-01-01T00:00:00Z" }));
+      const variationsStock = options.avecStocksNovanta ? ajustementsDepuisStocks(STOCKS_DEMO) : [];
+      const perimetres = perimetresStock(moisEntiers, EXERCICES_DEMO);
+      const decisionsStock = deciderStockParExercice({ perimetres, soldes: toutes, regles, variationsNovanta: variationsStock, choix });
+      const parMois = arbitrageParMois(decisionsStock);
+      const pnl = calculerPnlComptable({
+        soldes,
+        regles,
+        libellesComptes: new Map(comptes.map((c) => [c.numero, c.libelle])),
+        variationsStockNovanta: ajustementsDeLaPeriode(variationsStock, moisEntiers),
+        arbitrageStockParMois: parMois,
+        conflitStock: decisionsStock.some((d) => d.conflit),
+      });
+      const fin = "2026-03-31T06:00:00Z";
       return {
-        pnl: calculerPnlComptable({
-          soldes,
-          regles,
-          libellesComptes: new Map(comptes.map((c) => [c.numero, c.libelle])),
-          variationsStockNovanta: options.avecStocksNovanta ? ajustementsDeLaPeriode(ajustementsDepuisStocks(STOCKS_DEMO), periode) : [],
-          sourceStockChoisie: sourceStock,
-        }),
+        pnl,
         regles,
         comptes,
         soldes,
-        sourceStock,
-        synchro: null,
-        synchroDisponible: false,
+        moisEntiers,
+        exercices: EXERCICES_DEMO,
+        provisoire: lectureProvisoire(moisEntiers, EXERCICES_DEMO),
+        decisionsStock,
+        arbitrageStock: Object.fromEntries(parMois),
+        variationsStock,
+        ajustements: [],
+        ajustementsEcartes: [],
+        derniereSynchro: null,
+        derniereSynchroReussie: { declencheur: "quotidien", statut: "success", commenceeLe: fin, termineeLe: fin, moisDemandes: 2, moisActualises: 2, moisEnEchec: [], limites: [] },
         premiereEcriture: "2026-01-01",
-        moisEntiers: periodeEnMoisEntiers(periode),
+        synchroDisponible: false,
       };
     },
-    async modifier(action: { action: string; prefixe?: string; destination?: string; categorie?: string; source?: SourceStock | null }): Promise<void> {
+    async modifier(action: ActionCompta): Promise<void> {
       if (action.action === "enregistrer_regle") {
-        regles = [...regles.filter((r) => r.prefixe !== action.prefixe), { prefixe: action.prefixe!, destination: action.destination as RegleCorrespondance["destination"], categorie: action.categorie! }];
+        regles = [...regles.filter((r) => r.prefixe !== action.prefixe), { prefixe: action.prefixe, destination: action.destination as RegleCorrespondance["destination"], categorie: action.categorie }];
       } else if (action.action === "supprimer_regle") {
         regles = regles.filter((r) => r.prefixe !== action.prefixe);
       } else if (action.action === "appliquer_modele") {
         const presentes = new Set(regles.map((r) => r.prefixe));
         regles = [...regles, ...MODELE_CORRESPONDANCE.filter((r) => !presentes.has(r.prefixe))];
       } else if (action.action === "source_stock") {
-        sourceStock = action.source ?? null;
+        choix.set(action.debut, { source: action.source, montantPennylane: null, montantNovanta: null, choisiLe: "2026-04-01T00:00:00Z" });
       }
     },
-    async synchroniser(): Promise<ResultatSynchroMois> {
+    async synchroniser(): Promise<BilanSynchro> {
       throw new Error("Aucune lecture réelle en démonstration.");
     },
   };

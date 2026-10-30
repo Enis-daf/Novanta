@@ -42,7 +42,8 @@ const COMPTABLE = {
   soldes: soldesDepuisLignes(LIGNES_FIXTURES, { debut: "2026-01-01", fin: "2026-12-31" }),
   regles: [...MODELE_CORRESPONDANCE],
   variationsStock: [],
-  sourceStock: null,
+  arbitrageStock: {},
+  conflitStock: false,
   premiereEcriture: "2026-01-31",
 };
 

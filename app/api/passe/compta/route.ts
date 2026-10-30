@@ -1,26 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exigerAccesCompta } from "@/lib/comptaAcces";
 import { erreurRegle, HORS_PERIMETRE, LigneComptable, MODELE_CORRESPONDANCE, RegleCorrespondance } from "@/lib/comptaCorrespondance";
-import { calculerPnlComptable, periodeEnMoisEntiers } from "@/lib/comptaPnl";
-import {
-  appliquerModele,
-  chargerComptes,
-  chargerEtatSynchro,
-  chargerPremierMoisDeBalance,
-  chargerRegles,
-  chargerSoldes,
-  chargerSourceStock,
-  enregistrerRegle,
-  enregistrerSourceStock,
-  supprimerRegle,
-} from "@/lib/comptaRepository";
+import { appliquerModele, enregistrerChoixStock, enregistrerRegle, supprimerRegle } from "@/lib/comptaRepository";
+import { chargerVueComptable } from "@/lib/comptaServeur";
 import { synchroComptableReelleActive } from "@/lib/featureFlags";
-import { ajustementsDeLaPeriode, ajustementsDepuisStocks } from "@/lib/pastAdjustments";
 import { periodeValide } from "@/lib/pastTransactions";
-import { chargerStocks } from "@/lib/pastTransactionsRepository";
 
-// P&L comptable de la période et sa correspondance. Calculé ici, sur la balance mensuelle. Lecture et paramétrage Novanta seulement : rien n'est
-// écrit chez Pennylane.
+// P&L comptable de la période et sa correspondance. Calculé ici, sur la balance mensuelle. Lecture et
+// paramétrage Novanta seulement : rien n'est écrit chez Pennylane.
 
 const FORMAT_DATE_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -34,28 +21,10 @@ export async function GET(req: NextRequest) {
   if (!FORMAT_DATE_ISO.test(debut) || !FORMAT_DATE_ISO.test(fin) || !periodeValide({ debut, fin })) {
     return NextResponse.json({ error: "Période invalide." }, { status: 400 });
   }
-  const periode = { debut, fin };
-  const moisEntiers = periodeEnMoisEntiers(periode);
 
   try {
-    const [soldes, regles, comptes, stocks, sourceStock, synchro, premiereEcriture] = await Promise.all([
-      chargerSoldes(admin, organizationId, periode),
-      chargerRegles(admin, organizationId),
-      chargerComptes(admin, organizationId),
-      chargerStocks(admin, organizationId),
-      chargerSourceStock(admin, organizationId),
-      chargerEtatSynchro(admin, organizationId),
-      chargerPremierMoisDeBalance(admin, organizationId),
-    ]);
-    const pnl = calculerPnlComptable({
-      soldes,
-      regles,
-      libellesComptes: new Map(comptes.map((c) => [c.numero, c.libelle])),
-      // Comme les écritures : le mois entier, pour ne jamais rapprocher deux périmètres différents.
-      variationsStockNovanta: ajustementsDeLaPeriode(ajustementsDepuisStocks(stocks), moisEntiers),
-      sourceStockChoisie: sourceStock,
-    });
-    return NextResponse.json({ pnl, regles, comptes, soldes, sourceStock, synchro, premiereEcriture, moisEntiers, synchroDisponible: synchroComptableReelleActive() });
+    const vue = await chargerVueComptable(admin, organizationId, { debut, fin });
+    return NextResponse.json({ ...vue, synchroDisponible: synchroComptableReelleActive() });
   } catch (error) {
     const code = (error as { code?: string } | null)?.code ?? "inconnu";
     console.error(`[passe/compta] step=load organization=${organizationId} code=${code}`);
@@ -68,7 +37,7 @@ export async function POST(req: NextRequest) {
   if (acces instanceof NextResponse) return acces;
   const { admin, organizationId, user } = acces;
 
-  let corps: { action?: unknown; prefixe?: unknown; destination?: unknown; categorie?: unknown; source?: unknown };
+  let corps: { action?: unknown; prefixe?: unknown; destination?: unknown; categorie?: unknown; source?: unknown; debut?: unknown; fin?: unknown };
   try {
     corps = await req.json();
   } catch {
@@ -97,8 +66,16 @@ export async function POST(req: NextRequest) {
         await appliquerModele(admin, organizationId, MODELE_CORRESPONDANCE, user.id);
         return NextResponse.json({ ok: true });
       case "source_stock": {
-        if (corps.source !== "pennylane" && corps.source !== "novanta" && corps.source !== null) return NextResponse.json({ error: "Source invalide." }, { status: 400 });
-        await enregistrerSourceStock(admin, organizationId, corps.source, user.id);
+        const { debut, fin, source } = corps;
+        if (source !== "pennylane" && source !== "novanta" && source !== null) return NextResponse.json({ error: "Source invalide." }, { status: 400 });
+        if (typeof debut !== "string" || typeof fin !== "string" || !FORMAT_DATE_ISO.test(debut) || !FORMAT_DATE_ISO.test(fin) || !periodeValide({ debut, fin })) {
+          return NextResponse.json({ error: "Exercice invalide." }, { status: 400 });
+        }
+        // Le choix ne vaut que pour un périmètre que le serveur reconnaît, et il garde les montants du moment.
+        const vue = await chargerVueComptable(admin, organizationId, { debut, fin });
+        const decision = vue.decisionsStock.find((d) => d.perimetre.debut === debut && d.perimetre.fin === fin);
+        if (!decision) return NextResponse.json({ error: "Exercice inconnu." }, { status: 400 });
+        await enregistrerChoixStock(admin, organizationId, { perimetre: decision.perimetre, source, montantPennylane: decision.montantPennylane, montantNovanta: decision.montantNovanta }, user.id);
         return NextResponse.json({ ok: true });
       }
       default:

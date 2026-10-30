@@ -185,6 +185,70 @@ for (const role of ["anon", "authenticated"]) {
 }
 ok("anon et authenticated : aucun accès aux soldes mensuels");
 
+// --- 20261101 : synchronisation et ajustements ---
+const MIGRATION_SYNC = "20261101_accounting_sync_runs_adjustments.sql";
+await db.exec(lire(`supabase/migrations/${MIGRATION_SYNC}`));
+await db.exec(lire(`supabase/migrations/${MIGRATION_SYNC}`));
+ok("20261101 appliquée deux fois sans erreur");
+const sqlSync = lire(`supabase/migrations/${MIGRATION_SYNC}`).split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+assert.doesNotMatch(sqlSync, /drop\s+(table|column)|truncate|delete\s+from/i);
+ok("20261101 : ni DROP de table ou de colonne, ni DELETE");
+await db.exec(`set role service_role;`);
+const commencer = async (o, stale = 600) => (await db.query(`select accounting_sync_begin($1, 'fixtures', 'manuel', $2) id`, [o, stale])).rows[0].id;
+const run1 = await commencer(org);
+assert.ok(run1);
+assert.equal(await commencer(org), null);
+ok("verrou : une seule synchronisation en cours par société");
+await db.query(`update accounting_sync_runs set started_at = now() - interval '1 hour' where id = $1`, [run1]);
+const run2 = await commencer(org);
+assert.ok(run2);
+assert.equal((await db.query(`select status from accounting_sync_runs where id = $1`, [run1])).rows[0].status, "abandoned");
+ok("reprise : une exécution interrompue est abandonnée, et n'empêche plus de relancer");
+const org3 = (await db.query(`insert into companies (owner_id, name, access_enabled) values ('${USER2}', 'C', true) returning id`)).rows[0].id;
+assert.ok(await commencer(org3));
+ok("verrou par société : l'autre société reste libre");
+const remplacer = (o, m, run, lignes) => db.query(`select accounting_replace_month_balance($1, 'fixtures', $2, $3, $4::jsonb) n`, [o, m, run, JSON.stringify(lignes)]);
+const lire2 = async (o, m) => (await db.query(`select account_number, credit::float8 credit from accounting_monthly_balances where organization_id = $1 and month = $2 and excluded_at is null order by 1`, [o, m])).rows;
+const RUNA = "44444444-4444-4444-4444-444444444444";
+const RUNB = "55555555-5555-5555-5555-555555555555";
+await remplacer(org, "2026-05-01", RUNA, [{ account_number: "706000", account_label: "V", debit: 0, credit: 100 }, { account_number: "707000", account_label: "M", debit: 0, credit: 50 }]);
+await remplacer(org, "2026-05-01", RUNB, [{ account_number: "706000", account_label: "V", debit: 0, credit: 120 }]);
+assert.deepEqual(await lire2(org, "2026-05-01"), [{ account_number: "706000", credit: 120 }]);
+ok("remplacement : une relecture remplace, n'additionne pas ; un compte disparu est écarté");
+assert.equal((await db.query(`select count(*)::int n from accounting_monthly_balances where organization_id = $1 and month = '2026-05-01'`, [org])).rows[0].n, 2);
+ok("le compte écarté reste en base : rien n'est supprimé");
+await remplacer(org, "2026-05-01", RUNA, [{ account_number: "707000", account_label: "M", debit: 0, credit: 60 }]);
+assert.deepEqual(await lire2(org, "2026-05-01"), [{ account_number: "707000", credit: 60 }]);
+ok("un compte revenu est rétabli");
+await assert.rejects(remplacer(org, "2026-05-01", RUNB, [{ account_number: "706000", debit: 0, credit: 999 }, { account_number: "ABC", debit: 0, credit: 1 }]));
+assert.deepEqual(await lire2(org, "2026-05-01"), [{ account_number: "707000", credit: 60 }]);
+ok("atomique : un échec en cours de remplacement laisse le mois précédent intact");
+await remplacer(org3, "2026-05-01", RUNA, [{ account_number: "706000", debit: 0, credit: 7 }]);
+assert.deepEqual(await lire2(org, "2026-05-01"), [{ account_number: "707000", credit: 60 }]);
+ok("isolation : remplacer une société ne touche pas l'autre");
+await assert.rejects(db.query(`insert into accounting_management_adjustments (organization_id, adjustment_date, pnl_line, label, amount) values ($1, '2026-03-31', 'inventory_variation', 'x', 1)`, [org]));
+const ajust = (await db.query(`insert into accounting_management_adjustments (organization_id, adjustment_date, pnl_line, label, amount, updated_by) values ($1, '2026-03-31', 'depreciation', 'Amortissement', -100, '${USER}') returning id`, [org])).rows[0].id;
+await db.query(`update accounting_management_adjustments set amount = -120 where id = $1`, [ajust]);
+const hist = (await db.query(`select operation, previous->>'amount' avant from accounting_management_adjustment_history where adjustment_id = $1 order by changed_at, operation`, [ajust])).rows;
+assert.deepEqual(hist.map((h) => h.operation).sort(), ["insert", "update"]);
+assert.equal(Number(hist.find((h) => h.operation === "update").avant), -100);
+ok("ajustements : pas de stock ici, modifications journalisées avec la valeur précédente");
+await db.query(`insert into accounting_inventory_source_choices (organization_id, scope_start, scope_end, source, chosen_by) values ($1, '2026-01-01', '2026-12-31', 'novanta', '${USER}'), ($1, '2026-01-01', '2026-12-31', 'pennylane', '${USER}')`, [org]);
+assert.equal((await db.query(`select count(*)::int n from accounting_inventory_source_choices where organization_id = $1`, [org])).rows[0].n, 2);
+ok("arbitrages : ajoutés, jamais remplacés");
+await db.query(`insert into accounting_fiscal_years (organization_id, source, source_fiscal_year_id, start_date, finish_date, status) values ($1, 'fixtures', '1', '2026-01-01', '2026-12-31', 'open') on conflict (organization_id, source, source_fiscal_year_id) do update set status = excluded.status`, [org]);
+await db.exec(`reset role;`);
+for (const role of ["anon", "authenticated"]) {
+  await db.exec(`set test.uid = '${USER}'; set role ${role};`);
+  for (const t of ["accounting_fiscal_years", "accounting_sync_runs", "accounting_inventory_source_choices", "accounting_management_adjustments", "accounting_management_adjustment_history"]) {
+    await assert.rejects(db.query(`select * from ${t}`), /permission denied/, `${role} lit ${t}`);
+  }
+  await assert.rejects(db.query(`select accounting_sync_begin($1, 'fixtures', 'manuel', 600)`, [org]), /permission denied/);
+  await assert.rejects(db.query(`select accounting_replace_month_balance($1, 'fixtures', '2026-05-01', $2, '[]'::jsonb)`, [org, RUNA]), /permission denied/);
+  await db.exec(`reset role;`);
+}
+ok("anon et authenticated : aucun accès aux nouvelles tables ni aux fonctions");
+
 const plan = await db.query(`explain select account_number from accounting_entry_lines where organization_id = '${org}' and entry_date between '2026-01-01' and '2026-12-31'`);
 console.log("  plan :", plan.rows[0]["QUERY PLAN"]);
 console.log("\nMigration vérifiée.");

@@ -1,28 +1,17 @@
-import { RegleCorrespondance } from "./comptaCorrespondance";
-import { PnlComptable, SoldeCompte, SourceStock } from "./comptaPnl";
-import type { CompteConnu, EtatSynchroComptable } from "./comptaRepository";
+import { SourceStock } from "./comptaPnl";
+import type { VueComptable } from "./comptaServeur";
+import type { BilanSynchro } from "./comptaSynchro";
 import { Periode } from "./pastTransactions";
 
 /** Appels du navigateur aux routes du P&L comptable : le navigateur ne lit jamais les tables comptables. */
 
-export interface ReponseCompta {
-  pnl: PnlComptable;
-  regles: RegleCorrespondance[];
-  comptes: CompteConnu[];
-  soldes: SoldeCompte[];
-  sourceStock: SourceStock | null;
-  synchro: EtatSynchroComptable | null;
-  synchroDisponible: boolean;
-  premiereEcriture: string | null;
-  // La balance est mensuelle : la période réellement couverte, en mois entiers.
-  moisEntiers: Periode;
-}
+export type ReponseCompta = VueComptable & { synchroDisponible: boolean };
 
 export type ActionCompta =
   | { action: "enregistrer_regle"; prefixe: string; destination: string; categorie: string }
   | { action: "supprimer_regle"; prefixe: string }
   | { action: "appliquer_modele" }
-  | { action: "source_stock"; source: SourceStock | null };
+  | { action: "source_stock"; debut: string; fin: string; source: SourceStock | null };
 
 async function lireReponse<T>(reponse: Response, messageParDefaut: string): Promise<T> {
   const corps = await reponse.json().catch(() => ({}));
@@ -45,18 +34,13 @@ export async function modifierCompta(accessToken: string, action: ActionCompta):
   await lireReponse(reponse, "La modification n'a pas pu être enregistrée.");
 }
 
-export interface ResultatSynchroMois {
-  nombreComptes: number;
-  nouveauxComptes: number;
-  complete: boolean;
-  illisibles: number;
-}
+export type DemandeSynchroCompta = { type: "manuel" } | { type: "exceptionnel"; idExercice: string; confirmation: true };
 
-export async function synchroniserCompta(accessToken: string, mois: string, avecComptes: boolean): Promise<ResultatSynchroMois> {
+export async function synchroniserCompta(accessToken: string, demande: DemandeSynchroCompta): Promise<BilanSynchro> {
   const reponse = await fetch("/api/passe/compta/sync", {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ mois, avecComptes }),
+    body: JSON.stringify(demande),
   });
-  return lireReponse(reponse, "La synchronisation comptable a échoué.");
+  return (await lireReponse<{ bilan: BilanSynchro }>(reponse, "La synchronisation comptable a échoué.")).bilan;
 }

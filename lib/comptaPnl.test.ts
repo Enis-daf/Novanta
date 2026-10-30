@@ -298,6 +298,53 @@ describe("Lecture par balance mensuelle", () => {
   });
 });
 
+describe("Balance : cas du diagnostic réel", () => {
+  const solde = (compte: string, mois: string, debit: number, credit: number): SoldeCompte => ({ compte, mois, debit, credit, nombreLignes: 0 });
+
+  test("une racine couvre plusieurs numéros, cumulés dans une seule catégorie", () => {
+    const p = calculerPnlComptable({ soldes: [solde("613200", "2026-03", 10, 0), solde("613500", "2026-03", 5, 0)], regles: REGLES });
+    assert.equal(p.coutsStructure, -15);
+    assert.deepEqual(p.categories[0].comptes, ["613200", "613500"]);
+  });
+
+  test("un même numéro reçu plusieurs fois, quels que soient ses identifiants : un seul compte", () => {
+    const p = calculerPnlComptable({ soldes: [solde("606000", "2026-03", 10, 0), solde("606000", "2026-03", 5, 0)], regles: REGLES });
+    assert.equal(p.comptes.length, 1);
+    assert.equal(p.coutsDirects, -15);
+  });
+
+  test("compte auxiliaire ou regroupé : même racine, même affectation", () => {
+    const regroupe = calculerPnlComptable({ soldes: [solde("401", "2026-03", 10, 0)], regles: REGLES });
+    const auxiliaire = calculerPnlComptable({ soldes: [solde("401ABC", "2026-03", 10, 0)], regles: REGLES });
+    assert.equal(regroupe.comptes[0].statut, "bilan");
+    assert.equal(auxiliaire.comptes[0].statut, "bilan");
+    assert.equal(regroupe.resultatNet, auxiliaire.resultatNet);
+  });
+
+  test("compte inactif chez Pennylane : compté comme les autres, le moteur ne lit que les soldes", () => {
+    assert.equal(calculerPnlComptable({ soldes: [solde("613200", "2026-03", 10, 0)], regles: REGLES }).coutsStructure, -10);
+  });
+
+  test("toute la classe 7 n'est pas du chiffre d'affaires", () => {
+    const p = calculerPnlComptable({ soldes: [solde("706000", "2026-03", 0, 100), solde("768000", "2026-03", 0, 7), solde("750000", "2026-03", 0, 3)], regles: REGLES });
+    assert.equal(p.chiffreAffaires, 100);
+    assert.equal(p.elementsFinanciers, 7);
+    assert.deepEqual(p.nonAffectes.comptes.map((c) => c.compte), ["750000"]);
+  });
+
+  test("cohérence des totaux : somme des mois égale à la période", () => {
+    const parMois = calculerPnlComptable({ soldes: [solde("706000", "2026-01", 0, 10.1), solde("706000", "2026-02", 0, 20.2)], regles: REGLES });
+    const periode = calculerPnlComptable({ soldes: [solde("706000", "2026-02", 0, 30.3)], regles: REGLES });
+    assert.equal(parMois.resultatNet, periode.resultatNet);
+  });
+
+  test("période sans données : P&L vide, sans erreur", () => {
+    const p = calculerPnlComptable({ soldes: [], regles: REGLES, arbitrageStockParMois: new Map() });
+    assert.equal(p.aDesEcritures, false);
+    assert.equal(p.stock.source, "aucune");
+  });
+});
+
 describe("Stocks du P&L comptable", () => {
   const novanta = ajustementsDepuisStocks([{ mois: "2026-02", valeur: 1_000 }, { mois: "2026-03", valeur: 1_400 }]);
   const lignes = [L("706000", 0, 10_000), L("601000", 2_000, 0)];

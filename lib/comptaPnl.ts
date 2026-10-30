@@ -1,10 +1,12 @@
-import { AjustementGestion } from "./pastAdjustments";
+import { AjustementGestion, moisDe } from "./pastAdjustments";
+import type { AjustementComptable } from "./comptaStocks";
 import {
   affecterCompte,
   indexerRegles,
   LigneComptable,
   normaliserCompte,
   RegleCorrespondance,
+  regleDuCompte,
   StatutCompte,
 } from "./comptaCorrespondance";
 import { Periode } from "./pastTransactions";
@@ -78,9 +80,10 @@ export interface CategorieComptable {
 
 export type SourceStock = "pennylane" | "novanta";
 
-/** D'où vient la variation de stocks du P&L comptable. Jamais la somme des deux. */
+/** D'où vient la variation de stocks du P&L comptable. Jamais la somme des deux pour un même exercice. */
 export interface DecisionStock {
-  source: SourceStock | "aucune";
+  // « mixte » : la période est à cheval sur deux exercices arbitrés différemment.
+  source: SourceStock | "aucune" | "mixte";
   // Les deux sources existent et personne n'a tranché : à demander à l'utilisateur.
   conflit: boolean;
   montantPennylane: number;
@@ -94,6 +97,11 @@ export interface OptionsPnlComptable {
   // Variations de stock Novanta de la période (ajustementsDepuisStocks), et l'arbitrage enregistré.
   variationsStockNovanta?: AjustementGestion[];
   sourceStockChoisie?: SourceStock | null;
+  // Décision par mois (lib/comptaStocks.ts) : prime sur sourceStockChoisie. Un mois suit une seule source.
+  arbitrageStockParMois?: ReadonlyMap<string, SourceStock | "aucune">;
+  conflitStock?: boolean;
+  // Ajustements de gestion du P&L comptable, déjà triés (lib/comptaStocks.ts::trierAjustements).
+  ajustements?: AjustementComptable[];
 }
 
 export interface PnlComptable {
@@ -115,6 +123,8 @@ export interface PnlComptable {
   categories: CategorieComptable[];
   comptes: CompteAnalyse[];
   stock: DecisionStock;
+  // Ajustements compris dans les lignes : identifiables, jamais fondus dans une écriture.
+  ajustementsGestion: AjustementComptable[];
   nonAffectes: { comptes: CompteAnalyse[]; montant: number; montantAbsolu: number; significatif: boolean };
   // Numéros que la source renvoie mais que Novanta ne sait pas lire : hors calcul, jamais en silence.
   comptesIllisibles: number;
@@ -167,6 +177,8 @@ export function calculerPnlComptable(options: OptionsPnlComptable): PnlComptable
   const index = indexerRegles(options.regles);
   const parCompte = new Map<string, { debit: number; credit: number; nombreLignes: number }>();
   const illisibles = new Set<string>();
+  const arbitrage = options.arbitrageStockParMois;
+  let stockPennylaneRetenu = 0;
   for (const solde of options.soldes) {
     const compte = normaliserCompte(solde.compte);
     if (!compte) {
@@ -178,6 +190,9 @@ export function calculerPnlComptable(options: OptionsPnlComptable): PnlComptable
     cumul.credit += centimes(solde.credit);
     cumul.nombreLignes += solde.nombreLignes;
     parCompte.set(compte, cumul);
+    if (arbitrage?.get(solde.mois) === "pennylane" && regleDuCompte(compte, index)?.destination === "inventory_variation") {
+      stockPennylaneRetenu += centimes(solde.credit) - centimes(solde.debit);
+    }
   }
 
   const totaux: Record<LigneComptable, number> = {
@@ -233,33 +248,53 @@ export function calculerPnlComptable(options: OptionsPnlComptable): PnlComptable
     categories.set(cle, categorie);
   }
 
-  const stock = deciderStock(aEcrituresStock, totaux.inventory_variation / 100, options.variationsStockNovanta ?? [], options.sourceStockChoisie);
   const totalAffecte = Object.values(totaux).reduce((a, b) => a + b, 0);
-  const stockRetenu = stock.source === "novanta" ? centimes(stock.montantNovanta) : stock.source === "pennylane" ? totaux.inventory_variation : 0;
+  let stock: DecisionStock;
+  let stockRetenu: number;
+  if (arbitrage) {
+    const novantaRetenues = (options.variationsStockNovanta ?? []).filter((a) => arbitrage.get(moisDe(a.date)) === "novanta");
+    const stockNovantaRetenu = novantaRetenues.reduce((t, a) => t + centimes(a.montant), 0);
+    const parLaCompta = [...arbitrage.values()].includes("pennylane") && aEcrituresStock;
+    const parNovanta = novantaRetenues.length > 0;
+    stockRetenu = stockPennylaneRetenu + stockNovantaRetenu;
+    stock = {
+      source: parLaCompta && parNovanta ? "mixte" : parLaCompta ? "pennylane" : parNovanta ? "novanta" : "aucune",
+      conflit: options.conflitStock ?? false,
+      montantPennylane: stockPennylaneRetenu / 100,
+      montantNovanta: stockNovantaRetenu / 100,
+    };
+  } else {
+    stock = deciderStock(aEcrituresStock, totaux.inventory_variation / 100, options.variationsStockNovanta ?? [], options.sourceStockChoisie);
+    stockRetenu = stock.source === "novanta" ? centimes(stock.montantNovanta) : stock.source === "pennylane" ? totaux.inventory_variation : 0;
+  }
 
-  const ca = totaux.revenue;
-  const margeBrute = ca + totaux.direct_costs + stockRetenu;
-  const margeContributive = margeBrute + totaux.other_variable_costs;
-  const ebitda = margeContributive + totaux.structure_costs;
-  const resultatExploitation = ebitda + totaux.depreciation;
-  const resultatNet = resultatExploitation + totaux.financial + totaux.other_items + totaux.income_tax;
+  // Ajustements de gestion : additionnés à leur ligne, hors du contrôle d'exhaustivité des comptes.
+  const ajustementsGestion = options.ajustements ?? [];
+  const ajuste = (ligne: LigneComptable) => totaux[ligne] + ajustementsGestion.reduce((t, a) => (a.ligne === ligne ? t + centimes(a.montant) : t), 0);
+
+  const ca = ajuste("revenue");
+  const margeBrute = ca + ajuste("direct_costs") + stockRetenu;
+  const margeContributive = margeBrute + ajuste("other_variable_costs");
+  const ebitda = margeContributive + ajuste("structure_costs");
+  const resultatExploitation = ebitda + ajuste("depreciation");
+  const resultatNet = resultatExploitation + ajuste("financial") + ajuste("other_items") + ajuste("income_tax");
   const ratio = (valeur: number) => (ca === 0 ? null : valeur / ca);
   const significatif = estSignificatif(absoluNonAffecte / 100, ca / 100);
 
   return {
     chiffreAffaires: ca / 100,
-    coutsDirects: totaux.direct_costs / 100,
+    coutsDirects: ajuste("direct_costs") / 100,
     variationStocks: stockRetenu / 100,
     margeBrute: margeBrute / 100,
-    autresCoutsVariables: totaux.other_variable_costs / 100,
+    autresCoutsVariables: ajuste("other_variable_costs") / 100,
     margeContributive: margeContributive / 100,
-    coutsStructure: totaux.structure_costs / 100,
+    coutsStructure: ajuste("structure_costs") / 100,
     ebitda: ebitda / 100,
-    amortissements: totaux.depreciation / 100,
+    amortissements: ajuste("depreciation") / 100,
     resultatExploitation: resultatExploitation / 100,
-    elementsFinanciers: totaux.financial / 100,
-    autresElements: totaux.other_items / 100,
-    impots: totaux.income_tax / 100,
+    elementsFinanciers: ajuste("financial") / 100,
+    autresElements: ajuste("other_items") / 100,
+    impots: ajuste("income_tax") / 100,
     resultatNet: resultatNet / 100,
     ratios: { margeBrute: ratio(margeBrute), margeContributive: ratio(margeContributive), ebitda: ratio(ebitda), resultatNet: ratio(resultatNet) },
     categories: [...categories.values()]
@@ -268,6 +303,7 @@ export function calculerPnlComptable(options: OptionsPnlComptable): PnlComptable
       .map(({ centimes: montant, ...c }) => ({ ...c, montant: montant / 100, comptes: c.comptes.sort() })),
     comptes: comptes.sort((a, b) => a.compte.localeCompare(b.compte)),
     stock,
+    ajustementsGestion,
     nonAffectes: {
       // Mouvementé même à solde nul : la balance ne donne pas de nombre de lignes.
       comptes: comptes.filter((c) => c.statut === "non_affecte" && (c.debit !== 0 || c.credit !== 0 || c.nombreLignes > 0)).sort((a, b) => Math.abs(b.montant) - Math.abs(a.montant)),

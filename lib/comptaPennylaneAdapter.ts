@@ -1,6 +1,7 @@
 import { PennylaneCredentialProvider } from "./pennylaneCredentialProvider";
 import { periodeEnMoisEntiers } from "./comptaPnl";
-import { listLedgerAccounts, listTrialBalance, PennylaneLedgerAccountRaw, PennylaneTrialBalanceRaw } from "./pennylaneClient";
+import { ExerciceComptable } from "./comptaExercices";
+import { listFiscalYears, listLedgerAccounts, listTrialBalance, PennylaneFiscalYearRaw, PennylaneLedgerAccountRaw, PennylaneTrialBalanceRaw } from "./pennylaneClient";
 import { CompteSource, LectureBalance, SoldeSource, SourceComptable } from "./comptaSource";
 
 /**
@@ -36,6 +37,12 @@ export function depuisCompteBrut(brut: PennylaneLedgerAccountRaw): CompteSource 
   };
 }
 
+export function depuisExerciceBrut(brut: PennylaneFiscalYearRaw): ExerciceComptable {
+  const date = /^\d{4}-\d{2}-\d{2}/;
+  if (typeof brut.start !== "string" || !date.test(brut.start) || typeof brut.finish !== "string" || !date.test(brut.finish)) throw new FormatComptableInattendu("Exercice sans dates lisibles.");
+  return { idSource: String(brut.id), debut: brut.start.slice(0, 10), fin: brut.finish.slice(0, 10), statut: brut.status ?? null };
+}
+
 export function depuisSoldeBrut(brut: PennylaneTrialBalanceRaw): SoldeSource {
   if (typeof brut.number !== "string" || brut.number === "") throw new FormatComptableInattendu("Ligne de balance sans numéro de compte.");
   return { compte: brut.number, libelle: brut.label ?? null, debit: montant(brut.debits, "debits"), credit: montant(brut.credits, "credits") };
@@ -57,6 +64,9 @@ export function comptesParNumero(comptes: CompteSource[]): CompteSource[] {
 export function sourcePennylane(credentialProvider: PennylaneCredentialProvider): SourceComptable {
   return {
     nom: "pennylane",
+    async lireExercices() {
+      return (await listFiscalYears(credentialProvider)).map(depuisExerciceBrut);
+    },
     async lireComptes() {
       return (await listLedgerAccounts(credentialProvider)).map(depuisCompteBrut);
     },

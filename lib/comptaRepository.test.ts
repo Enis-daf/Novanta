@@ -1,16 +1,21 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { appliquerModele, chargerComptes, chargerSoldes, enregistrerBalanceDuMois, enregistrerComptes, enregistrerRegle, supprimerRegle } from "./comptaRepository";
+import { appliquerModele, chargerChoixStock, chargerComptes, chargerSoldes, depotSupabase, enregistrerChoixStock, enregistrerComptes, enregistrerRegle, preparerBalance, supprimerRegle } from "./comptaRepository";
 import { MODELE_CORRESPONDANCE } from "./comptaCorrespondance";
 import { SoldeSource } from "./comptaSource";
 
 type Appel = { table: string; operation: string; valeur?: unknown; options?: unknown; filtres: [string, string, unknown][]; intervalle?: [number, number] };
 
 /** Client minimal : enregistre les appels pour vérifier ce qui part vers la base. */
-function faux(lectures: unknown[] = []) {
+function faux(lectures: unknown[] = [], retourRpc: unknown = "run") {
   const appels: Appel[] = [];
+  const appelsRpc: { nom: string; params: Record<string, unknown> }[] = [];
   const client = {
+    async rpc(nom: string, params: Record<string, unknown>) {
+      appelsRpc.push({ nom, params });
+      return { data: retourRpc, error: null };
+    },
     from(table: string) {
       const appel: Appel = { table, operation: "select", filtres: [] };
       const chaine = {
@@ -19,6 +24,11 @@ function faux(lectures: unknown[] = []) {
           appel.operation = "upsert";
           appel.valeur = valeur;
           appel.options = options;
+          return chaine;
+        },
+        insert(valeur: unknown) {
+          appel.operation = "insert";
+          appel.valeur = valeur;
           return chaine;
         },
         update(valeur: unknown) {
@@ -49,65 +59,74 @@ function faux(lectures: unknown[] = []) {
       return chaine;
     },
   };
-  return { client: client as unknown as SupabaseClient, appels };
+  return { client: client as unknown as SupabaseClient, appels, appelsRpc };
 }
 
 const ORG = "org-a";
 const PERIODE = { debut: "2026-03-01", fin: "2026-03-31" };
-const MOIS = "2026-03";
 const solde = (compte: string, debit = 0, credit = 10): SoldeSource => ({ compte, libelle: null, debit, credit });
 
 describe("Balance d'un mois", () => {
-  test("lecture complète : un compte disparu est écarté, jamais supprimé, sur SA société et SON mois", async () => {
-    const { client, appels } = faux();
-    await enregistrerBalanceDuMois(client, ORG, "pennylane", MOIS, [solde("706000")], true, "run");
-    assert.ok(!appels.some((a) => a.operation === "delete"));
-    const ecart = appels.find((a) => a.operation === "update")!;
-    assert.deepEqual(Object.keys(ecart.valeur as object), ["excluded_at"]);
-    assert.deepEqual(ecart.filtres, [
-      ["eq", "organization_id", ORG],
-      ["eq", "source", "pennylane"],
-      ["eq", "month", "2026-03-01"],
-      ["neq", "sync_run", "run"],
-      ["is", "excluded_at", null],
-    ]);
-  });
-
-  test("lecture incomplète : rien n'est écarté, ce serait une conclusion fausse", async () => {
-    const { client, appels } = faux();
-    await enregistrerBalanceDuMois(client, ORG, "pennylane", MOIS, [solde("706000")], false, "run");
-    assert.ok(!appels.some((a) => a.operation === "update"));
-  });
-
-  test("un compte de nouveau renvoyé revient dans le calcul ; une lecture rejouée ne double rien", async () => {
-    const { client, appels } = faux();
-    await enregistrerBalanceDuMois(client, ORG, "pennylane", MOIS, [solde("706000")], true, "run");
-    const ecriture = appels.find((a) => a.operation === "upsert")!;
-    assert.equal((ecriture.valeur as { excluded_at: unknown }[])[0].excluded_at, null);
-    assert.deepEqual(ecriture.options, { onConflict: "organization_id,source,month,account_number" });
-  });
-
-  test("toute écriture porte l'organisation de la route, par lots", async () => {
-    const { client, appels } = faux();
-    await enregistrerBalanceDuMois(client, ORG, "pennylane", MOIS, Array.from({ length: 1201 }, (_, i) => solde(String(100000 + i))), false, "run");
-    const lots = appels.filter((a) => a.operation === "upsert");
-    assert.deepEqual(lots.map((a) => (a.valeur as unknown[]).length), [500, 500, 201]);
-    assert.ok(lots.flatMap((a) => a.valeur as { organization_id: string }[]).every((l) => l.organization_id === ORG));
-  });
-
-  test("un numéro renvoyé deux fois est cumulé au centime : l'enregistrement ne peut pas échouer", async () => {
-    const { client, appels } = faux();
-    await enregistrerBalanceDuMois(client, ORG, "pennylane", MOIS, [solde("606", 0.1), solde("606", 0.2)], false, "run");
-    const lignes = appels.find((a) => a.operation === "upsert")!.valeur as { debit: number }[];
+  test("cumul par numéro, au centime : un numéro renvoyé deux fois ne fait qu'une ligne", () => {
+    const { lignes } = preparerBalance([solde("606", 0.1, 0), solde("606", 0.2, 0)]);
     assert.equal(lignes.length, 1);
     assert.equal(lignes[0].debit, 0.3);
   });
 
-  test("numéro alphanumérique conservé ; numéro illisible compté, jamais perdu en silence", async () => {
-    const { client, appels } = faux();
-    const illisibles = await enregistrerBalanceDuMois(client, ORG, "pennylane", MOIS, [solde("411ABC"), solde("???")], false, "run");
+  test("numéro alphanumérique conservé ; numéro illisible compté, jamais perdu en silence", () => {
+    const { lignes, illisibles } = preparerBalance([solde("411ABC"), solde("???")]);
     assert.equal(illisibles, 1);
-    assert.deepEqual((appels.find((a) => a.operation === "upsert")!.valeur as { account_number: string }[]).map((l) => l.account_number), ["411ABC"]);
+    assert.deepEqual(lignes.map((l) => l.account_number), ["411ABC"]);
+  });
+
+  test("signes conservés : débit et crédit restent chacun à leur place", () => {
+    const { lignes } = preparerBalance([solde("706000", 5, 100)]);
+    assert.deepEqual([lignes[0].debit, lignes[0].credit], [5, 100]);
+  });
+
+  test("le remplacement passe par une seule fonction transactionnelle, bornée à la société", async () => {
+    const { client, appelsRpc } = faux();
+    const illisibles = await depotSupabase(client, ORG, "pennylane").remplacerMois("2026-03", [solde("706000")], "run");
+    assert.equal(illisibles, 0);
+    assert.equal(appelsRpc.length, 1);
+    assert.equal(appelsRpc[0].nom, "accounting_replace_month_balance");
+    assert.equal(appelsRpc[0].params.p_organization_id, ORG);
+    assert.equal(appelsRpc[0].params.p_month, "2026-03-01");
+  });
+});
+
+describe("Exécutions", () => {
+  test("une synchronisation refusée par le verrou renvoie null", async () => {
+    const { client } = faux([], null);
+    assert.equal(await depotSupabase(client, ORG, "pennylane").commencer("manuel"), null);
+  });
+
+  test("fin d'exécution : bornée à la société, sans donnée comptable", async () => {
+    const { client, appels } = faux();
+    await depotSupabase(client, ORG, "pennylane").terminer("run", { statut: "partial", moisDemandes: 3, moisActualises: 2, moisEnEchec: [{ mois: "2026-02", raison: "lecture" }], nouveauxComptes: 0, comptesIllisibles: 0, limites: [], codeErreur: "network" });
+    assert.deepEqual(appels[0].filtres, [["eq", "organization_id", ORG], ["eq", "id", "run"]]);
+    assert.deepEqual(Object.keys(appels[0].valeur as object).sort(), ["error_code", "failed_months", "finished_at", "months_requested", "months_updated", "notes", "status"]);
+  });
+});
+
+describe("Arbitrages de stock", () => {
+  test("le dernier choix de chaque exercice fait foi, les précédents restent la trace", async () => {
+    const { client } = faux([
+      { scope_start: "2026-01-01", source: "novanta", pennylane_amount: "1", novanta_amount: "2", chosen_at: "2027-02-01" },
+      { scope_start: "2026-01-01", source: "pennylane", pennylane_amount: "1", novanta_amount: "2", chosen_at: "2027-01-01" },
+      { scope_start: "2025-01-01", source: null, pennylane_amount: null, novanta_amount: null, chosen_at: "2026-01-01" },
+    ]);
+    const choix = await chargerChoixStock(client, ORG);
+    assert.equal(choix.get("2026-01-01")?.source, "novanta");
+    assert.equal(choix.get("2025-01-01")?.source, null);
+  });
+
+  test("un arbitrage s'ajoute : il ne remplace rien, et garde auteur et montants", async () => {
+    const { client, appels } = faux();
+    await enregistrerChoixStock(client, ORG, { perimetre: { debut: "2026-01-01", fin: "2026-12-31" }, source: "novanta", montantPennylane: 900, montantNovanta: 1100 }, "u");
+    assert.equal(appels[0].operation, "insert");
+    const v = appels[0].valeur as Record<string, unknown>;
+    assert.deepEqual([v.organization_id, v.source, v.pennylane_amount, v.novanta_amount, v.chosen_by], [ORG, "novanta", 900, 1100, "u"]);
   });
 });
 

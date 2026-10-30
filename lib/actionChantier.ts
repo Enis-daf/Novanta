@@ -607,7 +607,9 @@ export interface DonneesComptables {
   soldes: SoldeCompte[];
   regles: RegleCorrespondance[];
   variationsStock: AjustementGestion[];
-  sourceStock: SourceStock | null;
+  // Décision par mois, prise sur l'exercice entier par le serveur (lib/comptaServeur.ts).
+  arbitrageStock: Record<string, SourceStock | "aucune">;
+  conflitStock: boolean;
   premiereEcriture: string | null;
 }
 
@@ -705,7 +707,8 @@ function mesurerComptable(cle: CleKpiAuto, donnees: DonneesPasse, periode: Perio
     soldes: soldesDeLaPeriode(comptable.soldes, periode),
     regles: comptable.regles,
     variationsStockNovanta: ajustementsDeLaPeriode(comptable.variationsStock, periode),
-    sourceStockChoisie: comptable.sourceStock,
+    arbitrageStockParMois: new Map(Object.entries(comptable.arbitrageStock)),
+    conflitStock: comptable.conflitStock,
   });
   if (!pnl.aDesEcritures) return { valeur: null, raison: "Aucune écriture comptable sur cette période.", avertissements: [] };
   const avertissements: string[] = [];

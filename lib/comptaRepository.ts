@@ -1,7 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { DestinationComptable, estDestinationComptable, normaliserCompte, RegleCorrespondance } from "./comptaCorrespondance";
+import { DestinationComptable, estDestinationComptable, estLigneComptable, normaliserCompte, RegleCorrespondance } from "./comptaCorrespondance";
 import { SoldeCompte, SourceStock } from "./comptaPnl";
 import { CompteSource, SoldeSource, SourceComptable } from "./comptaSource";
+import { Declencheur, ExerciceComptable } from "./comptaExercices";
+import type { AjustementComptable, ChoixStock } from "./comptaStocks";
+import type { DepotSynchro, EchecMois } from "./comptaSynchro";
 import { comptesParNumero } from "./comptaPennylaneAdapter";
 import { Periode } from "./pastTransactions";
 
@@ -120,64 +123,117 @@ export async function chargerPremierMoisDeBalance(admin: SupabaseClient, organiz
   return ((data as Row | null)?.month as string | undefined) ?? null;
 }
 
-export async function chargerSourceStock(admin: SupabaseClient, organizationId: string): Promise<SourceStock | null> {
-  const { data, error } = await admin.from("accounting_settings").select("inventory_source").eq("organization_id", organizationId).maybeSingle();
-  if (error) throw error;
-  const source = (data as Row | null)?.inventory_source;
-  return source === "pennylane" || source === "novanta" ? source : null;
-}
-
-export async function enregistrerSourceStock(admin: SupabaseClient, organizationId: string, source: SourceStock | null, userId: string): Promise<void> {
-  const { error } = await admin
-    .from("accounting_settings")
-    .upsert({ organization_id: organizationId, inventory_source: source, updated_at: new Date().toISOString(), updated_by: userId }, { onConflict: "organization_id" });
-  if (error) throw error;
-}
-
-export interface EtatSynchroComptable {
-  statut: "running" | "success" | "partial" | "error";
+export interface ExecutionSynchro {
+  declencheur: Declencheur;
+  statut: "running" | "success" | "partial" | "error" | "abandoned";
+  commenceeLe: string;
   termineeLe: string | null;
-  couvertDu: string | null;
-  couvertAu: string | null;
-  nombreLignes: number;
-  codeErreur: string | null;
+  moisDemandes: number;
+  moisActualises: number;
+  moisEnEchec: EchecMois[];
+  limites: string[];
 }
 
-export async function chargerEtatSynchro(admin: SupabaseClient, organizationId: string): Promise<EtatSynchroComptable | null> {
-  const { data, error } = await admin.from("accounting_sync_state").select("status, finished_at, covered_from, covered_to, lines_count, error_code").eq("organization_id", organizationId).maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  const row = data as Row;
+function versExecution(row: Row): ExecutionSynchro {
   return {
-    statut: row.status as EtatSynchroComptable["statut"],
+    declencheur: row.trigger_type as Declencheur,
+    statut: row.status as ExecutionSynchro["statut"],
+    commenceeLe: row.started_at as string,
     termineeLe: (row.finished_at as string | null) ?? null,
-    couvertDu: (row.covered_from as string | null) ?? null,
-    couvertAu: (row.covered_to as string | null) ?? null,
-    nombreLignes: Number(row.lines_count),
-    codeErreur: (row.error_code as string | null) ?? null,
+    moisDemandes: Number(row.months_requested),
+    moisActualises: Number(row.months_updated),
+    moisEnEchec: (row.failed_months as EchecMois[] | null) ?? [],
+    limites: (row.notes as string[] | null) ?? [],
   };
 }
 
-export async function enregistrerEtatSynchro(
+const COLONNES_EXECUTION = "trigger_type, status, started_at, finished_at, months_requested, months_updated, failed_months, notes";
+
+/** Dernière synchronisation, quelle qu'en soit l'issue, et la dernière réussie : l'écran dit les deux. */
+export async function chargerDernieresSynchros(admin: SupabaseClient, organizationId: string): Promise<{ derniere: ExecutionSynchro | null; derniereReussie: ExecutionSynchro | null }> {
+  const lire = async (filtrer: boolean) => {
+    let requete = admin.from("accounting_sync_runs").select(COLONNES_EXECUTION).eq("organization_id", organizationId);
+    if (filtrer) requete = requete.in("status", ["success", "partial"]).gt("months_updated", 0);
+    const { data, error } = await requete.order("started_at", { ascending: false }).limit(1).maybeSingle();
+    if (error) throw error;
+    return data ? versExecution(data as Row) : null;
+  };
+  return { derniere: await lire(false), derniereReussie: await lire(true) };
+}
+
+/** Dernière lecture complète réussie : décide si le passage planifié sera hebdomadaire. */
+export async function chargerDerniereLectureComplete(admin: SupabaseClient, organizationId: string): Promise<string | null> {
+  const { data, error } = await admin
+    .from("accounting_sync_runs")
+    .select("finished_at")
+    .eq("organization_id", organizationId)
+    .in("trigger_type", ["hebdomadaire", "manuel"])
+    .eq("status", "success")
+    .order("finished_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return ((data as Row | null)?.finished_at as string | undefined) ?? null;
+}
+
+export async function chargerExercices(admin: SupabaseClient, organizationId: string): Promise<ExerciceComptable[]> {
+  const { data, error } = await admin.from("accounting_fiscal_years").select("source_fiscal_year_id, start_date, finish_date, status").eq("organization_id", organizationId).order("start_date");
+  if (error) throw error;
+  return ((data ?? []) as Row[]).map((row) => ({ idSource: row.source_fiscal_year_id as string, debut: row.start_date as string, fin: row.finish_date as string, statut: (row.status as string | null) ?? null }));
+}
+
+/** Dernier arbitrage de chaque périmètre. Les précédents restent en base : c'est la trace. */
+export async function chargerChoixStock(admin: SupabaseClient, organizationId: string): Promise<Map<string, ChoixStock>> {
+  const { data, error } = await admin
+    .from("accounting_inventory_source_choices")
+    .select("scope_start, source, pennylane_amount, novanta_amount, chosen_at")
+    .eq("organization_id", organizationId)
+    .order("chosen_at", { ascending: false });
+  if (error) throw error;
+  const choix = new Map<string, ChoixStock>();
+  for (const row of (data ?? []) as Row[]) {
+    const cle = row.scope_start as string;
+    if (choix.has(cle)) continue;
+    choix.set(cle, {
+      source: row.source === "pennylane" || row.source === "novanta" ? row.source : null,
+      montantPennylane: row.pennylane_amount === null ? null : Number(row.pennylane_amount),
+      montantNovanta: row.novanta_amount === null ? null : Number(row.novanta_amount),
+      choisiLe: row.chosen_at as string,
+    });
+  }
+  return choix;
+}
+
+export async function enregistrerChoixStock(
   admin: SupabaseClient,
   organizationId: string,
-  source: SourceComptable["nom"],
-  etat: { statut: EtatSynchroComptable["statut"]; couverture?: Periode; nombreLignes?: number; codeErreur?: string | null }
+  choix: { perimetre: { debut: string; fin: string }; source: SourceStock | null; montantPennylane: number; montantNovanta: number },
+  userId: string
 ): Promise<void> {
-  const maintenant = new Date().toISOString();
-  const { error } = await admin.from("accounting_sync_state").upsert(
-    {
-      organization_id: organizationId,
-      source,
-      status: etat.statut,
-      ...(etat.statut === "running" ? { started_at: maintenant } : { finished_at: maintenant }),
-      ...(etat.couverture ? { covered_from: etat.couverture.debut, covered_to: etat.couverture.fin } : {}),
-      ...(etat.nombreLignes !== undefined ? { lines_count: etat.nombreLignes } : {}),
-      error_code: etat.codeErreur ?? null,
-    },
-    { onConflict: "organization_id" }
-  );
+  const { error } = await admin.from("accounting_inventory_source_choices").insert({
+    organization_id: organizationId,
+    scope_start: choix.perimetre.debut,
+    scope_end: choix.perimetre.fin,
+    source: choix.source,
+    pennylane_amount: choix.montantPennylane,
+    novanta_amount: choix.montantNovanta,
+    chosen_by: userId,
+  });
   if (error) throw error;
+}
+
+export async function chargerAjustementsComptables(admin: SupabaseClient, organizationId: string): Promise<AjustementComptable[]> {
+  const { data, error } = await admin
+    .from("accounting_management_adjustments")
+    .select("id, adjustment_date, pnl_line, label, amount, notes")
+    .eq("organization_id", organizationId)
+    .is("archived_at", null);
+  if (error) throw error;
+  return ((data ?? []) as Row[]).flatMap((row) =>
+    estLigneComptable(row.pnl_line) && row.pnl_line !== "inventory_variation"
+      ? [{ id: row.id as string, date: row.adjustment_date as string, ligne: row.pnl_line, libelle: row.label as string, montant: Number(row.amount), notes: (row.notes as string | null) ?? null }]
+      : []
+  );
 }
 
 async function parLots<T>(lignes: T[], traiter: (lot: T[]) => Promise<void>): Promise<void> {
@@ -205,20 +261,8 @@ export async function enregistrerComptes(admin: SupabaseClient, organizationId: 
   return lignes.filter((ligne) => !connus.has(ligne.account_number)).length;
 }
 
-/**
- * Balance d'un mois, relue en entier. Un compte que la source ne renvoie plus pour ce mois (ses écritures
- * ont disparu chez Pennylane) est écarté du calcul, pas effacé ; il revient si la source le renvoie. Rien
- * n'est écarté sur une lecture incomplète : ce serait une conclusion fausse.
- */
-export async function enregistrerBalanceDuMois(
-  admin: SupabaseClient,
-  organizationId: string,
-  source: SourceComptable["nom"],
-  mois: string,
-  soldes: SoldeSource[],
-  complete: boolean,
-  syncRun: string
-): Promise<number> {
+/** Cumul par numéro de compte, au centime : les lignes prêtes à remplacer le mois, et les numéros illisibles. */
+export function preparerBalance(soldes: SoldeSource[]): { lignes: { account_number: string; account_label: string | null; debit: number; credit: number }[]; illisibles: number } {
   const parCompte = new Map<string, { account_number: string; account_label: string | null; debit: number; credit: number }>();
   let illisibles = 0;
   for (const solde of soldes) {
@@ -232,22 +276,62 @@ export async function enregistrerBalanceDuMois(
     cumul.credit = (Math.round(cumul.credit * 100) + Math.round(solde.credit * 100)) / 100;
     parCompte.set(numero, cumul);
   }
-  const moisEnBase = `${mois}-01`;
-  const lignes = [...parCompte.values()].map((ligne) => ({ ...ligne, organization_id: organizationId, source, month: moisEnBase, sync_run: syncRun, excluded_at: null, fetched_at: new Date().toISOString() }));
-  await parLots(lignes, async (lot) => {
-    const { error } = await admin.from("accounting_monthly_balances").upsert(lot, { onConflict: "organization_id,source,month,account_number" });
-    if (error) throw error;
-  });
-  if (complete) {
-    const { error } = await admin
-      .from("accounting_monthly_balances")
-      .update({ excluded_at: new Date().toISOString() })
-      .eq("organization_id", organizationId)
-      .eq("source", source)
-      .eq("month", moisEnBase)
-      .neq("sync_run", syncRun)
-      .is("excluded_at", null);
-    if (error) throw error;
-  }
-  return illisibles;
+  return { lignes: [...parCompte.values()], illisibles };
+}
+
+// Au-delà, une exécution « running » vient d'une fonction serveur interrompue (durée maximale : 300 s).
+const DELAI_EXECUTION_ABANDONNEE_S = 600;
+
+/** Dépôt de la synchronisation pour une société : toutes les écritures sont bornées à cette société. */
+export function depotSupabase(admin: SupabaseClient, organizationId: string, source: SourceComptable["nom"]): DepotSynchro {
+  return {
+    async commencer(declencheur) {
+      const { data, error } = await admin.rpc("accounting_sync_begin", { p_organization_id: organizationId, p_source: source, p_trigger: declencheur, p_stale_after_seconds: DELAI_EXECUTION_ABANDONNEE_S });
+      if (error) throw error;
+      return (data as string | null) ?? null;
+    },
+    async terminer(idExecution, bilan) {
+      const { error } = await admin
+        .from("accounting_sync_runs")
+        .update({
+          status: bilan.statut,
+          finished_at: new Date().toISOString(),
+          months_requested: bilan.moisDemandes,
+          months_updated: bilan.moisActualises,
+          failed_months: bilan.moisEnEchec,
+          notes: bilan.limites,
+          error_code: bilan.codeErreur,
+        })
+        .eq("organization_id", organizationId)
+        .eq("id", idExecution);
+      if (error) throw error;
+    },
+    async enregistrerExercices(exercices) {
+      if (exercices.length === 0) return;
+      const { error } = await admin.from("accounting_fiscal_years").upsert(
+        exercices.map((e) => ({ organization_id: organizationId, source, source_fiscal_year_id: e.idSource, start_date: e.debut, finish_date: e.fin, status: e.statut, fetched_at: new Date().toISOString() })),
+        { onConflict: "organization_id,source,source_fiscal_year_id" }
+      );
+      if (error) throw error;
+    },
+    exercicesConnus: () => chargerExercices(admin, organizationId),
+    enregistrerComptes: (comptes) => enregistrerComptes(admin, organizationId, source, comptes),
+    async moisDejaRempli(mois) {
+      const { count, error } = await admin
+        .from("accounting_monthly_balances")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("source", source)
+        .eq("month", `${mois}-01`)
+        .is("excluded_at", null);
+      if (error) throw error;
+      return (count ?? 0) > 0;
+    },
+    async remplacerMois(mois, soldes, idExecution) {
+      const { lignes, illisibles } = preparerBalance(soldes);
+      const { error } = await admin.rpc("accounting_replace_month_balance", { p_organization_id: organizationId, p_source: source, p_month: `${mois}-01`, p_run: idExecution, p_lines: lignes });
+      if (error) throw error;
+      return illisibles;
+    },
+  };
 }

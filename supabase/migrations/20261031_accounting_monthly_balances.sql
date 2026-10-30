@@ -2,7 +2,7 @@
 -- Prérequis : 20261030_accounting_pnl.sql.
 --
 -- Décision du 30/10/2026, après le diagnostic réel de l'API : le P&L se fonde sur la balance mensuelle
--- (trial_balance, is_auxiliary=true), pas sur une copie des lignes d'écriture. Sur le dossier testé, la
+-- (trial_balance), pas sur une copie des lignes d'écriture. Sur le dossier testé, la
 -- balance concorde au centime avec les lignes, et elle évite de suivre des lignes réécrites en
 -- permanence. accounting_entry_lines et accounting_balances restent en place, inutilisées et vides.
 --

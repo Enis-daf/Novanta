@@ -260,6 +260,15 @@ function attendre(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Attente après un 429 : retry-after, sinon ratelimit-reset (un horodatage observé), sinon 2 s. Plafonnée à 60 s. */
+export function attenteApres429(retryAfter: string | null, ratelimitReset: string | null, maintenantMs: number): number {
+  const secondes = Number(retryAfter);
+  if (retryAfter !== null && Number.isFinite(secondes) && secondes > 0) return Math.min(secondes * 1000, 60_000);
+  const reset = Number(ratelimitReset);
+  if (ratelimitReset !== null && Number.isFinite(reset) && reset * 1000 > maintenantMs) return Math.min(reset * 1000 - maintenantMs, 60_000);
+  return 2000;
+}
+
 function construireFiltreDate(dateDebut: string, dateFin: string): string {
   return JSON.stringify([
     { field: "date", operator: "gteq", value: dateDebut },
@@ -316,8 +325,7 @@ async function appelerPennylane(bearer: string, endpoint: string, params: URLSea
         await journaliserEchec(endpoint, reponse, "rate_limited");
         throw new PennylaneApiError("rate_limited", "Limite de requêtes Pennylane atteinte.", 429, endpoint);
       }
-      const retryAfter = Number(reponse.headers.get("retry-after"));
-      const attente = (Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 2) * 1000;
+      const attente = attenteApres429(reponse.headers.get("retry-after"), reponse.headers.get("ratelimit-reset"), Date.now());
       signaler(endpoint, 429, debut, attente);
       await attendre(attente);
       continue;
@@ -426,6 +434,14 @@ export interface PennylaneLedgerAccountRaw {
   enabled?: boolean | null;
 }
 
+export interface PennylaneFiscalYearRaw {
+  id: number | string;
+  start: string;
+  finish: string;
+  // Valeurs documentées : open, reopen, closed, frozen, sans définition.
+  status?: string | null;
+}
+
 export interface PennylaneTrialBalanceRaw {
   number: string;
   formatted_number?: string | null;
@@ -436,17 +452,24 @@ export interface PennylaneTrialBalanceRaw {
 
 const ENDPOINT_LEDGER_ACCOUNTS = "/api/external/v2/ledger_accounts";
 const ENDPOINT_TRIAL_BALANCE = "/api/external/v2/trial_balance";
-// Par mois : 100 comptes × 200 pages.
-const MAX_PAGES_BALANCE = 200;
+const ENDPOINT_FISCAL_YEARS = "/api/external/v2/fiscal_years";
+const LIMITE_PAR_PAGE_BALANCE = 1000;
+const MAX_PAGES_BALANCE = 20;
 
 export async function listLedgerAccounts(credentialProvider: PennylaneCredentialProvider): Promise<PennylaneLedgerAccountRaw[]> {
   const bearer = await credentialProvider.getBearerToken();
   return paginerParCurseur<PennylaneLedgerAccountRaw>(bearer, ENDPOINT_LEDGER_ACCOUNTS, {});
 }
 
+export async function listFiscalYears(credentialProvider: PennylaneCredentialProvider): Promise<PennylaneFiscalYearRaw[]> {
+  const bearer = await credentialProvider.getBearerToken();
+  return paginerParCurseur<PennylaneFiscalYearRaw>(bearer, ENDPOINT_FISCAL_YEARS, {});
+}
+
 /**
- * Balance d'une période, comptes auxiliaires compris : sans eux, les comptes sont regroupés sous leur
- * collectif (31 comptes contre 104 sur le mois testé). `complete` à false si la borne a été atteinte.
+ * Balance d'une période, comptes auxiliaires regroupés (is_auxiliary=false) : les classes 6 et 7 y sont
+ * identiques compte par compte à la lecture détaillée, sur trois périodes du dossier testé.
+ * `complete` : la dernière page a bien été atteinte, jamais déduit du nombre de comptes reçus.
  */
 export async function listTrialBalance(
   credentialProvider: PennylaneCredentialProvider,
@@ -454,13 +477,19 @@ export async function listTrialBalance(
   dateFin: string
 ): Promise<{ soldes: PennylaneTrialBalanceRaw[]; complete: boolean }> {
   const bearer = await credentialProvider.getBearerToken();
-  const soldes = await paginerParCurseur<PennylaneTrialBalanceRaw>(
-    bearer,
-    ENDPOINT_TRIAL_BALANCE,
-    { period_start: dateDebut, period_end: dateFin, is_auxiliary: "true" },
-    MAX_PAGES_BALANCE
-  );
-  return { soldes, complete: soldes.length < MAX_PAGES_BALANCE * LIMITE_PAR_PAGE };
+  const soldes: PennylaneTrialBalanceRaw[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < MAX_PAGES_BALANCE; page++) {
+    const params = new URLSearchParams({ period_start: dateDebut, period_end: dateFin, is_auxiliary: "false", limit: String(LIMITE_PAR_PAGE_BALANCE) });
+    if (cursor) params.set("cursor", cursor);
+    const reponse = (await appelerPennylane(bearer, ENDPOINT_TRIAL_BALANCE, params)) as ReponsePagineeGenerique<PennylaneTrialBalanceRaw>;
+    soldes.push(...reponse.items);
+    if (!reponse.has_more) return { soldes, complete: true };
+    // Une page annonce une suite sans dire où la lire : réponse incomplète, jamais présentée comme entière.
+    if (!reponse.next_cursor) return { soldes, complete: false };
+    cursor = reponse.next_cursor;
+  }
+  return { soldes, complete: false };
 }
 
 /** Nombre maximal de factures qu'une liste peut renvoyer (pagination bornée) : au-delà, tronquée. */

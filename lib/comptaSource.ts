@@ -1,3 +1,5 @@
+import { ExerciceComptable } from "./comptaExercices";
+
 
 /**
  * Couche d'adaptation : le reste de Novanta lit ces types, jamais une réponse Pennylane brute. La
@@ -29,7 +31,8 @@ export interface LectureBalance {
 
 export interface SourceComptable {
   readonly nom: "pennylane" | "fixtures";
+  lireExercices(): Promise<ExerciceComptable[]>;
   lireComptes(): Promise<CompteSource[]>;
-  // Balance d'un mois entier (YYYY-MM), comptes auxiliaires compris.
+  // Balance d'un mois entier (YYYY-MM), comptes auxiliaires regroupés.
   lireBalanceDuMois(mois: string): Promise<LectureBalance>;
 }
