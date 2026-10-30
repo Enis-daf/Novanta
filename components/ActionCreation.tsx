@@ -5,14 +5,15 @@ import {
   CATALOGUE_KPI,
   CleKpiAuto,
   CLE_PERSONNALISE,
-  CLES_KPI_AUTO,
+  clesKpiProposees,
+  kpiNonDisponibles,
+  sourceDuKpi,
   ChoixKpi,
   DonneesPasse,
   erreurCible,
   erreurCompositionKpis,
   formatJourLong,
   formatValeurKpi,
-  KPI_NON_DISPONIBLES,
   libellePeriode,
   libellesReference,
   LIBELLES_FAMILLE,
@@ -56,6 +57,8 @@ interface ActionCreationProps {
   chargerDonnees: (fenetre: Periode, avecBfr: boolean) => Promise<{ donnees: DonneesPasse; axeAConfigurer: boolean }>;
   lancer: (chantier: ChantierALancer) => Promise<void>;
   annuler?: () => void;
+  // Indicateurs du P&L comptable proposés : offre et activation vérifiées par le module.
+  comptableDisponible?: boolean;
 }
 
 interface SaisiePersonnalisee {
@@ -75,7 +78,7 @@ function uniteSaisie(cle: CleKpiAuto): string {
   return CATALOGUE_KPI[cle].unite === "pct" ? "%" : "€";
 }
 
-export default function ActionCreation({ aujourdhui, exercice, chargerDonnees, lancer, annuler }: ActionCreationProps) {
+export default function ActionCreation({ aujourdhui, exercice, chargerDonnees, lancer, annuler, comptableDisponible = false }: ActionCreationProps) {
   const [etape, setEtape] = useState(0);
   const [titre, setTitre] = useState("");
   const [changement, setChangement] = useState("");
@@ -183,6 +186,7 @@ export default function ActionCreation({ aujourdhui, exercice, chargerDonnees, l
           sens: personnalise.sens,
           reference: { valeur: lireNombre(personnalise.reference), libelle: "Saisie au lancement", origine: "manual", periode: null },
           cible: lireNombre(cibles[cle] ?? "") as number,
+          source: "manuel",
         };
       }
       const ref = references.parCle[cle]!;
@@ -194,6 +198,7 @@ export default function ActionCreation({ aujourdhui, exercice, chargerDonnees, l
         sens: CATALOGUE_KPI[cle].sens,
         reference: { valeur: ref.valeur, libelle: ref.libelle, origine: ref.origine, periode: ref.periode },
         cible: lireNombre(cibles[cle] ?? "") as number,
+        source: sourceDuKpi({ cle }),
       };
     });
     try {
@@ -282,10 +287,10 @@ export default function ActionCreation({ aujourdhui, exercice, chargerDonnees, l
             {choix.length} / {NOMBRE_KPI} indicateurs · au plus 1 personnalisé (saisie manuelle)
           </p>
           <div className="action-familles">
-            {(["performance", "bfr"] as const).map((famille) => (
+            {(comptableDisponible ? (["performance", "comptable", "bfr"] as const) : (["performance", "bfr"] as const)).map((famille) => (
               <fieldset key={famille} className="action-famille">
                 <legend>{LIBELLES_FAMILLE[famille]}</legend>
-                {CLES_KPI_AUTO.filter((cle) => CATALOGUE_KPI[cle].famille === famille).map((cle) => {
+                {clesKpiProposees(comptableDisponible).filter((cle) => CATALOGUE_KPI[cle].famille === famille).map((cle) => {
                   const coche = choix.some((c) => c.cle === cle);
                   const possible = coche || peutAjouterKpi(choix, cle);
                   return (
@@ -298,7 +303,7 @@ export default function ActionCreation({ aujourdhui, exercice, chargerDonnees, l
                     </label>
                   );
                 })}
-                {KPI_NON_DISPONIBLES.filter((k) => k.famille === famille).map((k) => (
+                {kpiNonDisponibles(comptableDisponible).filter((k) => k.famille === famille).map((k) => (
                   <div key={k.libelle} className="action-option action-option--indisponible" aria-disabled="true">
                     <input type="checkbox" disabled aria-label={`${k.libelle} — indisponible`} />
                     <span className="action-option__texte">

@@ -13,6 +13,8 @@ import {
   Sens,
   TypePeriode,
   ValeurManuelle,
+  definitionPersistee,
+  SourceKpi,
 } from "./actionChantier";
 import { ajustementsDepuisStocks } from "./pastAdjustments";
 import { chargerSituationsValidees } from "./pastBfrRepository";
@@ -56,6 +58,8 @@ function versKpi(row: Row): KpiChantier | null {
     sens: row.direction === "down" ? "down" : "up",
     reference,
     cible: Number(row.target_value),
+    // NULL : chantier antérieur à la colonne, sa source reste celle de sa clé (sourceDuKpi).
+    source: (row.kpi_source as KpiChantier["source"]) ?? null,
   };
 }
 
@@ -69,7 +73,7 @@ export async function chargerChantierActif(supabase: SupabaseClient, organizatio
   const { data, error } = await supabase
     .from("action_initiatives")
     .select(
-      "id, title, change_description, period_type, start_date, end_date, status, action_initiative_kpis(id, position, kpi_key, custom_name, custom_unit, direction, reference_value, reference_label, reference_origin, reference_start, reference_end, target_value, action_initiative_manual_values(kpi_id, month, value))"
+      "id, title, change_description, period_type, start_date, end_date, status, action_initiative_kpis(*, action_initiative_manual_values(kpi_id, month, value))"
     )
     .eq("organization_id", organizationId)
     .eq("status", "active")
@@ -109,6 +113,7 @@ export interface KpiALancer {
   sens: Sens;
   reference: Reference;
   cible: number;
+  source: SourceKpi;
 }
 
 /** Lance le chantier et ses 3 indicateurs en une transaction (fonction action_lancer_chantier). */
@@ -137,6 +142,8 @@ export async function lancerChantier(
       reference_start: k.reference.periode?.debut ?? null,
       reference_end: k.reference.periode?.fin ?? null,
       target_value: k.cible,
+      kpi_source: k.source,
+      kpi_definition: definitionPersistee(k.cle),
     })),
   });
   if (error) throw error;

@@ -6,6 +6,7 @@ import {
   appliquerModele,
   chargerComptes,
   chargerEtatSynchro,
+  chargerPremiereEcriture,
   chargerRegles,
   chargerSoldes,
   chargerSourceStock,
@@ -37,13 +38,14 @@ export async function GET(req: NextRequest) {
   const periode = { debut, fin };
 
   try {
-    const [soldes, regles, comptes, stocks, sourceStock, synchro] = await Promise.all([
+    const [soldes, regles, comptes, stocks, sourceStock, synchro, premiereEcriture] = await Promise.all([
       chargerSoldes(admin, organizationId, periode),
       chargerRegles(admin, organizationId),
       chargerComptes(admin, organizationId),
       chargerStocks(admin, organizationId),
       chargerSourceStock(admin, organizationId),
       chargerEtatSynchro(admin, organizationId),
+      chargerPremiereEcriture(admin, organizationId),
     ]);
     const pnl = calculerPnlComptable({
       soldes,
@@ -52,7 +54,7 @@ export async function GET(req: NextRequest) {
       variationsStockNovanta: ajustementsDeLaPeriode(ajustementsDepuisStocks(stocks), periode),
       sourceStockChoisie: sourceStock,
     });
-    return NextResponse.json({ pnl, regles, comptes, soldes, sourceStock, synchro, synchroDisponible: synchroComptableReelleActive() });
+    return NextResponse.json({ pnl, regles, comptes, soldes, sourceStock, synchro, premiereEcriture, synchroDisponible: synchroComptableReelleActive() });
   } catch (error) {
     const code = (error as { code?: string } | null)?.code ?? "inconnu";
     console.error(`[passe/compta] step=load organization=${organizationId} code=${code}`);

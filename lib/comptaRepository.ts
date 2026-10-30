@@ -81,6 +81,20 @@ export async function chargerSoldes(admin: SupabaseClient, organizationId: strin
   }));
 }
 
+/** Date de la première écriture retenue : début de l'historique comptable (références d'Action). */
+export async function chargerPremiereEcriture(admin: SupabaseClient, organizationId: string): Promise<string | null> {
+  const { data, error } = await admin
+    .from("accounting_entry_lines")
+    .select("entry_date")
+    .eq("organization_id", organizationId)
+    .is("excluded_at", null)
+    .order("entry_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return ((data as Row | null)?.entry_date as string | undefined) ?? null;
+}
+
 export async function chargerSourceStock(admin: SupabaseClient, organizationId: string): Promise<SourceStock | null> {
   const { data, error } = await admin.from("accounting_settings").select("inventory_source").eq("organization_id", organizationId).maybeSingle();
   if (error) throw error;

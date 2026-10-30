@@ -8,7 +8,10 @@ import PasseEcarts, { SelectionsEcarts } from "./PasseEcarts";
 import PasseObjectifs from "./PasseObjectifs";
 import PasseGeneral from "./PasseGeneral";
 import PassePnlCashEstime from "./PassePnlCashEstime";
-import { pnlCashEstimeActif } from "@/lib/featureFlags";
+import PasseCompta, { servicesCompta } from "./PasseCompta";
+import { pnlCashEstimeActif, pnlComptableActif } from "@/lib/featureFlags";
+import { TITRE_PNL_CASH_ESTIME } from "@/lib/pastPnlCashEstime";
+import { TITRE_PNL_COMPTABLE } from "@/lib/comptaLecture";
 import { calculerPnlCashEstime, fluxHorsPnl, lignesAvertissementFlux } from "@/lib/pastPnlCashEstime";
 import PasseMappingTable from "./PasseMappingTable";
 import PasseSelecteurPeriode from "./PasseSelecteurPeriode";
@@ -239,6 +242,10 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   // Correspondance catégorie -> étage P&L : indépendante de la période, toujours accessible.
   const [mappings, setMappings] = useState<MappingCategorie[]>([]);
   const [vue, setVue] = useState<Vue>("general");
+  // Deux P&L, jamais interchangeables : le rapport affiché ne change aucune donnée de l'autre.
+  const [rapport, setRapport] = useState<"cash_estime" | "comptable">("cash_estime");
+  const comptableDisponible = pnlComptableActif();
+  const servicesComptables = useMemo(() => servicesCompta(accessToken), [accessToken]);
   // Lecture des montants (HT estimé par défaut, ou TTC) : état du module, conservé d'un onglet à
   // l'autre et, comme la période, relu du stockage local de CETTE organisation au montage. Seul un
   // choix explicite y est écrit : une préférence TTC reste TTC. Ne modifie aucune donnée ; la
@@ -1003,8 +1010,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         <div className="passe-controle passe-axe">
           {/* L'onglet Écarts compare deux périodes qui lui sont propres : la période du module n'y
               joue pas, elle est masquée pour ne pas laisser croire le contraire. */}
-          {!cashEstime && (vue === "general" || estMetriqueDetail(vue)) && <PasseSelecteurBase base={base} onChange={choisirBase} />}
-          {vue !== "ecarts" && (
+          {!cashEstime && rapport === "cash_estime" && (vue === "general" || estMetriqueDetail(vue)) && <PasseSelecteurBase base={base} onChange={choisirBase} />}
+          {(rapport === "comptable" || vue !== "ecarts") && (
             <PasseSelecteurPeriode
               id="passe-periode-preset"
               libelle="Période"
@@ -1111,7 +1118,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         )}
 
         <div className="passe-controles__actions">
-          <div className="passe-filtre" ref={exportRef}>
+          {/* Le rapport PDF porte sur le P&L cash estimé et ses onglets. */}
+          {rapport === "cash_estime" && <div className="passe-filtre" ref={exportRef}>
             <button
               type="button"
               className="btn-secondaire"
@@ -1178,7 +1186,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
                 {exportErreur && <p className="login-erreur">{exportErreur}</p>}
               </div>
             )}
-          </div>
+          </div>}
           {pennylaneConnecte === true && (
             <button type="button" className="btn-add" onClick={synchroniser} disabled={syncEnCours || !periodeOk}>
               {syncEnCours ? "Synchronisation…" : "Synchroniser Pennylane"}
@@ -1199,6 +1207,35 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       {erreurMapping && <p className="login-erreur">{erreurMapping}</p>}
       {erreurStock && <p className="login-erreur">{erreurStock}</p>}
 
+      {comptableDisponible && (
+        <div className="passe-tri selecteur passe-rapports" role="group" aria-label="Rapport">
+          <button type="button" className={`btn-secondaire${rapport === "cash_estime" ? " btn-module--actif" : ""}`} aria-pressed={rapport === "cash_estime"} onClick={() => setRapport("cash_estime")}>
+            {TITRE_PNL_CASH_ESTIME}
+          </button>
+          <button type="button" className={`btn-secondaire${rapport === "comptable" ? " btn-module--actif" : ""}`} aria-pressed={rapport === "comptable"} onClick={() => setRapport("comptable")}>
+            {!droits.capacites.canViewAccountingPnl && <IconCadenas />}
+            {TITRE_PNL_COMPTABLE}
+          </button>
+        </div>
+      )}
+      {rapport === "comptable" ? (
+        // Jamais monté hors offre : aucune route n'est appelée (elles refusent de toute façon).
+        !droits.capacites.canViewAccountingPnl ? (
+          <OffreVerrouillee capacite="canViewAccountingPnl" fonctionnalite="Le P&L comptable" offreActuelle={droits.offreEffective} />
+        ) : !periodeOk ? (
+          <p className="login-erreur">La date de début doit précéder la date de fin.</p>
+        ) : (
+          <PasseCompta
+            periode={periode}
+            services={servicesComptables}
+            onOuvrirStocks={() => {
+              setRapport("cash_estime");
+              setVue("stocks");
+            }}
+          />
+        )
+      ) : (
+      <>
       <div className="passe-onglets" role="tablist">
         {[false, true].map((actions) => (
           <div key={String(actions)} className="passe-onglets__groupe" role="presentation">
@@ -1586,17 +1623,19 @@ export default function PasseTransactions({ organizationId, organizationName, ac
           )}
         </>
       )}
+      </>
+      )}
       <Cartouche
         titre="Passé"
         lignes={[
           { libelle: "Société", valeur: organizationName || "—" },
           { libelle: "Période", valeur: `${formatDateCourte(periode.debut)} → ${formatDateCourte(periode.fin)}` },
-          { libelle: "Lecture", valeur: base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC },
+          { libelle: "Lecture", valeur: rapport === "comptable" ? "Comptable" : base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC },
           { libelle: "Édité le", valeur: formatDateCourte(aujourdhui) },
         ]}
       />
       {/* Rappel permanent, commun à tous les onglets du module, selon la lecture choisie. */}
-      {vue === "bfr" && vueVerrouillee(vue, droits) ? null : vue === "bfr" ? (
+      {rapport === "comptable" ? null : vue === "bfr" && vueVerrouillee(vue, droits) ? null : vue === "bfr" ? (
         <p className="passe-disclaimer">
           BFR toujours en HT : montants HT des factures Pennylane réelles et stocks saisis HT. Aucun taux de TVA appliqué,
           aucune facture prévisionnelle.

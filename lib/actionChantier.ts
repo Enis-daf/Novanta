@@ -7,6 +7,8 @@ import {
   getFiscalYearRange,
 } from "./fiscalPeriods";
 import { AjustementGestion, ajustementsDeLaPeriode, finDeMois, moisDe } from "./pastAdjustments";
+import { calculerPnlComptable, PnlComptable, SoldeCompte, soldesDeLaPeriode, SourceStock } from "./comptaPnl";
+import { RegleCorrespondance } from "./comptaCorrespondance";
 import { MappingCategorie } from "./pastCategoryMapping";
 import { BaseMontants, calculerPnlEnBase, IndicateurEconomique, PnlEnBase } from "./pastHtEstime";
 import { libelleMois, moisDeLaPeriode } from "./pastDetail";
@@ -33,7 +35,10 @@ import { PastTransactionStockee, Periode } from "./pastTransactions";
 
 export type TypePeriode = "month" | "quarter" | "semester" | "year";
 export type Sens = "up" | "down";
-export type FamilleKpi = "performance" | "bfr" | "custom";
+export type FamilleKpi = "performance" | "comptable" | "bfr" | "custom";
+// D'où vient un indicateur. Une référence et un réalisé ont toujours la même source : un montant HT
+// estimé ne se compare jamais à une valeur comptable.
+export type SourceKpi = "cash_estime" | "comptable" | "tresorerie" | "bfr" | "manuel";
 // cumulatif : un montant qui s'additionne depuis le début du chantier ;
 // taux : un ratio recalculé sur les montants agrégés depuis le début du chantier, jamais une somme
 //        de pourcentages ;
@@ -68,7 +73,14 @@ export type CleKpiAuto =
   | "ebitda"
   | "taux_ebitda"
   | "cash_flow_operationnel"
-  | "bfr";
+  | "bfr"
+  | "compta_chiffre_affaires"
+  | "compta_marge_brute"
+  | "compta_taux_marge_brute"
+  | "compta_marge_contributive"
+  | "compta_ebitda"
+  | "compta_resultat_exploitation"
+  | "compta_resultat_net";
 
 export interface DefinitionKpi {
   cle: CleKpiAuto;
@@ -80,6 +92,7 @@ export interface DefinitionKpi {
   // Lecture des montants : HT estimé (lecture par défaut du module Passé, celle des objectifs) ou
   // TTC (le cash flow est toujours lu en TTC dans Novanta). Sans objet pour le BFR (HT, factures).
   base: BaseMontants;
+  source: SourceKpi;
   description: string;
 }
 
@@ -93,6 +106,7 @@ export const CATALOGUE_KPI: Record<CleKpiAuto, DefinitionKpi> = {
     sens: "up",
     unite: "eur",
     base: "ht",
+    source: "cash_estime",
     description: "Encaissements clients cumulés sur la période.",
   },
   marge_brute: {
@@ -103,6 +117,7 @@ export const CATALOGUE_KPI: Record<CleKpiAuto, DefinitionKpi> = {
     sens: "up",
     unite: "eur",
     base: "ht",
+    source: "cash_estime",
     description: "Encaissements moins coûts directs, cumulés sur la période.",
   },
   taux_marge_brute: {
@@ -113,6 +128,7 @@ export const CATALOGUE_KPI: Record<CleKpiAuto, DefinitionKpi> = {
     sens: "up",
     unite: "pct",
     base: "ht",
+    source: "cash_estime",
     description: "Marge brute rapportée aux encaissements, depuis le début de la période.",
   },
   marge_contributive: {
@@ -123,6 +139,7 @@ export const CATALOGUE_KPI: Record<CleKpiAuto, DefinitionKpi> = {
     sens: "up",
     unite: "eur",
     base: "ht",
+    source: "cash_estime",
     description: "Marge brute moins autres coûts variables, cumulée sur la période.",
   },
   taux_marge_contributive: {
@@ -133,6 +150,7 @@ export const CATALOGUE_KPI: Record<CleKpiAuto, DefinitionKpi> = {
     sens: "up",
     unite: "pct",
     base: "ht",
+    source: "cash_estime",
     description: "Marge contributive rapportée aux encaissements, depuis le début de la période.",
   },
   ebitda: {
@@ -143,6 +161,7 @@ export const CATALOGUE_KPI: Record<CleKpiAuto, DefinitionKpi> = {
     sens: "up",
     unite: "eur",
     base: "ht",
+    source: "cash_estime",
     description: "Marge contributive moins coûts de structure, cumulée sur la période.",
   },
   taux_ebitda: {
@@ -153,6 +172,7 @@ export const CATALOGUE_KPI: Record<CleKpiAuto, DefinitionKpi> = {
     sens: "up",
     unite: "pct",
     base: "ht",
+    source: "cash_estime",
     description: "EBITDA rapporté aux encaissements, depuis le début de la période.",
   },
   cash_flow_operationnel: {
@@ -163,6 +183,7 @@ export const CATALOGUE_KPI: Record<CleKpiAuto, DefinitionKpi> = {
     sens: "up",
     unite: "eur",
     base: "ttc",
+    source: "tresorerie",
     description: "Trésorerie générée par l'activité (hors financement), cumulée sur la période.",
   },
   bfr: {
@@ -173,17 +194,127 @@ export const CATALOGUE_KPI: Record<CleKpiAuto, DefinitionKpi> = {
     sens: "down",
     unite: "eur",
     base: "ht",
+    source: "bfr",
     description: "Situation BFR validée en fin de mois (créances + stocks − dettes fournisseurs, HT).",
+  },
+  compta_chiffre_affaires: {
+    cle: "compta_chiffre_affaires",
+    libelle: "Chiffre d'affaires comptable",
+    famille: "comptable",
+    nature: "cumulatif",
+    sens: "up",
+    unite: "eur",
+    base: "ht",
+    source: "comptable",
+    description: "Chiffre d'affaires reconnu en comptabilité, cumulé sur la période.",
+  },
+  compta_marge_brute: {
+    cle: "compta_marge_brute",
+    libelle: "Marge brute comptable",
+    famille: "comptable",
+    nature: "cumulatif",
+    sens: "up",
+    unite: "eur",
+    base: "ht",
+    source: "comptable",
+    description: "Marge brute du P&L comptable, cumulée sur la période.",
+  },
+  compta_taux_marge_brute: {
+    cle: "compta_taux_marge_brute",
+    libelle: "Taux de marge brute comptable",
+    famille: "comptable",
+    nature: "taux",
+    sens: "up",
+    unite: "pct",
+    base: "ht",
+    source: "comptable",
+    description: "Marge brute comptable rapportée au chiffre d'affaires, depuis le début de la période.",
+  },
+  compta_marge_contributive: {
+    cle: "compta_marge_contributive",
+    libelle: "Marge contributive comptable",
+    famille: "comptable",
+    nature: "cumulatif",
+    sens: "up",
+    unite: "eur",
+    base: "ht",
+    source: "comptable",
+    description: "Marge contributive du P&L comptable, cumulée sur la période.",
+  },
+  compta_ebitda: {
+    cle: "compta_ebitda",
+    libelle: "EBITDA comptable",
+    famille: "comptable",
+    nature: "cumulatif",
+    sens: "up",
+    unite: "eur",
+    base: "ht",
+    source: "comptable",
+    description: "EBITDA du P&L comptable, cumulé sur la période.",
+  },
+  compta_resultat_exploitation: {
+    cle: "compta_resultat_exploitation",
+    libelle: "Résultat d'exploitation",
+    famille: "comptable",
+    nature: "cumulatif",
+    sens: "up",
+    unite: "eur",
+    base: "ht",
+    source: "comptable",
+    description: "Résultat d'exploitation du P&L comptable, cumulé sur la période.",
+  },
+  compta_resultat_net: {
+    cle: "compta_resultat_net",
+    libelle: "Résultat net",
+    famille: "comptable",
+    nature: "cumulatif",
+    sens: "up",
+    unite: "eur",
+    base: "ht",
+    source: "comptable",
+    description: "Résultat net du P&L comptable, cumulé sur la période.",
   },
 };
 
 export const CLES_KPI_AUTO = Object.keys(CATALOGUE_KPI) as CleKpiAuto[];
+
+/** Indicateurs proposés à la création : les comptables seulement si le P&L comptable est accessible. */
+export function clesKpiProposees(comptableDisponible: boolean): CleKpiAuto[] {
+  return CLES_KPI_AUTO.filter((cle) => comptableDisponible || CATALOGUE_KPI[cle].source !== "comptable");
+}
+
+export function estKpiComptable(cle: KpiChantier["cle"]): boolean {
+  return cle !== CLE_PERSONNALISE && CATALOGUE_KPI[cle].source === "comptable";
+}
+
+/**
+ * Source d'un indicateur enregistré : celle persistée, sinon celle de sa clé au catalogue. Une ligne
+ * antérieure à la colonne kpi_source garde ainsi sa définition d'origine, sans conversion.
+ */
+export function sourceDuKpi(kpi: Pick<KpiChantier, "cle" | "source">): SourceKpi {
+  if (kpi.source) return kpi.source;
+  return kpi.cle === CLE_PERSONNALISE ? "manuel" : CATALOGUE_KPI[kpi.cle].source;
+}
+
+export const VERSION_DEFINITION_KPI = 1;
+
+/** Définition figée au lancement du chantier, dans action_initiative_kpis.kpi_definition. */
+export function definitionPersistee(cle: KpiChantier["cle"]): Record<string, unknown> | null {
+  if (cle === CLE_PERSONNALISE) return null;
+  const { libelle, nature, unite, base, source, sens } = CATALOGUE_KPI[cle];
+  return { version: VERSION_DEFINITION_KPI, libelle, nature, unite, base, source, sens };
+}
 
 export function estCleKpiAuto(valeur: unknown): valeur is CleKpiAuto {
   return typeof valeur === "string" && valeur in CATALOGUE_KPI;
 }
 
 /** Indicateurs prévus mais que Novanta ne sait pas encore calculer : affichés, jamais simulés. */
+/** Résultat net et marge nette existent dès lors que le P&L comptable est accessible. */
+export function kpiNonDisponibles(comptableDisponible: boolean): typeof KPI_NON_DISPONIBLES {
+  return KPI_NON_DISPONIBLES.filter((k) => !comptableDisponible || k.libelle !== "Résultat net");
+}
+
 export const KPI_NON_DISPONIBLES: { libelle: string; famille: Exclude<FamilleKpi, "custom">; raison: string }[] = [
   { libelle: "Résultat net", famille: "performance", raison: "Le P&L de Novanta s'arrête à l'EBITDA : ni amortissements, ni impôts." },
   { libelle: "Marge nette", famille: "performance", raison: "Nécessite le résultat net, pas encore calculé." },
@@ -193,6 +324,7 @@ export const KPI_NON_DISPONIBLES: { libelle: string; famille: Exclude<FamilleKpi
 
 export const LIBELLES_FAMILLE: Record<FamilleKpi, string> = {
   performance: "Performance financière",
+  comptable: "P&L comptable",
   bfr: "BFR et délais de paiement",
   custom: "Personnalisé",
 };
@@ -222,6 +354,8 @@ export interface KpiChantier {
   // Unité d'affichage : € pour un montant, points de % pour un taux (48 = 48 %), unité libre
   // pour le personnalisé.
   cible: number;
+  // Source persistée au lancement ; null ou absente pour un chantier antérieur (voir sourceDuKpi).
+  source?: SourceKpi | null;
 }
 
 export interface Chantier {
@@ -452,6 +586,16 @@ export interface DonneesPasse {
   premiereOperation: string | null;
   // Situations BFR validées : fin de mois -> BFR HT.
   situationsBfr: { date: string; bfr: number }[];
+  // P&L comptable : absent ou null sans accès, ou sans écriture. Jamais déduit des transactions.
+  comptable?: DonneesComptables | null;
+}
+
+export interface DonneesComptables {
+  soldes: SoldeCompte[];
+  regles: RegleCorrespondance[];
+  variationsStock: AjustementGestion[];
+  sourceStock: SourceStock | null;
+  premiereEcriture: string | null;
 }
 
 function transactionsDe(transactions: PastTransactionStockee[], periode: Periode): PastTransactionStockee[] {
@@ -492,6 +636,7 @@ export interface Mesure {
  */
 export function mesurerSurPeriode(cle: Exclude<CleKpiAuto, "bfr">, donnees: DonneesPasse, periode: Periode): Mesure {
   const definition = CATALOGUE_KPI[cle];
+  if (definition.source === "comptable") return mesurerComptable(cle, donnees, periode);
   const pnl = pnlSur(donnees, periode, definition.base);
   const avertissements: string[] = [];
   const indicateur = INDICATEUR_DU_KPI[cle];
@@ -523,19 +668,59 @@ export function mesurerSurPeriode(cle: Exclude<CleKpiAuto, "bfr">, donnees: Donn
       return ratio(pnl.ratios.margeContributive);
     case "taux_ebitda":
       return ratio(pnl.ratios.ebitda);
+    default:
+      return { valeur: null, raison: "Indicateur non calculable depuis le module Passé.", avertissements };
   }
 }
 
-/** Mois couverts par l'historique : à partir du mois de la première transaction connue. */
-function historiqueCouvre(donnees: DonneesPasse, periode: Periode): boolean {
-  return donnees.premiereOperation !== null && moisDe(donnees.premiereOperation) <= moisDe(periode.debut);
+const VALEUR_COMPTABLE: Partial<Record<CleKpiAuto, (pnl: PnlComptable) => number | null>> = {
+  compta_chiffre_affaires: (pnl) => pnl.chiffreAffaires,
+  compta_marge_brute: (pnl) => pnl.margeBrute,
+  compta_taux_marge_brute: (pnl) => (pnl.ratios.margeBrute === null ? null : pnl.ratios.margeBrute * 100),
+  compta_marge_contributive: (pnl) => pnl.margeContributive,
+  compta_ebitda: (pnl) => pnl.ebitda,
+  compta_resultat_exploitation: (pnl) => pnl.resultatExploitation,
+  compta_resultat_net: (pnl) => pnl.resultatNet,
+};
+
+/** Valeur lue dans le P&L comptable, sans jamais retomber sur les transactions bancaires. */
+function mesurerComptable(cle: CleKpiAuto, donnees: DonneesPasse, periode: Periode): Mesure {
+  const comptable = donnees.comptable;
+  if (!comptable) return { valeur: null, raison: "Aucune écriture comptable disponible.", avertissements: [] };
+  const pnl = calculerPnlComptable({
+    soldes: soldesDeLaPeriode(comptable.soldes, periode),
+    regles: comptable.regles,
+    variationsStockNovanta: ajustementsDeLaPeriode(comptable.variationsStock, periode),
+    sourceStockChoisie: comptable.sourceStock,
+  });
+  if (!pnl.aDesEcritures) return { valeur: null, raison: "Aucune écriture comptable sur cette période.", avertissements: [] };
+  const avertissements: string[] = [];
+  const n = pnl.nonAffectes.comptes.length;
+  if (n > 0) avertissements.push(`${n} compte${n > 1 ? "s" : ""} sans correspondance comptable, exclu${n > 1 ? "s" : ""} du calcul.`);
+  if (pnl.stock.conflit) avertissements.push("Variation de stocks : deux sources à arbitrer dans le P&L comptable.");
+  const valeur = VALEUR_COMPTABLE[cle]!(pnl);
+  return valeur === null
+    ? { valeur: null, raison: "Chiffre d'affaires nul : taux non calculable.", avertissements }
+    : { valeur, raison: null, avertissements };
+}
+
+/** Début de l'historique de la source de l'indicateur : transactions, ou écritures comptables. */
+function premiereDonnee(donnees: DonneesPasse, cle: KpiChantier["cle"]): string | null {
+  return estKpiComptable(cle) ? (donnees.comptable?.premiereEcriture ?? null) : donnees.premiereOperation;
+}
+
+/** Mois couverts par l'historique : à partir du mois de la première donnée connue de cette source. */
+function historiqueCouvre(donnees: DonneesPasse, periode: Periode, cle: KpiChantier["cle"]): boolean {
+  const premiere = premiereDonnee(donnees, cle);
+  return premiere !== null && moisDe(premiere) <= moisDe(periode.debut);
 }
 
 /** Mois entièrement écoulés (dernier jour passé), couverts par l'historique, avant `avant`. */
-function moisCompletsDisponiblesAvant(donnees: DonneesPasse, avant: string, aujourdhui: string): string[] {
-  if (donnees.premiereOperation === null) return [];
+function moisCompletsDisponiblesAvant(donnees: DonneesPasse, avant: string, aujourdhui: string, cle: KpiChantier["cle"]): string[] {
+  const premiere = premiereDonnee(donnees, cle);
+  if (premiere === null) return [];
   const mois: string[] = [];
-  for (let m = moisDe(donnees.premiereOperation); m < moisDe(avant); m = moisSuivant(m)) {
+  for (let m = moisDe(premiere); m < moisDe(avant); m = moisSuivant(m)) {
     if (finDeMois(m) < aujourdhui) mois.push(m);
   }
   return mois;
@@ -586,7 +771,7 @@ export function proposerReference(
   let raisonEchec: string | null = null;
   for (const candidate of candidates) {
     if (candidate.periode.fin >= aujourdhui) continue;
-    if (!historiqueCouvre(donnees, candidate.periode)) continue;
+    if (!historiqueCouvre(donnees, candidate.periode, cle)) continue;
     const mesure = mesurerSurPeriode(cle, donnees, candidate.periode);
     if (mesure.valeur === null) {
       raisonEchec = mesure.raison;
@@ -602,7 +787,7 @@ export function proposerReference(
     };
   }
 
-  const disponibles = moisCompletsDisponiblesAvant(donnees, periode.debut, aujourdhui).slice(-n);
+  const disponibles = moisCompletsDisponiblesAvant(donnees, periode.debut, aujourdhui, cle).slice(-n);
   if (disponibles.length > 0) {
     const plage: Periode = { debut: `${disponibles[0]}-01`, fin: finDeMois(disponibles[disponibles.length - 1]) };
     const mesure = mesurerSurPeriode(cle, donnees, plage);
@@ -741,12 +926,17 @@ export function suivreKpi(
   const { periode } = chantier;
   const nature = natureDuKpi(kpi);
   const tousLesMois = moisDeLaPeriode(periode);
-  const premierMoisCouvert = donnees.premiereOperation ? moisDe(donnees.premiereOperation) : null;
+  const premiere = premiereDonnee(donnees, kpi.cle);
+  const premierMoisCouvert = premiere ? moisDe(premiere) : null;
+  // Source enregistrée différente de celle de la clé : aucune valeur plutôt qu'une comparaison entre
+  // deux natures de chiffres (référence HT estimée face à un réalisé comptable, par exemple).
+  const sourceIncompatible = kpi.cle !== CLE_PERSONNALISE && Boolean(kpi.source) && kpi.source !== CATALOGUE_KPI[kpi.cle].source;
 
   const points: PointSerie[] = tousLesMois.map((mois) => {
     const statut = statutDuMois(mois, periode, aujourdhui);
     const vide = (raison: string | null): PointSerie => ({ mois, statut, valeur: null, raison, avertissements: [] });
     if (statut === "a_venir") return vide(null);
+    if (sourceIncompatible) return vide("Source de l'indicateur différente de sa définition : valeur non comparée.");
 
     if (nature === "manuel") {
       const saisie = valeursManuelles.find((v) => v.kpiId === kpi.id && v.mois === mois);
@@ -759,7 +949,7 @@ export function suivreKpi(
       return vide(statut === "en_cours" ? "Situation de fin de mois pas encore validable." : "Situation BFR non validée pour ce mois.");
     }
 
-    if (premierMoisCouvert === null || mois < premierMoisCouvert) return vide("Aucune transaction synchronisée pour ce mois.");
+    if (premierMoisCouvert === null || mois < premierMoisCouvert) return vide(estKpiComptable(kpi.cle) ? "Aucune écriture comptable pour ce mois." : "Aucune transaction synchronisée pour ce mois.");
     const finPoint = [finDeMois(mois), periode.fin, aujourdhui].sort()[0];
     const mesure = mesurerSurPeriode(kpi.cle as Exclude<CleKpiAuto, "bfr">, donnees, { debut: periode.debut, fin: finPoint });
     const avertissements = [...mesure.avertissements];
@@ -774,7 +964,7 @@ export function suivreKpi(
         valeur: dernier.valeur as number,
         mois: dernier.mois,
         source: nature === "manuel" ? "manuel" : dernier.statut === "en_cours" ? "en_cours" : "clos",
-        derniereOperation: nature === "cumulatif" || nature === "taux" ? derniereOperationDuMois(donnees, dernier.mois, periode) : null,
+        derniereOperation: (nature === "cumulatif" || nature === "taux") && !estKpiComptable(kpi.cle) ? derniereOperationDuMois(donnees, dernier.mois, periode) : null,
       }
     : null;
 
@@ -791,7 +981,9 @@ export function suivreKpi(
         ? "Aucune valeur saisie pour le moment."
         : nature === "situation"
           ? "Aucune situation BFR validée sur la période : validez-la dans Passé › BFR."
-          : donnees.premiereOperation === null
+          : !sourceIncompatible && estKpiComptable(kpi.cle) && premiere === null
+            ? "Aucune écriture comptable disponible : synchronisez le P&L comptable dans Passé."
+            : !sourceIncompatible && !estKpiComptable(kpi.cle) && donnees.premiereOperation === null
             ? "Aucune transaction synchronisée : connectez Pennylane ou importez un relevé dans Passé."
             : (raison ?? "Données insuffisantes.")
     );
@@ -948,6 +1140,7 @@ export function libelleEcartReference(ecart: number, unite: Unite | "libre", uni
 export function mentionDuKpi(cle: KpiChantier["cle"]): string {
   if (cle === CLE_PERSONNALISE) return "Saisie manuelle";
   if (cle === "bfr") return "HT · situations validées";
+  if (estKpiComptable(cle)) return "Comptable";
   return CATALOGUE_KPI[cle].base === "ttc" ? MENTION_TTC : MENTION_HT_ESTIME;
 }
 

@@ -113,7 +113,7 @@ export default function ActionPage() {
       />
       {droits.capacites.canViewActions ? (
         // `key` : une organisation = une instance du module.
-        <ActionChantier key={organizationId} organizationId={organizationId} />
+        <ActionChantier key={organizationId} organizationId={organizationId} accessToken={session.access_token} droits={droits} />
       ) : (
         <OffreVerrouillee capacite="canViewActions" fonctionnalite="Le module Action" offreActuelle={droits.offreEffective} />
       )}

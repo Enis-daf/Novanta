@@ -5362,3 +5362,46 @@ button.passe-cible--lien:focus-visible,
   font-weight: 600;
   color: var(--couleur-texte);
 }
+
+.passe-rapports {
+  margin-bottom: var(--space-3);
+}
+
+.compta-saisie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.compta-saisie input,
+.compta-saisie select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.compta-regles {
+  margin-top: var(--space-4);
+}
+
+.compta-regles summary {
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.compta-depli {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.compta-categorie {
+  padding-left: var(--space-3);
+  font-size: 13px;
+}

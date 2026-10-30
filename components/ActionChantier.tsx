@@ -34,9 +34,15 @@ import { ConfigExercice } from "@/lib/fiscalPeriods";
 import { supabase } from "@/lib/supabaseClient";
 import { chargerExercice } from "@/lib/pastTransactionsRepository";
 import { Periode } from "@/lib/pastTransactions";
+import { chargerCompta } from "@/lib/comptaClient";
+import { pnlComptableActif } from "@/lib/featureFlags";
+import { DroitsOrganisation } from "@/lib/offres";
+import { TYPE_VARIATION_STOCK } from "@/lib/pastAdjustments";
 
 interface ActionChantierProps {
   organizationId: string;
+  accessToken: string;
+  droits: DroitsOrganisation;
 }
 
 type Chargement =
@@ -49,7 +55,8 @@ type Chargement =
  * actif, puis les données du module Passé sur sa période ; sans chantier, propose d'en définir un.
  * Les chantiers clôturés restent consultables dans l'onglet Historique, tels qu'à leur clôture.
  */
-export default function ActionChantier({ organizationId }: ActionChantierProps) {
+export default function ActionChantier({ organizationId, accessToken, droits }: ActionChantierProps) {
+  const comptableDisponible = pnlComptableActif() && droits.capacites.canViewAccountingPnl;
   const aujourdhui = todayISO();
   const [chargement, setChargement] = useState<Chargement>({ etat: "chargement" });
   const [rechargement, setRechargement] = useState(0);
@@ -84,8 +91,27 @@ export default function ActionChantier({ organizationId }: ActionChantierProps) 
   }, [organizationId, rechargement]);
 
   const chargerDonnees = useCallback(
-    (fenetre: Periode, avecBfr: boolean) => chargerDonneesPasse(supabase!, organizationId, fenetre, avecBfr),
-    [organizationId]
+    async (fenetre: Periode, avecBfr: boolean) => {
+      const [passe, comptable] = await Promise.all([
+        chargerDonneesPasse(supabase!, organizationId, fenetre, avecBfr),
+        // Indisponible : les indicateurs comptables disent « aucune écriture », le reste s'affiche.
+        comptableDisponible ? chargerCompta(accessToken, fenetre).catch(() => null) : Promise.resolve(null),
+      ]);
+      return {
+        ...passe,
+        donnees: {
+          ...passe.donnees,
+          comptable: comptable && {
+            soldes: comptable.soldes,
+            regles: comptable.regles,
+            variationsStock: passe.donnees.ajustements.filter((a) => a.type === TYPE_VARIATION_STOCK),
+            sourceStock: comptable.sourceStock,
+            premiereEcriture: comptable.premiereEcriture,
+          },
+        },
+      };
+    },
+    [organizationId, accessToken, comptableDisponible]
   );
 
   const lancer = async (nouveau: ChantierALancer) => {
@@ -148,7 +174,7 @@ export default function ActionChantier({ organizationId }: ActionChantierProps) 
           onCloture={() => setRechargement((n) => n + 1)}
         />
       ) : creation ? (
-        <ActionCreation aujourdhui={aujourdhui} exercice={exercice} chargerDonnees={chargerDonnees} lancer={lancer} annuler={() => setCreation(false)} />
+        <ActionCreation aujourdhui={aujourdhui} exercice={exercice} chargerDonnees={chargerDonnees} lancer={lancer} annuler={() => setCreation(false)} comptableDisponible={comptableDisponible} />
       ) : (
         <ActionVide onDefinir={() => setCreation(true)} />
       )}

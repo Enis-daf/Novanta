@@ -275,7 +275,7 @@ describe("Écran P&L cash estimé : garde-fous de présentation", () => {
 
   test("le drapeau éteint garde le sélecteur HT / TTC et l'écran historique", () => {
     const module = readFileSync(join(process.cwd(), "components/PasseTransactions.tsx"), "utf8");
-    assert.match(module, /!cashEstime && \(vue === "general"/);
+    assert.match(module, /!cashEstime && rapport === "cash_estime" && \(vue === "general"/);
     assert.match(module, /<PasseGeneral/);
     assert.ok(!pnlCashEstimeActif(), "éteint par défaut");
   });
