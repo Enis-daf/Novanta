@@ -97,29 +97,35 @@ export default function PasseCorrespondanceComptable({ comptes, regles, nouveaux
       )}
 
       <div className="compta-saisie">
-        <label className="passe-controle__label" htmlFor="compta-prefixe">
-          Compte ou racine
-        </label>
-        <input id="compta-prefixe" type="text" inputMode="numeric" placeholder="604" value={saisie.prefixe} onChange={(e) => setSaisie({ ...saisie, prefixe: e.target.value.trim() })} />
-        <label className="passe-controle__label" htmlFor="compta-categorie">
-          Catégorie
-        </label>
-        <input id="compta-categorie" type="text" placeholder="Prestations de service" value={saisie.categorie} onChange={(e) => setSaisie({ ...saisie, categorie: e.target.value })} />
-        <label className="passe-controle__label" htmlFor="compta-destination">
-          Ligne du P&amp;L
-        </label>
-        <select id="compta-destination" value={saisie.destination} onChange={(e) => setSaisie({ ...saisie, destination: e.target.value as RegleCorrespondance["destination"] })}>
-          {LIGNES_COMPTABLES.map((l) => (
-            <option key={l.cle} value={l.cle}>
-              {l.libelle}
-            </option>
-          ))}
-          <option value={HORS_PERIMETRE}>{LIBELLE_HORS_PERIMETRE}</option>
-        </select>
+        <div className="compta-saisie__champ">
+          <label className="passe-controle__label" htmlFor="compta-prefixe">
+            Compte ou racine
+          </label>
+          <input id="compta-prefixe" type="text" inputMode="numeric" placeholder="604" value={saisie.prefixe} onChange={(e) => setSaisie({ ...saisie, prefixe: e.target.value.trim() })} />
+        </div>
+        <div className="compta-saisie__champ">
+          <label className="passe-controle__label" htmlFor="compta-categorie">
+            Catégorie
+          </label>
+          <input id="compta-categorie" type="text" placeholder="Prestations de service" value={saisie.categorie} onChange={(e) => setSaisie({ ...saisie, categorie: e.target.value })} />
+        </div>
+        <div className="compta-saisie__champ">
+          <label className="passe-controle__label" htmlFor="compta-destination">
+            Ligne du P&amp;L
+          </label>
+          <select id="compta-destination" value={saisie.destination} onChange={(e) => setSaisie({ ...saisie, destination: e.target.value as RegleCorrespondance["destination"] })}>
+            {LIGNES_COMPTABLES.map((l) => (
+              <option key={l.cle} value={l.cle}>
+                {l.libelle}
+              </option>
+            ))}
+            <option value={HORS_PERIMETRE}>{LIBELLE_HORS_PERIMETRE}</option>
+          </select>
+        </div>
         <button type="button" className="btn-add" onClick={enregistrer}>
           Enregistrer
         </button>
-        {erreurSaisie && <p className="login-erreur">{erreurSaisie}</p>}
+        {erreurSaisie && <p className="login-erreur compta-saisie__erreur">{erreurSaisie}</p>}
       </div>
 
       <div className="passe-controle passe-axe">

@@ -5370,9 +5370,20 @@ button.passe-cible--lien:focus-visible,
 .compta-saisie {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-3);
   margin-bottom: var(--space-3);
+}
+
+.compta-saisie__champ {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.compta-saisie__erreur {
+  flex-basis: 100%;
 }
 
 .compta-saisie input,

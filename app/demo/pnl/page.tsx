@@ -11,7 +11,9 @@ import { teintesParCategorie } from "@/lib/dataviz";
 import { ajustementsDeLaPeriode, ajustementsDepuisStocks } from "@/lib/pastAdjustments";
 import { indexerMappings } from "@/lib/pastCategoryMapping";
 import { partsMappees } from "@/lib/pastDetail";
-import { calculerPnlCashEstime } from "@/lib/pastPnlCashEstime";
+import { partsEnBase, tauxParCategorie } from "@/lib/pastHtEstime";
+import { pagesExportPdf } from "@/lib/pastPdfModel";
+import { calculerPnlCashEstime, lignesAvertissementFlux } from "@/lib/pastPnlCashEstime";
 
 // Démonstration sur données SIMULÉES : les vrais écrans et moteurs, sans base ni Pennylane. Répond 404
 // sans NEXT_PUBLIC_NOVANTA_DEMO_PNL, qui n'est posée que sur un poste de développement.
@@ -31,11 +33,31 @@ const LIBELLES: Record<Ecran, string> = {
 export default function DemoPnlPage() {
   if (process.env.NEXT_PUBLIC_NOVANTA_DEMO_PNL !== "1") notFound();
   const [ecran, setEcran] = useState<Ecran>("cash");
+  const [pdf, setPdf] = useState<string | null>(null);
   const mappings = useMemo(() => indexerMappings(MAPPINGS_DEMO), []);
   const ajustements = useMemo(() => ajustementsDeLaPeriode(ajustementsDepuisStocks(STOCKS_DEMO), PERIODE), []);
   const pnl = useMemo(() => calculerPnlCashEstime(TRANSACTIONS_DEMO, AXE_DEMO, mappings, ajustements), [mappings, ajustements]);
   const parts = useMemo(() => partsMappees(TRANSACTIONS_DEMO, AXE_DEMO, mappings), [mappings]);
   const teintes = useMemo(() => teintesParCategorie(pnl.categories), [pnl.categories]);
+  // Contrôle du rendu réel : le rapport est dessiné par le même code que l'export du module.
+  const genererPdf = async () => {
+    const { genererPdfPasse } = await import("@/lib/pastPdfDocument");
+    const pages = pagesExportPdf({
+      pnl,
+      parts: partsEnBase(parts, tauxParCategorie(mappings), "ht"),
+      partsTtc: parts,
+      base: "ht",
+      presentation: "cash_estime",
+      fluxHorsPnl: pnl.flux,
+      periode: PERIODE,
+      ajustements,
+      avertissements: lignesAvertissementFlux(pnl.flux),
+      ongletOuvert: "general",
+      filtresOngletOuvert: { categorie: null, mois: null },
+    });
+    const blob = await genererPdfPasse({ organisation: "Démonstration", pages, teintes });
+    setPdf(URL.createObjectURL(blob));
+  };
   const services = useMemo(
     () => ({ compta: servicesDemo(), compta_vide: servicesDemo({ reglesInitiales: [] }), compta_conflit: servicesDemo({ avecStocksNovanta: true }) }),
     []
@@ -51,6 +73,14 @@ export default function DemoPnlPage() {
             </button>
           ))}
         </div>
+        <button type="button" className="btn-secondaire" onClick={genererPdf}>
+          Générer le rapport PDF
+        </button>
+        {pdf && (
+          <a href={pdf} target="_blank" rel="noreferrer">
+            Ouvrir le PDF
+          </a>
+        )}
         {ecran === "cash" && <PassePnlCashEstime pnl={pnl} cibles={null} teintes={teintes} onOuvrir={() => {}} onDefinirCible={() => {}} onConfigurer={() => {}} />}
         {ecran === "cash_flow" && (
           <PastDetailDashboard metrique="cash_flow" parts={parts} base="ttc" periode={PERIODE} ajustements={ajustements} teintes={teintes} fluxHorsPnl={pnl.flux} />

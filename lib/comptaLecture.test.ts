@@ -9,6 +9,11 @@ import { indexerMappings } from "./pastCategoryMapping";
 import { calculerPnlCashEstime } from "./pastPnlCashEstime";
 import { capacitesDeLOffre, droitsOrganisation } from "./offres";
 import { pnlComptableActif } from "./featureFlags";
+import { NextRequest, NextResponse } from "next/server";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { exigerAccesCompta } from "./comptaAcces";
+import { Cible, ciblesCashEstime, ecartsVsCibles } from "./pastTargets";
 
 const PERIODE = { debut: "2026-01-01", fin: "2026-03-31" };
 const pnl = calculerPnlComptable({ soldes: soldesDepuisLignes(LIGNES_FIXTURES, PERIODE), regles: [...MODELE_CORRESPONDANCE] });
@@ -126,5 +131,73 @@ describe("Données de démonstration", () => {
     const r = await services.charger(PERIODE);
     assert.equal(r.regles.find((x) => x.prefixe === "70")!.categorie, "Choix");
     assert.ok(r.regles.length > 10);
+  });
+});
+
+describe("Garde des routes comptables", () => {
+  const requete = () => new NextRequest("http://localhost/api/passe/compta?organizationId=autre");
+
+  test("drapeau éteint : la route répond 404, sans rien lire", async () => {
+    const reponse = await exigerAccesCompta(requete());
+    assert.ok(reponse instanceof NextResponse);
+    assert.equal(reponse.status, 404);
+  });
+
+  test("drapeau allumé, sans configuration serveur : refus, jamais un accès", async () => {
+    process.env.NEXT_PUBLIC_NOVANTA_PNL_COMPTABLE = "1";
+    try {
+      const reponse = await exigerAccesCompta(requete());
+      assert.ok(reponse instanceof NextResponse);
+      assert.ok(reponse.status === 500 || reponse.status === 401);
+    } finally {
+      delete process.env.NEXT_PUBLIC_NOVANTA_PNL_COMPTABLE;
+    }
+  });
+});
+
+describe("Objectifs : source", () => {
+  const part = { transactionId: "t", transactionDate: "2026-03-10", mois: "2026-03", label: "x", montant: 1000, montantTtc: 1200, montantSource: 1200, weight: 1, sourceCategoryId: "ventes", sourceCategoryName: "Ventes", etage: "revenue" as const };
+  const cible = (id: string, valeur: number, source?: Cible["source"]): Cible => ({ id, type: "gross_margin_pct", dimension: "ventes", validFrom: "2026-01-01", valeur, source });
+
+  test("anciens objectifs (source absente ou NULL) : cash estimé, lecture inchangée", () => {
+    assert.equal(ciblesCashEstime([cible("a", 40), cible("b", 50, null)]).length, 2);
+    const sansSource = ecartsVsCibles([cible("a", 40)], [part], [], { debut: "2026-03-01", fin: "2026-03-31" });
+    const avecNull = ecartsVsCibles([cible("a", 40, null)], [part], [], { debut: "2026-03-01", fin: "2026-03-31" });
+    assert.deepEqual(avecNull.margeBrute, sansSource.margeBrute);
+  });
+
+  test("une cible comptable n'est jamais comparée à un réalisé HT estimé", () => {
+    const seule = ecartsVsCibles([cible("c", 40, "comptable")], [part], [], { debut: "2026-03-01", fin: "2026-03-31" });
+    const aucune = ecartsVsCibles([], [part], [], { debut: "2026-03-01", fin: "2026-03-31" });
+    assert.deepEqual(seule.margeBrute, aucune.margeBrute);
+  });
+});
+
+describe("Page de démonstration", () => {
+  test("inaccessible sans son drapeau, et sans aucun accès base", () => {
+    const source = readFileSync(join(process.cwd(), "app/demo/pnl/page.tsx"), "utf8");
+    assert.match(source, /NEXT_PUBLIC_NOVANTA_DEMO_PNL !== "1"\) notFound\(\)/);
+    assert.doesNotMatch(source, /supabase/i);
+  });
+
+  test("les écrans comptables ne lisent jamais les tables depuis le navigateur", () => {
+    for (const fichier of ["components/PasseCompta.tsx", "components/PasseCorrespondanceComptable.tsx", "lib/comptaClient.ts"]) {
+      const source = readFileSync(join(process.cwd(), fichier), "utf8");
+      assert.doesNotMatch(source, /accounting_|supabase/i, fichier);
+    }
+  });
+});
+
+describe("Lecture seule côté Pennylane", () => {
+  test("les routes comptables n'appellent que des lectures", () => {
+    const client = readFileSync(join(process.cwd(), "lib/pennylaneClient.ts"), "utf8");
+    assert.doesNotMatch(client, /method:\s*"(POST|PUT|PATCH|DELETE)"/);
+    assert.doesNotMatch(readFileSync(join(process.cwd(), "lib/comptaPennylaneAdapter.ts"), "utf8"), /fetch\(/);
+  });
+
+  test("aucun jeton dans les fichiers du chantier", () => {
+    for (const fichier of ["lib/comptaFixtures.ts", "lib/comptaDemo.ts", "docs/pnl-comptable-pennylane.md"]) {
+      assert.doesNotMatch(readFileSync(join(process.cwd(), fichier), "utf8"), /(sb_secret_|sb_publishable_|Bearer [A-Za-z0-9_-]{16,})/, fichier);
+    }
   });
 });

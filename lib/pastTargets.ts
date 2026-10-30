@@ -62,6 +62,14 @@ export interface Cible {
   // Propre à la version datée : jamais partagée avec la catégorie, ni recopiée sur une nouvelle
   // version. Absente ou null : pas de commentaire.
   commentaire?: string | null;
+  // Rattachement du P&L : NULL ou absent = cash estimé, seule source à ce jour. Le réalisé lu ici étant
+  // un HT estimé, une cible d'une autre source n'y est jamais comparée (ciblesCashEstime).
+  source?: "cash_estime" | "comptable" | null;
+}
+
+/** Cibles comparables au réalisé cash estimé. Jamais de conversion d'une source à l'autre. */
+export function ciblesCashEstime(cibles: Cible[]): Cible[] {
+  return cibles.filter((c) => (c.source ?? "cash_estime") === "cash_estime");
 }
 
 export const LONGUEUR_MAX_COMMENTAIRE = 2000;
@@ -422,13 +430,14 @@ const SANS_CATEGORIE = { categorie: null } as const;
  *    ne se compare jamais à des montants TTC.
  */
 export function ecartsVsCibles(
-  cibles: Cible[],
+  toutesCibles: Cible[],
   parts: PartMappee[],
   ajustements: AjustementGestion[],
   periode: Periode,
   mois: string | null = null
 ): EcartsVsCibles {
   if (parts.some((p) => p.montantTtc === undefined)) throw new Error("Objectifs : comparaison sur des parts HT estimées uniquement.");
+  const cibles = ciblesCashEstime(toutesCibles);
   const filtres = { ...SANS_CATEGORIE, mois };
   const kpi = (metrique: MetriqueDetail) => calculerDetail(parts, metrique, filtres, periode, ajustements).kpi;
   const duMois = (date: string) => mois === null || date.slice(0, 7) === mois;

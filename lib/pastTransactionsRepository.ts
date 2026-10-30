@@ -559,6 +559,8 @@ export async function chargerCibles(supabase: SupabaseClient, organizationId: st
       validFrom: row.valid_from as string,
       valeur: Number(row.target_value),
       commentaire: (row.comment as string | null) ?? null,
+      // select("*") : lue si la colonne existe (20261030_accounting_pnl.sql) ; NULL = cash estimé.
+      source: (row.kpi_source as Cible["source"]) ?? null,
     }));
 }
 
