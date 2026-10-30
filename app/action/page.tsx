@@ -11,6 +11,7 @@ import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { moduleActifPourOrganisation, ROUTE_FUTUR } from "@/lib/organizationModules";
 import { chargerDroitsOrganisation, DroitsOrganisation } from "@/lib/offres";
 import OffreVerrouillee from "@/components/OffreVerrouillee";
+import { moduleActionActif } from "@/lib/featureFlags";
 
 export default function ActionPage() {
   const router = useRouter();
@@ -25,7 +26,7 @@ export default function ActionPage() {
   const [droits, setDroits] = useState<DroitsOrganisation | null>(null);
 
   useEffect(() => {
-    if (!supabaseConfigured) {
+    if (!supabaseConfigured || !moduleActionActif()) {
       router.replace(ROUTE_FUTUR);
       return;
     }

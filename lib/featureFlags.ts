@@ -16,6 +16,11 @@ export function pnlComptableActif(): boolean {
   return process.env.NEXT_PUBLIC_NOVANTA_PNL_COMPTABLE === "1";
 }
 
+/** Module Action, intégré à cette branche : invisible et inaccessible tant qu'il n'est pas activé. */
+export function moduleActionActif(): boolean {
+  return process.env.NEXT_PUBLIC_NOVANTA_MODULE_ACTION === "1";
+}
+
 /**
  * SERVEUR UNIQUEMENT. Lecture réelle des comptes et écritures Pennylane. Reste éteinte tant que
  * Pennylane n'a pas confirmé droits, champs et limites (docs/pnl-comptable-pennylane.md).

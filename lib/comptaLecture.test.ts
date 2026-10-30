@@ -8,7 +8,7 @@ import { LIGNES_FIXTURES } from "./comptaFixtures";
 import { indexerMappings } from "./pastCategoryMapping";
 import { calculerPnlCashEstime } from "./pastPnlCashEstime";
 import { capacitesDeLOffre, droitsOrganisation } from "./offres";
-import { pnlComptableActif } from "./featureFlags";
+import { moduleActionActif, pnlComptableActif } from "./featureFlags";
 import { NextRequest, NextResponse } from "next/server";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -171,6 +171,14 @@ describe("Objectifs : source", () => {
     const seule = ecartsVsCibles([cible("c", 40, "comptable")], [part], [], { debut: "2026-03-01", fin: "2026-03-31" });
     const aucune = ecartsVsCibles([], [part], [], { debut: "2026-03-01", fin: "2026-03-31" });
     assert.deepEqual(seule.margeBrute, aucune.margeBrute);
+  });
+});
+
+describe("Module Action", () => {
+  test("éteint par défaut : ni bouton de navigation, ni page", () => {
+    assert.equal(moduleActionActif(), false);
+    assert.match(readFileSync(join(process.cwd(), "components/NavigationModules.tsx"), "utf8"), /module\.cle !== "action" \|\| moduleActionActif\(\)/);
+    assert.match(readFileSync(join(process.cwd(), "app/action/page.tsx"), "utf8"), /!supabaseConfigured \|\| !moduleActionActif\(\)/);
   });
 });
 
