@@ -16,7 +16,37 @@ export const TEXTE_DEUX_PNL =
   "Le P&L cash estimé se lit sur les transactions bancaires, en HT estimé : il pilote l'activité même quand la comptabilité n'est pas à jour. Le P&L comptable se lit sur les écritures de Pennylane : il reconnaît le chiffre d'affaires et les charges selon les règles comptables. Ce sont deux lectures différentes, qui n'ont pas vocation à donner le même chiffre.";
 
 // Ce que le diagnostic a montré : la balance ne distingue pas ce qui est validé de ce qui ne l'est pas.
-export const MENTION_BALANCE = "Ce P&L reprend la balance de Pennylane : toutes ses écritures, y compris celles en attente de validation.";
+export const MENTION_BALANCE = "Ce P&L reprend la balance de sa source, FEC ou Pennylane : toutes ses écritures, y compris celles en attente de validation. Une écriture annuelle reste sur le mois où elle est passée.";
+
+/** « FEC : janv. 2024 à déc. 2024 · Pennylane : janv. 2025 à sept. 2025 », à partir du mois de chaque source. */
+export function resumeSources(sourceParMois: Record<string, string>): string | null {
+  const noms: Record<string, string> = { fec: "FEC", pennylane: "Pennylane", fixtures: "Démonstration" };
+  const mois = Object.keys(sourceParMois).sort();
+  if (mois.length === 0) return null;
+  const parties: string[] = [];
+  let debut = mois[0];
+  for (let i = 0; i < mois.length; i++) {
+    if (i === mois.length - 1 || sourceParMois[mois[i + 1]] !== sourceParMois[mois[i]]) {
+      parties.push(`${noms[sourceParMois[mois[i]]] ?? sourceParMois[mois[i]]} : ${libellePerimetreMois(debut === mois[i] ? [debut] : [debut, mois[i]]).replace(/^2 mois, de /, "").replace(" à ", " à ")}`);
+      debut = mois[i + 1];
+    }
+  }
+  return parties.join(" · ");
+}
+
+export interface LigneComparaison {
+  cle: string;
+  libelle: string;
+  a: number;
+  b: number;
+  niveau?: LigneRapport["niveau"];
+}
+
+/** Deux périodes côte à côte, à partir des lignes du rapport : rien n'est recalculé. */
+export function lignesDeComparaison(a: PnlComptable, b: PnlComptable): LigneComparaison[] {
+  const lignesB = new Map(lignesDuRapport(b).flat().map((l) => [l.cle, l]));
+  return lignesDuRapport(a).flat().map((l) => ({ cle: l.cle, libelle: l.libelle, a: l.montant, b: lignesB.get(l.cle)?.montant ?? 0, niveau: l.niveau }));
+}
 
 export const TITRE_PROVISOIRE = "Comptabilité provisoire — exercice non clôturé";
 export const TEXTE_PROVISOIRE = "Les montants peuvent évoluer jusqu'à la clôture comptable, notamment après comptabilisation des stocks, amortissements et écritures de régularisation.";

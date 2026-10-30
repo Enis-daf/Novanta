@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { exigerAccesCompta } from "@/lib/comptaAcces";
 import { erreurRegle, HORS_PERIMETRE, LigneComptable, MODELE_CORRESPONDANCE, RegleCorrespondance } from "@/lib/comptaCorrespondance";
-import { appliquerModele, enregistrerChoixStock, enregistrerRegle, supprimerRegle } from "@/lib/comptaRepository";
+import { ajouterAjustements, appliquerModele, archiverAjustement, enregistrerChoixSource, enregistrerChoixStock, enregistrerRegle, retirerImportFec, supprimerRegle } from "@/lib/comptaRepository";
+import { erreurAjustement, SaisieAjustement } from "@/lib/comptaStocks";
 import { chargerVueComptable } from "@/lib/comptaServeur";
 import { synchroComptableReelleActive } from "@/lib/featureFlags";
 import { periodeValide } from "@/lib/pastTransactions";
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest) {
   if (acces instanceof NextResponse) return acces;
   const { admin, organizationId, user } = acces;
 
-  let corps: { action?: unknown; prefixe?: unknown; destination?: unknown; categorie?: unknown; source?: unknown; debut?: unknown; fin?: unknown };
+  let corps: { action?: unknown; prefixe?: unknown; destination?: unknown; categorie?: unknown; source?: unknown; debut?: unknown; fin?: unknown; element?: unknown; id?: unknown; ajustements?: unknown };
   try {
     corps = await req.json();
   } catch {
@@ -73,9 +74,44 @@ export async function POST(req: NextRequest) {
         }
         // Le choix ne vaut que pour un périmètre que le serveur reconnaît, et il garde les montants du moment.
         const vue = await chargerVueComptable(admin, organizationId, { debut, fin });
+        if (corps.element === "depreciation") {
+          const decision = vue.decisionsAmortissement.find((d) => d.perimetre.debut === debut && d.perimetre.fin === fin);
+          if (!decision) return NextResponse.json({ error: "Exercice inconnu." }, { status: 400 });
+          await enregistrerChoixStock(admin, organizationId, { perimetre: decision.perimetre, source, montantPennylane: decision.montantComptable, montantNovanta: decision.montantAjustements, element: "depreciation" }, user.id);
+          return NextResponse.json({ ok: true });
+        }
         const decision = vue.decisionsStock.find((d) => d.perimetre.debut === debut && d.perimetre.fin === fin);
         if (!decision) return NextResponse.json({ error: "Exercice inconnu." }, { status: 400 });
         await enregistrerChoixStock(admin, organizationId, { perimetre: decision.perimetre, source, montantPennylane: decision.montantPennylane, montantNovanta: decision.montantNovanta }, user.id);
+        return NextResponse.json({ ok: true });
+      }
+      case "source_periode": {
+        const { debut, fin, source } = corps;
+        if (source !== "fec" && source !== "pennylane") return NextResponse.json({ error: "Source invalide." }, { status: 400 });
+        if (typeof debut !== "string" || typeof fin !== "string" || !FORMAT_DATE_ISO.test(debut) || !FORMAT_DATE_ISO.test(fin) || !periodeValide({ debut, fin })) {
+          return NextResponse.json({ error: "Période invalide." }, { status: 400 });
+        }
+        await enregistrerChoixSource(admin, organizationId, { debut, fin, source }, user.id);
+        return NextResponse.json({ ok: true });
+      }
+      case "retirer_import": {
+        if (typeof corps.id !== "string") return NextResponse.json({ error: "Import inconnu." }, { status: 400 });
+        const retire = await retirerImportFec(admin, organizationId, corps.id);
+        return retire ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "Import inconnu." }, { status: 404 });
+      }
+      case "ajouter_ajustements": {
+        const saisies = corps.ajustements as SaisieAjustement[];
+        if (!Array.isArray(saisies) || saisies.length === 0 || saisies.length > 60) return NextResponse.json({ error: "Ajustements invalides." }, { status: 400 });
+        for (const saisie of saisies) {
+          const erreur = erreurAjustement(saisie);
+          if (erreur) return NextResponse.json({ error: erreur }, { status: 400 });
+        }
+        await ajouterAjustements(admin, organizationId, saisies, user.id);
+        return NextResponse.json({ ok: true });
+      }
+      case "retirer_ajustement": {
+        if (typeof corps.id !== "string") return NextResponse.json({ error: "Ajustement inconnu." }, { status: 400 });
+        await archiverAjustement(admin, organizationId, corps.id, user.id);
         return NextResponse.json({ ok: true });
       }
       default:

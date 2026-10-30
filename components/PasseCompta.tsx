@@ -5,23 +5,29 @@ import PasseCorrespondanceComptable from "./PasseCorrespondanceComptable";
 import PasseStructureChart from "./PasseStructureChart";
 import { teintesParCategorie } from "@/lib/dataviz";
 import { formatMontantComptable, formatPourcentage } from "@/lib/format";
-import { chargerCompta, DemandeSynchroCompta, modifierCompta, ReponseCompta, synchroniserCompta } from "@/lib/comptaClient";
+import { chargerCompta, DemandeSynchroCompta, envoyerImportFec, modifierCompta, ReponseCompta, synchroniserCompta } from "@/lib/comptaClient";
+import type { ResultatImportFec } from "@/lib/comptaRepository";
+import type { ImportFecPrepare } from "@/lib/fecParseur";
+import PasseAjustementsComptables from "./PasseAjustementsComptables";
+import PasseComparaisonComptable from "./PasseComparaisonComptable";
+import PasseImportFec from "./PasseImportFec";
 import { etatExercice } from "@/lib/comptaExercices";
 import type { BilanSynchro } from "@/lib/comptaSynchro";
 import { RegleCorrespondance } from "@/lib/comptaCorrespondance";
 import { comptesNouveaux, lignesDuRapport, structuresDuRapport, TEXTE_DEUX_PNL, TITRE_PNL_COMPTABLE } from "@/lib/comptaLecture";
 import { SourceStock } from "@/lib/comptaPnl";
-import { libellePerimetreMois, MENTION_BALANCE, periodePartielle, resumeSynchro, TEXTE_PROVISOIRE, TEXTE_STATUT_AMBIGU, TITRE_PROVISOIRE } from "@/lib/comptaLecture";
-import { formatDateCourte, toISODate } from "@/lib/dates";
+import { libellePerimetreMois, MENTION_BALANCE, periodePartielle, resumeSources, resumeSynchro, TEXTE_PROVISOIRE, TEXTE_STATUT_AMBIGU, TITRE_PROVISOIRE } from "@/lib/comptaLecture";
+import { formatDateCourte, todayISO, toISODate } from "@/lib/dates";
 import { Periode } from "@/lib/pastTransactions";
 
-type Onglet = "pnl" | "correspondance";
+type Onglet = "pnl" | "comparaison" | "correspondance" | "import" | "ajustements";
 
 /** Données et actions de l'écran : en vrai par les routes, en démonstration sur des données simulées. */
 export interface ServicesCompta {
   charger: (periode: Periode) => Promise<ReponseCompta>;
   modifier: (action: Parameters<typeof modifierCompta>[1]) => Promise<void>;
   synchroniser: (demande: DemandeSynchroCompta) => Promise<BilanSynchro>;
+  importerFec: (preparation: ImportFecPrepare, remplacer: boolean) => Promise<ResultatImportFec>;
 }
 
 export function servicesCompta(accessToken: string): ServicesCompta {
@@ -29,6 +35,7 @@ export function servicesCompta(accessToken: string): ServicesCompta {
     charger: (periode) => chargerCompta(accessToken, periode),
     modifier: (action) => modifierCompta(accessToken, action),
     synchroniser: (demande) => synchroniserCompta(accessToken, demande),
+    importerFec: (preparation, remplacer) => envoyerImportFec(accessToken, preparation, remplacer),
   };
 }
 
@@ -55,7 +62,7 @@ function LignesRapport({ reponse }: { reponse: ReponseCompta }) {
         <div key={bloc[0].cle} className="passe-pnl__bloc">
           {bloc.map((ligne) => {
             // Comptes significatifs sans affectation ou illisibles : pas de sous-total présenté comme acquis.
-            const masque = ligne.niveau !== undefined && (pnl.nonAffectes.significatif || pnl.comptesIllisibles > 0);
+            const masque = ligne.niveau !== undefined && (pnl.nonAffectes.significatif || pnl.comptesIllisibles > 0 || reponse.conflitsSource.length > 0);
             const details = ligne.categories ?? [];
             const depliable = details.length > 0;
             return (
@@ -92,8 +99,11 @@ function LignesRapport({ reponse }: { reponse: ReponseCompta }) {
 
 // Le P&L comptable et sa correspondance, dans l'offre Pilotage. Chiffres calculés côté serveur sur les
 // écritures de Pennylane : aucune réconciliation avec le P&L cash estimé, volontairement.
-export default function PasseCompta({ periode, services, onOuvrirStocks }: PasseComptaProps) {
+export default function PasseCompta({ periode: periodeDuModule, services, onOuvrirStocks }: PasseComptaProps) {
   const [onglet, setOnglet] = useState<Onglet>("pnl");
+  // Un exercice choisi ici, le temps de lire un historique ; sinon la période du module.
+  const [exerciceChoisi, setExerciceChoisi] = useState<Periode | null>(null);
+  const periode = exerciceChoisi ?? periodeDuModule;
   const [reponse, setReponse] = useState<ReponseCompta | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [erreurModification, setErreurModification] = useState<string | null>(null);
@@ -101,7 +111,7 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
   const [rechargement, setRechargement] = useState(0);
   // Resynchroniser un exercice clôturé demande une seconde action explicite.
   const [exerciceAConfirmer, setExerciceAConfirmer] = useState<string | null>(null);
-  const { charger, modifier, synchroniser } = services;
+  const { charger, modifier, synchroniser, importerFec } = services;
 
   useEffect(() => {
     let annule = false;
@@ -161,19 +171,25 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
   const { pnl } = reponse;
   const choisirSourceStock = (perimetre: { debut: string; fin: string }, source: SourceStock | null) => appliquer({ action: "source_stock", debut: perimetre.debut, fin: perimetre.fin, source });
   const derniere = reponse.derniereSynchroReussie;
-  const exercicesClotures = reponse.exercices.filter((e) => etatExercice(e.statut) === "cloture");
+  // Seuls les exercices de Pennylane se resynchronisent ; ceux des FEC se remplacent par un nouvel import.
+  const exercicesClotures = reponse.exercices.filter((e) => etatExercice(e.statut) === "cloture" && !e.idSource.startsWith("fec:"));
+  const sources = resumeSources(reponse.sourceParMois);
+  const ongletBouton = (cle: Onglet, libelle: string, pastille?: number) => (
+    <button key={cle} type="button" className={`btn-secondaire${onglet === cle ? " btn-module--actif" : ""}`} aria-pressed={onglet === cle} onClick={() => setOnglet(cle)}>
+      {libelle}
+      {pastille ? <span className="passe-onglet__pastille">{pastille}</span> : null}
+    </button>
+  );
 
   return (
     <>
       <div className="passe-controles">
         <div className="passe-tri selecteur" role="group" aria-label="Écran du P&L comptable">
-          <button type="button" className={`btn-secondaire${onglet === "pnl" ? " btn-module--actif" : ""}`} aria-pressed={onglet === "pnl"} onClick={() => setOnglet("pnl")}>
-            {TITRE_PNL_COMPTABLE}
-          </button>
-          <button type="button" className={`btn-secondaire${onglet === "correspondance" ? " btn-module--actif" : ""}`} aria-pressed={onglet === "correspondance"} onClick={() => setOnglet("correspondance")}>
-            Correspondance comptable
-            {pnl.nonAffectes.comptes.length > 0 && <span className="passe-onglet__pastille">{pnl.nonAffectes.comptes.length}</span>}
-          </button>
+          {ongletBouton("pnl", TITRE_PNL_COMPTABLE)}
+          {ongletBouton("comparaison", "Comparer")}
+          {ongletBouton("correspondance", "Correspondance comptable", pnl.nonAffectes.comptes.length)}
+          {ongletBouton("import", "Import FEC")}
+          {ongletBouton("ajustements", "Ajustements")}
         </div>
         {reponse.synchroDisponible && (
           <div className="passe-controles__actions">
@@ -185,6 +201,48 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
       </div>
       {synchro.erreur && <p className="login-erreur">{synchro.erreur}</p>}
       {synchro.message && <p className="passe-message">{synchro.message}</p>}
+      {erreurModification && onglet !== "correspondance" && <p className="login-erreur">{erreurModification}</p>}
+
+      {reponse.exercices.length > 0 && onglet === "pnl" && (
+        <div className="passe-controle passe-axe">
+          <label className="passe-controle__label" htmlFor="compta-exercice">
+            Période lue
+          </label>
+          <select
+            id="compta-exercice"
+            value={exerciceChoisi ? `${exerciceChoisi.debut}|${exerciceChoisi.fin}` : ""}
+            onChange={(e) => {
+              const [debut, fin] = e.target.value.split("|");
+              setExerciceChoisi(debut ? { debut, fin } : null);
+            }}
+          >
+            <option value="">Période du module</option>
+            {reponse.exercices
+              .filter((e) => e.debut <= todayISO())
+              .map((e) => (
+                <option key={e.idSource} value={`${e.debut}|${e.fin}`}>
+                  Exercice du {formatDateCourte(e.debut)} au {formatDateCourte(e.fin)}
+                </option>
+              ))}
+          </select>
+        </div>
+      )}
+      {sources && <p className="passe-message">Sources de la période · {sources}.</p>}
+      {reponse.conflitsSource.map((c) => (
+        <div key={c.debut} className="passe-message passe-flux-hors-pnl" role="alert">
+          <p>
+            Du {formatDateCourte(c.debut)} au {formatDateCourte(c.fin)}, le FEC{c.fichier ? ` « ${c.fichier} »` : ""} et Pennylane couvrent les mêmes mois ({c.mois.length}). Ils ne s&apos;additionnent jamais : ces mois restent hors du calcul tant qu&apos;aucune source n&apos;est choisie. Aucune n&apos;est plus fiable par principe : retenez celle qui fait foi pour cette période.
+          </p>
+          <div className="passe-tri selecteur" role="group" aria-label="Source de la période">
+            <button type="button" className="btn-secondaire" onClick={() => appliquer({ action: "source_periode", debut: c.debut, fin: c.fin, source: "fec" })}>
+              Retenir le FEC
+            </button>
+            <button type="button" className="btn-secondaire" onClick={() => appliquer({ action: "source_periode", debut: c.debut, fin: c.fin, source: "pennylane" })}>
+              Retenir Pennylane
+            </button>
+          </div>
+        </div>
+      ))}
 
       {(reponse.provisoire.provisoire || derniere) && (
         <div className="passe-message compta-provisoire" role="status">
@@ -221,11 +279,11 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
       {reponse.decisionsStock.filter((d) => d.conflit).map((d) => (
         <div key={d.perimetre.cle} className="passe-message passe-flux-hors-pnl" role="alert">
           <p>
-            Variation de stocks, exercice du {formatDateCourte(d.perimetre.debut)} au {formatDateCourte(d.perimetre.fin)} : Pennylane contient des écritures ({formatMontantComptable(d.montantPennylane)}, {libellePerimetreMois(d.moisPennylane)}) et des stocks sont saisis dans Novanta ({formatMontantComptable(d.montantNovanta)}, {libellePerimetreMois(d.moisNovanta)}). Novanta ne peut pas savoir si elles couvrent le même périmètre, et les additionner risquerait de compter deux fois la même variation. Quelle source retenir pour cet exercice ?
+            Variation de stocks, exercice du {formatDateCourte(d.perimetre.debut)} au {formatDateCourte(d.perimetre.fin)} : la comptabilité contient des écritures ({formatMontantComptable(d.montantPennylane)}, {libellePerimetreMois(d.moisPennylane)}) et des stocks sont saisis dans Novanta ({formatMontantComptable(d.montantNovanta)}, {libellePerimetreMois(d.moisNovanta)}). Novanta ne peut pas savoir si elles couvrent le même périmètre, et les additionner risquerait de compter deux fois la même variation. Quelle source retenir pour cet exercice ?
           </p>
           <div className="passe-tri selecteur" role="group" aria-label="Source de la variation de stocks">
             <button type="button" className="btn-secondaire" onClick={() => choisirSourceStock(d.perimetre, "pennylane")}>
-              Écritures Pennylane
+              Écritures comptables
             </button>
             <button type="button" className="btn-secondaire" onClick={() => choisirSourceStock(d.perimetre, "novanta")}>
               Stocks saisis dans Novanta
@@ -235,7 +293,7 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
       ))}
       {reponse.decisionsStock.filter((d) => d.choix?.source && !d.conflit && d.moisPennylane.length > 0 && d.moisNovanta.length > 0).map((d) => (
         <p key={d.perimetre.cle} className="passe-message">
-          Variation de stocks de l&apos;exercice du {formatDateCourte(d.perimetre.debut)} : {d.source === "novanta" ? "stocks saisis dans Novanta" : "écritures Pennylane"}, selon votre arbitrage.
+          Variation de stocks de l&apos;exercice du {formatDateCourte(d.perimetre.debut)} : {d.source === "novanta" ? "stocks saisis dans Novanta" : "écritures comptables"}, selon votre arbitrage.
           {d.sourceModifieeDepuisChoix && " Une source a changé depuis ce choix."}{" "}
           <button type="button" className="passe-lien-ligne" onClick={() => choisirSourceStock(d.perimetre, null)}>
             Changer de source
@@ -250,13 +308,53 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
           )}
         </p>
       ))}
-      {reponse.ajustementsEcartes.length > 0 && (
-        <p className="passe-message">
-          {reponse.ajustementsEcartes.length} ajustement{reponse.ajustementsEcartes.length > 1 ? "s" : ""} de gestion écarté{reponse.ajustementsEcartes.length > 1 ? "s" : ""} : la comptabilité porte déjà des écritures sur cette ligne pour l&apos;exercice.
+      {reponse.decisionsAmortissement.filter((d) => d.conflit).map((d) => (
+        <div key={d.perimetre.cle} className="passe-message passe-flux-hors-pnl" role="alert">
+          <p>
+            Amortissements, exercice du {formatDateCourte(d.perimetre.debut)} au {formatDateCourte(d.perimetre.fin)} : la comptabilité contient des dotations ({formatMontantComptable(d.montantComptable)}, {libellePerimetreMois(d.moisComptables)}) et des dotations estimées sont saisies dans Novanta ({formatMontantComptable(d.montantAjustements)}, {libellePerimetreMois(d.moisAjustements)}). Une seule source sera retenue pour cet exercice : laquelle ?
+          </p>
+          <div className="passe-tri selecteur" role="group" aria-label="Source des amortissements">
+            <button type="button" className="btn-secondaire" onClick={() => appliquer({ action: "source_stock", debut: d.perimetre.debut, fin: d.perimetre.fin, source: "pennylane", element: "depreciation" })}>
+              Dotations comptables
+            </button>
+            <button type="button" className="btn-secondaire" onClick={() => appliquer({ action: "source_stock", debut: d.perimetre.debut, fin: d.perimetre.fin, source: "novanta", element: "depreciation" })}>
+              Dotations estimées
+            </button>
+          </div>
+        </div>
+      ))}
+      {reponse.ajustementsAVerifier.length > 0 && (
+        <p className="passe-message" role="status">
+          {reponse.ajustementsAVerifier.length} ajustement{reponse.ajustementsAVerifier.length > 1 ? "s portent" : " porte"} sur un exercice clôturé : la comptabilité en tient peut-être déjà compte, ce que Novanta ne peut pas établir à partir d&apos;un numéro de compte. À vérifier dans l&apos;onglet Ajustements.
         </p>
       )}
 
-      {onglet === "correspondance" ? (
+      {onglet === "import" ? (
+        <PasseImportFec
+          imports={reponse.imports}
+          importer={importerFec}
+          onImporte={() => setRechargement((n) => n + 1)}
+          onRetirer={(id) => appliquer({ action: "retirer_import", id })}
+          onVoir={(p) => {
+            setExerciceChoisi(p);
+            setOnglet("pnl");
+          }}
+          onCorrespondance={(p) => {
+            setExerciceChoisi(p);
+            setOnglet("correspondance");
+          }}
+        />
+      ) : onglet === "ajustements" ? (
+        <PasseAjustementsComptables
+          ajustements={reponse.ajustements}
+          ecartes={reponse.ajustementsEcartes}
+          aVerifier={reponse.ajustementsAVerifier}
+          onAjouter={(ajustements) => appliquer({ action: "ajouter_ajustements", ajustements })}
+          onRetirer={(id) => appliquer({ action: "retirer_ajustement", id })}
+        />
+      ) : onglet === "comparaison" ? (
+        <PasseComparaisonComptable exercices={reponse.exercices} charger={charger} />
+      ) : onglet === "correspondance" ? (
         <PasseCorrespondanceComptable
           comptes={pnl.comptes}
           regles={reponse.regles}
@@ -270,6 +368,9 @@ export default function PasseCompta({ periode, services, onOuvrirStocks }: Passe
         <div className="passe-etat">
           <p>Aucune écriture comptable sur cette période.</p>
           <p>Le P&amp;L cash estimé reste disponible et utilisable.</p>
+          <button type="button" className="btn-secondaire" onClick={() => setOnglet("import")}>
+            Importer un FEC
+          </button>
         </div>
       ) : (
         <div className="passe-general">

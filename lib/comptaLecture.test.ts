@@ -219,6 +219,20 @@ describe("Module Action", () => {
 });
 
 describe("Page de démonstration", () => {
+  test("FEC : le fichier n'est jamais envoyé, seule la préparation part", () => {
+    const client = readFileSync(join(process.cwd(), "lib/comptaClient.ts"), "utf8");
+    const ecran = readFileSync(join(process.cwd(), "components/PasseImportFec.tsx"), "utf8");
+    assert.doesNotMatch(client + ecran, /FormData|\.arrayBuffer\(/);
+    assert.match(client, /import: preparation/);
+    assert.doesNotMatch(ecran, /localStorage|console\./);
+  });
+
+  test("Prévision et Essentiel : refusés côté offre, sans fonctionnalité FEC propre", () => {
+    assert.equal(capacitesDeLOffre("forecast").canViewAccountingPnl, false);
+    const module = readFileSync(join(process.cwd(), "components/PasseTransactions.tsx"), "utf8");
+    assert.match(module, /!droits\.capacites\.canViewAccountingPnl \?/);
+  });
+
   test("inaccessible sans son drapeau, et sans aucun accès base", () => {
     const source = readFileSync(join(process.cwd(), "app/demo/pnl/page.tsx"), "utf8");
     assert.match(source, /NEXT_PUBLIC_NOVANTA_DEMO_PNL !== "1"\) notFound\(\)/);

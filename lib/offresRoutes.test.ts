@@ -41,7 +41,13 @@ describe("routes serveur soumises à l'offre", () => {
     assert.match(source, /depotSupabase\(admin, id, "pennylane"\)/);
   });
 
-  for (const route of ["app/api/passe/compta/route.ts", "app/api/passe/compta/sync/route.ts"]) {
+  test("l'import FEC ne journalise que des compteurs", () => {
+    const source = readFileSync(join(process.cwd(), "app/api/passe/compta/fec/route.ts"), "utf8");
+    assert.match(source, /erreurImportFec\(corps\.import\)/);
+    assert.doesNotMatch(source, /console\.[a-z]+\([^)]*(libelles|lignes\)|nomFichier)/);
+  });
+
+  for (const route of ["app/api/passe/compta/route.ts", "app/api/passe/compta/sync/route.ts", "app/api/passe/compta/fec/route.ts"]) {
     test(`${route} passe par la garde du P&L comptable à chaque méthode`, () => {
       const source = readFileSync(join(process.cwd(), route), "utf8");
       const methodes = source.match(/export async function (GET|POST|PUT|PATCH|DELETE)/g) ?? [];

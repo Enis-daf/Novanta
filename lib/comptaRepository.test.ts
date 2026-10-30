@@ -121,6 +121,12 @@ describe("Arbitrages de stock", () => {
     assert.equal(choix.get("2025-01-01")?.source, null);
   });
 
+  test("arbitrages séparés par élément : stocks et amortissements", async () => {
+    const { client, appels } = faux([]);
+    await chargerChoixStock(client, ORG, "depreciation");
+    assert.deepEqual(appels[0].filtres, [["eq", "organization_id", ORG], ["eq", "element", "depreciation"]]);
+  });
+
   test("un arbitrage s'ajoute : il ne remplace rien, et garde auteur et montants", async () => {
     const { client, appels } = faux();
     await enregistrerChoixStock(client, ORG, { perimetre: { debut: "2026-01-01", fin: "2026-12-31" }, source: "novanta", montantPennylane: 900, montantNovanta: 1100 }, "u");
@@ -132,7 +138,7 @@ describe("Arbitrages de stock", () => {
 
 describe("Lectures au-delà de 1000 lignes", () => {
   const pages = (taille: number) => {
-    const reste = Array.from({ length: taille }, (_, i) => ({ account_number: String(600000 + i), label: "x", first_seen_at: "2026-01-01", month: "2026-03-01", debit: "1", credit: "0" }));
+    const reste = Array.from({ length: taille }, (_, i) => ({ account_number: String(600000 + i), label: "x", first_seen_at: "2026-01-01", month: "2026-03-01", debit: "1", credit: "0", source: "fec" }));
     const { client, appels } = faux(reste);
     return { client, appels };
   };
@@ -152,7 +158,7 @@ describe("Lectures au-delà de 1000 lignes", () => {
   test("soldes : mois entiers de la période, société bornée, comptes écartés exclus", async () => {
     const { client, appels } = pages(1);
     const soldes = await chargerSoldes(client, ORG, { debut: "2026-03-10", fin: "2026-04-05" });
-    assert.deepEqual(soldes, [{ compte: "600000", mois: "2026-03", debit: 1, credit: 0, nombreLignes: 0 }]);
+    assert.deepEqual(soldes, [{ compte: "600000", mois: "2026-03", debit: 1, credit: 0, nombreLignes: 0, source: "fec" }]);
     assert.deepEqual(appels[0].filtres, [
       ["eq", "organization_id", ORG],
       ["gte", "month", "2026-03-01"],

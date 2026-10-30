@@ -1,5 +1,8 @@
 import { SourceStock } from "./comptaPnl";
-import type { VueComptable } from "./comptaServeur";
+import type { ResultatImportFec } from "./comptaRepository";
+import type { VueComptable } from "./comptaVue";
+import type { SaisieAjustement } from "./comptaStocks";
+import type { ImportFecPrepare } from "./fecParseur";
 import type { BilanSynchro } from "./comptaSynchro";
 import { Periode } from "./pastTransactions";
 
@@ -11,7 +14,11 @@ export type ActionCompta =
   | { action: "enregistrer_regle"; prefixe: string; destination: string; categorie: string }
   | { action: "supprimer_regle"; prefixe: string }
   | { action: "appliquer_modele" }
-  | { action: "source_stock"; debut: string; fin: string; source: SourceStock | null };
+  | { action: "source_stock"; debut: string; fin: string; source: SourceStock | null; element?: "inventory" | "depreciation" }
+  | { action: "source_periode"; debut: string; fin: string; source: "fec" | "pennylane" }
+  | { action: "retirer_import"; id: string }
+  | { action: "ajouter_ajustements"; ajustements: SaisieAjustement[] }
+  | { action: "retirer_ajustement"; id: string };
 
 async function lireReponse<T>(reponse: Response, messageParDefaut: string): Promise<T> {
   const corps = await reponse.json().catch(() => ({}));
@@ -32,6 +39,15 @@ export async function modifierCompta(accessToken: string, action: ActionCompta):
     body: JSON.stringify(action),
   });
   await lireReponse(reponse, "La modification n'a pas pu être enregistrée.");
+}
+
+export async function envoyerImportFec(accessToken: string, preparation: ImportFecPrepare, remplacer: boolean): Promise<ResultatImportFec> {
+  const reponse = await fetch("/api/passe/compta/fec", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ import: preparation, remplacer }),
+  });
+  return lireReponse<ResultatImportFec>(reponse, "L'import n'a pas pu être enregistré.");
 }
 
 export type DemandeSynchroCompta = { type: "manuel" } | { type: "exceptionnel"; idExercice: string; confirmation: true };

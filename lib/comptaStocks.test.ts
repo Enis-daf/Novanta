@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { RegleCorrespondance } from "./comptaCorrespondance";
 import { perimetresStock } from "./comptaExercices";
 import { calculerPnlComptable, SoldeCompte, soldesDeLaPeriode } from "./comptaPnl";
-import { AjustementComptable, arbitrageParMois, ChoixStock, deciderStockParExercice, trierAjustements } from "./comptaStocks";
+import { AjustementComptable, arbitrageParMois, ChoixStock, deciderAmortissements, deciderStockParExercice, trierAjustements } from "./comptaStocks";
 import { ajustementsDepuisStocks, StockFinDeMois } from "./pastAdjustments";
 import { calculerPnlCashEstime } from "./pastPnlCashEstime";
 import { indexerMappings } from "./pastCategoryMapping";
@@ -175,10 +175,12 @@ describe("Données historiques", () => {
 });
 
 describe("Ajustements de gestion du P&L comptable", () => {
-  const A = (date: string, montant: number, ligne: AjustementComptable["ligne"] = "depreciation"): AjustementComptable => ({ id: date, date, ligne, libelle: "Amortissement mensuel", montant, notes: null });
+  const A = (date: string, montant: number, ligne: AjustementComptable["ligne"] = "depreciation"): AjustementComptable => ({ id: date, date, ligne, libelle: "Amortissement mensuel", montant, notes: null, nature: "amortissement" });
+  const trier = (ajustements: AjustementComptable[], soldes: SoldeCompte[], choix: ReadonlyMap<string, ChoixStock> = new Map()) =>
+    trierAjustements({ ajustements, decisionsAmortissement: deciderAmortissements({ perimetres: PERIMETRES, soldes, regles: REGLES, ajustements, choix }), periodesCloturees: [] });
 
   test("sans dotation en comptabilité : l'ajustement s'applique, à sa ligne, identifiable", () => {
-    const { appliques, ecartes } = trierAjustements({ ajustements: [A("2026-03-31", -100)], perimetres: PERIMETRES, soldes: BASE, regles: REGLES });
+    const { appliques, ecartes } = trier([A("2026-03-31", -100)], BASE);
     assert.equal(ecartes.length, 0);
     const p = calculerPnlComptable({ soldes: BASE, regles: REGLES, ajustements: appliques });
     assert.equal(p.amortissements, -100);
@@ -186,12 +188,22 @@ describe("Ajustements de gestion du P&L comptable", () => {
     assert.equal(p.ajustementsGestion[0].libelle, "Amortissement mensuel");
   });
 
-  test("dotation annuelle comptabilisée dans l'exercice : les ajustements de cet exercice sont écartés, même d'un autre mois", () => {
+  test("dotation annuelle comptabilisée : sans arbitrage, la comptabilité seule, jamais les deux", () => {
     const soldes = [...BASE, S("681120", "2026-12", 1200, 0)];
-    const { appliques, ecartes } = trierAjustements({ ajustements: [A("2026-03-31", -100)], perimetres: PERIMETRES, soldes, regles: REGLES });
+    const { appliques, ecartes } = trier([A("2026-03-31", -100)], soldes);
     assert.equal(appliques.length, 0);
     assert.equal(ecartes.length, 1);
     assert.equal(calculerPnlComptable({ soldes, regles: REGLES, ajustements: appliques }).amortissements, -1200);
+  });
+
+  test("arbitrage en faveur des estimations : la dotation comptable sort, sur son seul mois", () => {
+    const soldes = [...BASE, S("681120", "2026-12", 1200, 0)];
+    const choix = new Map([["2026-01-01", { source: "novanta" as const, montantPennylane: null, montantNovanta: null, choisiLe: "x" }]]);
+    const { appliques, lignesEcarteesParMois } = trier([A("2026-03-31", -100)], soldes, choix);
+    const p = calculerPnlComptable({ soldes, regles: REGLES, ajustements: appliques, lignesEcarteesParMois });
+    assert.equal(p.amortissements, -100);
+    assert.equal(p.controle.equilibre, true);
+    assert.equal(p.comptes.find((c) => c.compte === "681120")?.statut, "affecte");
   });
 
   test("le contrôle d'exhaustivité des comptes n'est pas faussé par un ajustement", () => {

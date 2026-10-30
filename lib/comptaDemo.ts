@@ -1,11 +1,15 @@
 import type { ActionCompta, ReponseCompta } from "./comptaClient";
+import type { ResultatImportFec } from "./comptaRepository";
+import { ChoixSource, ImportFec, SoldeProvenance } from "./comptaSources";
+import { assemblerVueComptable } from "./comptaVue";
+import { contenuCanonique, erreurImportFec, ImportFecPrepare, soldesDepuisImportFec } from "./fecParseur";
 import { MODELE_CORRESPONDANCE, RegleCorrespondance } from "./comptaCorrespondance";
 import { COMPTES_FIXTURES, LIGNES_FIXTURES } from "./comptaFixtures";
-import { ExerciceComptable, lectureProvisoire, perimetresStock } from "./comptaExercices";
-import { calculerPnlComptable, periodeEnMoisEntiers, soldesDeLaPeriode, soldesDepuisLignes } from "./comptaPnl";
-import { arbitrageParMois, ChoixStock, deciderStockParExercice } from "./comptaStocks";
+import { ExerciceComptable } from "./comptaExercices";
+import { soldesDepuisLignes } from "./comptaPnl";
+import { AjustementComptable, ChoixStock } from "./comptaStocks";
 import type { BilanSynchro } from "./comptaSynchro";
-import { ajustementsDeLaPeriode, ajustementsDepuisStocks, StockFinDeMois } from "./pastAdjustments";
+import { StockFinDeMois } from "./pastAdjustments";
 import { MappingCategorie } from "./pastCategoryMapping";
 import { PastTransactionStockee, Periode } from "./pastTransactions";
 
@@ -75,47 +79,46 @@ export const EXERCICES_DEMO: ExerciceComptable[] = [
   { idSource: "demo-2026", debut: "2026-01-01", fin: "2026-12-31", statut: "open" },
 ];
 
-/** Services en mémoire pour PasseCompta : le moteur réel, sur des écritures simulées. */
-export function servicesDemo(options: { reglesInitiales?: RegleCorrespondance[]; avecStocksNovanta?: boolean } = {}) {
+/**
+ * Services en mémoire pour PasseCompta : le vrai parseur et le vrai assemblage, sur des données simulées. Reproduit
+ * les règles de la fonction SQL d'import (contenu identique, chevauchement, remplacement explicite).
+ */
+export function servicesDemo(options: { reglesInitiales?: RegleCorrespondance[]; avecStocksNovanta?: boolean; sansApi?: boolean } = {}) {
   let regles = options.reglesInitiales ?? [...MODELE_CORRESPONDANCE];
-  const choix = new Map<string, ChoixStock>();
+  const choixStock = new Map<string, ChoixStock>();
+  const choixAmortissement = new Map<string, ChoixStock>();
+  const choixSources: ChoixSource[] = [];
+  const imports: (ImportFec & { empreinte: string; lignes: ImportFecPrepare["lignes"] })[] = [];
+  const ajustements: AjustementComptable[] = [];
+  const libelles = new Map(COMPTES_FIXTURES.map((c) => [c.numero, c.libelle]));
+  let horloge = 0;
+  const instant = () => `2026-04-01T00:00:${String(horloge++ % 60).padStart(2, "0")}Z`;
+
+  const soldesApi = (): SoldeProvenance[] => (options.sansApi ? [] : soldesDepuisLignes(LIGNES_FIXTURES, { debut: "2025-01-01", fin: "2026-12-31" }).map((s) => ({ ...s, source: "pennylane" })));
+  const soldesFec = (): SoldeProvenance[] => imports.filter((i) => i.statut === "active").flatMap((i) => soldesDepuisImportFec(i.lignes).map((s) => ({ ...s, source: "fec" as const })));
+
   return {
     async charger(periode: Periode): Promise<ReponseCompta> {
-      const moisEntiers = periodeEnMoisEntiers(periode);
-      const toutes = soldesDepuisLignes(LIGNES_FIXTURES, { debut: "2025-01-01", fin: "2026-12-31" });
-      const soldes = soldesDeLaPeriode(toutes, moisEntiers);
-      const comptes = COMPTES_FIXTURES.map((c) => ({ numero: c.numero, libelle: c.libelle, premiereVue: "2026-01-01T00:00:00Z" }));
-      const variationsStock = options.avecStocksNovanta ? ajustementsDepuisStocks(STOCKS_DEMO) : [];
-      const perimetres = perimetresStock(moisEntiers, EXERCICES_DEMO);
-      const decisionsStock = deciderStockParExercice({ perimetres, soldes: toutes, regles, variationsNovanta: variationsStock, choix });
-      const parMois = arbitrageParMois(decisionsStock);
-      const pnl = calculerPnlComptable({
-        soldes,
-        regles,
-        libellesComptes: new Map(comptes.map((c) => [c.numero, c.libelle])),
-        variationsStockNovanta: ajustementsDeLaPeriode(variationsStock, moisEntiers),
-        arbitrageStockParMois: parMois,
-        conflitStock: decisionsStock.some((d) => d.conflit),
-      });
+      const comptes = [...libelles].map(([numero, libelle]) => ({ numero, libelle, premiereVue: "2026-01-01T00:00:00Z" }));
       const fin = "2026-03-31T06:00:00Z";
-      return {
-        pnl,
-        regles,
-        comptes,
-        soldes,
-        moisEntiers,
-        exercices: EXERCICES_DEMO,
-        provisoire: lectureProvisoire(moisEntiers, EXERCICES_DEMO),
-        decisionsStock,
-        arbitrageStock: Object.fromEntries(parMois),
-        variationsStock,
-        ajustements: [],
-        ajustementsEcartes: [],
-        derniereSynchro: null,
-        derniereSynchroReussie: { declencheur: "quotidien", statut: "success", commenceeLe: fin, termineeLe: fin, moisDemandes: 2, moisActualises: 2, moisEnEchec: [], limites: [] },
-        premiereEcriture: "2026-01-01",
-        synchroDisponible: false,
-      };
+      const vue = assemblerVueComptable(
+        {
+          exercicesPennylane: options.sansApi ? [] : EXERCICES_DEMO,
+          imports: imports.map(({ empreinte: _e, lignes: _l, ...i }) => i),
+          choixSources,
+          regles,
+          comptes,
+          stocks: options.avecStocksNovanta ? STOCKS_DEMO : [],
+          choixStock,
+          choixAmortissement,
+          ajustementsSaisis: ajustements,
+          synchros: { derniere: null, derniereReussie: options.sansApi ? null : { declencheur: "quotidien", statut: "success", commenceeLe: fin, termineeLe: fin, moisDemandes: 2, moisActualises: 2, moisEnEchec: [], limites: [] } },
+          premiereEcriture: null,
+        },
+        [...soldesApi(), ...soldesFec()],
+        periode
+      );
+      return { ...vue, synchroDisponible: false };
     },
     async modifier(action: ActionCompta): Promise<void> {
       if (action.action === "enregistrer_regle") {
@@ -126,11 +129,36 @@ export function servicesDemo(options: { reglesInitiales?: RegleCorrespondance[];
         const presentes = new Set(regles.map((r) => r.prefixe));
         regles = [...regles, ...MODELE_CORRESPONDANCE.filter((r) => !presentes.has(r.prefixe))];
       } else if (action.action === "source_stock") {
-        choix.set(action.debut, { source: action.source, montantPennylane: null, montantNovanta: null, choisiLe: "2026-04-01T00:00:00Z" });
+        (action.element === "depreciation" ? choixAmortissement : choixStock).set(action.debut, { source: action.source, montantPennylane: null, montantNovanta: null, choisiLe: instant() });
+      } else if (action.action === "source_periode") {
+        choixSources.push({ debut: action.debut, fin: action.fin, source: action.source, choisiLe: instant() });
+      } else if (action.action === "retirer_import") {
+        const i = imports.find((x) => x.id === action.id);
+        if (i) i.statut = "withdrawn";
+      } else if (action.action === "ajouter_ajustements") {
+        for (const a of action.ajustements) ajustements.push({ id: `demo-${horloge++}`, date: a.date, ligne: a.ligne as AjustementComptable["ligne"], libelle: a.libelle, montant: a.montant, notes: null, nature: a.nature as AjustementComptable["nature"] });
+      } else if (action.action === "retirer_ajustement") {
+        const rang = ajustements.findIndex((a) => a.id === action.id);
+        if (rang >= 0) ajustements.splice(rang, 1);
       }
     },
     async synchroniser(): Promise<BilanSynchro> {
       throw new Error("Aucune lecture réelle en démonstration.");
+    },
+    async importerFec(p: ImportFecPrepare, remplacer: boolean): Promise<ResultatImportFec> {
+      const erreur = erreurImportFec(p);
+      if (erreur) throw new Error(erreur);
+      const empreinte = contenuCanonique(p);
+      const actifs = imports.filter((i) => i.statut === "active");
+      const identique = actifs.find((i) => i.empreinte === empreinte);
+      if (identique) return { statut: "identique", import_id: identique.id };
+      const recoupes = actifs.filter((i) => i.debut <= p.exercice.fin && i.fin >= p.exercice.debut);
+      if (recoupes.length > 0 && !remplacer) return { statut: "chevauchement", chevauchements: recoupes.map((i) => ({ id: i.id, debut: i.debut, fin: i.fin, fichier: i.nomFichier })) };
+      for (const i of recoupes) i.statut = "replaced";
+      const id = `demo-import-${imports.length + 1}`;
+      imports.push({ id, nomFichier: p.nomFichier, debut: p.exercice.debut, fin: p.exercice.fin, cloture: p.exercice.cloture, statut: "active", importeLe: instant(), resume: p.resume, empreinte, lignes: p.lignes });
+      for (const [compte, libelle] of Object.entries(p.libelles)) if (!libelles.has(compte)) libelles.set(compte, libelle);
+      return { statut: "importe", import_id: id };
     },
   };
 }

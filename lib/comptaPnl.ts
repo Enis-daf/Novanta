@@ -102,6 +102,9 @@ export interface OptionsPnlComptable {
   conflitStock?: boolean;
   // Ajustements de gestion du P&L comptable, déjà triés (lib/comptaStocks.ts::trierAjustements).
   ajustements?: AjustementComptable[];
+  // Mois et lignes où la comptabilité cède la place à un ajustement de gestion, sur arbitrage. Les comptes
+  // restent listés et contrôlés ; seul le montant ne compte pas : rien n'est compté deux fois.
+  lignesEcarteesParMois?: ReadonlyMap<string, ReadonlySet<LigneComptable>>;
 }
 
 export interface PnlComptable {
@@ -179,6 +182,7 @@ export function calculerPnlComptable(options: OptionsPnlComptable): PnlComptable
   const illisibles = new Set<string>();
   const arbitrage = options.arbitrageStockParMois;
   let stockPennylaneRetenu = 0;
+  const retraits = new Map<LigneComptable, number>();
   for (const solde of options.soldes) {
     const compte = normaliserCompte(solde.compte);
     if (!compte) {
@@ -192,6 +196,13 @@ export function calculerPnlComptable(options: OptionsPnlComptable): PnlComptable
     parCompte.set(compte, cumul);
     if (arbitrage?.get(solde.mois) === "pennylane" && regleDuCompte(compte, index)?.destination === "inventory_variation") {
       stockPennylaneRetenu += centimes(solde.credit) - centimes(solde.debit);
+    }
+    const ecartees = options.lignesEcarteesParMois?.get(solde.mois);
+    if (ecartees) {
+      const destination = regleDuCompte(compte, index)?.destination;
+      if (destination && destination !== "out_of_scope" && ecartees.has(destination)) {
+        retraits.set(destination, (retraits.get(destination) ?? 0) + centimes(solde.credit) - centimes(solde.debit));
+      }
     }
   }
 
@@ -270,7 +281,7 @@ export function calculerPnlComptable(options: OptionsPnlComptable): PnlComptable
 
   // Ajustements de gestion : additionnés à leur ligne, hors du contrôle d'exhaustivité des comptes.
   const ajustementsGestion = options.ajustements ?? [];
-  const ajuste = (ligne: LigneComptable) => totaux[ligne] + ajustementsGestion.reduce((t, a) => (a.ligne === ligne ? t + centimes(a.montant) : t), 0);
+  const ajuste = (ligne: LigneComptable) => totaux[ligne] - (retraits.get(ligne) ?? 0) + ajustementsGestion.reduce((t, a) => (a.ligne === ligne ? t + centimes(a.montant) : t), 0);
 
   const ca = ajuste("revenue");
   const margeBrute = ca + ajuste("direct_costs") + stockRetenu;

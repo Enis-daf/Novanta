@@ -1,9 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DestinationComptable, estDestinationComptable, estLigneComptable, normaliserCompte, RegleCorrespondance } from "./comptaCorrespondance";
-import { SoldeCompte, SourceStock } from "./comptaPnl";
+import { SourceStock } from "./comptaPnl";
+import type { ImportFecPrepare } from "./fecParseur";
+import type { ChoixSource, ImportFec, SoldeProvenance } from "./comptaSources";
 import { CompteSource, SoldeSource, SourceComptable } from "./comptaSource";
 import { Declencheur, ExerciceComptable } from "./comptaExercices";
-import type { AjustementComptable, ChoixStock } from "./comptaStocks";
+import { AjustementComptable, ChoixStock, estNatureAjustement, SaisieAjustement } from "./comptaStocks";
 import type { DepotSynchro, EchecMois } from "./comptaSynchro";
 import { comptesParNumero } from "./comptaPennylaneAdapter";
 import { Periode } from "./pastTransactions";
@@ -87,11 +89,11 @@ export async function chargerComptes(admin: SupabaseClient, organizationId: stri
 }
 
 /** Soldes retenus des mois recoupant la période : la balance est lue par mois entier. */
-export async function chargerSoldes(admin: SupabaseClient, organizationId: string, periode: Periode): Promise<SoldeCompte[]> {
+export async function chargerSoldes(admin: SupabaseClient, organizationId: string, periode: Periode): Promise<SoldeProvenance[]> {
   const lignes = await toutLire<Row>((depuis, jusqua) =>
     admin
       .from("accounting_monthly_balances")
-      .select("account_number, month, debit, credit")
+      .select("account_number, month, debit, credit, source")
       .eq("organization_id", organizationId)
       .gte("month", `${periode.debut.slice(0, 7)}-01`)
       .lte("month", `${periode.fin.slice(0, 7)}-01`)
@@ -106,6 +108,7 @@ export async function chargerSoldes(admin: SupabaseClient, organizationId: strin
     debit: Number(row.debit),
     credit: Number(row.credit),
     nombreLignes: 0,
+    source: row.source as SoldeProvenance["source"],
   }));
 }
 
@@ -182,12 +185,15 @@ export async function chargerExercices(admin: SupabaseClient, organizationId: st
   return ((data ?? []) as Row[]).map((row) => ({ idSource: row.source_fiscal_year_id as string, debut: row.start_date as string, fin: row.finish_date as string, statut: (row.status as string | null) ?? null }));
 }
 
+export type ElementArbitre = "inventory" | "depreciation";
+
 /** Dernier arbitrage de chaque périmètre. Les précédents restent en base : c'est la trace. */
-export async function chargerChoixStock(admin: SupabaseClient, organizationId: string): Promise<Map<string, ChoixStock>> {
+export async function chargerChoixStock(admin: SupabaseClient, organizationId: string, element: ElementArbitre = "inventory"): Promise<Map<string, ChoixStock>> {
   const { data, error } = await admin
     .from("accounting_inventory_source_choices")
-    .select("scope_start, source, pennylane_amount, novanta_amount, chosen_at")
+    .select("scope_start, source, pennylane_amount, novanta_amount, chosen_at, element")
     .eq("organization_id", organizationId)
+    .eq("element", element)
     .order("chosen_at", { ascending: false });
   if (error) throw error;
   const choix = new Map<string, ChoixStock>();
@@ -207,7 +213,7 @@ export async function chargerChoixStock(admin: SupabaseClient, organizationId: s
 export async function enregistrerChoixStock(
   admin: SupabaseClient,
   organizationId: string,
-  choix: { perimetre: { debut: string; fin: string }; source: SourceStock | null; montantPennylane: number; montantNovanta: number },
+  choix: { perimetre: { debut: string; fin: string }; source: SourceStock | null; montantPennylane: number; montantNovanta: number; element?: ElementArbitre },
   userId: string
 ): Promise<void> {
   const { error } = await admin.from("accounting_inventory_source_choices").insert({
@@ -217,21 +223,109 @@ export async function enregistrerChoixStock(
     source: choix.source,
     pennylane_amount: choix.montantPennylane,
     novanta_amount: choix.montantNovanta,
+    element: choix.element ?? "inventory",
     chosen_by: userId,
   });
+  if (error) throw error;
+}
+
+function versImport(row: Row): ImportFec {
+  return {
+    id: row.id as string,
+    nomFichier: row.file_name as string,
+    debut: row.period_start as string,
+    fin: row.period_end as string,
+    cloture: row.closed_fiscal_year === true,
+    statut: row.status as ImportFec["statut"],
+    importeLe: row.imported_at as string,
+    resume: (row.summary as ImportFec["resume"] | null) ?? {},
+  };
+}
+
+export async function chargerImportsFec(admin: SupabaseClient, organizationId: string): Promise<ImportFec[]> {
+  const { data, error } = await admin
+    .from("accounting_fec_imports")
+    .select("id, file_name, period_start, period_end, closed_fiscal_year, status, imported_at, summary")
+    .eq("organization_id", organizationId)
+    .order("imported_at", { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as Row[]).map(versImport);
+}
+
+export type ResultatImportFec =
+  | { statut: "importe" | "identique"; import_id: string }
+  | { statut: "chevauchement"; chevauchements: { id: string; debut: string; fin: string; fichier: string }[] };
+
+/** Import atomique et sérialisé par société (accounting_fec_import). */
+export async function importerFec(admin: SupabaseClient, organizationId: string, p: ImportFecPrepare, empreinte: string, remplacer: boolean, userId: string): Promise<ResultatImportFec> {
+  const { data, error } = await admin.rpc("accounting_fec_import", {
+    p_organization_id: organizationId,
+    p_file_name: p.nomFichier,
+    p_fingerprint: empreinte,
+    p_start: p.exercice.debut,
+    p_end: p.exercice.fin,
+    p_closed: p.exercice.cloture,
+    p_summary: p.resume,
+    p_lines: p.lignes,
+    p_labels: p.libelles,
+    p_replace: remplacer,
+    p_user: userId,
+  });
+  if (error) throw error;
+  return data as ResultatImportFec;
+}
+
+export async function retirerImportFec(admin: SupabaseClient, organizationId: string, idImport: string): Promise<boolean> {
+  const { data, error } = await admin.rpc("accounting_fec_withdraw", { p_organization_id: organizationId, p_import: idImport });
+  if (error) throw error;
+  return data === true;
+}
+
+export async function chargerChoixSources(admin: SupabaseClient, organizationId: string): Promise<ChoixSource[]> {
+  const { data, error } = await admin.from("accounting_source_choices").select("scope_start, scope_end, source, chosen_at").eq("organization_id", organizationId);
+  if (error) throw error;
+  return ((data ?? []) as Row[]).map((row) => ({ debut: row.scope_start as string, fin: row.scope_end as string, source: row.source as ChoixSource["source"], choisiLe: row.chosen_at as string }));
+}
+
+export async function enregistrerChoixSource(admin: SupabaseClient, organizationId: string, choix: { debut: string; fin: string; source: ChoixSource["source"] }, userId: string): Promise<void> {
+  const { error } = await admin.from("accounting_source_choices").insert({ organization_id: organizationId, scope_start: choix.debut, scope_end: choix.fin, source: choix.source, chosen_by: userId });
+  if (error) throw error;
+}
+
+export async function ajouterAjustements(admin: SupabaseClient, organizationId: string, saisies: SaisieAjustement[], userId: string): Promise<void> {
+  const { error } = await admin.from("accounting_management_adjustments").insert(
+    saisies.map((a) => ({
+      organization_id: organizationId,
+      adjustment_date: a.date,
+      pnl_line: a.ligne,
+      label: a.libelle.trim(),
+      amount: a.montant,
+      nature: a.nature,
+      notes: a.notes ?? null,
+      covers_from: a.couvreDu ?? null,
+      covers_to: a.couvreAu ?? null,
+      updated_by: userId,
+    }))
+  );
+  if (error) throw error;
+}
+
+/** Retire un ajustement du reporting : il reste en base, et le journal garde sa valeur. */
+export async function archiverAjustement(admin: SupabaseClient, organizationId: string, id: string, userId: string): Promise<void> {
+  const { error } = await admin.from("accounting_management_adjustments").update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString(), updated_by: userId }).eq("organization_id", organizationId).eq("id", id);
   if (error) throw error;
 }
 
 export async function chargerAjustementsComptables(admin: SupabaseClient, organizationId: string): Promise<AjustementComptable[]> {
   const { data, error } = await admin
     .from("accounting_management_adjustments")
-    .select("id, adjustment_date, pnl_line, label, amount, notes")
+    .select("id, adjustment_date, pnl_line, label, amount, notes, nature, covers_from, covers_to")
     .eq("organization_id", organizationId)
     .is("archived_at", null);
   if (error) throw error;
   return ((data ?? []) as Row[]).flatMap((row) =>
     estLigneComptable(row.pnl_line) && row.pnl_line !== "inventory_variation"
-      ? [{ id: row.id as string, date: row.adjustment_date as string, ligne: row.pnl_line, libelle: row.label as string, montant: Number(row.amount), notes: (row.notes as string | null) ?? null }]
+      ? [{ id: row.id as string, date: row.adjustment_date as string, ligne: row.pnl_line, libelle: row.label as string, montant: Number(row.amount), notes: (row.notes as string | null) ?? null, nature: estNatureAjustement(row.nature) ? row.nature : "autre", couvreDu: (row.covers_from as string | null) ?? null, couvreAu: (row.covers_to as string | null) ?? null }]
       : []
   );
 }

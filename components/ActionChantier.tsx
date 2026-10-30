@@ -107,6 +107,8 @@ export default function ActionChantier({ organizationId, accessToken, droits }: 
             variationsStock: passe.donnees.ajustements.filter((a) => a.type === TYPE_VARIATION_STOCK),
             arbitrageStock: comptable.arbitrageStock,
             conflitStock: comptable.decisionsStock.some((d) => d.conflit),
+            ajustements: comptable.ajustements,
+            lignesEcarteesParMois: comptable.lignesEcarteesParMois,
             premiereEcriture: comptable.premiereEcriture,
           },
         },

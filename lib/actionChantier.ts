@@ -8,7 +8,8 @@ import {
 } from "./fiscalPeriods";
 import { AjustementGestion, ajustementsDeLaPeriode, finDeMois, moisDe } from "./pastAdjustments";
 import { calculerPnlComptable, PnlComptable, SoldeCompte, soldesDeLaPeriode, SourceStock } from "./comptaPnl";
-import { RegleCorrespondance } from "./comptaCorrespondance";
+import { LigneComptable, RegleCorrespondance } from "./comptaCorrespondance";
+import type { AjustementComptable } from "./comptaStocks";
 import { MappingCategorie } from "./pastCategoryMapping";
 import { BaseMontants, calculerPnlEnBase, IndicateurEconomique, PnlEnBase } from "./pastHtEstime";
 import { libelleMois, moisDeLaPeriode } from "./pastDetail";
@@ -610,6 +611,8 @@ export interface DonneesComptables {
   // Décision par mois, prise sur l'exercice entier par le serveur (lib/comptaServeur.ts).
   arbitrageStock: Record<string, SourceStock | "aucune">;
   conflitStock: boolean;
+  ajustements: AjustementComptable[];
+  lignesEcarteesParMois: Record<string, string[]>;
   premiereEcriture: string | null;
 }
 
@@ -709,6 +712,8 @@ function mesurerComptable(cle: CleKpiAuto, donnees: DonneesPasse, periode: Perio
     variationsStockNovanta: ajustementsDeLaPeriode(comptable.variationsStock, periode),
     arbitrageStockParMois: new Map(Object.entries(comptable.arbitrageStock)),
     conflitStock: comptable.conflitStock,
+    ajustements: comptable.ajustements.filter((a) => a.date >= periode.debut && a.date <= periode.fin),
+    lignesEcarteesParMois: new Map(Object.entries(comptable.lignesEcarteesParMois).map(([m, l]) => [m, new Set(l as LigneComptable[])])),
   });
   if (!pnl.aDesEcritures) return { valeur: null, raison: "Aucune écriture comptable sur cette période.", avertissements: [] };
   const avertissements: string[] = [];

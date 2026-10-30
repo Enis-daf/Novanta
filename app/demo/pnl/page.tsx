@@ -18,7 +18,7 @@ import { calculerPnlCashEstime, lignesAvertissementFlux } from "@/lib/pastPnlCas
 // Démonstration sur données SIMULÉES : les vrais écrans et moteurs, sans base ni Pennylane. Répond 404
 // sans NEXT_PUBLIC_NOVANTA_DEMO_PNL, qui n'est posée que sur un poste de développement.
 const PERIODE = { debut: "2026-01-01", fin: "2026-03-31" };
-const ECRANS = ["cash", "cash_flow", "compta", "compta_vide", "compta_conflit", "verrou"] as const;
+const ECRANS = ["cash", "cash_flow", "compta", "compta_vide", "compta_conflit", "fec", "fec_api", "verrou"] as const;
 type Ecran = (typeof ECRANS)[number];
 
 const LIBELLES: Record<Ecran, string> = {
@@ -27,6 +27,8 @@ const LIBELLES: Record<Ecran, string> = {
   compta: "P&L comptable",
   compta_vide: "Sans correspondance",
   compta_conflit: "Conflit de stocks",
+  fec: "Import FEC seul",
+  fec_api: "FEC et API",
   verrou: "Offre Prévision",
 };
 
@@ -59,7 +61,7 @@ export default function DemoPnlPage() {
     setPdf(URL.createObjectURL(blob));
   };
   const services = useMemo(
-    () => ({ compta: servicesDemo(), compta_vide: servicesDemo({ reglesInitiales: [] }), compta_conflit: servicesDemo({ avecStocksNovanta: true }) }),
+    () => ({ compta: servicesDemo(), compta_vide: servicesDemo({ reglesInitiales: [] }), compta_conflit: servicesDemo({ avecStocksNovanta: true }), fec: servicesDemo({ sansApi: true }), fec_api: servicesDemo() }),
     []
   );
   return (
@@ -85,7 +87,7 @@ export default function DemoPnlPage() {
         {ecran === "cash_flow" && (
           <PastDetailDashboard metrique="cash_flow" parts={parts} base="ttc" periode={PERIODE} ajustements={ajustements} teintes={teintes} fluxHorsPnl={pnl.flux} />
         )}
-        {(ecran === "compta" || ecran === "compta_vide" || ecran === "compta_conflit") && <PasseCompta key={ecran} periode={PERIODE} services={services[ecran]} />}
+        {(ecran === "compta" || ecran === "compta_vide" || ecran === "compta_conflit" || ecran === "fec" || ecran === "fec_api") && <PasseCompta key={ecran} periode={PERIODE} services={services[ecran]} />}
         {ecran === "verrou" && <OffreVerrouillee capacite="canViewAccountingPnl" fonctionnalite="Le P&L comptable" offreActuelle="forecast" />}
       </section>
     </main>

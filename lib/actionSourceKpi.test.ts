@@ -44,6 +44,8 @@ const COMPTABLE = {
   variationsStock: [],
   arbitrageStock: {},
   conflitStock: false,
+  ajustements: [],
+  lignesEcarteesParMois: {},
   premiereEcriture: "2026-01-31",
 };
 
