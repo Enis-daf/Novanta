@@ -7,7 +7,7 @@ import { synchroComptableReelleActive } from "@/lib/featureFlags";
 import { limiteurDebit } from "@/lib/pastBfrSync";
 import { CompanyApiTokenCredentialProvider } from "@/lib/pennylaneCredentialProvider";
 import { cleChiffrementConfiguree } from "@/lib/pennylaneCrypto";
-import { obtenirTokenPennylane } from "@/lib/pennylaneRepository";
+import { obtenirTokenPennylane, resumeErreurSupabaseSansSecret } from "@/lib/pennylaneRepository";
 
 // Synchronisation à la demande, côté serveur : tous les exercices non clôturés et commencés, ou un exercice
 // désigné pour une resynchronisation exceptionnelle. DÉSACTIVÉE tant que NOVANTA_COMPTA_SYNC_REELLE n'est pas
@@ -41,10 +41,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Resynchronisation exceptionnelle non confirmée." }, { status: 400 });
   }
 
+  // Lecture à part, comme /api/passe/sync : un token illisible (clé de chiffrement différente de celle qui l'a
+  // chiffré) est un problème de configuration, pas une panne de Pennylane.
+  let token: string | null;
   try {
-    const token = await obtenirTokenPennylane(admin, organizationId);
-    if (!token) return NextResponse.json({ error: "Pennylane n'est pas connecté.", code: "non_connecte" }, { status: 400 });
+    token = await obtenirTokenPennylane(admin, organizationId);
+  } catch (erreur) {
+    console.error(`[passe/compta/sync] lecture du credential échouée ${resumeErreurSupabaseSansSecret(erreur)}`);
+    return NextResponse.json({ error: "Le token Pennylane de cette société n'est pas lisible par ce serveur.", code: "token_illisible" }, { status: 500 });
+  }
+  if (!token) return NextResponse.json({ error: "Pennylane n'est pas connecté.", code: "non_connecte" }, { status: 400 });
 
+  try {
     const resultat = await synchroniserSociete(sourcePennylane(new CompanyApiTokenCredentialProvider(token)), depotSupabase(admin, organizationId, "pennylane"), {
       declencheur: exceptionnelle ? "exceptionnel" : "manuel",
       idExercice: exceptionnelle ? (corps.idExercice as string) : undefined,
@@ -60,7 +68,8 @@ export async function POST(req: NextRequest) {
     console.log(`[passe/compta/sync] organization=${organizationId} statut=${bilan.statut} demandes=${bilan.moisDemandes} actualises=${bilan.moisActualises} echecs=${bilan.moisEnEchec.length}`);
     return NextResponse.json({ bilan });
   } catch (error) {
-    const code = (error as { code?: string } | null)?.code ?? "inconnu";
+    // Le type de l'erreur, jamais son message : il pourrait contenir une donnée.
+    const code = (error as { code?: string } | null)?.code ?? (error as Error | null)?.name ?? "inconnu";
     console.error(`[passe/compta/sync] organization=${organizationId} code=${code}`);
     return NextResponse.json({ error: "La synchronisation comptable a échoué." }, { status: 502 });
   }
