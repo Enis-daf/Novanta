@@ -15,6 +15,8 @@ const ROUTES_PROTEGEES: { route: string; capacite: Capacite }[] = [
   { route: "app/api/pennylane/invoices/settlement/route.ts", capacite: "canViewForecast" },
   { route: "app/api/pennylane/invoices/categories/route.ts", capacite: "canViewForecast" },
   { route: "app/api/pennylane/transactions/route.ts", capacite: "canViewForecast" },
+  // Garde commune des routes app/api/passe/compta/* (voir le test suivant).
+  { route: "lib/comptaAcces.ts", capacite: "canViewAccountingPnl" },
 ];
 
 describe("routes serveur soumises à l'offre", () => {
@@ -27,6 +29,18 @@ describe("routes serveur soumises à l'offre", () => {
         source.includes(`NextResponse.json(refusOffre("${capacite}"), { status: 403 })`),
         "réponse 403 refusOffre absente"
       );
+    });
+  }
+
+  for (const route of ["app/api/passe/compta/route.ts", "app/api/passe/compta/sync/route.ts"]) {
+    test(`${route} passe par la garde du P&L comptable à chaque méthode`, () => {
+      const source = readFileSync(join(process.cwd(), route), "utf8");
+      const methodes = source.match(/export async function (GET|POST|PUT|PATCH|DELETE)/g) ?? [];
+      const gardes = source.match(/await exigerAccesCompta\(req\)/g) ?? [];
+      assert.ok(methodes.length > 0);
+      assert.equal(gardes.length, methodes.length);
+      // L'organisation vient de la garde : jamais de la requête.
+      assert.doesNotMatch(source, /organizationId\s*[:=]\s*(corps|req)/);
     });
   }
 });

@@ -413,6 +413,59 @@ export async function listSupplierInvoices(
   return paginerParCurseur<PennylaneSupplierInvoiceListItem>(bearer, ENDPOINT_SUPPLIER_INVOICES, {});
 }
 
+// --- Comptabilité (lecture seule) ---
+//
+// Routes, scopes et champs tels que décrits par la documentation officielle (readme.io,
+// getLedgerAccounts et getLedgerEntryLines). Pas encore exécutées avec un vrai token : voir
+// docs/pnl-comptable-pennylane.md. Appelées uniquement par lib/comptaPennylaneAdapter.ts.
+
+export interface PennylaneLedgerAccountRaw {
+  id: number | string;
+  number: string;
+  label?: string | null;
+  type?: string | null;
+  enabled?: boolean | null;
+}
+
+export interface PennylaneLedgerEntryLineRaw {
+  id: number | string;
+  debit: string;
+  credit: string;
+  label?: string | null;
+  date: string;
+  ledger_account?: { id?: number | string; number?: string } | null;
+  ledger_entry?: { id?: number | string } | null;
+  journal?: { id?: number | string } | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+const ENDPOINT_LEDGER_ACCOUNTS = "/api/external/v2/ledger_accounts";
+const ENDPOINT_LEDGER_ENTRY_LINES = "/api/external/v2/ledger_entry_lines";
+// Par tranche de lecture (un mois en pratique) : 100 lignes × 200 pages.
+const MAX_PAGES_ECRITURES = 200;
+
+export async function listLedgerAccounts(credentialProvider: PennylaneCredentialProvider): Promise<PennylaneLedgerAccountRaw[]> {
+  const bearer = await credentialProvider.getBearerToken();
+  return paginerParCurseur<PennylaneLedgerAccountRaw>(bearer, ENDPOINT_LEDGER_ACCOUNTS, {});
+}
+
+/** Lignes d'écriture d'une période. `complete` à false si la borne de pagination a été atteinte. */
+export async function listLedgerEntryLines(
+  credentialProvider: PennylaneCredentialProvider,
+  dateDebut: string,
+  dateFin: string
+): Promise<{ lignes: PennylaneLedgerEntryLineRaw[]; complete: boolean }> {
+  const bearer = await credentialProvider.getBearerToken();
+  const lignes = await paginerParCurseur<PennylaneLedgerEntryLineRaw>(
+    bearer,
+    ENDPOINT_LEDGER_ENTRY_LINES,
+    { filter: construireFiltreDate(dateDebut, dateFin), sort: "id" },
+    MAX_PAGES_ECRITURES
+  );
+  return { lignes, complete: lignes.length < MAX_PAGES_ECRITURES * LIMITE_PAR_PAGE };
+}
+
 /** Nombre maximal de factures qu'une liste peut renvoyer (pagination bornée) : au-delà, tronquée. */
 export const MAX_FACTURES_PAR_LISTE = LIMITE_PAR_PAGE * MAX_PAGES;
 

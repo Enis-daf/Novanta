@@ -32,6 +32,7 @@ export const CAPACITES = [
   "canViewDPO",
   "canViewActions",
   "canViewRevenueRecurrence",
+  "canViewAccountingPnl",
 ] as const;
 export type Capacite = (typeof CAPACITES)[number];
 export type Capacites = Record<Capacite, boolean>;
@@ -47,6 +48,7 @@ export type Capacites = Record<Capacite, boolean>;
 //  - canViewRevenueRecurrence: récurrence du revenu — onglet « Revenu récurrent » du module Passé et
 //                              lignes « Encaissements : revenu récurrent / ponctuel » de la
 //                              correspondance P&L.
+//  - canViewAccountingPnl    : P&L comptable et correspondance comptable (écritures Pennylane).
 const OFFRES_PAR_CAPACITE: Record<Capacite, readonly Offre[]> = {
   canViewReporting: ["essential", "forecast", "steering"],
   canViewForecast: ["forecast", "steering"],
@@ -56,6 +58,7 @@ const OFFRES_PAR_CAPACITE: Record<Capacite, readonly Offre[]> = {
   canViewDPO: ["steering"],
   canViewActions: ["steering"],
   canViewRevenueRecurrence: ["steering"],
+  canViewAccountingPnl: ["steering"],
 };
 
 export function estOffre(valeur: unknown): valeur is Offre {
