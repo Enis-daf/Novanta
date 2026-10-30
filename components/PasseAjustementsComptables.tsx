@@ -23,7 +23,8 @@ const LIGNES = LIGNES_COMPTABLES.filter((l) => l.cle !== "inventory_variation");
 export default function PasseAjustementsComptables({ ajustements, ecartes, aVerifier, onAjouter, onRetirer }: PasseAjustementsComptablesProps) {
   const moisCourant = todayISO().slice(0, 7);
   const [nature, setNature] = useState<NatureAjustement>("amortissement");
-  const [ligne, setLigne] = useState<string>("depreciation");
+  // Pas de ligne par défaut : un cut-off posé sans choix fausserait la cascade sans que rien ne le signale.
+  const [ligne, setLigne] = useState<string>("");
   const [libelle, setLibelle] = useState("");
   const [sens, setSens] = useState<"charge" | "produit">("charge");
   const [montant, setMontant] = useState("");
@@ -42,6 +43,10 @@ export default function PasseAjustementsComptables({ ajustements, ecartes, aVeri
     }
     if (mois.length === 0) {
       setErreur("La période est invalide.");
+      return;
+    }
+    if (!estDotation && !ligne) {
+      setErreur("Choisissez la ligne du P&L concernée.");
       return;
     }
     const signe = estDotation || sens === "charge" ? -1 : 1;
@@ -83,6 +88,9 @@ export default function PasseAjustementsComptables({ ajustements, ecartes, aVeri
               Ligne du P&amp;L
             </label>
             <select id="ajust-ligne" value={ligne} onChange={(e) => setLigne(e.target.value)}>
+              <option value="" disabled>
+                Choisir
+              </option>
               {LIGNES.map((l) => (
                 <option key={l.cle} value={l.cle}>
                   {l.libelle}

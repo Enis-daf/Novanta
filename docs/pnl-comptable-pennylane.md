@@ -2,7 +2,7 @@
 
 Décision du 30/10/2026 : **le P&L comptable se fonde sur la balance mensuelle** (`trial_balance`), pas sur une copie des lignes d'écriture.
 
-La lecture réelle reste éteinte dans le produit (`NOVANTA_COMPTA_SYNC_REELLE`). Pennylane n'a pas encore répondu aux questions ci-dessous.
+La lecture réelle reste éteinte dans le produit (`NOVANTA_COMPTA_SYNC_REELLE`). Pennylane n'a pas encore répondu aux questions ci-dessous. L'historique peut aussi venir d'un FEC, sans appel à l'API : voir `docs/import-fec.md`.
 
 ## Diagnostic réel du 30/10/2026
 
