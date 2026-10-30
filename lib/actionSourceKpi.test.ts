@@ -90,10 +90,12 @@ describe("Source d'un indicateur", () => {
     assert.equal(CATALOGUE_KPI.bfr.sens, "down");
     assert.equal(mentionDuKpi("marge_brute"), "HT estimé");
     assert.equal(mentionDuKpi("cash_flow_operationnel"), "TTC");
+    assert.equal(mentionDuKpi("compta_ebitda"), "Comptable");
   });
 
   test("définition stable et explicite, persistée au lancement", () => {
-    assert.deepEqual(definitionPersistee("compta_resultat_net"), { version: 1, libelle: "Résultat net", nature: "cumulatif", unite: "eur", base: "ht", source: "comptable", sens: "up" });
+    assert.deepEqual(definitionPersistee("compta_resultat_net"), { version: 1, libelle: "Résultat net", nature: "cumulatif", unite: "eur", base: "comptable", source: "comptable", sens: "up" });
+    assert.equal(definitionPersistee("marge_brute")!.base, "ht");
     assert.equal(definitionPersistee("custom"), null);
   });
 
@@ -101,7 +103,8 @@ describe("Source d'un indicateur", () => {
     assert.ok(!clesKpiProposees(false).some((c) => c.startsWith("compta_")));
     assert.ok(clesKpiProposees(true).includes("compta_resultat_net"));
     assert.ok(kpiNonDisponibles(false).some((k) => k.libelle === "Résultat net"));
-    assert.ok(!kpiNonDisponibles(true).some((k) => k.libelle === "Résultat net"));
+    assert.ok(!kpiNonDisponibles(true).some((k) => k.libelle === "Résultat net" || k.libelle === "Marge nette"));
+    assert.ok(kpiNonDisponibles(false).some((k) => k.libelle === "Marge nette"));
   });
 
   test("règles d'Action inchangées : trois KPI, au plus un manuel, comptables compris", () => {
@@ -135,6 +138,12 @@ describe("Mesures par source", () => {
   test("taux comptable en points de %, recalculé sur les montants agrégés", () => {
     const m = mesurerSurPeriode("compta_taux_marge_brute", donnees(), janvier);
     assert.equal(m.valeur, 70);
+  });
+
+  test("marge nette : résultat net rapporté au CA comptable, aucun recours au cash estimé", () => {
+    const m = mesurerSurPeriode("compta_marge_nette", donnees(), janvier);
+    assert.equal(m.valeur, ((100_000 - 30_000 - 5_000 - 4_000 - 20_000 - 2_000) / 100_000) * 100);
+    assert.equal(mesurerSurPeriode("compta_marge_nette", donnees(null), janvier).valeur, null);
   });
 
   test("changement de période : la valeur suit les dates", () => {

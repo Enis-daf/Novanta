@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ajustementsDepuisStocks, AjustementGestion } from "./pastAdjustments";
 import { EtagePnl, indexerMappings, MappingCategorie } from "./pastCategoryMapping";
 import { calculerPnl } from "./pastPnl";
-import { calculerPnlCashEstime, fluxHorsPnl, lignesAvertissementFlux, lignesFinalesDuCashFlow, TITRE_PNL_CASH_ESTIME } from "./pastPnlCashEstime";
+import { calculerPnlCashEstime, fluxHorsPnl, libelleBrut, lignesAvertissementFlux, lignesFinalesDuCashFlow, TITRE_PNL_CASH_ESTIME } from "./pastPnlCashEstime";
 import { pagesExportPdf } from "./pastPdfModel";
 import { partsMappees } from "./pastDetail";
 import { partsEnBase, tauxParCategorie } from "./pastHtEstime";
@@ -213,6 +213,13 @@ describe("Écran Cash flow et rapport : lignes finales", () => {
     assert.equal(lignesFinalesDuCashFlow(50, flux, "2026-03"), null);
   });
 
+  test("le net ne masque pas le brut : un net faible garde ses gros montants de sens opposés", () => {
+    const f = fluxHorsPnl([transaction("a", 100_000), transaction("b", -99_500)], AXE, MAPPINGS);
+    assert.equal(f.nonCategorise.montant, 500);
+    assert.match(libelleBrut(f.nonCategorise), /100.000.*99.500/);
+    assert.match(lignesAvertissementFlux(f)[0], /100.000.*99.500/);
+  });
+
   test("rien à signaler : aucune ligne ajoutée", () => {
     assert.equal(lignesFinalesDuCashFlow(50, fluxHorsPnl([], AXE, MAPPINGS), null), null);
   });
@@ -271,6 +278,11 @@ describe("Écran P&L cash estimé : garde-fous de présentation", () => {
 
   test("ni variation de trésorerie, ni TVA, ni financement, ni mention TTC", () => {
     assert.doesNotMatch(source, /LIBELLE_VARIATION_TRESORERIE|Variation de trésorerie|libelleEtagePnl\("vat"\)|libelleEtagePnl\("financing"\)|MENTION_TTC/);
+  });
+
+  test("tout « Incomplet » de la cascade a son explication, Solde compris", () => {
+    assert.match(source, /couvertures\?\.cashFlowOperationnel/);
+    assert.match(source, /couvertureSolde && !couvertureSolde\.complete && <PasseTvaIncomplete/);
   });
 
   test("le drapeau éteint garde le sélecteur HT / TTC et l'écran historique", () => {

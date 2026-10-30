@@ -80,7 +80,8 @@ export type CleKpiAuto =
   | "compta_marge_contributive"
   | "compta_ebitda"
   | "compta_resultat_exploitation"
-  | "compta_resultat_net";
+  | "compta_resultat_net"
+  | "compta_marge_nette";
 
 export interface DefinitionKpi {
   cle: CleKpiAuto;
@@ -274,6 +275,17 @@ export const CATALOGUE_KPI: Record<CleKpiAuto, DefinitionKpi> = {
     source: "comptable",
     description: "Résultat net du P&L comptable, cumulé sur la période.",
   },
+  compta_marge_nette: {
+    cle: "compta_marge_nette",
+    libelle: "Marge nette",
+    famille: "comptable",
+    nature: "taux",
+    sens: "up",
+    unite: "pct",
+    base: "ht",
+    source: "comptable",
+    description: "Résultat net rapporté au chiffre d'affaires comptable, depuis le début de la période.",
+  },
 };
 
 export const CLES_KPI_AUTO = Object.keys(CATALOGUE_KPI) as CleKpiAuto[];
@@ -302,7 +314,8 @@ export const VERSION_DEFINITION_KPI = 1;
 export function definitionPersistee(cle: KpiChantier["cle"]): Record<string, unknown> | null {
   if (cle === CLE_PERSONNALISE) return null;
   const { libelle, nature, unite, base, source, sens } = CATALOGUE_KPI[cle];
-  return { version: VERSION_DEFINITION_KPI, libelle, nature, unite, base, source, sens };
+  // Un montant comptable n'est ni un HT estimé ni un TTC : la définition enregistrée le dit.
+  return { version: VERSION_DEFINITION_KPI, libelle, nature, unite, base: source === "comptable" ? "comptable" : base, source, sens };
 }
 
 export function estCleKpiAuto(valeur: unknown): valeur is CleKpiAuto {
@@ -312,7 +325,7 @@ export function estCleKpiAuto(valeur: unknown): valeur is CleKpiAuto {
 /** Indicateurs prévus mais que Novanta ne sait pas encore calculer : affichés, jamais simulés. */
 /** Résultat net et marge nette existent dès lors que le P&L comptable est accessible. */
 export function kpiNonDisponibles(comptableDisponible: boolean): typeof KPI_NON_DISPONIBLES {
-  return KPI_NON_DISPONIBLES.filter((k) => !comptableDisponible || k.libelle !== "Résultat net");
+  return KPI_NON_DISPONIBLES.filter((k) => !comptableDisponible || (k.libelle !== "Résultat net" && k.libelle !== "Marge nette"));
 }
 
 export const KPI_NON_DISPONIBLES: { libelle: string; famille: Exclude<FamilleKpi, "custom">; raison: string }[] = [
@@ -681,6 +694,7 @@ const VALEUR_COMPTABLE: Partial<Record<CleKpiAuto, (pnl: PnlComptable) => number
   compta_ebitda: (pnl) => pnl.ebitda,
   compta_resultat_exploitation: (pnl) => pnl.resultatExploitation,
   compta_resultat_net: (pnl) => pnl.resultatNet,
+  compta_marge_nette: (pnl) => (pnl.ratios.resultatNet === null ? null : pnl.ratios.resultatNet * 100),
 };
 
 /** Valeur lue dans le P&L comptable, sans jamais retomber sur les transactions bancaires. */

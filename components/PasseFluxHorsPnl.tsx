@@ -1,7 +1,7 @@
 "use client";
 
 import { formatMontantComptable, MENTION_TTC } from "@/lib/format";
-import { FluxHorsPnl, LIBELLE_NON_CATEGORISE, LIBELLE_NON_MAPPE } from "@/lib/pastPnlCashEstime";
+import { FluxHorsPnl, libelleBrut, LIBELLE_NON_CATEGORISE, LIBELLE_NON_MAPPE } from "@/lib/pastPnlCashEstime";
 
 const formatNombre = new Intl.NumberFormat("fr-FR");
 
@@ -24,6 +24,8 @@ export default function PasseFluxHorsPnl({ flux, onConfigurer }: { flux: FluxHor
           <span className="passe-pnl__montant">{formatMontantComptable(nonCategorise.montant)} {MENTION_TTC}</span>
         </p>
       )}
+      {/* Un net faible peut cacher de gros montants de sens opposés : le brut est toujours dit. */}
+      {nonCategorise.nombreTransactions > 0 && <p className="passe-flux-hors-pnl__brut">{libelleBrut(nonCategorise)}</p>}
       {nonMappe.categories.length > 0 && (
         <p className="passe-flux-hors-pnl__ligne">
           <span>
@@ -32,6 +34,7 @@ export default function PasseFluxHorsPnl({ flux, onConfigurer }: { flux: FluxHor
           <span className="passe-pnl__montant">{formatMontantComptable(nonMappe.montant)} {MENTION_TTC}</span>
         </p>
       )}
+      {nonMappe.categories.length > 0 && <p className="passe-flux-hors-pnl__brut">{libelleBrut(nonMappe)}</p>}
       {nonMappe.categories.length > 0 && (
         <button type="button" className="passe-lien-ligne" onClick={onConfigurer}>
           Compléter la correspondance P&amp;L

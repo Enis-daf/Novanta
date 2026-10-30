@@ -116,15 +116,20 @@ export function fluxHorsPnl(
   };
 }
 
+/** « Encaissements 120 € · décaissements (80 €) » : le net seul pourrait masquer le volume en jeu. */
+export function libelleBrut(flux: CumulFlux): string {
+  return `Encaissements ${formatMontantComptable(flux.encaissements)} · décaissements ${formatMontantComptable(flux.decaissements)}`;
+}
+
 /** Avertissements de tête du rapport PDF : les mêmes flux que l'écran, avec leur signe. */
 export function lignesAvertissementFlux(flux: FluxHorsPnl): string[] {
   const lignes: string[] = [];
   const { nonCategorise, nonMappe } = flux;
   if (nonCategorise.nombreTransactions > 0) {
-    lignes.push(`${LIBELLE_NON_CATEGORISE} : ${formatMontantComptable(nonCategorise.montant)} ${MENTION_TTC} sur ${nonCategorise.nombreTransactions} transaction${nonCategorise.nombreTransactions > 1 ? "s" : ""}, hors P&L.`);
+    lignes.push(`${LIBELLE_NON_CATEGORISE} : ${formatMontantComptable(nonCategorise.montant)} ${MENTION_TTC} sur ${nonCategorise.nombreTransactions} transaction${nonCategorise.nombreTransactions > 1 ? "s" : ""} (${libelleBrut(nonCategorise).toLocaleLowerCase("fr")}), hors P&L.`);
   }
   if (nonMappe.categories.length > 0) {
-    lignes.push(`${LIBELLE_NON_MAPPE} : ${formatMontantComptable(nonMappe.montant)} ${MENTION_TTC} sur ${nonMappe.categories.length} catégorie${nonMappe.categories.length > 1 ? "s" : ""}, hors P&L.`);
+    lignes.push(`${LIBELLE_NON_MAPPE} : ${formatMontantComptable(nonMappe.montant)} ${MENTION_TTC} sur ${nonMappe.categories.length} catégorie${nonMappe.categories.length > 1 ? "s" : ""} (${libelleBrut(nonMappe).toLocaleLowerCase("fr")}), hors P&L.`);
   }
   if (flux.incomplet) lignes.push("Marges incomplètes tant que ces flux ne sont pas affectés.");
   return lignes;

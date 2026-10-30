@@ -9,7 +9,7 @@ import PasseNotesAjustement from "./PasseNotesAjustement";
 import PasseStructureChart from "./PasseStructureChart";
 import { formatDateCourte } from "@/lib/dates";
 import { formatMontant, formatKiloEuros, formatPourcentage, MENTION_HT_ESTIME, MENTION_TTC } from "@/lib/format";
-import { BaseMontants, LIBELLE_CASH_FLOW_TTC } from "@/lib/pastHtEstime";
+import { BaseMontants, LIBELLE_CASH_FLOW_FLUX_TTC, LIBELLE_CASH_FLOW_TTC } from "@/lib/pastHtEstime";
 import PasseTvaIncomplete from "./PasseTvaIncomplete";
 import { AjustementGestion } from "@/lib/pastAdjustments";
 import {
@@ -179,7 +179,7 @@ export default function PastDetailDashboard({
           )}
           {/* Cash flow : la lecture choisie est toujours rappelée sous l'indicateur. */}
           {vue.kpi.precision && vue.kpi.categorie === null && <p className="passe-kpi__ratio">{vue.kpi.precision}</p>}
-          {metrique === "cash_flow" && <p className="passe-kpi__ratio">{LIBELLE_CASH_FLOW_TTC}</p>}
+          {metrique === "cash_flow" && <p className="passe-kpi__ratio">{fluxHorsPnl ? LIBELLE_CASH_FLOW_FLUX_TTC : LIBELLE_CASH_FLOW_TTC}</p>}
 
           {/* Cible de l'indicateur, recalculée sur le mois sélectionné. Une catégorie sélectionnée la
               masque : la cible est celle de tout le mix de CA, pas d'une catégorie. */}

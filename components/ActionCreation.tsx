@@ -6,6 +6,7 @@ import {
   CleKpiAuto,
   CLE_PERSONNALISE,
   clesKpiProposees,
+  estKpiComptable,
   kpiNonDisponibles,
   sourceDuKpi,
   ChoixKpi,
@@ -425,7 +426,7 @@ function ObjectifAuto({
 }) {
   const definition = CATALOGUE_KPI[cle];
   const id = `action-cible-${cle}`;
-  const mention = cle === "bfr" ? "HT" : definition.base === "ttc" ? MENTION_TTC : MENTION_HT_ESTIME;
+  const mention = cle === "bfr" ? "HT" : estKpiComptable(cle) ? "Comptable" : definition.base === "ttc" ? MENTION_TTC : MENTION_HT_ESTIME;
   return (
     <div className="action-objectif">
       <p className="action-objectif__nom">
@@ -440,7 +441,7 @@ function ObjectifAuto({
           <span className={`action-badge${reference.origine === "indicative" ? "" : " action-badge--neutre"}`}>{LIBELLES_ORIGINE[reference.origine]}</span>
         </p>
       ) : (
-        <p className="action-objectif__reference">Aucune référence — {reference?.raison ?? "historique insuffisant"}. L'atteinte ne sera pas calculable.</p>
+        <p className="action-objectif__reference">Aucune référence — {reference?.raison?.replace(/\.$/, "") ?? "historique insuffisant"}. L'atteinte ne sera pas calculable.</p>
       )}
       {reference?.avertissements.map((a) => (
         <p key={a} className="passe-message">

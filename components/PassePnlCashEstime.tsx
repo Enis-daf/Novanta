@@ -31,6 +31,8 @@ interface PassePnlCashEstimeProps {
 export default function PassePnlCashEstime({ pnl, cibles, onOuvrir, onDefinirCible, onConfigurer, teintes }: PassePnlCashEstimeProps) {
   const incomplet = (indicateur: IndicateurEconomique) => Boolean(pnl.couvertures && !pnl.couvertures[indicateur].complete);
   const couvertureCouts = pnl.couvertures?.ebitda ?? null;
+  // Le Solde couvre aussi les Autres éléments : tout « Incomplet » de la cascade trouve ici son explication.
+  const couvertureSolde = pnl.couvertures?.cashFlowOperationnel ?? null;
   const structuresIncompletes = couvertureCouts !== null && !couvertureCouts.complete;
   return (
     <div className="passe-general">
@@ -82,12 +84,12 @@ export default function PassePnlCashEstime({ pnl, cibles, onOuvrir, onDefinirCib
             />
           )}
         </div>
-        {couvertureCouts && !couvertureCouts.complete && <PasseTvaIncomplete couverture={couvertureCouts} onConfigurer={onConfigurer} />}
         <div className="passe-pnl__bloc passe-pnl__bloc--cash">
           <Ligne libelle={LIBELLE_AUTRES_ELEMENTS} montant={pnl.extraPnl} />
           <LignesAjustements lignes={pnl.ajustements.extra_pnl} />
           <Ligne libelle={LIBELLE_SOLDE_GESTION_ESTIME} montant={pnl.soldeGestionEstime} niveau="total" mention="" incomplet={incomplet("cashFlowOperationnel")} />
         </div>
+        {couvertureSolde && !couvertureSolde.complete && <PasseTvaIncomplete couverture={couvertureSolde} onConfigurer={onConfigurer} />}
         <PasseFluxHorsPnl flux={pnl.flux} onConfigurer={onConfigurer} />
       </section>
 

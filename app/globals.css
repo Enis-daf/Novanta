@@ -5416,3 +5416,9 @@ button.passe-cible--lien:focus-visible,
   padding-left: var(--space-3);
   font-size: 13px;
 }
+
+.passe-flux-hors-pnl .passe-flux-hors-pnl__brut {
+  margin-top: -2px;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}

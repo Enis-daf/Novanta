@@ -42,6 +42,8 @@ import { MENTION_TTC } from "./format";
 // Textes de la lecture HT estimé : la trésorerie reste sur la base TTC.
 export const LIBELLE_ECARTS_EN_TTC = `L'analyse d'écarts porte sur le Cash flow : des flux bancaires réels, toujours en ${MENTION_TTC}.`;
 export const LIBELLE_CASH_FLOW_TTC = `Le cash flow est toujours présenté en ${MENTION_TTC}, quel que soit le mode de reporting sélectionné.`;
+// Nouvelle présentation : le reporting est HT seul, il n'y a plus de mode à sélectionner.
+export const LIBELLE_CASH_FLOW_FLUX_TTC = `Le cash flow lit des flux bancaires réels : il reste présenté en ${MENTION_TTC}.`;
 export const LIBELLE_TVA_SANS_OBJET = `Flux de trésorerie : toujours lu en ${MENTION_TTC}`;
 export const LIBELLE_TVA_NON_APPLICABLE = "Non applicable à ce type de mouvement.";
 // Écran Général en HT estimé : la Variation de trésorerie n'a pas de lecture HT, elle renvoie au TTC.
