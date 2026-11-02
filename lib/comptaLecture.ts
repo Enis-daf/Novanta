@@ -13,7 +13,7 @@ export const TITRE_PNL_COMPTABLE = "P&L comptable";
 
 // Texte générique : le DAF reste responsable de l'interprétation. Pas de rapprochement automatique.
 export const TEXTE_DEUX_PNL =
-  "Le P&L cash estimé se lit sur les transactions bancaires, en HT estimé : il pilote l'activité même quand la comptabilité n'est pas à jour. Le P&L comptable se lit sur les écritures de Pennylane : il reconnaît le chiffre d'affaires et les charges selon les règles comptables. Ce sont deux lectures différentes, qui n'ont pas vocation à donner le même chiffre.";
+  "Le P&L cash se lit sur les transactions bancaires, en HT estimé : il pilote l'activité même quand la comptabilité n'est pas à jour. Le P&L comptable se lit sur les écritures de Pennylane : il reconnaît le chiffre d'affaires et les charges selon les règles comptables. Ce sont deux lectures différentes, qui n'ont pas vocation à donner le même chiffre.";
 
 // Ce que le diagnostic a montré : la balance ne distingue pas ce qui est validé de ce qui ne l'est pas.
 export const MENTION_BALANCE = "Ce P&L reprend la balance de sa source, FEC ou Pennylane : toutes ses écritures, y compris celles en attente de validation. Une écriture annuelle reste sur le mois où elle est passée.";

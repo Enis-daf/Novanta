@@ -21,7 +21,7 @@ import { PastTransactionStockee } from "./pastTransactions";
  * incomplètes tant qu'il en reste.
  */
 
-export const TITRE_PNL_CASH_ESTIME = "P&L cash estimé";
+export const TITRE_PNL_CASH_ESTIME = "P&L cash";
 export const LIBELLE_REVENUS_HT_ESTIMES = "Revenus HT estimés";
 export const LIBELLE_AUTRES_ELEMENTS = "Autres éléments (Extra P&L)";
 export const LIBELLE_SOLDE_GESTION_ESTIME = "Solde de gestion estimé";

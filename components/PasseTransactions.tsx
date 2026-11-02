@@ -1025,6 +1025,17 @@ export default function PasseTransactions({ organizationId, organizationName, ac
 
   return (
     <section className="passe">
+      {comptableDisponible && (
+        <div className="passe-tri selecteur passe-rapports" role="group" aria-label="Rapport">
+          <button type="button" className={`btn-secondaire${rapport === "cash_estime" ? " btn-module--actif" : ""}`} aria-pressed={rapport === "cash_estime"} onClick={() => setRapport("cash_estime")}>
+            {TITRE_PNL_CASH_ESTIME}
+          </button>
+          <button type="button" className={`btn-secondaire${rapport === "comptable" ? " btn-module--actif" : ""}`} aria-pressed={rapport === "comptable"} onClick={() => setRapport("comptable")}>
+            {!droits.capacites.canViewAccountingPnl && <IconCadenas />}
+            {TITRE_PNL_COMPTABLE}
+          </button>
+        </div>
+      )}
       <div className="passe-controles">
         <div className="passe-controle passe-axe">
           {/* L'onglet Écarts compare deux périodes qui lui sont propres : la période du module n'y
@@ -1137,7 +1148,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         )}
 
         <div className="passe-controles__actions">
-          {/* Le rapport PDF porte sur le P&L cash estimé et ses onglets. */}
+          {/* Le rapport PDF porte sur le P&L cash et ses onglets. */}
           {rapport === "cash_estime" && <div className="passe-filtre" ref={exportRef}>
             <button
               type="button"
@@ -1226,17 +1237,6 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       {erreurMapping && <p className="login-erreur">{erreurMapping}</p>}
       {erreurStock && <p className="login-erreur">{erreurStock}</p>}
 
-      {comptableDisponible && (
-        <div className="passe-tri selecteur passe-rapports" role="group" aria-label="Rapport">
-          <button type="button" className={`btn-secondaire${rapport === "cash_estime" ? " btn-module--actif" : ""}`} aria-pressed={rapport === "cash_estime"} onClick={() => setRapport("cash_estime")}>
-            {TITRE_PNL_CASH_ESTIME}
-          </button>
-          <button type="button" className={`btn-secondaire${rapport === "comptable" ? " btn-module--actif" : ""}`} aria-pressed={rapport === "comptable"} onClick={() => setRapport("comptable")}>
-            {!droits.capacites.canViewAccountingPnl && <IconCadenas />}
-            {TITRE_PNL_COMPTABLE}
-          </button>
-        </div>
-      )}
       {rapport === "comptable" ? (
         // Jamais monté hors offre : aucune route n'est appelée (elles refusent de toute façon).
         !droits.capacites.canViewAccountingPnl ? (

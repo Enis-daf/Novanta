@@ -22,7 +22,7 @@ const ECRANS = ["cash", "cash_flow", "compta", "compta_vide", "compta_conflit", 
 type Ecran = (typeof ECRANS)[number];
 
 const LIBELLES: Record<Ecran, string> = {
-  cash: "P&L cash estimé",
+  cash: "P&L cash",
   cash_flow: "Cash flow",
   compta: "P&L comptable",
   compta_vide: "Sans correspondance",

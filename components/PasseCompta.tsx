@@ -367,7 +367,7 @@ export default function PasseCompta({ periode: periodeDuModule, services, onOuvr
       ) : !pnl.aDesEcritures ? (
         <div className="passe-etat">
           <p>Aucune écriture comptable sur cette période.</p>
-          <p>Le P&amp;L cash estimé reste disponible et utilisable.</p>
+          <p>Le P&amp;L cash reste disponible et utilisable.</p>
           <button type="button" className="btn-secondaire" onClick={() => setOnglet("import")}>
             Importer un FEC
           </button>
