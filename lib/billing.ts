@@ -50,13 +50,8 @@ function metadataString(metadata: Record<string, unknown> | undefined, key: stri
 // la ligne companies elle-même ne peut être créée qu'une fois la session active
 // (RLS), donc à cette première connexion confirmée, jamais avant, jamais en double.
 export async function getOrCreateCompanyForBilling(supabase: SupabaseClient, user: User): Promise<CompanyBilling> {
-  const { data: existing, error: selectError } = await supabase
-    .from("companies")
-    .select(BILLING_COLUMNS)
-    .eq("owner_id", user.id)
-    .maybeSingle();
-  if (selectError) throw selectError;
-  if (existing) return rowToCompanyBilling(existing);
+  const existing = await lireSocieteDuProprietaire(supabase, user.id);
+  if (existing) return existing;
 
   const metadata = user.user_metadata as Record<string, unknown> | undefined;
   const firstName = metadataString(metadata, "first_name");
@@ -79,8 +74,34 @@ export async function getOrCreateCompanyForBilling(supabase: SupabaseClient, use
     })
     .select(BILLING_COLUMNS)
     .single();
-  if (insertError) throw insertError;
+  if (insertError) {
+    // À la première connexion confirmée, le cockpit et /api/pennylane/status appellent cette
+    // fonction en même temps : les deux ne trouvent aucune société et insèrent, l'un perd sur
+    // companies_owner_id_key. La société existe alors bien : on relit celle créée par l'autre
+    // appel, telle quelle (jamais de droits ajoutés ici).
+    if (estDoublonProprietaire(insertError)) {
+      const gagnante = await lireSocieteDuProprietaire(supabase, user.id);
+      if (gagnante) return gagnante;
+    }
+    throw insertError;
+  }
   return rowToCompanyBilling(created);
+}
+
+async function lireSocieteDuProprietaire(supabase: SupabaseClient, ownerId: string): Promise<CompanyBilling | null> {
+  const { data, error } = await supabase
+    .from("companies")
+    .select(BILLING_COLUMNS)
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToCompanyBilling(data) : null;
+}
+
+// 23505 = unique_violation (Postgres). Seule la contrainte owner_id est concernée : une autre
+// violation d'unicité reste une vraie erreur.
+export function estDoublonProprietaire(error: { code?: string; message?: string } | null): boolean {
+  return error?.code === "23505" && (error.message ?? "").includes("companies_owner_id_key");
 }
 
 export async function setStripeCustomerId(
