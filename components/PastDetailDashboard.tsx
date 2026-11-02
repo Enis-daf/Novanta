@@ -1,7 +1,7 @@
 "use client";
 
 import MentionTTC, { LIBELLE_MONTANTS_TTC } from "./MentionTTC";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import PasseCategoriesChart from "./PasseCategoriesChart";
 import PasseEcartCible from "./PasseEcartCible";
 import PasseEvolutionChart from "./PasseEvolutionChart";
@@ -39,9 +39,6 @@ interface PastDetailDashboardProps {
   ajustements: AjustementGestion[];
   // Teinte attitrée de chaque catégorie, commune à tous les écrans du module (lib/dataviz.ts).
   teintes: ReadonlyMap<string, string>;
-  // Informe le parent des filtres locaux en cours (pour l'export PDF, qui reprend ceux de l'écran
-  // affiché). Lecture seule : les filtres restent décidés ici.
-  onFiltresChange?: (filtres: FiltresDetail) => void;
   // Cibles de performance de l'organisation, en lecture HT seulement (absentes en TTC : ni cible ni
   // écart). L'écran compare son indicateur à la cible avec la même fonction que l'onglet Général
   // (lib/pastTargets.ts), sur son mois filtré le cas échéant.
@@ -86,7 +83,6 @@ export default function PastDetailDashboard({
   periode,
   ajustements,
   teintes,
-  onFiltresChange,
   cibles,
   base = "ttc",
   onConfigurerTva,
@@ -105,10 +101,6 @@ export default function PastDetailDashboard({
   // Ce que montre l'histogramme mensuel des écrans de marge : l'indicateur, ou les coûts de l'étage.
   // Simple mode de lecture, propre à l'écran : il revient à « Marge » quand on change d'onglet.
   const [serie, setSerie] = useState<"marge" | "couts">("marge");
-
-  useEffect(() => {
-    onFiltresChange?.(filtres);
-  }, [filtres, onFiltresChange]);
 
   const changerTri = (suivant: TriTransactions) => {
     setTri(suivant);

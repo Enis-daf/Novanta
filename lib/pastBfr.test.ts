@@ -1,7 +1,14 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  exclusionsDevenuesFiables,
+  facturesExcluesRetenues,
+  informationPaiement,
+  libelleFinDeMois,
+  moisGlissants,
   FactureBfr,
+  phraseExclusions,
+  resumerExclusions,
   photographier,
   photographieDepassee,
   reviser,
@@ -166,21 +173,68 @@ describe("BFR — situation, formule et variation", () => {
     assert.equal(s.bfr, 10_000 + 5_000 - 3_000);
   });
 
-  test("inventaire manquant : situation incomplète, aucun BFR affiché", () => {
+  test("inventaire manquant : indisponible, aucun BFR affiché", () => {
     const s = situationBfr({ factures: [facture()], date: D, stock: null, synchroniseLe: "2026-10-02" });
     assert.equal(s.complete, false);
     assert.equal(s.bfr, null);
     assert.match(s.raisons.join(" "), /Stock HT non renseigné pour septembre 2026/);
   });
 
-  test("facture au solde inconnu : incomplète, signalée avec son montant maximal", () => {
+  test("facture au solde inconnu : exclue, jamais à 0 ni à son montant ; le BFR reste calculé sur le reste", () => {
     const s = situationBfr({ factures: [facture(), payee([], { pennylaneId: "f2" })], date: D, stock: 0, synchroniseLe: "2026-10-02" });
     assert.equal(s.complete, false);
+    assert.deepEqual(s.raisons, []);
     assert.equal(s.incertaines.length, 1);
-    assert.equal(s.incertaines[0].montantHtMax, 10_000);
+    assert.equal(s.totalCreances, 10_000);
+    assert.equal(s.bfr, 10_000);
+    assert.equal(statutBfr(s, null), "reserves");
+    assert.deepEqual(totauxRetenus(s, null), { creances: 10_000, stock: 0, dettes: 0, bfr: 10_000 });
   });
 
-  test("synchronisation au plus tard à la date de référence : incomplète ; jamais synchronisée aussi", () => {
+  test("facture exclue : le détail de la réserve, avec le fait de paiement connu", () => {
+    const f = payee([{ date: "2026-09-20", montant: 6_000 }, { date: "2026-10-20", montant: 6_000 }], { pennylaneId: "f2", numero: "FA-002" });
+    const [exclue] = situationBfr({ factures: [f], date: D, stock: 0, synchroniseLe: "2026-10-02" }).incertaines;
+    assert.equal(exclue.pennylaneId, "f2");
+    assert.equal(exclue.numero, "FA-002");
+    assert.equal(exclue.montantHtInitial, 10_000);
+    assert.equal(exclue.dateEmission, "2026-09-15");
+    assert.equal(exclue.echeance, "2026-10-15");
+    assert.match(exclue.raison, /réglée en partie avant, en partie après le 30\/09\/2026/);
+    assert.match(exclue.paiement, /2 transactions rapprochées du 20\/09\/2026 au 20\/10\/2026/);
+    assert.match(informationPaiement(payee([])), /aucune transaction bancaire rapprochée/);
+    assert.match(informationPaiement(payee([], { reglements: null })), /pas encore récupérées/);
+  });
+
+  test("0, 1 et 12 factures incertaines : le statut suit, le chiffre des factures fiables ne bouge pas", () => {
+    const fiable = [facture(), facture({ pennylaneId: "d1", type: "fournisseur", montantHt: 4_000, montantTtc: 4_800, resteHt: 4_000, resteTtc: 4_800 })];
+    const incertaines = (n: number) => Array.from({ length: n }, (_, i) => payee([], { pennylaneId: `x${i}`, montantHt: 1_000 + i }));
+    const avec = (n: number) => situationBfr({ factures: [...fiable, ...incertaines(n)], date: D, stock: 500, synchroniseLe: "2026-10-02" });
+    assert.equal(statutBfr(avec(0), null), "provisoire");
+    assert.equal(avec(0).complete, true);
+    for (const n of [1, 12]) {
+      assert.equal(statutBfr(avec(n), null), "reserves");
+      assert.equal(avec(n).bfr, avec(0).bfr);
+      assert.equal(avec(n).incertaines.length, n);
+    }
+    assert.equal(avec(0).bfr, 10_000 + 500 - 4_000);
+  });
+
+  test("montant cumulé des exclues : contexte à l'émission, factures sans montant HT mises à part", () => {
+    const s = situationBfr({ factures: [payee([], { pennylaneId: "a", montantHt: 3_000 }), payee([], { pennylaneId: "b", montantHt: 2_000 }), payee([], { pennylaneId: "c", montantHt: null })], date: D, stock: 0, synchroniseLe: "2026-10-02" });
+    assert.deepEqual(resumerExclusions(s.incertaines), { nombre: 3, montantHtInitial: 5_000, sansMontantHt: 1 });
+    assert.equal(phraseExclusions(12), "12 factures ont été exclues du calcul car leur solde à cette date ne peut pas être établi exactement.");
+    assert.equal(phraseExclusions(1), "1 facture a été exclue du calcul car son solde à cette date ne peut pas être établi exactement.");
+  });
+
+  test("les factures incertaines ne rendent jamais le BFR indisponible ; le stock manquant, si", () => {
+    const s = situationBfr({ factures: [payee([], { pennylaneId: "f2" })], date: D, stock: null, synchroniseLe: "2026-10-02" });
+    assert.equal(statutBfr(s, null), "indisponible");
+    assert.equal(s.bfr, null);
+    assert.equal(s.raisons.length, 1);
+    assert.match(s.raisons[0], /Stock HT/);
+  });
+
+  test("synchronisation au plus tard à la date de référence : indisponible ; jamais synchronisée aussi", () => {
     assert.equal(situationBfr({ factures: [], date: D, stock: 0, synchroniseLe: "2026-09-29" }).complete, false);
     assert.equal(situationBfr({ factures: [], date: D, stock: 0, synchroniseLe: D }).complete, false);
     assert.equal(situationBfr({ factures: [], date: D, stock: 0, synchroniseLe: null }).complete, false);
@@ -216,10 +270,55 @@ describe("BFR — situations validées", () => {
     assert.equal(statutBfr(complete, photo), "validee");
   });
 
-  test("situation incomplète : rien à valider", () => {
-    const incomplete = situationBfr({ factures: [facture()], date: D, stock: null, synchroniseLe: "2026-10-02" });
-    assert.equal(photographier(incomplete, "2026-10-02", "2026-10-03T09:00:00.000Z"), null);
-    assert.equal(statutBfr(incomplete, null), "incomplete");
+  test("situation indisponible : rien à valider", () => {
+    const indisponible = situationBfr({ factures: [facture()], date: D, stock: null, synchroniseLe: "2026-10-02" });
+    assert.equal(photographier(indisponible, "2026-10-02", "2026-10-03T09:00:00.000Z"), null);
+    assert.equal(statutBfr(indisponible, null), "indisponible");
+  });
+
+  // Deux factures exclues au 30/09 : f2 et f3, réglées sans transaction rapprochée.
+  const exclue = (id: string, reglements: { date: string; montant: number }[] = []) => payee(reglements, { pennylaneId: id, numero: `FA-${id}` });
+  const avecReserves = situationBfr({ factures: [facture(), exclue("f2"), exclue("f3")], date: D, stock: 5_000, synchroniseLe: "2026-10-02" });
+
+  test("BFR avec réserves : validable, les exclusions font partie de la photographie", () => {
+    const photo = photographier(avecReserves, "2026-10-02", "2026-10-03T09:00:00.000Z")!;
+    assert.equal(photo.bfr, 15_000);
+    assert.deepEqual(photo.facturesExclues.map((f) => f.pennylaneId).sort(), ["f2", "f3"]);
+    assert.ok(photo.facturesExclues.every((f) => f.raison.length > 0));
+    assert.equal(photo.synchroniseLe, "2026-10-02");
+    assert.equal(statutBfr(avecReserves, photo), "validee");
+    assert.deepEqual(facturesExcluesRetenues(avecReserves, photo), photo.facturesExclues);
+    assert.deepEqual(facturesExcluesRetenues(avecReserves, null), avecReserves.incertaines);
+  });
+
+  test("facture exclue devenue fiable : le provisoire suit, le validé ne change pas et signale la révision possible", () => {
+    const photo = photographier(avecReserves, "2026-10-02", "2026-10-03T09:00:00.000Z")!;
+    // f2 est désormais datée : réglée après le 30/09, donc due à cette date.
+    const apres = situationBfr({ factures: [facture(), exclue("f2", [{ date: "2026-10-20", montant: 12_000 }]), exclue("f3")], date: D, stock: 5_000, synchroniseLe: "2026-10-25" });
+    assert.equal(apres.bfr, 25_000);
+    assert.equal(apres.incertaines.length, 1);
+    assert.deepEqual(totauxRetenus(apres, photo), { creances: 10_000, stock: 5_000, dettes: 0, bfr: 15_000 });
+    assert.deepEqual(facturesExcluesRetenues(apres, photo).map((f) => f.pennylaneId).sort(), ["f2", "f3"]);
+    assert.equal(photographieDepassee(photo, apres), true);
+    assert.deepEqual(exclusionsDevenuesFiables(photo, apres).map((f) => f.pennylaneId), ["f2"]);
+    const revisee = reviser(photo, photographier(apres, "2026-10-25", "2026-10-26T08:00:00.000Z")!, "2026-10-26T08:00:00.000Z");
+    assert.equal(revisee.facturesExclues.length, 1);
+    assert.equal(revisee.revisions[0].precedente.bfr, 15_000);
+    assert.equal(revisee.revisions[0].precedente.facturesExclues?.length, 2);
+  });
+
+  test("nouvelle synchro sans changement : aucune révision proposée ; même BFR mais autres exclusions : signalé", () => {
+    const photo = photographier(avecReserves, "2026-10-02", "2026-10-03T09:00:00.000Z")!;
+    assert.equal(photographieDepassee(photo, avecReserves), false);
+    const autres = situationBfr({ factures: [facture(), exclue("f2"), exclue("f9")], date: D, stock: 5_000, synchroniseLe: "2026-10-25" });
+    assert.equal(autres.bfr, photo.bfr);
+    assert.equal(photographieDepassee(photo, autres), true);
+  });
+
+  test("calcul devenu indisponible (stock retiré) : il ne remplace pas la photographie", () => {
+    const photo = photographier(avecReserves, "2026-10-02", "2026-10-03T09:00:00.000Z")!;
+    const sansStock = situationBfr({ factures: [facture()], date: D, stock: null, synchroniseLe: "2026-10-25" });
+    assert.equal(photographieDepassee(photo, sansStock), false);
   });
 
   test("enrichissement après synchronisation : le provisoire suit, la photographie validée ne bouge pas", () => {
@@ -286,5 +385,48 @@ describe("BFR — lecture des factures Pennylane", () => {
     assert.equal(reglementsNecessaires(facture()), false);
     assert.equal(reglementsNecessaires(facture({ resteTtc: 0 })), true);
     assert.equal(reglementsNecessaires(facture({ resteTtc: 0, exclusion: "archivee" })), false);
+  });
+});
+
+describe("BFR — évolution sur 12 mois glissants", () => {
+  test("septembre 2026 -> octobre 2025 à septembre 2026, 12 mois exactement", () => {
+    const m = moisGlissants("2026-09");
+    assert.equal(m.length, 12);
+    assert.deepEqual([m[0], m[2], m[3], m[11]], ["2025-10", "2025-12", "2026-01", "2026-09"]);
+  });
+
+  test("janvier : décembre et onze mois de l'année précédente, sans trou", () => {
+    assert.deepEqual(moisGlissants("2026-01", 3), ["2025-11", "2025-12", "2026-01"]);
+  });
+
+  test("un mois sans stock reste sans valeur : jamais 0", () => {
+    const s = situationBfr({ factures: [], date: "2026-03-31", stock: null, synchroniseLe: "2026-10-02" });
+    assert.equal(s.bfr, null);
+    assert.equal(totauxRetenus(s, null), null);
+  });
+});
+
+describe("BFR — axe de l'évolution : dernier jour calendaire du mois", () => {
+  test("mois de 30 et de 31 jours", () => {
+    assert.equal(libelleFinDeMois("2026-09"), "30/09/2026");
+    assert.equal(libelleFinDeMois("2026-04"), "30/04/2026");
+    assert.equal(libelleFinDeMois("2026-01"), "31/01/2026");
+    assert.equal(libelleFinDeMois("2025-12"), "31/12/2025");
+  });
+
+  test("février normal et février d'une année bissextile", () => {
+    assert.equal(libelleFinDeMois("2026-02"), "28/02/2026");
+    assert.equal(libelleFinDeMois("2028-02"), "29/02/2028");
+    assert.equal(libelleFinDeMois("2100-02"), "28/02/2100");
+  });
+
+  test("format compact : jour et mois seuls", () => {
+    assert.equal(libelleFinDeMois("2026-09", true), "30/09");
+  });
+
+  test("fenêtre de septembre 2026 : du 31/10/2025 au 30/09/2026, 12 dates", () => {
+    const dates = moisGlissants("2026-09").map((m) => libelleFinDeMois(m));
+    assert.equal(dates.length, 12);
+    assert.deepEqual([dates[0], dates[1], dates[4], dates[11]], ["31/10/2025", "30/11/2025", "28/02/2026", "30/09/2026"]);
   });
 });

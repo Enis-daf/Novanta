@@ -1,4 +1,11 @@
+import { formatDateCourte } from "./dates";
 import { AjustementGestion } from "./pastAdjustments";
+import { moisGlissants } from "./pastBfr";
+import { DelaisCohorte, delaisDuMois } from "./pastBfrDelais";
+import { evolutionBfr, LectureBfr, lectureBfrDuMois, PointBfr, SourcesBfr } from "./pastBfrLecture";
+import { MappingCategorie } from "./pastCategoryMapping";
+import { dateEnLettres, PlanEcarts, PlanRapport } from "./pastPdfPeriodes";
+import { categoriesDeLEtage, Comparaison, comparerPeriodes, donneesPeriode, LigneCategorieEcart } from "./pastVariance";
 import {
   calculerDetail,
   FiltresDetail,
@@ -12,15 +19,18 @@ import {
 import { MENTION_HT_ESTIME, MENTION_TTC } from "./format";
 import type { BaseMontants, IndicateurEconomique, PnlEnBase } from "./pastHtEstime";
 import { Pnl } from "./pastPnl";
-import { Periode } from "./pastTransactions";
+import { PastTransactionStockee, Periode } from "./pastTransactions";
 
 /**
  * Contenu de l'export PDF du module "Passé" — fonctions pures, sans dessin ni navigateur : ce qui
  * figure sur chaque page est décidé ici, à partir des mêmes calculs que les écrans (calculerPnl,
  * calculerDetail). Le dessin lui-même est dans lib/pastPdfDocument.tsx.
  *
- * Une page par onglet de résultats, dans l'ordre des onglets. Stocks et Correspondance P&L sont
- * des écrans de saisie et de configuration : ils n'ont pas de page.
+ * Une page par onglet de résultats, dans l'ordre des onglets : Général, Encaissements, Marge brute,
+ * Marge contributive, EBITDA, Cash flow, BFR, Analyse d'écarts. Stocks, Objectifs et
+ * Correspondance P&L sont des écrans de saisie et de configuration : ils n'ont pas de page.
+ * Chaque page porte SA période (lib/pastPdfPeriodes.ts) : celle du rapport pour le P&L, une fin de
+ * mois pour le BFR, deux périodes pour l'Analyse d'écarts.
  */
 
 export const MAX_TRANSACTIONS_PDF = 20;
@@ -47,9 +57,20 @@ const ORDRE_DETAILS: readonly MetriqueDetail[] = ["ca", "marge_brute", "marge_co
 
 const SANS_FILTRE: FiltresDetail = { categorie: null, mois: null };
 
+/** Période affichée en tête d'une page : la période ne se devine pas d'une page à l'autre. */
+export interface EntetePeriode {
+  titre: string; // « Période analysée », « Situation », « Périodes comparées »
+  valeur: string; // « Septembre 2026 », « Au 30 septembre 2026 », « Septembre 2026 vs août 2026 »
+  detail: string | null; // dates exactes, ou précision (« dernier mois complet disponible »)
+}
+
+// BFR : toujours HT, sur factures Pennylane et stocks saisis — jamais une version TTC.
+export const DISCLAIMER_PDF_BFR = "BFR exclusivement HT : factures Pennylane (montants HT) et stocks HT de fin de mois saisis dans Novanta.";
+
 export interface PageGeneralPdf {
   type: "general";
   titre: string;
+  entete: EntetePeriode;
   pnl: Pnl;
   // Lecture des indicateurs principaux ; la trésorerie reste toujours TTC.
   base: BaseMontants;
@@ -61,6 +82,7 @@ export interface PageGeneralPdf {
 export interface PageDetailPdf {
   type: "detail";
   titre: string;
+  entete: EntetePeriode;
   metrique: MetriqueDetail;
   // Filtres locaux appliqués à la page, et leur libellé à afficher ([] = aucun filtre).
   filtres: FiltresDetail;
@@ -75,7 +97,36 @@ export interface PageDetailPdf {
   estimationIncomplete: boolean;
 }
 
-export type PagePdf = PageGeneralPdf | PageDetailPdf;
+export interface PageBfrPdf {
+  type: "bfr";
+  titre: string;
+  entete: EntetePeriode;
+  // null : aucune fin de mois utilisable (`indisponible` dit pourquoi) — rien n'est fabriqué.
+  mois: string | null;
+  indisponible: string | null;
+  lecture: LectureBfr | null;
+  // Cohortes du mois et du mois civil précédent (pour l'évolution), comme les cartouches de l'onglet.
+  delais: { client: DelaisCohorte; fournisseur: DelaisCohorte; clientPrecedent: DelaisCohorte; fournisseurPrecedent: DelaisCohorte } | null;
+  evolution: PointBfr[];
+}
+
+/** Mouvement explicatif : une catégorie (ou un ajustement) et son étage, avec son impact sur l'écart. */
+export interface MouvementEcart extends LigneCategorieEcart {
+  libelleEtage: string;
+}
+
+export interface PageEcartsPdf {
+  type: "ecarts";
+  titre: string;
+  entete: EntetePeriode;
+  plan: PlanEcarts;
+  // null : comparaison indisponible (`indisponible` dit pourquoi) — jamais remplacée par une autre période.
+  comparaison: Comparaison | null;
+  indisponible: string | null;
+  mouvements: MouvementEcart[];
+}
+
+export type PagePdf = PageGeneralPdf | PageDetailPdf | PageBfrPdf | PageEcartsPdf;
 
 export interface SourceExportPdf {
   // P&L et parts dans la lecture exportée (lib/pastHtEstime.ts). TTC si `base` est absente.
@@ -91,6 +142,8 @@ export interface SourceExportPdf {
   // filtre connu de l'application : les autres pages sont exportées sans filtre local.
   ongletOuvert: string;
   filtresOngletOuvert: FiltresDetail;
+  // Période affichée en tête des pages ; par défaut, les dates de `periode`.
+  entete?: EntetePeriode;
 }
 
 /** Libellés du filtre local d'une page : la catégorie, puis le mois. Vide sans filtre. */
@@ -110,7 +163,8 @@ export function pagesExportPdf(source: SourceExportPdf): PagePdf[] {
   const base = source.base ?? "ttc";
   const couvertures = "couvertures" in source.pnl ? source.pnl.couvertures : null;
   const incomplets = couvertures ? (Object.keys(couvertures) as IndicateurEconomique[]).filter((cle) => !couvertures[cle].complete) : [];
-  const pages: PagePdf[] = [{ type: "general", titre: "Général", pnl: source.pnl, base, incomplets, avertissements: source.avertissements }];
+  const entete = source.entete ?? { titre: "Période analysée", valeur: `${formatDateCourte(source.periode.debut)} — ${formatDateCourte(source.periode.fin)}`, detail: null };
+  const pages: PagePdf[] = [{ type: "general", titre: "Général", entete, pnl: source.pnl, base, incomplets, avertissements: source.avertissements }];
   for (const metrique of ORDRE_DETAILS) {
     const filtres = metrique === source.ongletOuvert ? source.filtresOngletOuvert : SANS_FILTRE;
     const tresorerie = metrique === "cash_flow";
@@ -119,6 +173,7 @@ export function pagesExportPdf(source: SourceExportPdf): PagePdf[] {
     pages.push({
       type: "detail",
       titre: METRIQUES_DETAIL[metrique].libelle,
+      entete,
       metrique,
       filtres,
       libellesFiltres: libellesDesFiltres(vue, filtres),
@@ -130,6 +185,97 @@ export function pagesExportPdf(source: SourceExportPdf): PagePdf[] {
     });
   }
   return pages;
+}
+
+const bornes = (p: Periode) => `${formatDateCourte(p.debut)} — ${formatDateCourte(p.fin)}`;
+
+/** En-tête des pages P&L : la période du rapport, « à date » si elle n'est pas terminée. */
+export function entetePnl(plan: PlanRapport, aujourdhui: string): EntetePeriode {
+  return plan.enCours
+    ? { titre: "Période analysée", valeur: `${plan.libelle}, à date`, detail: `${formatDateCourte(plan.periode.debut)} — ${formatDateCourte(aujourdhui)}` }
+    : { titre: "Période analysée", valeur: plan.libelle, detail: bornes(plan.periode) };
+}
+
+/**
+ * Page BFR : la situation de la fin de mois retenue par le plan — mêmes calculs que l'onglet BFR
+ * (lib/pastBfrLecture.ts), mêmes délais que ses cartouches, même évolution sur 12 mois.
+ */
+export function pageBfrPdf(plan: PlanRapport, sources: SourcesBfr, aujourdhui: string): PageBfrPdf {
+  if (plan.bfr === null) {
+    return {
+      type: "bfr",
+      titre: "BFR",
+      entete: { titre: "Situation", valeur: "Non disponible", detail: null },
+      mois: null,
+      indisponible: `BFR non disponible : ${plan.libelleBfr}. Le BFR est une photographie de fin de mois, jamais un agrégat de la période.`,
+      lecture: null,
+      delais: null,
+      evolution: [],
+    };
+  }
+  const { mois, date, dernierMoisComplet } = plan.bfr;
+  const lecture = lectureBfrDuMois(sources, mois);
+  return {
+    type: "bfr",
+    titre: "BFR",
+    entete: { titre: "Situation", valeur: `Au ${dateEnLettres(date)}`, detail: dernierMoisComplet ? "Dernier mois complet disponible" : null },
+    mois,
+    indisponible: null,
+    lecture,
+    delais: {
+      client: delaisDuMois(sources.factures, "client", mois, aujourdhui),
+      fournisseur: delaisDuMois(sources.factures, "fournisseur", mois, aujourdhui),
+      clientPrecedent: delaisDuMois(sources.factures, "client", moisGlissants(mois, 2)[0], aujourdhui),
+      fournisseurPrecedent: delaisDuMois(sources.factures, "fournisseur", moisGlissants(mois, 2)[0], aujourdhui),
+    },
+    evolution: evolutionBfr(sources, mois, aujourdhui),
+  };
+}
+
+export const MAX_MOUVEMENTS_PDF = 10;
+
+export interface SourceEcartsPdf {
+  plan: PlanEcarts;
+  // Transactions chargées sur les périodes A et B du plan, jamais sur les sélecteurs de l'écran.
+  transactionsA: PastTransactionStockee[];
+  transactionsB: PastTransactionStockee[];
+  axeId: string | null;
+  mappings: ReadonlyMap<string, MappingCategorie>;
+  // Tous les ajustements de gestion : chaque période en prend sa part.
+  ajustements: AjustementGestion[];
+  financementCompris: boolean;
+}
+
+/**
+ * Page Analyse d'écarts : le calcul de l'écran (lib/pastVariance.ts) sur les périodes du plan.
+ * Durées égales par construction (mois contre mois, exercice contre exercice, portion contre même
+ * portion) : aucune normalisation. Une période sans aucune transaction rend la comparaison
+ * indisponible — elle n'est jamais remplacée par une autre.
+ */
+export function pageEcartsPdf(source: SourceEcartsPdf): PageEcartsPdf {
+  const { plan } = source;
+  const entete: EntetePeriode = { titre: "Périodes comparées", valeur: plan.libelle, detail: `${bornes(plan.b)} vs ${bornes(plan.a)}` };
+  const vide = source.transactionsA.length === 0 ? plan.a : source.transactionsB.length === 0 ? plan.b : null;
+  if (vide !== null) {
+    return {
+      type: "ecarts",
+      titre: "Analyse d'écarts",
+      entete,
+      plan,
+      comparaison: null,
+      indisponible: `Comparaison indisponible : aucune transaction synchronisée du ${bornes(vide).replace(" — ", " au ")}.`,
+      mouvements: [],
+    };
+  }
+  const a = donneesPeriode(source.transactionsA, source.axeId, source.mappings, source.ajustements, plan.a);
+  const b = donneesPeriode(source.transactionsB, source.axeId, source.mappings, source.ajustements, plan.b);
+  const comparaison = comparerPeriodes(a, b, { financementCompris: source.financementCompris });
+  const mouvements = comparaison.etages
+    .flatMap((e) => categoriesDeLEtage(a, b, e.etage).map((ligne) => ({ ...ligne, libelleEtage: e.libelle })))
+    .filter((m) => m.variation.sens !== "stable")
+    .sort((x, y) => Math.abs(y.contribution) - Math.abs(x.contribution) || x.nom.localeCompare(y.nom, "fr"))
+    .slice(0, MAX_MOUVEMENTS_PDF);
+  return { type: "ecarts", titre: "Analyse d'écarts", entete, plan, comparaison, indisponible: null, mouvements };
 }
 
 /** "Novanta_Reporting_Maju_2025-10-01_2026-09-30.pdf" — nom d'organisation réduit à des caractères sûrs. */

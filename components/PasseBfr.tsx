@@ -1,22 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, toISODate } from "@/lib/dates";
 import { formatKiloEuros, formatMontant } from "@/lib/format";
-import { graduationsAxe, NEUTRES, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
 import { finDeMois, StockFinDeMois } from "@/lib/pastAdjustments";
-import { libelleMois, libelleMoisCourt } from "@/lib/pastDetail";
+import { libelleMois } from "@/lib/pastDetail";
 import {
+  exclusionsDevenuesFiables,
   FactureBfr,
+  FactureIncertaine,
+  facturesExcluesRetenues,
   LIBELLES_STATUT_BFR,
+  phraseExclusions,
+  resumerExclusions,
   LigneBfr,
   photographier,
   photographieDepassee,
   reviser,
   SituationBfr,
-  situationBfr,
   SituationValidee,
   StatutBfr,
   statutBfr,
@@ -24,6 +26,10 @@ import {
   totauxRetenus,
   variationBfr,
 } from "@/lib/pastBfr";
+import { CoteDelai, delaisDeLaCohorte, DelaisCohorte, delaisDuMois } from "@/lib/pastBfrDelais";
+import { evolutionBfr, PointBfr, situationBfrDuMois, SourcesBfr, stockBfrDuMois, valideeDuMois } from "@/lib/pastBfrLecture";
+import PasseBfrEvolutionChart, { bfrAfficheDe, LegendeEvolution } from "./PasseBfrEvolutionChart";
+import { CartoucheDelai, MesureDistribution, VueDelais } from "./PasseBfrDelais";
 import {
   chargerFacturesBfr,
   chargerSituationsValidees,
@@ -33,7 +39,9 @@ import {
 
 interface PasseBfrProps {
   organizationId: string;
-  accessToken: string;
+  // Incrémenté après une synchronisation : l'unique bouton « Synchroniser Pennylane » du module met
+  // aussi à jour les factures du BFR ; elles sont alors relues.
+  rechargement: number;
   // Mois (YYYY-MM) terminés de la période du module : chacun a sa situation de fin de mois.
   mois: string[];
   stocks: StockFinDeMois[];
@@ -42,9 +50,9 @@ interface PasseBfrProps {
   onOuvrirStocks: () => void;
 }
 
-const MAX_APPELS_SYNCHRO = 40;
 const LIGNES_VISIBLES = 10;
-const VERSION_CALCUL = "bfr-1";
+// bfr-2 : les factures au solde incertain sont exclues et enregistrées, elles ne bloquent plus le calcul.
+const VERSION_CALCUL = "bfr-2";
 
 type Action = "creances" | "stocks" | "dettes";
 
@@ -55,6 +63,20 @@ function moisPrecedent(mois: string): string {
   const annee = Number(mois.slice(0, 4));
   const numero = Number(mois.slice(5, 7));
   return numero === 1 ? `${annee - 1}-12` : `${annee}-${String(numero - 1).padStart(2, "0")}`;
+}
+
+// Délais de paiement : cohorte du mois de référence (factures émises ce mois-là), comparée au mois
+// civil précédent. L'onglet BFR est mensuel : un seul mois pour tout l'écran.
+function periodeDesDelais(mois: string): { debut: string; fin: string; precedente: { debut: string; fin: string }; libelle: string; court: string; courtPrecedent: string } {
+  const prec = moisPrecedent(mois);
+  return {
+    debut: `${mois}-01`,
+    fin: finDeMois(mois),
+    precedente: { debut: `${prec}-01`, fin: finDeMois(prec) },
+    libelle: `en ${libelleMois(mois).toLowerCase()}`,
+    court: libelleMois(mois).toLowerCase(),
+    courtPrecedent: libelleMois(prec).toLowerCase(),
+  };
 }
 
 function Statut({ statut }: { statut: StatutBfr }) {
@@ -101,35 +123,69 @@ function ListeFactures({ lignes, libelleTiers }: { lignes: LigneBfr[]; libelleTi
   );
 }
 
-interface PointBfr {
-  mois: string;
-  valeur: number | null;
-  statut: StatutBfr;
-}
-
-function InfoBulleBfr({ active, payload }: { active?: boolean; payload?: { payload: PointBfr }[] }) {
-  if (!active || !payload?.length) return null;
-  const { mois, valeur, statut } = payload[0].payload;
+// Réserve du chiffre affiché : combien de factures sont exclues, et le détail à la demande. Pour
+// comprendre, pas pour corriger : ces données ne se modifient pas dans Novanta.
+function ReserveExclusions({ exclues }: { exclues: FactureIncertaine[] }) {
+  const [ouvert, setOuvert] = useState(false);
+  const resume = resumerExclusions(exclues);
   return (
-    <div className="passe-structure__infobulle">
-      <strong>{libelleMois(mois)}</strong>
-      <span>{valeur === null ? "BFR incomplet" : `${formatMontant(valeur)} HT`}</span>
-      <span className="passe-structure__note">{LIBELLES_STATUT_BFR[statut]}</span>
+    <div className="passe-bfr__alerte">
+      <p>{phraseExclusions(resume.nombre)}</p>
+      <p className="passe-message">
+        {resume.nombre} facture{resume.nombre > 1 ? "s" : ""} exclue{resume.nombre > 1 ? "s" : ""} — montant HT initial cumulé : {enK(resume.montantHtInitial)}
+        {resume.sansMontantHt > 0 && ` (hors ${resume.sansMontantHt} sans montant HT)`}. Ordre de grandeur des factures à l&apos;émission, pas leur solde à cette date.
+      </p>
+      <button type="button" className="passe-lien-ligne" aria-expanded={ouvert} onClick={() => setOuvert((o) => !o)}>
+        {ouvert ? "Masquer le détail" : "Voir le détail des factures exclues"}
+      </button>
+      {ouvert && (
+        <div className="passe-detail__table passe-bfr__exclues">
+          <table className="passe-table">
+            <thead>
+              <tr>
+                <th>Client / fournisseur</th>
+                <th>Facture</th>
+                <th className="col-montant">Montant HT initial</th>
+                <th>Émise le</th>
+                <th>Échéance</th>
+                <th>Raison de l&apos;exclusion</th>
+                <th>Paiement</th>
+              </tr>
+            </thead>
+            <tbody>
+              {exclues.map((f) => (
+                <tr key={`${f.type}|${f.pennylaneId}`}>
+                  <td className="passe-table__libelle">
+                    {f.tiers} <span className="passe-message">· {f.type === "client" ? "client" : "fournisseur"}</span>
+                  </td>
+                  <td>{f.numero}</td>
+                  <td className="col-montant passe-table__montant">{f.montantHtInitial === null ? "—" : formatMontant(f.montantHtInitial)}</td>
+                  <td className="passe-table__date">{f.dateEmission ? formatDateCourte(f.dateEmission) : "—"}</td>
+                  <td className="passe-table__date">{f.echeance ? formatDateCourte(f.echeance) : "—"}</td>
+                  <td>{f.raison}</td>
+                  <td className="passe-message">{f.paiement}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-export default function PasseBfr({ organizationId, accessToken, mois, stocks, sansStock, pennylaneConnecte, onOuvrirStocks }: PasseBfrProps) {
+export default function PasseBfr({ organizationId, rechargement, mois, stocks, sansStock, pennylaneConnecte, onOuvrirStocks }: PasseBfrProps) {
   const [factures, setFactures] = useState<FactureBfr[]>([]);
   const [synchroniseesLe, setSynchroniseesLe] = useState<string | null>(null);
   const [validees, setValidees] = useState<SituationValidee[]>([]);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
-  const [syncEnCours, setSyncEnCours] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [enregistrement, setEnregistrement] = useState(false);
   const [moisChoisi, setMoisChoisi] = useState<string | null>(null);
   const [action, setAction] = useState<Action>("creances");
+  // Délais de paiement : vue détaillée ouverte (null : synthèse BFR).
+  const [vueDelais, setVueDelais] = useState<{ cote: CoteDelai; tranche: string | null; mesure: MesureDistribution } | null>(null);
 
   const charger = useCallback(async () => {
     const [faits, situations] = await Promise.all([chargerFacturesBfr(supabase!, organizationId), chargerSituationsValidees(supabase!, organizationId)]);
@@ -154,85 +210,41 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
     return () => {
       annule = true;
     };
-  }, [charger, organizationId]);
+  }, [charger, organizationId, rechargement]);
 
   // Jour de la synchronisation, en date locale : c'est lui qui se compare à la date de référence.
   const synchroniseLe = synchroniseesLe ? toISODate(new Date(synchroniseesLe)) : null;
-  const stockDuMois = useCallback(
-    (m: string): number | null => {
-      const saisi = stocks.find((s) => s.mois === m);
-      if (saisi) return saisi.valeur;
-      // Société déclarée sans stock (et aucun stock saisi) : un stock nul est une donnée, pas un manque.
-      return sansStock && stocks.length === 0 ? 0 : null;
-    },
-    [stocks, sansStock]
-  );
-  const situationDu = useCallback(
-    (m: string): SituationBfr => situationBfr({ factures, date: finDeMois(m), stock: stockDuMois(m), synchroniseLe }),
-    [factures, stockDuMois, synchroniseLe]
-  );
-  const valideeDu = useCallback((m: string) => validees.find((v) => v.date === finDeMois(m)) ?? null, [validees]);
+  // Lecture partagée avec l'export PDF (lib/pastBfrLecture.ts) : mêmes chiffres pour un même mois.
+  const sources = useMemo<SourcesBfr>(() => ({ factures, validees, stocks, sansStock, synchroniseLe }), [factures, validees, stocks, sansStock, synchroniseLe]);
+  const stockDuMois = useCallback((m: string): number | null => stockBfrDuMois(stocks, sansStock, m), [stocks, sansStock]);
+  const situationDu = useCallback((m: string): SituationBfr => situationBfrDuMois(sources, m), [sources]);
+  const valideeDu = useCallback((m: string) => valideeDuMois(validees, m), [validees]);
 
   const courant = moisChoisi !== null && mois.includes(moisChoisi) ? moisChoisi : mois[mois.length - 1] ?? null;
 
-  const evolution = useMemo<PointBfr[]>(
-    () =>
-      mois.map((m) => {
-        const situation = situationDu(m);
-        const validee = valideeDu(m);
-        return { mois: m, valeur: totauxRetenus(situation, validee)?.bfr ?? null, statut: statutBfr(situation, validee) };
-      }),
-    [mois, situationDu, valideeDu]
-  );
-
-  // Deux étapes (voir app/api/passe/bfr/route.ts) : les factures, puis la datation des règlements,
-  // rappelée tant qu'il en reste. Le message dit l'étape réellement en cours ; le compteur n'apparaît
-  // que lorsque le serveur a donné le nombre de factures à dater. « À jour » seulement à la fin.
-  const synchroniser = async () => {
-    if (syncEnCours) return;
-    setSyncEnCours(true);
-    setErreur(null);
-    const synchro = crypto.randomUUID();
-    const appeler = async (etape: "factures" | "reglements") => {
-      const res = await fetch("/api/passe/bfr", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ etape, synchro }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "La synchronisation des factures Pennylane a échoué. Réessayez.");
-      return data;
+  // Délais clients / fournisseurs de la cohorte (factures émises sur la période) et de la période
+  // précédente (mois civil précédent) — lecture analytique, sans effet sur le BFR ni sur les situations validées.
+  const aujourdhuiDelais = toISODate(new Date());
+  const delais = useMemo(() => {
+    if (courant === null) return null;
+    const p = periodeDesDelais(courant);
+    const cohorte = (cote: CoteDelai, periode: { debut: string; fin: string }): DelaisCohorte => delaisDeLaCohorte(factures, cote, periode, aujourdhuiDelais);
+    return {
+      libelle: p.libelle,
+      court: p.court,
+      courtPrecedent: p.courtPrecedent,
+      client: delaisDuMois(factures, "client", courant, aujourdhuiDelais),
+      fournisseur: delaisDuMois(factures, "fournisseur", courant, aujourdhuiDelais),
+      clientPrecedent: cohorte("client", p.precedente),
+      fournisseurPrecedent: cohorte("fournisseur", p.precedente),
     };
-    try {
-      setMessage("Récupération des factures Pennylane…");
-      const factures = await appeler("factures");
-      let restantes: number = factures.aDater ?? 0;
-      // Un lot interrompu sans aucune facture datée (Pennylane indisponible) : deux de suite, et la
-      // synchronisation s'arrête — ce qui est daté reste acquis, une relance reprendra.
-      let lotsVides = 0;
-      for (let appel = 0; restantes > 0 && appel < MAX_APPELS_SYNCHRO && lotsVides < 2; appel++) {
-        setMessage(`Récupération des règlements : ${restantes} factures à dater…`);
-        const lot = await appeler("reglements");
-        restantes = lot.restantes ?? 0;
-        lotsVides = lot.datees > 0 ? 0 : lotsVides + 1;
-      }
-      setMessage("Calcul des situations BFR…");
-      await charger();
-      setMessage(
-        restantes > 0
-          ? `Synchronisation interrompue : ${restantes} factures restent à dater. Relancez-la pour reprendre.`
-          : `${factures.factures ?? 0} factures Pennylane à jour.${
-              factures.complete === false ? " Liste très volumineuse : certaines factures anciennes peuvent manquer." : ""
-            }`
-      );
-    } catch (e) {
-      setMessage(null);
-      setErreur(e instanceof Error && !(e instanceof TypeError) && e.message ? e.message : "Pennylane est temporairement indisponible. Réessayez.");
-      await charger().catch(() => undefined);
-    } finally {
-      setSyncEnCours(false);
-    }
-  };
+  }, [factures, courant, aujourdhuiDelais]);
+
+  // Évolution : les 12 derniers mois glissants jusqu'au mois choisi (lib/pastBfrLecture.ts).
+  const evolution = useMemo<PointBfr[]>(
+    () => (courant === null ? [] : evolutionBfr(sources, courant, aujourdhuiDelais)),
+    [courant, sources, aujourdhuiDelais]
+  );
 
   if (chargement) return <div className="passe-etat">Chargement du BFR…</div>;
   if (courant === null) {
@@ -249,12 +261,19 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
   const creances = validee ? validee.creancesRetenues : situation.creances;
   const dettes = validee ? validee.dettesRetenues : situation.dettes;
   const depassee = validee !== null && photographieDepassee(validee, situation);
+  const devenuesFiables = validee !== null ? exclusionsDevenuesFiables(validee, situation) : [];
+  const exclues = facturesExcluesRetenues(situation, validee);
+  const excluesPrecedent = facturesExcluesRetenues(situationDu(precedent), valideeDu(precedent));
   const stockPrecedent = stockDuMois(precedent);
 
   const enregistrer = async (revision: boolean) => {
     const maintenant = new Date().toISOString();
     const photo = photographier(situation, synchroniseLe, maintenant);
     if (photo === null || enregistrement) return;
+    // Réserve enregistrée dans la photographie : confirmée explicitement, jamais par défaut.
+    const nombreExclues = photo.facturesExclues.length;
+    const objet = revision ? "Cette révision sera validée" : "Ce BFR sera validé";
+    if (nombreExclues > 0 && !window.confirm(`${objet} avec ${nombreExclues} facture${nombreExclues > 1 ? "s" : ""} exclue${nombreExclues > 1 ? "s" : ""} du calcul.`)) return;
     setEnregistrement(true);
     setErreur(null);
     const provenance = {
@@ -279,9 +298,7 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
     }
   };
 
-  const plusieursAnnees = new Set(mois.map((m) => m.slice(0, 4))).size > 1;
-  const valeurs = evolution.map((p) => p.valeur).filter((v): v is number => v !== null);
-  const graduations = graduationsAxe(valeurs.length > 0 ? valeurs : [0]);
+  const bfrAffiche = bfrAfficheDe(evolution);
 
   return (
     <div className="passe-bfr">
@@ -296,11 +313,6 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
             </option>
           ))}
         </select>
-        {pennylaneConnecte !== false && (
-          <button type="button" className="btn-secondaire" onClick={synchroniser} disabled={syncEnCours}>
-            {syncEnCours ? "Synchronisation…" : "Actualiser les factures Pennylane"}
-          </button>
-        )}
         <span className="passe-message">
           {synchroniseesLe
             ? `Factures synchronisées le ${formatDateCourte(synchroniseLe as string)}`
@@ -312,11 +324,24 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
       {erreur && <p className="login-erreur">{erreur}</p>}
       {message && <p className="passe-message">{message}</p>}
 
+      {vueDelais && delais ? (
+        <VueDelais
+          cohorte={delais[vueDelais.cote]}
+          libellePeriode={delais.libelle}
+          periode={delais.court}
+          mesure={vueDelais.mesure}
+          onMesure={(mesure) => setVueDelais({ ...vueDelais, mesure })}
+          tranche={vueDelais.tranche}
+          onTranche={(tranche) => setVueDelais({ ...vueDelais, tranche })}
+          onRetour={() => setVueDelais(null)}
+        />
+      ) : (
+        <>
       <div className="passe-bfr__haut">
         {/* A. Synthèse */}
         <section className="passe-kpi passe-bfr__synthese">
           <p className="eyebrow eyebrow--grand">BFR au {formatDateCourte(finDeMois(courant))}</p>
-          <p className="passe-kpi__montant">{totaux ? enK(totaux.bfr) : "Incomplet"}</p>
+          <p className="passe-kpi__montant">{totaux ? enK(totaux.bfr) : "Indisponible"}</p>
           {variation && (
             <p className="passe-kpi__ratio">
               {signeK(variation.total)} par rapport au {formatDateCourte(finDeMois(precedent))}
@@ -324,29 +349,32 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
           )}
           <p className="passe-bfr__meta">
             <Statut statut={statut} />
-            {validee ? (
+            {validee && exclues.length > 0 && <Statut statut="reserves" />}
+            {validee && (
               <span>
                 Validé le {formatDateCourte(toISODate(new Date(validee.valideeLe)))} · factures du{" "}
                 {validee.synchroniseLe ? formatDateCourte(validee.synchroniseLe) : "—"}
                 {validee.revisions.length > 0 && ` · ${validee.revisions.length} révision${validee.revisions.length > 1 ? "s" : ""}`}
               </span>
-            ) : (
-              <span>Factures du {synchroniseLe ? formatDateCourte(synchroniseLe) : "—"}</span>
             )}
           </p>
 
+          {/* Sans chiffre (indisponible), il n'y a rien dont ces factures seraient exclues. */}
+          {totaux !== null && exclues.length > 0 && <ReserveExclusions key={courant} exclues={exclues} />}
+
           {/* F. Validation */}
           {validee === null && (
-            <button type="button" className="btn-add" onClick={() => enregistrer(false)} disabled={!situation.complete || enregistrement}>
+            <button type="button" className="btn-add" onClick={() => enregistrer(false)} disabled={situation.bfr === null || enregistrement}>
               Valider le BFR
             </button>
           )}
-          {validee === null && !situation.complete && <p className="passe-message">Validation impossible tant que le calcul est incomplet.</p>}
           {depassee && (
             <div className="passe-bfr__alerte">
               <p>
-                Les données ont changé depuis la validation : BFR recalculé {enK(situation.bfr as number)}. La photographie validée
-                reste inchangée tant que vous ne la révisez pas.
+                {devenuesFiables.length > 0
+                  ? `Données nouvelles : ${devenuesFiables.length > 1 ? `${devenuesFiables.length} factures exclues à la validation sont désormais établies` : "1 facture exclue à la validation est désormais établie"}`
+                  : "Les données ont changé depuis la validation"}{" "}
+                : BFR recalculé {enK(situation.bfr as number)}. La photographie validée reste inchangée tant que vous ne la révisez pas.
               </p>
               <button type="button" className="btn-secondaire" onClick={() => enregistrer(true)} disabled={enregistrement}>
                 Réviser la situation validée
@@ -354,7 +382,7 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
             </div>
           )}
 
-          {!situation.complete && validee === null && (
+          {situation.raisons.length > 0 && validee === null && (
             <div className="passe-bfr__alerte">
               <ul>
                 {situation.raisons.map((r) => (
@@ -370,11 +398,21 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
           )}
         </section>
 
-        {/* B. Décomposition */}
-        <section className="passe-bfr__decomposition" aria-label="Décomposition du BFR">
+        {/* B. Décomposition — chaque délai sous la composante qu'il explique. */}
+        <section className="passe-bfr__decomposition-zone" aria-label="Décomposition du BFR">
+        <div className="passe-bfr__decomposition">
           <div className="passe-bfr__terme">
             <span>Créances clients HT</span>
             <strong>{validee ? enK(validee.creances) : enK(situation.totalCreances)}</strong>
+            {delais && (
+              <CartoucheDelai
+                cohorte={delais.client}
+                precedente={delais.clientPrecedent}
+                periode={delais.court}
+                periodePrecedente={delais.courtPrecedent}
+                onOuvrir={() => setVueDelais({ cote: "client", tranche: null, mesure: "nombre" })}
+              />
+            )}
           </div>
           <span className="passe-bfr__operateur" aria-hidden="true">+</span>
           <div className="passe-bfr__terme">
@@ -385,62 +423,43 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
           <div className="passe-bfr__terme">
             <span>Dettes fournisseurs HT</span>
             <strong>{validee ? enK(validee.dettes) : enK(situation.totalDettes)}</strong>
+            {delais && (
+              <CartoucheDelai
+                cohorte={delais.fournisseur}
+                precedente={delais.fournisseurPrecedent}
+                periode={delais.court}
+                periodePrecedente={delais.courtPrecedent}
+                onOuvrir={() => setVueDelais({ cote: "fournisseur", tranche: null, mesure: "nombre" })}
+              />
+            )}
           </div>
           <span className="passe-bfr__operateur" aria-hidden="true">=</span>
           <div className="passe-bfr__terme passe-bfr__terme--total">
             <span>BFR HT</span>
-            <strong>{totaux ? enK(totaux.bfr) : "Incomplet"}</strong>
+            <strong>{totaux ? enK(totaux.bfr) : "Indisponible"}</strong>
           </div>
+        </div>
         </section>
       </div>
 
-      {/* C. Évolution : seuls les mois fiables ont un barreau ; le provisoire est plus clair. */}
+      {/* C. Évolution : 12 derniers mois jusqu'au mois consulté — BFR en barres, délais en courbes. */}
       <section className="passe-structure">
-        <h3 className="eyebrow eyebrow--encre">Évolution du BFR HT</h3>
-        <div style={{ fontFamily: "var(--font-lexend), sans-serif", cursor: "pointer" }}>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart
-              data={evolution}
-              margin={{ top: 12, right: 8, left: 0, bottom: 0 }}
-              onClick={(etat) => {
-                if (typeof etat?.activeLabel === "string") setMoisChoisi(etat.activeLabel);
-              }}
-            >
-              <CartesianGrid vertical={false} stroke={NEUTRES.bordure} />
-              <XAxis
-                dataKey="mois"
-                tickFormatter={(m: string) => libelleMoisCourt(m, plusieursAnnees)}
-                fontSize={11}
-                tick={{ fill: NEUTRES.secondaire }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                tickFormatter={(v: number) => formatKiloEuros(v, 0)}
-                ticks={graduations}
-                domain={[graduations[0], graduations[graduations.length - 1]]}
-                width={72}
-                fontSize={11}
-                tick={{ fill: NEUTRES.secondaire }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip content={<InfoBulleBfr />} cursor={{ fill: NEUTRES.bordure, fillOpacity: 0.5 }} />
-              <Bar dataKey="valeur" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={false}>
-                {evolution.map((p) => (
-                  <Cell
-                    key={p.mois}
-                    fill={TEINTE_SERIE_PRINCIPALE}
-                    fillOpacity={p.statut === "validee" ? 1 : 0.4}
-                    stroke={p.mois === courant ? NEUTRES.encre : undefined}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <h3 className="eyebrow eyebrow--encre">Évolution sur 12 mois — BFR HT et délais de paiement</h3>
+        <LegendeEvolution bfrAffiche={bfrAffiche} />
+        <PasseBfrEvolutionChart
+          evolution={evolution}
+          courant={courant}
+          // Clic sur un mois de la période du module : il devient le mois consulté.
+          onSelect={(m) => {
+            if (mois.includes(m)) setMoisChoisi(m);
+          }}
+        />
         <p className="passe-message">
-          Barreau plein : validé · clair : provisoire · absent : incomplet (données manquantes ou non fiables), jamais estimé.
+          {bfrAffiche
+            ? "BFR (barres, axe de gauche, k€) : barre pleine = validé, barre claire = provisoire ou avec réserves, pas de barre = indisponible, jamais estimé ; le mois consulté est encadré. "
+            : "BFR non affiché : aucun des 12 mois n'a de situation calculable (stock HT non renseigné ou factures non synchronisées). "}
+          Délais (courbes, axe de droite, jours) : délai moyen réel des factures émises chaque mois, pondéré par le montant HT — le même
+          chiffre que le KPI du mois ; pas de point sans facture réglée. Chaque mois est daté à son dernier jour.
         </p>
       </section>
 
@@ -448,6 +467,7 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
       <section className="passe-structure">
         <h3 className="eyebrow eyebrow--encre">Pourquoi le BFR a-t-il bougé ?</h3>
         {variation ? (
+          <>
           <table className="passe-table passe-bfr__variation">
             <tbody>
               <tr>
@@ -470,6 +490,10 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
               </tr>
             </tbody>
           </table>
+          {(exclues.length > 0 || excluesPrecedent.length > 0) && (
+            <p className="passe-reserve">À lire avec réserve : les factures exclues du calcul ne sont pas les mêmes d&apos;un mois à l&apos;autre.</p>
+          )}
+          </>
         ) : (
           <p className="passe-structure__vide">
             Variation indisponible : il faut un BFR fiable au {formatDateCourte(finDeMois(precedent))} et au{" "}
@@ -522,26 +546,9 @@ export default function PasseBfr({ organizationId, accessToken, mois, stocks, sa
             </button>
           </div>
         )}
-        {validee === null && situation.incertaines.length > 0 && (
-          <div className="passe-bfr__incertaines">
-            <p className="passe-message">Factures au solde inconnu à cette date — exclues, jamais estimées :</p>
-            <table className="passe-table">
-              <tbody>
-                {situation.incertaines.slice(0, LIGNES_VISIBLES).map((f) => (
-                  <tr key={`${f.type}|${f.pennylaneId}`}>
-                    <td className="passe-table__libelle">
-                      {f.tiers} · {f.numero}
-                    </td>
-                    <td>{f.type === "client" ? "Client" : "Fournisseur"}</td>
-                    <td className="col-montant passe-table__montant">jusqu&apos;à {formatMontant(f.montantHtMax)} HT</td>
-                    <td className="passe-message">{f.raison}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </section>
+        </>
+      )}
     </div>
   );
 }
