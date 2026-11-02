@@ -4199,18 +4199,20 @@ button.passe-cible--lien:focus-visible,
   padding-left: var(--space-4);
 }
 
+/* Trois rangées partagées (libellé, chiffre, délai) : les chiffres restent alignés entre eux et les
+   signes se placent sur la rangée des chiffres, quelle que soit la hauteur des cases. */
 .passe-bfr__decomposition {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+  grid-template-rows: auto auto auto;
+  column-gap: var(--space-2);
+  row-gap: var(--space-1);
 }
 
 .passe-bfr__terme {
-  display: flex;
-  flex: 1 1 140px;
-  flex-direction: column;
-  gap: var(--space-1);
+  display: grid;
+  grid-row: 1 / span 3;
+  grid-template-rows: subgrid;
   padding: var(--space-3);
   border: 1px solid var(--couleur-bordure);
   border-radius: 2px;
@@ -4230,10 +4232,30 @@ button.passe-cible--lien:focus-visible,
 }
 
 .passe-bfr__operateur {
+  grid-row: 2;
   align-self: center;
   font-size: 18px;
   font-weight: 600;
+  line-height: 1;
   color: var(--couleur-texte-secondaire);
+}
+
+/* Cases empilées : le signe reste dans l'axe des chiffres, à gauche. */
+@media (max-width: 700px) {
+  .passe-bfr__decomposition {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .passe-bfr__terme {
+    grid-row: auto;
+    grid-template-rows: none;
+  }
+
+  .passe-bfr__operateur {
+    grid-row: auto;
+    padding-left: calc(var(--space-3) + 1px);
+  }
 }
 
 .passe-bfr__variation-total td {
@@ -4536,10 +4558,6 @@ button.passe-cible--lien:focus-visible,
 }
 
 /* BFR : délai clients / fournisseurs — cartouche compact sous la composante, cliquable. */
-.passe-bfr__decomposition {
-  align-items: stretch;
-}
-
 .passe-bfr__delai {
   display: flex;
   flex-direction: column;
