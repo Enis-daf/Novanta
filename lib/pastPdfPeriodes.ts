@@ -192,11 +192,13 @@ export function planRapport(choix: ChoixRapport, aujourdhui: string, config: Con
 }
 
 /** Lignes du résumé affiché avant l'export : ce que chaque section va réellement utiliser. */
-export function resumeDuPlan(plan: PlanRapport): string[] {
+// `inclus` : sections que l'offre de l'organisation ouvre (lib/offres.ts) ; les autres ne sont ni
+// annoncées ni exportées.
+export function resumeDuPlan(plan: PlanRapport, inclus: { bfr: boolean; ecarts: boolean } = { bfr: true, ecarts: true }): string[] {
   const { ecarts } = plan;
   return [
     `Reporting P&L : ${plan.libellePnl}`,
-    `BFR : ${plan.bfr ? plan.libelleBfr : `non disponible — ${plan.libelleBfr}`}`,
-    `Analyse d'écarts : ${ecarts.libelle} (${bornes(ecarts.b)} vs ${bornes(ecarts.a)})`,
+    ...(inclus.bfr ? [`BFR : ${plan.bfr ? plan.libelleBfr : `non disponible — ${plan.libelleBfr}`}`] : []),
+    ...(inclus.ecarts ? [`Analyse d'écarts : ${ecarts.libelle} (${bornes(ecarts.b)} vs ${bornes(ecarts.a)})`] : []),
   ];
 }

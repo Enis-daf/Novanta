@@ -123,3 +123,16 @@ describe("Rapport PDF — périodes proposées", () => {
     assert.deepEqual(exercicesProposes("2025-03-01", "2026-10-15", EXERCICE_PAR_DEFAUT).map(libelleExercice), ["Exercice 2026", "Exercice 2025"]);
   });
 });
+
+describe("resumeDuPlan selon l'offre", () => {
+  test("une section hors offre n'est pas annoncée", () => {
+    const plan = planRapport({ type: "mois", mois: "2026-09" }, "2026-10-15", EXERCICE_PAR_DEFAUT);
+    assert.equal(resumeDuPlan(plan).length, 3);
+    const essentiel = resumeDuPlan(plan, { bfr: false, ecarts: false });
+    assert.equal(essentiel.length, 1);
+    assert.match(essentiel[0], /^Reporting P&L/);
+    const prevision = resumeDuPlan(plan, { bfr: false, ecarts: true });
+    assert.equal(prevision.length, 2);
+    assert.match(prevision[1], /^Analyse d'écarts/);
+  });
+});

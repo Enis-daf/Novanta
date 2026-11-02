@@ -91,6 +91,25 @@ export function delaiDuPoint(c: DelaisCohorte): DelaiDuPoint {
   };
 }
 
+// Quels délais l'offre de l'organisation laisse voir (lib/offres.ts : canViewDSO, canViewDPO).
+export interface DelaisVisibles {
+  clients: boolean;
+  fournisseurs: boolean;
+}
+
+const DELAI_MASQUE: DelaiDuPoint = { moyen: null, ecartEcheance: null, reglees: 0, ouvertes: 0, provisoire: false };
+
+// Retire de l'évolution les délais hors offre (aucune valeur ne reste dans les points) ; le BFR est inchangé.
+export function evolutionVisible(points: PointBfr[], visibles: DelaisVisibles): PointBfr[] {
+  return points.map((p) => ({
+    ...p,
+    delaiClients: visibles.clients ? p.delaiClients : null,
+    delaiFournisseurs: visibles.fournisseurs ? p.delaiFournisseurs : null,
+    clients: visibles.clients ? p.clients : DELAI_MASQUE,
+    fournisseurs: visibles.fournisseurs ? p.fournisseurs : DELAI_MASQUE,
+  }));
+}
+
 /**
  * Évolution : les 12 derniers mois glissants jusqu'au mois donné — BFR (situation de fin de mois)
  * et délais clients / fournisseurs (cohorte du mois, même calcul que le KPI du mois). Un mois sans

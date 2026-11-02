@@ -30,3 +30,23 @@ describe("routes serveur soumises à l'offre", () => {
     });
   }
 });
+
+describe("écrans du module Passé soumis à l'offre", () => {
+  const passe = readFileSync(join(process.cwd(), "components/PasseTransactions.tsx"), "utf8");
+
+  test("la synchronisation n'appelle la route BFR que si l'offre inclut le BFR", () => {
+    assert.match(passe, /if \(droits\.capacites\.canViewWorkingCapital\) \{\s+try \{\s+const factures = await synchroniserFacturesBfr/);
+  });
+
+  test("l'export PDF ne charge et n'ajoute le BFR et les écarts que si l'offre les inclut", () => {
+    assert.ok(passe.includes("const bfrInclus = droits.capacites.canViewWorkingCapital;"));
+    assert.ok(passe.includes("const ecartsInclus = droits.capacites.canViewVarianceAnalysis;"));
+    assert.ok(passe.includes("bfrInclus ? chargerFacturesBfr(supabase!, organizationId) : null"));
+    assert.match(passe, /if \(ecartsInclus\) \{\s+pages\.push\(\s+pageEcartsPdf/);
+  });
+
+  test("les délais suivent canViewDSO et canViewDPO", () => {
+    assert.ok(passe.includes("delaisVisibles={{ clients: droits.capacites.canViewDSO, fournisseurs: droits.capacites.canViewDPO }}"));
+    assert.ok(passe.includes("clients: droits.capacites.canViewDSO,\n            fournisseurs: droits.capacites.canViewDPO,"));
+  });
+});

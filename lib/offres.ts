@@ -41,7 +41,8 @@ export type Capacites = Record<Capacite, boolean>;
 //  - canViewForecast         : module Futur (projection de trésorerie, fiabilité de la projection).
 //  - canViewVarianceAnalysis : onglet « Analyse d'écarts » du module Passé.
 //  - canViewWorkingCapital   : onglet « BFR » du module Passé.
-//  - canViewDSO / canViewDPO : délais clients / fournisseurs (pas encore d'écran dédié).
+//  - canViewDSO / canViewDPO : Délai clients / Délai fournisseurs de l'onglet BFR (cartouche,
+//    distribution, courbe, export PDF) ; s'affichent dans cet onglet, donc requièrent aussi le BFR.
 //  - canViewActions          : module Action.
 const OFFRES_PAR_CAPACITE: Record<Capacite, readonly Offre[]> = {
   canViewReporting: ["essential", "forecast", "steering"],

@@ -27,7 +27,7 @@ import {
   variationBfr,
 } from "@/lib/pastBfr";
 import { CoteDelai, delaisDeLaCohorte, DelaisCohorte, delaisDuMois } from "@/lib/pastBfrDelais";
-import { evolutionBfr, PointBfr, situationBfrDuMois, SourcesBfr, stockBfrDuMois, valideeDuMois } from "@/lib/pastBfrLecture";
+import { DelaisVisibles, evolutionBfr, evolutionVisible, PointBfr, situationBfrDuMois, SourcesBfr, stockBfrDuMois, valideeDuMois } from "@/lib/pastBfrLecture";
 import PasseBfrEvolutionChart, { bfrAfficheDe, LegendeEvolution } from "./PasseBfrEvolutionChart";
 import { CartoucheDelai, MesureDistribution, VueDelais } from "./PasseBfrDelais";
 import {
@@ -48,6 +48,8 @@ interface PasseBfrProps {
   sansStock: boolean;
   pennylaneConnecte: boolean | null;
   onOuvrirStocks: () => void;
+  // Délais que l'offre de l'organisation ouvre (lib/offres.ts : canViewDSO, canViewDPO).
+  delaisVisibles: DelaisVisibles;
 }
 
 const LIGNES_VISIBLES = 10;
@@ -174,7 +176,7 @@ function ReserveExclusions({ exclues }: { exclues: FactureIncertaine[] }) {
   );
 }
 
-export default function PasseBfr({ organizationId, rechargement, mois, stocks, sansStock, pennylaneConnecte, onOuvrirStocks }: PasseBfrProps) {
+export default function PasseBfr({ organizationId, rechargement, mois, stocks, sansStock, pennylaneConnecte, onOuvrirStocks, delaisVisibles }: PasseBfrProps) {
   const [factures, setFactures] = useState<FactureBfr[]>([]);
   const [synchroniseesLe, setSynchroniseesLe] = useState<string | null>(null);
   const [validees, setValidees] = useState<SituationValidee[]>([]);
@@ -242,8 +244,8 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
 
   // Évolution : les 12 derniers mois glissants jusqu'au mois choisi (lib/pastBfrLecture.ts).
   const evolution = useMemo<PointBfr[]>(
-    () => (courant === null ? [] : evolutionBfr(sources, courant, aujourdhuiDelais)),
-    [courant, sources, aujourdhuiDelais]
+    () => (courant === null ? [] : evolutionVisible(evolutionBfr(sources, courant, aujourdhuiDelais), delaisVisibles)),
+    [courant, sources, aujourdhuiDelais, delaisVisibles.clients, delaisVisibles.fournisseurs]
   );
 
   if (chargement) return <div className="passe-etat">Chargement du BFR…</div>;
@@ -404,7 +406,7 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
           <div className="passe-bfr__terme">
             <span>Créances clients HT</span>
             <strong>{validee ? enK(validee.creances) : enK(situation.totalCreances)}</strong>
-            {delais && (
+            {delais && delaisVisibles.clients && (
               <CartoucheDelai
                 cohorte={delais.client}
                 precedente={delais.clientPrecedent}
@@ -423,7 +425,7 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
           <div className="passe-bfr__terme">
             <span>Dettes fournisseurs HT</span>
             <strong>{validee ? enK(validee.dettes) : enK(situation.totalDettes)}</strong>
-            {delais && (
+            {delais && delaisVisibles.fournisseurs && (
               <CartoucheDelai
                 cohorte={delais.fournisseur}
                 precedente={delais.fournisseurPrecedent}
@@ -444,8 +446,10 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
 
       {/* C. Évolution : 12 derniers mois jusqu'au mois consulté — BFR en barres, délais en courbes. */}
       <section className="passe-structure">
-        <h3 className="eyebrow eyebrow--encre">Évolution sur 12 mois — BFR HT et délais de paiement</h3>
-        <LegendeEvolution bfrAffiche={bfrAffiche} />
+        <h3 className="eyebrow eyebrow--encre">
+          {delaisVisibles.clients || delaisVisibles.fournisseurs ? "Évolution sur 12 mois — BFR HT et délais de paiement" : "Évolution sur 12 mois — BFR HT"}
+        </h3>
+        <LegendeEvolution bfrAffiche={bfrAffiche} delaiClients={delaisVisibles.clients} delaiFournisseurs={delaisVisibles.fournisseurs} />
         <PasseBfrEvolutionChart
           evolution={evolution}
           courant={courant}
@@ -458,8 +462,9 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
           {bfrAffiche
             ? "BFR (barres, axe de gauche, k€) : barre pleine = validé, barre claire = provisoire ou avec réserves, pas de barre = indisponible, jamais estimé ; le mois consulté est encadré. "
             : "BFR non affiché : aucun des 12 mois n'a de situation calculable (stock HT non renseigné ou factures non synchronisées). "}
-          Délais (courbes, axe de droite, jours) : délai moyen réel des factures émises chaque mois, pondéré par le montant HT — le même
-          chiffre que le KPI du mois ; pas de point sans facture réglée. Chaque mois est daté à son dernier jour.
+          {(delaisVisibles.clients || delaisVisibles.fournisseurs) &&
+            "Délais (courbes, axe de droite, jours) : délai moyen réel des factures émises chaque mois, pondéré par le montant HT — le même chiffre que le KPI du mois ; pas de point sans facture réglée. "}
+          Chaque mois est daté à son dernier jour.
         </p>
       </section>
 

@@ -46,7 +46,7 @@ import {
   StockFinDeMois,
 } from "@/lib/pastAdjustments";
 import { estMetriqueDetail, moisDeLaPeriode, partsMappees } from "@/lib/pastDetail";
-import { entetePnl, nomFichierPdf, pageBfrPdf, pageEcartsPdf, pagesExportPdf } from "@/lib/pastPdfModel";
+import { entetePnl, nomFichierPdf, PagePdf, pageBfrPdf, pageEcartsPdf, pagesExportPdf } from "@/lib/pastPdfModel";
 import { ChoixRapport, dernierMoisTermine, exercicesProposes, libelleExercice, moisProposes, planRapport, PlanRapport, resumeDuPlan } from "@/lib/pastPdfPeriodes";
 import { chargerFacturesBfr, chargerSituationsValidees } from "@/lib/pastBfrRepository";
 import { libelleMois } from "@/lib/pastDetail";
@@ -814,6 +814,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   // Une seule action pour l'utilisateur, deux chaînes côté serveur enchaînées : les transactions de la
   // période (/api/passe/sync), puis les factures et leurs règlements pour le BFR (/api/passe/bfr), en
   // séquence car elles partagent le plafond d'appels Pennylane. L'échec de l'une n'empêche pas l'autre.
+  // Sans le BFR dans l'offre, seules les transactions sont synchronisées (la route BFR refuserait).
   const synchroniser = async () => {
     if (syncEnCours || !periodeOk) return;
     setSyncEnCours(true);
@@ -848,19 +849,21 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     } catch {
       erreurs.add(INDISPONIBLE);
     }
-    try {
-      const factures = await synchroniserFacturesBfr(accessToken, setSyncMessage);
-      if (factures.statut === "termine") {
-        phrases.push(
-          factures.restantes > 0
-            ? `Synchronisation des factures interrompue : ${factures.restantes} restent à dater. Relancez-la pour reprendre.`
-            : `${pluriel(factures.factures, "facture Pennylane à jour", "factures Pennylane à jour")}.${
-                factures.listeComplete ? "" : " Liste très volumineuse : certaines factures anciennes peuvent manquer."
-              }`
-        );
+    if (droits.capacites.canViewWorkingCapital) {
+      try {
+        const factures = await synchroniserFacturesBfr(accessToken, setSyncMessage);
+        if (factures.statut === "termine") {
+          phrases.push(
+            factures.restantes > 0
+              ? `Synchronisation des factures interrompue : ${factures.restantes} restent à dater. Relancez-la pour reprendre.`
+              : `${pluriel(factures.factures, "facture Pennylane à jour", "factures Pennylane à jour")}.${
+                  factures.listeComplete ? "" : " Liste très volumineuse : certaines factures anciennes peuvent manquer."
+                }`
+          );
+        }
+      } catch (e) {
+        erreurs.add(e instanceof Error && !(e instanceof TypeError) && e.message ? e.message : INDISPONIBLE);
       }
-    } catch (e) {
-      erreurs.add(e instanceof Error && !(e instanceof TypeError) && e.message ? e.message : INDISPONIBLE);
     }
     setSyncMessage(phrases.length > 0 ? phrases.join(" ") : null);
     setSyncErreur(erreurs.size > 0 ? [...erreurs].join(" ") : null);
@@ -922,11 +925,15 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     setExportEnCours(true);
     setExportErreur(null);
     try {
+      // Seules les sections ouvertes par l'offre sont chargées et exportées : un PDF ne contourne pas
+      // le verrou d'un onglet.
+      const bfrInclus = droits.capacites.canViewWorkingCapital;
+      const ecartsInclus = droits.capacites.canViewVarianceAnalysis;
       const [lignesRapport, lignesA, faitsBfr, validees] = await Promise.all([
         chargerPastTransactions(supabase!, organizationId, plan.periode),
-        chargerPastTransactions(supabase!, organizationId, plan.ecarts.a),
-        chargerFacturesBfr(supabase!, organizationId),
-        chargerSituationsValidees(supabase!, organizationId),
+        ecartsInclus ? chargerPastTransactions(supabase!, organizationId, plan.ecarts.a) : [],
+        bfrInclus ? chargerFacturesBfr(supabase!, organizationId) : null,
+        bfrInclus ? chargerSituationsValidees(supabase!, organizationId) : [],
       ]);
       // B est toujours contenue dans la période du rapport (entière, ou à date) : pas de second chargement.
       const lignesB = lignesRapport.filter((t) => t.transactionDate >= plan.ecarts.b.debut && t.transactionDate <= plan.ecarts.b.fin);
@@ -948,19 +955,31 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         filtresOngletOuvert: { categorie: null, mois: null },
         entete: entetePnl(plan, aujourdhui),
       });
-      const synchroniseLe = faitsBfr.synchroniseesLe ? toISODate(new Date(faitsBfr.synchroniseesLe)) : null;
-      const pageBfr = pageBfrPdf(plan, { factures: faitsBfr.factures, validees, stocks, sansStock, synchroniseLe }, aujourdhui);
-      const pageEcarts = pageEcartsPdf({
-        plan: plan.ecarts,
-        transactionsA: lignesA,
-        transactionsB: lignesB,
-        axeId: axe.axeId,
-        mappings: mappingsIndexes,
-        ajustements: tousLesAjustements,
-        financementCompris: ecartsFinancementCompris,
-      });
+      const pages: PagePdf[] = [...pagesPnl];
+      if (faitsBfr) {
+        const synchroniseLe = faitsBfr.synchroniseesLe ? toISODate(new Date(faitsBfr.synchroniseesLe)) : null;
+        pages.push(
+          pageBfrPdf(plan, { factures: faitsBfr.factures, validees, stocks, sansStock, synchroniseLe }, aujourdhui, {
+            clients: droits.capacites.canViewDSO,
+            fournisseurs: droits.capacites.canViewDPO,
+          })
+        );
+      }
+      if (ecartsInclus) {
+        pages.push(
+          pageEcartsPdf({
+            plan: plan.ecarts,
+            transactionsA: lignesA,
+            transactionsB: lignesB,
+            axeId: axe.axeId,
+            mappings: mappingsIndexes,
+            ajustements: tousLesAjustements,
+            financementCompris: ecartsFinancementCompris,
+          })
+        );
+      }
       const { genererPdfPasse, telechargerPdf } = await import("@/lib/pastPdfDocument");
-      const blob = await genererPdfPasse({ organisation: organizationName, pages: [...pagesPnl, pageBfr, pageEcarts], teintes: teintesParCategorie(pnlTtc.categories) });
+      const blob = await genererPdfPasse({ organisation: organizationName, pages, teintes: teintesParCategorie(pnlTtc.categories) });
       telechargerPdf(blob, nomFichierPdf(organizationName, plan.periode));
       setExportOuvert(false);
     } catch (error) {
@@ -1137,14 +1156,16 @@ export default function PasseTransactions({ organizationId, organizationName, ac
                 )}
                 <span className="passe-controle__label">Le rapport contiendra</span>
                 <ul className="passe-export__resume">
-                  {resumeDuPlan(planExport).map((ligne) => (
+                  {resumeDuPlan(planExport, { bfr: droits.capacites.canViewWorkingCapital, ecarts: droits.capacites.canViewVarianceAnalysis }).map((ligne) => (
                     <li key={ligne}>{ligne}</li>
                   ))}
                 </ul>
                 <p className="passe-message">
-                  Montants du P&amp;L en {base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC} (Cash flow en {MENTION_TTC}) · BFR toujours HT · Analyse
-                  d&apos;écarts en {MENTION_TTC}, {ecartsFinancementCompris ? "financement compris" : "hors financement"}. Stocks, Objectifs et Correspondance
-                  P&amp;L ne sont pas exportés.
+                  Montants du P&amp;L en {base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC} (Cash flow en {MENTION_TTC})
+                  {droits.capacites.canViewWorkingCapital && " · BFR toujours HT"}
+                  {droits.capacites.canViewVarianceAnalysis &&
+                    ` · Analyse d'écarts en ${MENTION_TTC}, ${ecartsFinancementCompris ? "financement compris" : "hors financement"}`}
+                  . Stocks, Objectifs et Correspondance P&amp;L ne sont pas exportés.
                 </p>
                 <button type="button" className="btn-add" onClick={() => exporterPdf(planExport)} disabled={exportEnCours || premiereDate === undefined}>
                   {exportEnCours ? "Génération du PDF…" : "Générer le PDF"}
@@ -1445,6 +1466,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               sansStock={sansStock}
               pennylaneConnecte={pennylaneConnecte}
               onOuvrirStocks={() => setVue("stocks")}
+              delaisVisibles={{ clients: droits.capacites.canViewDSO, fournisseurs: droits.capacites.canViewDPO }}
             />
           ) : vue === "stocks" ? (
             <PasseStocks
