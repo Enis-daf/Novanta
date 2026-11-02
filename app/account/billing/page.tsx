@@ -6,6 +6,8 @@ import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling, CompanyBilling } from "@/lib/billing";
+import { LIBELLES_OFFRES } from "@/lib/offres";
+import { abonnementOffreEnCours, offreDuPrix, OFFRES_PAYANTES, OffrePayante } from "@/lib/offresStripe";
 import LoginForm from "@/components/LoginForm";
 
 const LIBELLES_STATUT: Record<string, string> = {
@@ -19,14 +21,13 @@ const LIBELLES_STATUT: Record<string, string> = {
   paused: "En pause — moyen de paiement requis",
 };
 
-const STATUTS_ABONNEMENT_ACTIF = new Set(["active", "trialing"]);
-// Un abonnement "paused" (essai de 30 jours terminé sans carte) a déjà un
-// stripeCustomerId et une souscription existante : le bon parcours est d'ajouter un
-// moyen de paiement via "Gérer mon abonnement" (Customer Portal), pas de recréer un
-// second abonnement via "S'abonner".
-const STATUTS_SANS_NOUVEL_ABONNEMENT = new Set(["active", "trialing", "paused"]);
+// Abonnements souscrits avant les offres : un seul prix, sans offre associée.
+const LIBELLE_ANCIEN_PLAN = "Novanta — 9,99 € / mois";
 
-const LIBELLE_PLAN = "Novanta — 9,99 € / mois";
+function libellePlan(prix: string): string {
+  const offre = offreDuPrix(prix);
+  return offre ? LIBELLES_OFFRES[offre] : LIBELLE_ANCIEN_PLAN;
+}
 
 function libelleStatut(statut: string | null): string {
   if (!statut) return "Aucun abonnement";
@@ -55,7 +56,7 @@ function BillingPageContent() {
   const [sessionChargee, setSessionChargee] = useState(!supabaseConfigured);
   const [company, setCompany] = useState<CompanyBilling | null>(null);
   const [chargementCompany, setChargementCompany] = useState(true);
-  const [actionEnCours, setActionEnCours] = useState<"checkout" | "portal" | null>(null);
+  const [actionEnCours, setActionEnCours] = useState<OffrePayante | "portal" | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
 
   useEffect(() => {
@@ -98,21 +99,22 @@ function BillingPageContent() {
     };
   }, [session]);
 
-  const appelerRouteBilling = async (route: string): Promise<string> => {
+  const appelerRouteBilling = async (route: string, corps?: { offre: OffrePayante }): Promise<string> => {
     const res = await fetch(route, {
       method: "POST",
-      headers: { Authorization: `Bearer ${session!.access_token}` },
+      headers: { Authorization: `Bearer ${session!.access_token}`, "Content-Type": "application/json" },
+      body: corps ? JSON.stringify(corps) : undefined,
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Une erreur est survenue.");
     return data.url as string;
   };
 
-  const handleSubscribe = async () => {
+  const handleSubscribe = async (offre: OffrePayante) => {
     setErreur(null);
-    setActionEnCours("checkout");
+    setActionEnCours(offre);
     try {
-      const url = await appelerRouteBilling("/api/billing/create-checkout-session");
+      const url = await appelerRouteBilling("/api/billing/create-checkout-session", { offre });
       window.location.href = url;
     } catch (error) {
       setErreur(error instanceof Error ? error.message : "Impossible de démarrer l'abonnement.");
@@ -140,10 +142,7 @@ function BillingPageContent() {
     return <LoginForm />;
   }
 
-  const abonnementActif = company ? STATUTS_ABONNEMENT_ACTIF.has(company.subscriptionStatus ?? "") : false;
-  const peutDemarrerNouvelAbonnement = company
-    ? !STATUTS_SANS_NOUVEL_ABONNEMENT.has(company.subscriptionStatus ?? "")
-    : true;
+  const peutDemarrerNouvelAbonnement = !abonnementOffreEnCours(company?.subscriptionStatus, company?.subscriptionPlan);
   const finPeriode = formatDate(company?.subscriptionCurrentPeriodEnd ?? null);
 
   return (
@@ -180,8 +179,8 @@ function BillingPageContent() {
 
               {company?.subscriptionPlan && (
                 <>
-                  <dt>Plan</dt>
-                  <dd>{LIBELLE_PLAN}</dd>
+                  <dt>Offre</dt>
+                  <dd>{libellePlan(company.subscriptionPlan)}</dd>
                 </>
               )}
 
@@ -195,17 +194,23 @@ function BillingPageContent() {
 
             {company?.subscriptionStatus === "paused" && (
               <p className="login-info">
-                Votre période d&apos;essai est terminée. Ajoutez un moyen de paiement via « Gérer mon abonnement »
-                pour retrouver l&apos;accès.
+                Votre période d&apos;essai est terminée. Souscrivez à une offre pour retrouver l&apos;accès.
               </p>
             )}
 
             <div className="billing-actions">
-              {peutDemarrerNouvelAbonnement && (
-                <button type="button" className="btn-add" onClick={handleSubscribe} disabled={actionEnCours !== null}>
-                  {actionEnCours === "checkout" ? "Redirection…" : "S'abonner"}
-                </button>
-              )}
+              {peutDemarrerNouvelAbonnement &&
+                OFFRES_PAYANTES.map((offre) => (
+                  <button
+                    key={offre}
+                    type="button"
+                    className="btn-add"
+                    onClick={() => handleSubscribe(offre)}
+                    disabled={actionEnCours !== null}
+                  >
+                    {actionEnCours === offre ? "Redirection…" : `Souscrire à ${LIBELLES_OFFRES[offre]}`}
+                  </button>
+                ))}
               {company?.stripeCustomerId && (
                 <button
                   type="button"
