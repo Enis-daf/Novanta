@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { FactureBfr } from "./pastBfr";
-import { comparerAvecPrecedente, delaisDeLaCohorte, delaisDuMois, periodeDuMois, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
+import { comparerAvecPrecedente, delaisDeLaCohorte, delaisDuMois, nombreDelaisIncertains, periodeDuMois, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
 
 const SEPTEMBRE = { debut: "2026-09-01", fin: "2026-09-30" };
 const AUJOURDHUI = "2026-10-28";
@@ -357,5 +357,19 @@ describe("Délais — cohorte mensuelle partagée par le KPI et le graphique", (
   test("un mois sans facture réglée n'a pas de délai : jamais 0", () => {
     assert.equal(delaisDuMois([facture({ regleeLe: null })], "client", "2026-09", AUJOURDHUI).delaiMoyen, null);
     assert.equal(delaisDuMois([], "fournisseur", "2026-03", AUJOURDHUI).delaiMoyen, null);
+  });
+});
+
+describe("Délais — factures au paiement incertain : réserve, jamais un blocage", () => {
+  test("hors des moyennes et comptées ; une facture annulée n'est pas une incertitude", () => {
+    const c = cohorte([
+      facture(),
+      facture({ regleeLe: null, resteTtc: 0, resteHt: 0, reglements: [] }),
+      facture({ regleeLe: null, resteTtc: 0, resteHt: 0, reglements: null }),
+      facture({ exclusion: "annulee" }),
+    ]);
+    assert.equal(c.reglees.length, 1);
+    assert.equal(c.delaiMoyen, 45);
+    assert.equal(nombreDelaisIncertains(c), 2);
   });
 });

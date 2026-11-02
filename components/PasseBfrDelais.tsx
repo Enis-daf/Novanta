@@ -13,6 +13,7 @@ import {
   libelleTrancheDansPhrase,
   libelleVariationJours,
   comparerAvecPrecedente,
+  nombreDelaisIncertains,
   NiveauDispersion,
   RaisonExclusion,
   SEUIL_DISPERSION,
@@ -100,6 +101,10 @@ export function CartoucheDelai({
             </span>
           )}
         </>
+      )}
+      {/* Paiement impossible à dater : hors de la moyenne, dit ici ; le détail est dans la distribution. */}
+      {nombreDelaisIncertains(cohorte) > 0 && (
+        <span className="passe-bfr__delai-note">{pluriel(nombreDelaisIncertains(cohorte), "facture exclue")} : délai impossible à établir</span>
       )}
       {cohorte.ouvertes.length > 0 && (
         <>

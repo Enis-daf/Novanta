@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ExclusionFacture, FactureBfr, LigneBfr, ReglementBfr, RevisionBfr, SituationValidee, TypeFactureBfr } from "./pastBfr";
+import { ExclusionFacture, FactureBfr, FactureIncertaine, LigneBfr, ReglementBfr, RevisionBfr, SituationValidee, TypeFactureBfr } from "./pastBfr";
 import type { LigneStockee, ReglementsStockes } from "./pastBfrSync";
 
 /**
@@ -99,6 +99,8 @@ function versSituation(row: Row): SituationValidee {
     valideeLe: row.validated_at as string,
     creancesRetenues: (row.receivables_lines as LigneBfr[]) ?? [],
     dettesRetenues: (row.payables_lines as LigneBfr[]) ?? [],
+    // Dans la provenance de la photographie ; absentes des situations validées avant les réserves.
+    facturesExclues: ((row.provenance as { factures_exclues?: FactureIncertaine[] } | null)?.factures_exclues) ?? [],
     revisions: (row.revisions as RevisionBfr[]) ?? [],
   };
 }
@@ -125,7 +127,7 @@ function versLigne(organizationId: string, s: SituationValidee, provenance: Reco
     data_synced_on: s.synchroniseLe,
     receivables_lines: s.creancesRetenues,
     payables_lines: s.dettesRetenues,
-    provenance,
+    provenance: { ...provenance, nombre_factures_exclues: s.facturesExclues.length, factures_exclues: s.facturesExclues },
     validated_at: s.valideeLe,
     revisions: s.revisions,
   };

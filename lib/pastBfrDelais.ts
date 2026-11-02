@@ -338,3 +338,11 @@ export function periodeDuMois(mois: string): { debut: string; fin: string } {
 export function delaisDuMois(factures: FactureBfr[], cote: CoteDelai, mois: string, aujourdhui: string): DelaisCohorte {
   return delaisDeLaCohorte(factures, cote, periodeDuMois(mois), aujourdhui);
 }
+
+/**
+ * Factures de la cohorte dont le paiement ne peut pas être daté : hors des moyennes et comptées, sans
+ * bloquer l'écran. Une facture annulée ou remplacée n'est pas une incertitude : elle n'en fait pas partie.
+ */
+export function nombreDelaisIncertains(cohorte: DelaisCohorte): number {
+  return cohorte.exclues.filter((f) => f.raison !== "annulee" && f.raison !== "remplacee").length;
+}
