@@ -1,4 +1,5 @@
 import { formatDateCourte } from "./dates";
+import { formatMontant } from "./format";
 import { finDeMois } from "./pastAdjustments";
 import { libelleMois } from "./pastDetail";
 
@@ -18,8 +19,11 @@ import { libelleMois } from "./pastDetail";
  *  - les DATES des transactions bancaires rapprochées de la facture — pas la part de chaque
  *    transaction affectée à la facture, et rien d'HT.
  * Le solde d'une facture à une date passée n'est donc reconstitué que lorsqu'il se déduit sans
- * approximation de ces faits (voir soldeALaDate). Sinon la facture est « au solde inconnu » et la
- * situation est incomplète : jamais un montant estimé présenté comme exact.
+ * approximation de ces faits (voir soldeALaDate). Sinon la facture est « au solde inconnu » : elle
+ * est exclue du calcul et comptée dans les réserves — ni à 0, ni à son montant, jamais estimée. Le
+ * BFR reste calculé sur tout ce qui est fiable, statut « Avec réserves », et validable avec ces
+ * réserves enregistrées. Seul un manque essentiel (stock, factures jamais synchronisées ou trop
+ * anciennes) le rend indisponible.
  */
 
 export type TypeFactureBfr = "client" | "fournisseur";
@@ -126,13 +130,20 @@ export interface LigneBfr {
   dateReglement: string | null;
 }
 
+/** Facture exclue du calcul : de quoi comprendre la réserve, sans jamais en déduire un solde. */
 export interface FactureIncertaine {
   pennylaneId: string;
   type: TypeFactureBfr;
   numero: string;
   tiers: string;
-  montantHtMax: number;
+  // Montant HT de la facture à l'émission (null : absent de Pennylane). Contexte seulement : ni une
+  // créance ou une dette manquante, ni un impact sur le BFR — le solde à la date est inconnu.
+  montantHtInitial: number | null;
+  dateEmission: string | null;
+  echeance: string | null;
   raison: string;
+  // Ce que Pennylane dit aujourd'hui du paiement.
+  paiement: string;
 }
 
 export interface SituationBfr {
@@ -142,11 +153,14 @@ export interface SituationBfr {
   totalCreances: number;
   totalDettes: number;
   stock: number | null; // null : stock non renseigné
+  // Factures exclues du calcul : les totaux et le BFR ne portent que sur les factures fiables.
   incertaines: FactureIncertaine[];
-  // Pourquoi la situation n'est pas fiable ([] = complète).
+  // Pourquoi le BFR ne peut pas être calculé du tout ([] = calculable). Les factures exclues n'en
+  // font pas partie : elles sont une réserve, pas un blocage.
   raisons: string[];
+  // Calculable, et sans aucune facture exclue.
   complete: boolean;
-  bfr: number | null; // null tant que la situation n'est pas complète : jamais un total faussement exact
+  bfr: number | null; // null seulement si indisponible (`raisons`)
 }
 
 export interface SourcesSituationBfr {
@@ -155,6 +169,16 @@ export interface SourcesSituationBfr {
   stock: number | null;
   // Jour (YYYY-MM-DD) de la dernière synchronisation des factures Pennylane, null si jamais.
   synchroniseLe: string | null;
+}
+
+/** Ce que Pennylane dit aujourd'hui du paiement d'une facture : faits bruts, sans interprétation. */
+export function informationPaiement(f: FactureBfr): string {
+  const reste = `Reste dû aujourd'hui : ${formatMontant(f.resteTtc)} TTC sur ${formatMontant(f.montantTtc)}`;
+  if (f.reglements === null) return `${reste} · transactions rapprochées pas encore récupérées`;
+  if (f.reglements.length === 0) return `${reste} · aucune transaction bancaire rapprochée`;
+  const dates = f.reglements.map((r) => r.date).sort();
+  const quand = dates[0] === dates[dates.length - 1] ? `le ${formatDateCourte(dates[0])}` : `du ${formatDateCourte(dates[0])} au ${formatDateCourte(dates[dates.length - 1])}`;
+  return `${reste} · ${dates.length} transaction${dates.length > 1 ? "s" : ""} rapprochée${dates.length > 1 ? "s" : ""} ${quand}`;
 }
 
 const parMontant = (a: LigneBfr, b: LigneBfr) => b.montantHt - a.montantHt || a.numero.localeCompare(b.numero, "fr");
@@ -175,7 +199,17 @@ export function situationBfr({ factures, date, stock, synchroniseLe }: SourcesSi
     const solde = soldeALaDate(f, avoirsParFacture.get(`${f.type}|${f.pennylaneId}`) ?? [], date);
     if (solde.etat === "hors") continue;
     if (solde.etat === "inconnue") {
-      incertaines.push({ pennylaneId: f.pennylaneId, type: f.type, numero: f.numero, tiers: f.tiers, montantHtMax: solde.montantHtMax, raison: solde.raison });
+      incertaines.push({
+        pennylaneId: f.pennylaneId,
+        type: f.type,
+        numero: f.numero,
+        tiers: f.tiers,
+        montantHtInitial: f.montantHt,
+        dateEmission: f.dateEmission,
+        echeance: f.echeance,
+        raison: solde.raison,
+        paiement: informationPaiement(f),
+      });
       continue;
     }
     const ligne = { pennylaneId: f.pennylaneId, numero: f.numero, tiers: f.tiers, echeance: f.echeance, montantHt: solde.montantHt, dateReglement: solde.dateReglement };
@@ -183,7 +217,7 @@ export function situationBfr({ factures, date, stock, synchroniseLe }: SourcesSi
   }
   creances.sort(parMontant);
   dettes.sort(parMontant);
-  incertaines.sort((a, b) => b.montantHtMax - a.montantHtMax);
+  incertaines.sort((a, b) => (b.montantHtInitial ?? 0) - (a.montantHtInitial ?? 0) || a.numero.localeCompare(b.numero, "fr"));
 
   const raisons: string[] = [];
   if (synchroniseLe === null) raisons.push("Factures Pennylane jamais synchronisées pour le BFR.");
@@ -193,15 +227,10 @@ export function situationBfr({ factures, date, stock, synchroniseLe }: SourcesSi
     );
   }
   if (stock === null) raisons.push(`Stock HT non renseigné pour ${libelleMois(date.slice(0, 7)).toLowerCase()}.`);
-  if (incertaines.length > 0) {
-    raisons.push(
-      `${incertaines.length > 1 ? `${incertaines.length} factures dont le solde` : "1 facture dont le solde"} à cette date ne peut pas être établi exactement.`
-    );
-  }
 
   const totalCreances = somme(creances.map((l) => l.montantHt));
   const totalDettes = somme(dettes.map((l) => l.montantHt));
-  const complete = raisons.length === 0;
+  const calculable = raisons.length === 0;
   return {
     date,
     creances,
@@ -211,8 +240,8 @@ export function situationBfr({ factures, date, stock, synchroniseLe }: SourcesSi
     stock,
     incertaines,
     raisons,
-    complete,
-    bfr: complete ? totalCreances + (stock as number) - totalDettes : null,
+    complete: calculable && incertaines.length === 0,
+    bfr: calculable ? totalCreances + (stock as number) - totalDettes : null,
   };
 }
 
@@ -228,7 +257,7 @@ export interface TotauxBfr {
 /** Révision d'une situation validée : la version remplacée, conservée telle quelle. */
 export interface RevisionBfr {
   revisee: string; // horodatage ISO de la révision
-  precedente: TotauxBfr & { valideeLe: string; calculeeLe: string };
+  precedente: TotauxBfr & { valideeLe: string; calculeeLe: string; facturesExclues?: FactureIncertaine[] };
 }
 
 /** Photographie de gestion figée : ce qui est en base, jamais recalculé à l'affichage. */
@@ -239,25 +268,57 @@ export interface SituationValidee extends TotauxBfr {
   valideeLe: string;
   creancesRetenues: LigneBfr[];
   dettesRetenues: LigneBfr[];
+  // Factures exclues du calcul à la validation : la réserve fait partie de la photographie.
+  facturesExclues: FactureIncertaine[];
   revisions: RevisionBfr[];
 }
 
-export type StatutBfr = "validee" | "provisoire" | "incomplete";
+export type StatutBfr = "validee" | "provisoire" | "reserves" | "indisponible";
 
 export const LIBELLES_STATUT_BFR: Record<StatutBfr, string> = {
   validee: "Validé",
   provisoire: "Provisoire",
-  incomplete: "Incomplet",
+  reserves: "Avec réserves",
+  indisponible: "Indisponible",
 };
 
 export function statutBfr(situation: SituationBfr, validee: SituationValidee | null): StatutBfr {
-  return validee !== null ? "validee" : situation.complete ? "provisoire" : "incomplete";
+  if (validee !== null) return "validee";
+  if (situation.bfr === null) return "indisponible";
+  return situation.incertaines.length > 0 ? "reserves" : "provisoire";
 }
 
-/** Totaux retenus pour un mois : la photographie validée si elle existe, sinon le calcul complet. */
+/** Factures exclues du chiffre affiché : celles de la photographie validée, sinon celles du calcul. */
+export function facturesExcluesRetenues(situation: SituationBfr, validee: SituationValidee | null): FactureIncertaine[] {
+  return validee !== null ? validee.facturesExclues : situation.incertaines;
+}
+
+export interface ResumeExclusions {
+  nombre: number;
+  // Montants HT à l'émission, cumulés : un ordre de grandeur, jamais un impact sur le BFR.
+  montantHtInitial: number;
+  sansMontantHt: number;
+}
+
+export function resumerExclusions(exclues: FactureIncertaine[]): ResumeExclusions {
+  return {
+    nombre: exclues.length,
+    montantHtInitial: somme(exclues.map((f) => f.montantHtInitial ?? 0)),
+    sansMontantHt: exclues.filter((f) => f.montantHtInitial === null).length,
+  };
+}
+
+/** « 12 factures ont été exclues du calcul car leur solde à cette date ne peut pas être établi exactement. » */
+export function phraseExclusions(nombre: number): string {
+  return nombre > 1
+    ? `${nombre} factures ont été exclues du calcul car leur solde à cette date ne peut pas être établi exactement.`
+    : "1 facture a été exclue du calcul car son solde à cette date ne peut pas être établi exactement.";
+}
+
+/** Totaux retenus pour un mois : la photographie validée si elle existe, sinon le calcul sur les factures fiables. */
 export function totauxRetenus(situation: SituationBfr, validee: SituationValidee | null): TotauxBfr | null {
   if (validee !== null) return { creances: validee.creances, stock: validee.stock, dettes: validee.dettes, bfr: validee.bfr };
-  if (!situation.complete || situation.bfr === null) return null;
+  if (situation.bfr === null) return null;
   return { creances: situation.totalCreances, stock: situation.stock as number, dettes: situation.totalDettes, bfr: situation.bfr };
 }
 
@@ -275,9 +336,9 @@ export function variationBfr(precedent: TotauxBfr, courant: TotauxBfr): Variatio
   return { creances, stock, dettes, total: creances + stock + dettes };
 }
 
-/** Ce qui est enregistré à la validation : les totaux ET les factures retenues, pour expliquer le chiffre. */
+/** Ce qui est enregistré à la validation : les totaux, les factures retenues ET les factures exclues, pour expliquer le chiffre. */
 export function photographier(situation: SituationBfr, synchroniseLe: string | null, maintenant: string): SituationValidee | null {
-  if (!situation.complete || situation.bfr === null || situation.stock === null) return null;
+  if (situation.bfr === null || situation.stock === null) return null;
   return {
     date: situation.date,
     creances: situation.totalCreances,
@@ -289,6 +350,7 @@ export function photographier(situation: SituationBfr, synchroniseLe: string | n
     valideeLe: maintenant,
     creancesRetenues: situation.creances,
     dettesRetenues: situation.dettes,
+    facturesExclues: situation.incertaines,
     revisions: [],
   };
 }
@@ -311,6 +373,7 @@ export function reviser(ancienne: SituationValidee, nouvelle: SituationValidee, 
           bfr: ancienne.bfr,
           valideeLe: ancienne.valideeLe,
           calculeeLe: ancienne.calculeeLe,
+          facturesExclues: ancienne.facturesExclues,
         },
       },
     ],
@@ -318,11 +381,23 @@ export function reviser(ancienne: SituationValidee, nouvelle: SituationValidee, 
 }
 
 /**
- * Le calcul actuel, complet, donne-t-il un autre BFR que la photographie validée (données
- * enrichies depuis) ? Seul cas où une révision a un sens : un calcul incomplet ne remplace rien.
+ * Le calcul actuel diffère-t-il de la photographie validée (autre BFR, ou autres factures exclues) ?
+ * Seul cas où une révision a un sens ; un calcul indisponible ne remplace rien. La photographie, elle,
+ * ne change jamais sans révision explicite.
  */
 export function photographieDepassee(validee: SituationValidee, situation: SituationBfr): boolean {
-  return situation.complete && situation.bfr !== null && Math.abs(validee.bfr - situation.bfr) > EPSILON;
+  if (situation.bfr === null) return false;
+  if (Math.abs(validee.bfr - situation.bfr) > EPSILON) return true;
+  const cle = (f: FactureIncertaine) => `${f.type}|${f.pennylaneId}`;
+  const avant = new Set(validee.facturesExclues.map(cle));
+  return avant.size !== situation.incertaines.length || situation.incertaines.some((f) => !avant.has(cle(f)));
+}
+
+/** Factures exclues à la validation dont le solde s'établit désormais. */
+export function exclusionsDevenuesFiables(validee: SituationValidee, situation: SituationBfr): FactureIncertaine[] {
+  const cle = (f: FactureIncertaine) => `${f.type}|${f.pennylaneId}`;
+  const encore = new Set(situation.incertaines.map(cle));
+  return validee.facturesExclues.filter((f) => !encore.has(cle(f)));
 }
 
 /**

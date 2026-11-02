@@ -252,10 +252,19 @@ describe("Rapport PDF — page BFR", () => {
     assert.match(vide.indisponible ?? "", /^BFR non disponible : aucune fin de mois terminée/);
   });
 
-  test("situation incomplète (stock manquant) : BFR non chiffré, créances et dettes connues conservées", () => {
+  test("facture au solde inconnu : page chiffrée avec réserves, exclusions reprises", () => {
+    const exclue = factureBfr(9, { numero: "F-EXCLUE", reglements: [], montantHt: 7_000, montantTtc: 8_400 });
+    const avecReserves = pageBfrPdf(PLAN_SEPTEMBRE, { ...SOURCES_BFR, factures: [...SOURCES_BFR.factures, exclue] }, AUJ);
+    assert.equal(avecReserves.lecture?.statut, "reserves");
+    assert.equal(avecReserves.lecture?.totaux?.bfr, 15_000);
+    assert.deepEqual(avecReserves.lecture?.facturesExclues.map((f) => f.numero), ["F-EXCLUE"]);
+    assert.equal(avecReserves.evolution[11].nombreExclues, 1);
+  });
+
+  test("situation indisponible (stock manquant) : BFR non chiffré, créances et dettes connues conservées", () => {
     const incomplete = pageBfrPdf(PLAN_SEPTEMBRE, { ...SOURCES_BFR, stocks: [] }, AUJ);
     assert.equal(incomplete.lecture?.totaux, null);
-    assert.equal(incomplete.lecture?.statut, "incomplete");
+    assert.equal(incomplete.lecture?.statut, "indisponible");
     assert.equal(incomplete.lecture?.situation.totalCreances, 9_000);
     assert.equal(incomplete.lecture?.situation.totalDettes, 1_000);
   });

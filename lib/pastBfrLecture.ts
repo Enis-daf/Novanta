@@ -1,5 +1,5 @@
 import { StockFinDeMois, finDeMois } from "./pastAdjustments";
-import { FactureBfr, moisGlissants, SituationBfr, situationBfr, SituationValidee, StatutBfr, statutBfr, TotauxBfr, totauxRetenus } from "./pastBfr";
+import { FactureBfr, FactureIncertaine, facturesExcluesRetenues, moisGlissants, SituationBfr, situationBfr, SituationValidee, StatutBfr, statutBfr, TotauxBfr, totauxRetenus } from "./pastBfr";
 import { DelaisCohorte, delaisDuMois } from "./pastBfrDelais";
 
 /**
@@ -43,12 +43,20 @@ export interface LectureBfr {
   statut: StatutBfr;
   // Photographie validée si elle existe, sinon le calcul complet ; null si incomplet.
   totaux: TotauxBfr | null;
+  // Factures exclues du chiffre retenu (celles de la photographie si elle est validée).
+  facturesExclues: FactureIncertaine[];
 }
 
 export function lectureBfrDuMois(sources: SourcesBfr, mois: string): LectureBfr {
   const situation = situationBfrDuMois(sources, mois);
   const validee = valideeDuMois(sources.validees, mois);
-  return { situation, validee, statut: statutBfr(situation, validee), totaux: totauxRetenus(situation, validee) };
+  return {
+    situation,
+    validee,
+    statut: statutBfr(situation, validee),
+    totaux: totauxRetenus(situation, validee),
+    facturesExclues: facturesExcluesRetenues(situation, validee),
+  };
 }
 
 // Délai d'une cohorte mensuelle tel que le KPI du mois l'affiche (null : aucune facture réglée).
@@ -65,6 +73,7 @@ export interface PointBfr {
   valeur: number | null;
   totaux: TotauxBfr | null;
   statut: StatutBfr;
+  nombreExclues: number;
   // Délais réels de la cohorte du mois (factures émises ce mois-là), en jours ; null sans facture réglée.
   delaiClients: number | null;
   delaiFournisseurs: number | null;
@@ -89,7 +98,7 @@ export function delaiDuPoint(c: DelaisCohorte): DelaiDuPoint {
  */
 export function evolutionBfr(sources: SourcesBfr, mois: string, aujourdhui: string): PointBfr[] {
   return moisGlissants(mois).map((m) => {
-    const { totaux, statut } = lectureBfrDuMois(sources, m);
+    const { totaux, statut, facturesExclues } = lectureBfrDuMois(sources, m);
     const clients = delaisDuMois(sources.factures, "client", m, aujourdhui);
     const fournisseurs = delaisDuMois(sources.factures, "fournisseur", m, aujourdhui);
     return {
@@ -97,6 +106,7 @@ export function evolutionBfr(sources: SourcesBfr, mois: string, aujourdhui: stri
       valeur: totaux?.bfr ?? null,
       totaux,
       statut,
+      nombreExclues: facturesExclues.length,
       delaiClients: clients.delaiMoyen,
       delaiFournisseurs: fournisseurs.delaiMoyen,
       clients: delaiDuPoint(clients),

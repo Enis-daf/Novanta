@@ -42,7 +42,7 @@ function LigneDelaiInfoBulle({ titre, d }: { titre: string; d: DelaiDuPoint }) {
 
 function InfoBulleBfr({ active, payload }: { active?: boolean; payload?: { payload: PointBfr }[] }) {
   if (!active || !payload?.length) return null;
-  const { mois, totaux, statut, clients, fournisseurs } = payload[0].payload;
+  const { mois, totaux, statut, nombreExclues, clients, fournisseurs } = payload[0].payload;
   return (
     <div className="passe-structure__infobulle">
       <strong>{libelleFinDeMois(mois)}</strong>
@@ -51,7 +51,7 @@ function InfoBulleBfr({ active, payload }: { active?: boolean; payload?: { paylo
           <span>
             BFR HT : <strong>Non disponible</strong>
           </span>
-          <span className="passe-structure__note">BFR incomplet : données manquantes ou non fiables</span>
+          <span className="passe-structure__note">Stock non renseigné ou factures non synchronisées</span>
         </>
       ) : (
         <>
@@ -61,7 +61,10 @@ function InfoBulleBfr({ active, payload }: { active?: boolean; payload?: { paylo
           <span className="passe-structure__note">
             Créances {enK(totaux.creances)} · Stocks {enK(totaux.stock)} · Dettes {enK(totaux.dettes)}
           </span>
-          <span className="passe-structure__note">{LIBELLES_STATUT_BFR[statut]}</span>
+          <span className="passe-structure__note">
+            {LIBELLES_STATUT_BFR[statut]}
+            {nombreExclues > 0 && ` · ${nombreExclues} facture${nombreExclues > 1 ? "s" : ""} exclue${nombreExclues > 1 ? "s" : ""} du calcul`}
+          </span>
         </>
       )}
       <LigneDelaiInfoBulle titre="Délai clients" d={clients} />

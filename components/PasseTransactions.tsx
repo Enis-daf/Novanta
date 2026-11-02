@@ -20,6 +20,7 @@ import { BaseMontants, calculerPnlEnBase, partsEnBase, tauxParCategorie } from "
 import { DISCLAIMER_HT_ESTIME, DISCLAIMER_PASSE, PRECISION_HT_ESTIME } from "@/lib/pastPdfModel";
 import { baseEnregistree, cleStockageBase, LIBELLE_ECARTS_EN_TTC, libelleCouverture } from "@/lib/pastHtEstime";
 import PasseBfr from "./PasseBfr";
+import { synchroniserFacturesBfr } from "@/lib/pastBfrSyncClient";
 import PasseStocks from "./PasseStocks";
 import PastDetailDashboard from "./PastDetailDashboard";
 import OffreVerrouillee from "./OffreVerrouillee";
@@ -857,11 +858,17 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     return `${selectionEffective.size} sélectionnées`;
   };
 
+  // Une seule action pour l'utilisateur, deux chaînes côté serveur enchaînées : les transactions de la
+  // période (/api/passe/sync), puis les factures et leurs règlements pour le BFR (/api/passe/bfr), en
+  // séquence car elles partagent le plafond d'appels Pennylane. L'échec de l'une n'empêche pas l'autre.
   const synchroniser = async () => {
     if (syncEnCours || !periodeOk) return;
     setSyncEnCours(true);
-    setSyncMessage(null);
+    setSyncMessage("Synchronisation des transactions Pennylane…");
     setSyncErreur(null);
+    const INDISPONIBLE = "Pennylane est temporairement indisponible. Réessayez.";
+    const phrases: string[] = [];
+    const erreurs = new Set<string>();
     try {
       const res = await fetch("/api/passe/sync", {
         method: "POST",
@@ -870,30 +877,42 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setSyncErreur(data.error || "La synchronisation Pennylane a échoué. Réessayez.");
-        return;
+        erreurs.add(data.error || "La synchronisation Pennylane a échoué. Réessayez.");
+      } else {
+        phrases.push(`${pluriel(data.nombreSynchronisees ?? 0, "transaction synchronisée", "transactions synchronisées")} depuis Pennylane.`);
+        if (data.complete === false) {
+          phrases.push("Période très volumineuse : la synchronisation est peut-être incomplète, réduisez la période.");
+        }
+        if (data.libellesAxesDisponibles === false) {
+          phrases.push(
+            "Le token Pennylane ne permet pas de lire le nom des axes analytiques (autorisation « catégories » en lecture)."
+          );
+        }
+        if (data.nouvellesCategories > 0) {
+          phrases.push(`${pluriel(data.nouvellesCategories, "nouvelle catégorie", "nouvelles catégories")} à mapper.`);
+        }
       }
-      const phrases = [
-        `${pluriel(data.nombreSynchronisees ?? 0, "transaction synchronisée", "transactions synchronisées")} depuis Pennylane.`,
-      ];
-      if (data.complete === false) {
-        phrases.push("Période très volumineuse : la synchronisation est peut-être incomplète, réduisez la période.");
-      }
-      if (data.libellesAxesDisponibles === false) {
+    } catch {
+      erreurs.add(INDISPONIBLE);
+    }
+    try {
+      const factures = await synchroniserFacturesBfr(accessToken, setSyncMessage);
+      if (factures.statut === "termine") {
         phrases.push(
-          "Le token Pennylane ne permet pas de lire le nom des axes analytiques (autorisation « catégories » en lecture)."
+          factures.restantes > 0
+            ? `Synchronisation des factures interrompue : ${factures.restantes} restent à dater. Relancez-la pour reprendre.`
+            : `${pluriel(factures.factures, "facture Pennylane à jour", "factures Pennylane à jour")}.${
+                factures.listeComplete ? "" : " Liste très volumineuse : certaines factures anciennes peuvent manquer."
+              }`
         );
       }
-      if (data.nouvellesCategories > 0) {
-        phrases.push(`${pluriel(data.nouvellesCategories, "nouvelle catégorie", "nouvelles catégories")} à mapper.`);
-      }
-      setSyncMessage(phrases.join(" "));
-      setRechargement((n) => n + 1);
-    } catch {
-      setSyncErreur("Pennylane est temporairement indisponible. Réessayez.");
-    } finally {
-      setSyncEnCours(false);
+    } catch (e) {
+      erreurs.add(e instanceof Error && !(e instanceof TypeError) && e.message ? e.message : INDISPONIBLE);
     }
+    setSyncMessage(phrases.length > 0 ? phrases.join(" ") : null);
+    setSyncErreur(erreurs.size > 0 ? [...erreurs].join(" ") : null);
+    setRechargement((n) => n + 1);
+    setSyncEnCours(false);
   };
 
   // Avertissements de tête du rapport, sur les transactions de SA période (mêmes règles que l'écran).
@@ -1519,7 +1538,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
           ) : vue === "bfr" ? (
             <PasseBfr
               organizationId={organizationId}
-              accessToken={accessToken}
+              rechargement={rechargement}
               mois={moisTerminesDeLaPeriode(periode, aujourdhui)}
               stocks={stocks}
               sansStock={sansStock}

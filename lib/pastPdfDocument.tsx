@@ -13,8 +13,8 @@ import { LigneAjustement } from "./pastAdjustments";
 import { libelleEtagePnl, LIBELLE_ENCAISSEMENTS } from "./pastCategoryMapping";
 import { METRIQUES_DETAIL } from "./pastDetail";
 import { IndicateurEconomique, LIBELLE_VOIR_TTC } from "./pastHtEstime";
-import { LIBELLES_STATUT_BFR, moisGlissants } from "./pastBfr";
-import { comparerAvecPrecedente, DelaisCohorte, libelleEcartEcheance, libelleTrancheDansPhrase, libelleVariationJours, SEUIL_REPRESENTATIF } from "./pastBfrDelais";
+import { LIBELLES_STATUT_BFR, moisGlissants, phraseExclusions, resumerExclusions } from "./pastBfr";
+import { comparerAvecPrecedente, DelaisCohorte, libelleEcartEcheance, libelleTrancheDansPhrase, libelleVariationJours, nombreDelaisIncertains, SEUIL_REPRESENTATIF } from "./pastBfrDelais";
 import {
   DISCLAIMER_PDF_BFR,
   disclaimerPdf,
@@ -599,6 +599,11 @@ function blocDelai(doc: jsPDF, titre: string, cohorte: DelaisCohorte, precedente
       y += 10;
     }
   }
+  const incertains = nombreDelaisIncertains(cohorte);
+  if (incertains > 0) {
+    ecrire(doc, `${plurielFr(incertains, "facture")} exclue${incertains > 1 ? "s" : ""} : délai impossible à établir`, x, y, { taille: 7, couleur: NEUTRES.secondaire, largeurMax: largeur });
+    y += 10;
+  }
   if (cohorte.ouvertes.length > 0) {
     ecrire(doc, `${plurielFr(cohorte.ouvertes.length, "facture")} encore ouverte${cohorte.ouvertes.length > 1 ? "s" : ""} · ${enK(cohorte.montantOuvertes)}`, x, y + 2, { taille: 8, gras: true, largeurMax: largeur });
     y += 12;
@@ -616,24 +621,38 @@ async function pageBfr(doc: jsPDF, page: PageBfrPdf) {
     paragraphe(doc, page.indisponible ?? "BFR non disponible.", PAGE.marge, HAUT_CONTENU + 12, 520, { taille: 10, couleur: NEUTRES.encre });
     return;
   }
-  const { situation, validee, statut, totaux } = page.lecture;
+  const { situation, validee, statut, totaux, facturesExclues } = page.lecture;
   const gauche = { x: PAGE.marge, l: 250 };
 
   // Situation : BFR HT, statut, puis la décomposition — les mêmes montants que l'onglet BFR.
   let y = HAUT_CONTENU + 9;
   titreBloc(doc, "BFR HT", gauche.x, y);
-  const largeurBfr = ecrire(doc, totaux ? formatKiloEuros(totaux.bfr, Math.abs(totaux.bfr) < 10_000 ? 1 : 0) : "Incomplet", gauche.x, y + 29, { taille: 24, gras: true });
+  const largeurBfr = ecrire(doc, totaux ? formatKiloEuros(totaux.bfr, Math.abs(totaux.bfr) < 10_000 ? 1 : 0) : "Indisponible", gauche.x, y + 29, { taille: 24, gras: true });
   if (totaux) ecrireMentionTTC(doc, gauche.x + largeurBfr, y + 29, 9, "HT");
   y += 45;
-  ecrire(doc, LIBELLES_STATUT_BFR[statut] + (validee ? ` · photographie validée le ${formatDateCourte(validee.valideeLe.slice(0, 10))}` : ""), gauche.x, y, {
+  // Validé : la date prime sur le libellé ; la réserve reste dite, la ligne n'est jamais tronquée sur la date.
+  const reserves = facturesExclues.length > 0 ? LIBELLES_STATUT_BFR.reserves : null;
+  ecrire(doc, [validee ? `Validé le ${formatDateCourte(validee.valideeLe.slice(0, 10))}` : LIBELLES_STATUT_BFR[statut], statut === "reserves" ? null : reserves].filter(Boolean).join(" · "), gauche.x, y, {
     taille: 8.5,
     gras: true,
-    couleur: statut === "incomplete" ? ROSE : NEUTRES.secondaire,
+    couleur: statut === "indisponible" || statut === "reserves" || facturesExclues.length > 0 ? ROSE : NEUTRES.secondaire,
     largeurMax: gauche.l,
   });
   y += 4;
   if (totaux === null && situation.raisons.length > 0) {
     y = paragraphe(doc, situation.raisons.join(" "), gauche.x, y + 10, gauche.l, { taille: 7, couleur: NEUTRES.secondaire });
+  }
+  // Réserve : dite sur la page, jamais présentée comme un impact sur le BFR.
+  if (totaux !== null && facturesExclues.length > 0) {
+    const resume = resumerExclusions(facturesExclues);
+    y = paragraphe(
+      doc,
+      `${phraseExclusions(resume.nombre)} Montant HT initial cumulé : ${enK(resume.montantHtInitial)}${resume.sansMontantHt > 0 ? ` (hors ${resume.sansMontantHt} sans montant HT)` : ""}, à titre de contexte.`,
+      gauche.x,
+      y + 10,
+      gauche.l,
+      { taille: 7, couleur: NEUTRES.secondaire }
+    );
   }
   y += 12;
   const termes: [string, string, boolean][] = [
@@ -681,8 +700,8 @@ async function pageBfr(doc: jsPDF, page: PageBfrPdf) {
   const yNote = paragraphe(
     doc,
     (bfrAffiche
-      ? "BFR (barres, axe de gauche, k€) : barre pleine = validé, barre claire = provisoire, pas de barre = mois incomplet, jamais estimé ; le mois de la situation est encadré. "
-      : "BFR non affiché : aucun des 12 mois n'a de situation complète (stock HT non renseigné ou factures au solde inconnu). ") +
+      ? "BFR (barres, axe de gauche, k€) : barre pleine = validé, barre claire = provisoire ou avec réserves, pas de barre = indisponible, jamais estimé ; le mois de la situation est encadré. "
+      : "BFR non affiché : aucun des 12 mois n'a de situation calculable (stock HT non renseigné ou factures non synchronisées). ") +
       "Délais (courbes, axe de droite, jours) : délai moyen réel des factures émises chaque mois, pondéré par le montant HT ; pas de point sans facture réglée. Chaque mois est daté à son dernier jour.",
     x,
     zone.y + zone.h + 12,
