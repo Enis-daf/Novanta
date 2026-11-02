@@ -76,7 +76,7 @@ export default function PasseImportFec({ imports, importer, onImporte, onRetirer
     if (!liste) return;
     for (const fichier of [...liste]) {
       const cle = `${fichier.name}-${fichier.size}-${fichier.lastModified}`;
-      const base: FichierEnCours = { cle, nom: fichier.name, analyse: null, erreur: null, debut: "", fin: "", cloture: true, envoi: { etat: "pret" } };
+      const base: FichierEnCours = { cle, nom: fichier.name, analyse: null, erreur: null, debut: "", fin: "", cloture: false, envoi: { etat: "pret" } };
       setFichiers((actuels) => [...actuels.filter((f) => f.cle !== cle), base]);
       if (fichier.size > TAILLE_MAX_FICHIER_FEC) {
         modifier(cle, { erreur: "Ce fichier dépasse la taille maximale de 500 Mo." });

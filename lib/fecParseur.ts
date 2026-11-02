@@ -279,6 +279,10 @@ export class AnalyseurFec {
     if (facultatifs.length > 0) {
       this.notesStructure.push({ code: "champs_officiels_absents", gravite: "non_bloquante", message: `Champs du format officiel absents, sans effet sur le calcul : ${facultatifs.join(", ")}.`, nombre: facultatifs.length });
     }
+    const enPlus = colonnes.filter((c) => c !== "" && !CHAMPS_OFFICIELS.includes(c) && !(aMontantSens && (c === "montant" || c === "sens")));
+    if (enPlus.length > 0) {
+      this.notesStructure.push({ code: "colonnes_supplementaires", gravite: "information", message: `Colonnes hors du format officiel, ignorées : ${enPlus.join(", ")}.`, nombre: enPlus.length });
+    }
     if (!meilleur.s.officiel) {
       this.notesStructure.push({ code: "separateur_non_officiel", gravite: "non_bloquante", message: `Séparateur « ${meilleur.s.nom} » : le format officiel prévoit la tabulation ou « | ».` });
     }

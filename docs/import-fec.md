@@ -23,7 +23,7 @@ Rien n'est corrigé. Une ligne illisible ou un fichier déséquilibré bloque l'
 - Une écriture reste sur le mois où elle est passée : une dotation annuelle reste en décembre, jamais répartie.
 - Les écritures de solde (classes 6 et 7 contre le compte 12 seul) sont écartées et signalées. Le résultat reconstitué est contrôlé contre le compte 12.
 - Les à-nouveaux sont repérés par le code journal ou le libellé ; sur un compte de résultat, ils entrent dans le P&L et sont signalés.
-- Clôture : indiquée par l'utilisateur à l'import, jamais déduite de l'âge de l'exercice.
+- Clôture : case à cocher à l'import, décochée par défaut, jamais déduite de l'âge de l'exercice. Sans elle, le P&L reste marqué provisoire.
 - Mêmes correspondances et même moteur que Pennylane (`lib/comptaPnl.ts`). Réimporter conserve les correspondances et les ajustements.
 
 ## Une source par mois
@@ -66,7 +66,7 @@ Puis `http://localhost:3007/demo/pnl`, scénario « Import FEC seul ». Les rout
 
 ## Non vérifié
 
-- Aucun FEC réel : uniquement des fichiers synthétiques, dont un de 500 000 lignes.
+- Un seul FEC réel lu (un exercice, 4 199 lignes, déjà retraité) : résultat identique au centime à un recalcul indépendant, pas encore rapproché d'une liasse. Le reste des tests porte sur des fichiers synthétiques, dont un de 500 000 lignes.
 - Route `POST /api/passe/compta/fec` jamais exécutée contre Supabase : la migration n'est appliquée nulle part hors PGlite.
 - Exports d'autres logiciels que ceux simulés par les fixtures.
 - Codes de journaux d'à-nouveau : liste observée dans les usages (`AN`, `RAN`, `ANO`, `AO`…), à confronter à de vrais fichiers.

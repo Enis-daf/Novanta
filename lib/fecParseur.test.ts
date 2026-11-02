@@ -198,9 +198,15 @@ describe("Structure", () => {
     assert.equal(code(a, "champs_officiels_absents")?.gravite, "non_bloquante");
   });
 
-  test("colonne de champ supplémentaire : tolérée", async () => {
+  test("colonne de champ supplémentaire : tolérée et signalée", async () => {
     const a = await analyser([`${ENTETE_FEC}\tCodeInterne`, `${ligneFec(SIMPLE[0])}\tx`, `${ligneFec(SIMPLE[1])}\ty`].join("\n"));
     assert.equal(a.bloquant, false);
+    assert.equal(code(a, "colonnes_supplementaires")?.gravite, "information");
+  });
+
+  test("les 18 champs officiels seuls : aucune colonne supplémentaire signalée", async () => {
+    const a = await analyser([ENTETE_FEC, ligneFec(SIMPLE[0]), ligneFec(SIMPLE[1])].join("\n"));
+    assert.equal(code(a, "colonnes_supplementaires"), undefined);
   });
 
   test("fichier incomplet : colonne indispensable absente, bloquant, et nommée", async () => {
