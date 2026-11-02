@@ -24,8 +24,8 @@ describe("matrice des offres", () => {
     assert.deepEqual(accessibles("essential"), ["canViewReporting"]);
   });
 
-  test("Prévision : Essentiel + projection + analyse d'écarts, sans BFR / DSO / DPO / Actions", () => {
-    assert.deepEqual(accessibles("forecast"), ["canViewReporting", "canViewForecast", "canViewVarianceAnalysis"]);
+  test("Prévision : Essentiel + projection + analyse d'écarts + BFR, sans DSO / DPO / Actions", () => {
+    assert.deepEqual(accessibles("forecast"), ["canViewReporting", "canViewForecast", "canViewVarianceAnalysis", "canViewWorkingCapital"]);
   });
 
   test("Pilotage : tout", () => {
@@ -86,7 +86,7 @@ describe("override", () => {
       const droits = droitsOrganisation({ plan: "forecast", plan_override: "steering", plan_override_until: fin }, MAINTENANT);
       assert.equal(droits.offreEffective, "forecast");
       assert.equal(droits.overrideActif, false);
-      assert.equal(droits.capacites.canViewWorkingCapital, false);
+      assert.equal(droits.capacites.canViewActions, false);
     }
   });
 
@@ -123,14 +123,16 @@ describe("offre requise affichée", () => {
     assert.equal(offreMinimale("canViewReporting"), "essential");
     assert.equal(offreMinimale("canViewForecast"), "forecast");
     assert.equal(offreMinimale("canViewVarianceAnalysis"), "forecast");
-    assert.equal(offreMinimale("canViewWorkingCapital"), "steering");
+    assert.equal(offreMinimale("canViewWorkingCapital"), "forecast");
+    assert.equal(offreMinimale("canViewDSO"), "steering");
     assert.equal(offreMinimale("canViewActions"), "steering");
     assert.equal(messageOffreRequise("canViewForecast"), "Disponible avec l'offre Prévision");
-    assert.equal(messageOffreRequise("canViewWorkingCapital"), "Disponible avec l'offre Pilotage");
+    assert.equal(messageOffreRequise("canViewWorkingCapital"), "Disponible avec l'offre Prévision");
+    assert.equal(messageOffreRequise("canViewActions"), "Disponible avec l'offre Pilotage");
   });
 
   test("corps de refus serveur", () => {
-    assert.deepEqual(refusOffre("canViewWorkingCapital"), {
+    assert.deepEqual(refusOffre("canViewActions"), {
       error: "Disponible avec l'offre Pilotage.",
       code: "offre_requise",
       offreRequise: "steering",

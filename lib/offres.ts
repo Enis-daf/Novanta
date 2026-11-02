@@ -48,7 +48,7 @@ const OFFRES_PAR_CAPACITE: Record<Capacite, readonly Offre[]> = {
   canViewReporting: ["essential", "forecast", "steering"],
   canViewForecast: ["forecast", "steering"],
   canViewVarianceAnalysis: ["forecast", "steering"],
-  canViewWorkingCapital: ["steering"],
+  canViewWorkingCapital: ["forecast", "steering"],
   canViewDSO: ["steering"],
   canViewDPO: ["steering"],
   canViewActions: ["steering"],
