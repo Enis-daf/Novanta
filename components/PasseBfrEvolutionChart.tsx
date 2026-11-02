@@ -102,7 +102,7 @@ function GraduationFinDeMois({ x, y, payload, format }: { x?: number; y?: number
 }
 
 // Légende fidèle aux marques : carré plein (BFR), trait plein (clients), tirets (fournisseurs).
-export function LegendeEvolution({ bfrAffiche }: { bfrAffiche: boolean }) {
+export function LegendeEvolution({ bfrAffiche, delaiClients = true, delaiFournisseurs = true }: { bfrAffiche: boolean; delaiClients?: boolean; delaiFournisseurs?: boolean }) {
   const trait = (tirets?: string) => (
     <svg width={22} height={10} aria-hidden="true">
       <line x1={1} y1={5} x2={21} y2={5} stroke={COULEUR_DELAIS} strokeWidth={2.5} strokeDasharray={tirets} />
@@ -118,14 +118,18 @@ export function LegendeEvolution({ bfrAffiche }: { bfrAffiche: boolean }) {
           BFR HT (k€)
         </span>
       )}
-      <span>
-        {trait()}
-        Délai clients (j)
-      </span>
-      <span>
-        {trait(TIRETS_FOURNISSEURS)}
-        Délai fournisseurs (j)
-      </span>
+      {delaiClients && (
+        <span>
+          {trait()}
+          Délai clients (j)
+        </span>
+      )}
+      {delaiFournisseurs && (
+        <span>
+          {trait(TIRETS_FOURNISSEURS)}
+          Délai fournisseurs (j)
+        </span>
+      )}
     </div>
   );
 }

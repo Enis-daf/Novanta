@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabaseServer";
 import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseAdmin";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
+import { chargerDroitsOrganisation, refusOffre } from "@/lib/offres";
 import { obtenirTokenPennylane, resumeErreurSupabaseSansSecret } from "@/lib/pennylaneRepository";
 import { CompanyApiTokenCredentialProvider } from "@/lib/pennylaneCredentialProvider";
 import { listSupplierInvoiceCategories, PennylaneApiError } from "@/lib/pennylaneClient";
@@ -43,6 +44,10 @@ export async function POST(req: NextRequest) {
   try {
     const company = await getOrCreateCompanyForBilling(auth.supabase, auth.user);
     if (!company?.id) return NextResponse.json({ error: "Société introuvable." }, { status: 500 });
+    // Route du cockpit Futur (projection de trésorerie) : réservée aux offres qui l'incluent.
+    if (!(await chargerDroitsOrganisation(auth.supabase, company.id)).capacites.canViewForecast) {
+      return NextResponse.json(refusOffre("canViewForecast"), { status: 403 });
+    }
     companyId = company.id;
   } catch (erreur) {
     console.error(`[pennylane/categories] échec de résolution de la société pour l'utilisateur ${auth.user.id}`, erreur);

@@ -649,7 +649,7 @@ async function pageBfr(doc: jsPDF, page: PageBfrPdf) {
   const x = PAGE.marge + 280;
   const largeur = DROITE - x;
   let yd = HAUT_CONTENU + 9;
-  titreBloc(doc, "Évolution sur 12 mois — BFR HT et délais de paiement", x, yd, largeur);
+  titreBloc(doc, page.delais ? "Évolution sur 12 mois — BFR HT et délais de paiement" : "Évolution sur 12 mois — BFR HT", x, yd, largeur);
   yd += 14;
   // Légende fidèle aux marques du graphique : carré (BFR), trait plein (clients), tirets (fournisseurs).
   let xl = x;
@@ -667,8 +667,8 @@ async function pageBfr(doc: jsPDF, page: PageBfrPdf) {
     doc.setLineDashPattern([], 0);
     xl += 20 + ecrire(doc, texte, xl + 20, yd, { taille: 7.5, couleur: NEUTRES.secondaire }) + 14;
   };
-  traitLegende(null, "Délai clients (j)");
-  traitLegende(TIRETS_FOURNISSEURS.split(" ").map(Number), "Délai fournisseurs (j)");
+  if (page.delais?.client) traitLegende(null, "Délai clients (j)");
+  if (page.delais?.fournisseur) traitLegende(TIRETS_FOURNISSEURS.split(" ").map(Number), "Délai fournisseurs (j)");
   yd += 6;
   // Dates de l'axe sur deux lignes (« 30/09 » / « 2026 ») : lisibles une fois le graphique réduit.
   const svg = await capturerSvg(<PasseBfrEvolutionChart evolution={page.evolution} courant={page.mois} formatImpose="deux_lignes" />, 640);
@@ -691,8 +691,12 @@ async function pageBfr(doc: jsPDF, page: PageBfrPdf) {
     const yDelais = Math.max(y, yNote) + 16;
     trait(doc, PAGE.marge, yDelais - 12, DROITE);
     const colonne = (DROITE - PAGE.marge - 30) / 2;
-    blocDelai(doc, "Délai clients", page.delais.client, page.delais.clientPrecedent, page.mois, PAGE.marge, yDelais, colonne);
-    blocDelai(doc, "Délai fournisseurs", page.delais.fournisseur, page.delais.fournisseurPrecedent, page.mois, PAGE.marge + colonne + 30, yDelais, colonne);
+    if (page.delais.client && page.delais.clientPrecedent) {
+      blocDelai(doc, "Délai clients", page.delais.client, page.delais.clientPrecedent, page.mois, PAGE.marge, yDelais, colonne);
+    }
+    if (page.delais.fournisseur && page.delais.fournisseurPrecedent) {
+      blocDelai(doc, "Délai fournisseurs", page.delais.fournisseur, page.delais.fournisseurPrecedent, page.mois, PAGE.marge + colonne + 30, yDelais, colonne);
+    }
   }
 }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabaseServer";
 import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseAdmin";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
+import { chargerDroitsOrganisation, refusOffre } from "@/lib/offres";
 import {
   marquerResultatTestPennylane,
   obtenirTokenPennylane,
@@ -69,6 +70,10 @@ export async function POST(req: NextRequest) {
     if (!company?.id) {
       console.error(`[pennylane/invoices] company_id introuvable pour l'utilisateur ${user.id}`);
       return NextResponse.json({ error: "Impossible de déterminer votre société. Reconnectez-vous." }, { status: 500 });
+    }
+    // Route du cockpit Futur (projection de trésorerie) : réservée aux offres qui l'incluent.
+    if (!(await chargerDroitsOrganisation(supabase, company.id)).capacites.canViewForecast) {
+      return NextResponse.json(refusOffre("canViewForecast"), { status: 403 });
     }
     companyId = company.id;
   } catch (erreur) {

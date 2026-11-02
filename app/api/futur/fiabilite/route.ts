@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabaseServer";
 import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseAdmin";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
+import { chargerDroitsOrganisation, refusOffre } from "@/lib/offres";
 import { moduleActifPourOrganisation } from "@/lib/organizationModules";
 import { chargerAxeConfigure, chargerExercice, chargerMappingsCategories, chargerPastTransactions } from "@/lib/pastTransactionsRepository";
 import { indexerMappings } from "@/lib/pastCategoryMapping";
@@ -53,6 +54,9 @@ export async function GET(req: NextRequest) {
   try {
     const company = await getOrCreateCompanyForBilling(auth.supabase, auth.user);
     if (!company?.id || !company.accessEnabled) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+    if (!(await chargerDroitsOrganisation(auth.supabase, company.id)).capacites.canViewForecast) {
+      return NextResponse.json(refusOffre("canViewForecast"), { status: 403 });
+    }
     if (!(await moduleActifPourOrganisation(auth.supabase, company.id, "past"))) {
       return NextResponse.json({ error: "Module Passé requis.", code: "module_passe_requis" }, { status: 403 });
     }

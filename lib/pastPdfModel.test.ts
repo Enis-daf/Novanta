@@ -223,6 +223,28 @@ describe("Rapport PDF — structure", () => {
 describe("Rapport PDF — page BFR", () => {
   const page = pageBfrPdf(PLAN_SEPTEMBRE, SOURCES_BFR, AUJ);
 
+  test("délais hors offre : absents de la page et de l'évolution, BFR inchangé", () => {
+    const sansDelais = pageBfrPdf(PLAN_SEPTEMBRE, SOURCES_BFR, AUJ, { clients: false, fournisseurs: false });
+    assert.equal(sansDelais.delais, null);
+    assert.deepEqual(sansDelais.lecture, page.lecture);
+    assert.deepEqual(sansDelais.evolution.map((p) => p.valeur), page.evolution.map((p) => p.valeur));
+    for (const p of sansDelais.evolution) {
+      assert.equal(p.delaiClients, null);
+      assert.equal(p.delaiFournisseurs, null);
+      assert.equal(p.clients.moyen, null);
+      assert.equal(p.fournisseurs.reglees, 0);
+    }
+  });
+
+  test("un seul côté dans l'offre : seul ce délai reste", () => {
+    const clientsSeuls = pageBfrPdf(PLAN_SEPTEMBRE, SOURCES_BFR, AUJ, { clients: true, fournisseurs: false });
+    assert.deepEqual(clientsSeuls.delais?.client, page.delais?.client);
+    assert.equal(clientsSeuls.delais?.fournisseur, null);
+    assert.equal(clientsSeuls.delais?.fournisseurPrecedent, null);
+    assert.deepEqual(clientsSeuls.evolution.map((p) => p.delaiClients), page.evolution.map((p) => p.delaiClients));
+    assert.ok(clientsSeuls.evolution.every((p) => p.delaiFournisseurs === null));
+  });
+
   test("mêmes valeurs que l'onglet BFR : créances, stocks, dettes, BFR et statut", () => {
     assert.deepEqual(page.lecture, lectureBfrDuMois(SOURCES_BFR, "2026-09"));
     // Au 30/09, les factures réglées en octobre sont encore dues : 1 000 + 3 000 + 5 000 de créances.
@@ -241,7 +263,7 @@ describe("Rapport PDF — page BFR", () => {
     assert.equal(page.evolution[11].mois, "2026-09");
     assert.equal(page.evolution[0].mois, "2025-10");
     assert.equal(page.evolution[10].valeur, null); // août : stock non renseigné
-    assert.equal(page.evolution[11].delaiClients, page.delais?.client.delaiMoyen);
+    assert.equal(page.evolution[11].delaiClients, page.delais?.client?.delaiMoyen);
   });
 
   test("aucune fin de mois utilisable : page explicite, aucune valeur fabriquée", () => {

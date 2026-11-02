@@ -2,7 +2,7 @@ import { formatDateCourte } from "./dates";
 import { AjustementGestion } from "./pastAdjustments";
 import { moisGlissants } from "./pastBfr";
 import { DelaisCohorte, delaisDuMois } from "./pastBfrDelais";
-import { evolutionBfr, LectureBfr, lectureBfrDuMois, PointBfr, SourcesBfr } from "./pastBfrLecture";
+import { DelaisVisibles, evolutionBfr, evolutionVisible, LectureBfr, lectureBfrDuMois, PointBfr, SourcesBfr } from "./pastBfrLecture";
 import { MappingCategorie } from "./pastCategoryMapping";
 import { dateEnLettres, PlanEcarts, PlanRapport } from "./pastPdfPeriodes";
 import { categoriesDeLEtage, Comparaison, comparerPeriodes, donneesPeriode, LigneCategorieEcart } from "./pastVariance";
@@ -106,7 +106,8 @@ export interface PageBfrPdf {
   indisponible: string | null;
   lecture: LectureBfr | null;
   // Cohortes du mois et du mois civil précédent (pour l'évolution), comme les cartouches de l'onglet.
-  delais: { client: DelaisCohorte; fournisseur: DelaisCohorte; clientPrecedent: DelaisCohorte; fournisseurPrecedent: DelaisCohorte } | null;
+  // null : côté hors de l'offre de l'organisation, ou aucune fin de mois utilisable.
+  delais: { client: DelaisCohorte | null; fournisseur: DelaisCohorte | null; clientPrecedent: DelaisCohorte | null; fournisseurPrecedent: DelaisCohorte | null } | null;
   evolution: PointBfr[];
 }
 
@@ -200,7 +201,7 @@ export function entetePnl(plan: PlanRapport, aujourdhui: string): EntetePeriode 
  * Page BFR : la situation de la fin de mois retenue par le plan — mêmes calculs que l'onglet BFR
  * (lib/pastBfrLecture.ts), mêmes délais que ses cartouches, même évolution sur 12 mois.
  */
-export function pageBfrPdf(plan: PlanRapport, sources: SourcesBfr, aujourdhui: string): PageBfrPdf {
+export function pageBfrPdf(plan: PlanRapport, sources: SourcesBfr, aujourdhui: string, visibles: DelaisVisibles = { clients: true, fournisseurs: true }): PageBfrPdf {
   if (plan.bfr === null) {
     return {
       type: "bfr",
@@ -222,13 +223,16 @@ export function pageBfrPdf(plan: PlanRapport, sources: SourcesBfr, aujourdhui: s
     mois,
     indisponible: null,
     lecture,
-    delais: {
-      client: delaisDuMois(sources.factures, "client", mois, aujourdhui),
-      fournisseur: delaisDuMois(sources.factures, "fournisseur", mois, aujourdhui),
-      clientPrecedent: delaisDuMois(sources.factures, "client", moisGlissants(mois, 2)[0], aujourdhui),
-      fournisseurPrecedent: delaisDuMois(sources.factures, "fournisseur", moisGlissants(mois, 2)[0], aujourdhui),
-    },
-    evolution: evolutionBfr(sources, mois, aujourdhui),
+    delais:
+      visibles.clients || visibles.fournisseurs
+        ? {
+            client: visibles.clients ? delaisDuMois(sources.factures, "client", mois, aujourdhui) : null,
+            fournisseur: visibles.fournisseurs ? delaisDuMois(sources.factures, "fournisseur", mois, aujourdhui) : null,
+            clientPrecedent: visibles.clients ? delaisDuMois(sources.factures, "client", moisGlissants(mois, 2)[0], aujourdhui) : null,
+            fournisseurPrecedent: visibles.fournisseurs ? delaisDuMois(sources.factures, "fournisseur", moisGlissants(mois, 2)[0], aujourdhui) : null,
+          }
+        : null,
+    evolution: evolutionVisible(evolutionBfr(sources, mois, aujourdhui), visibles),
   };
 }
 

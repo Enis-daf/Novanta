@@ -9,6 +9,7 @@ import PasseTransactions from "@/components/PasseTransactions";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { moduleActifPourOrganisation, ROUTE_FUTUR } from "@/lib/organizationModules";
+import { chargerDroitsOrganisation, DroitsOrganisation } from "@/lib/offres";
 
 export default function PassePage() {
   const router = useRouter();
@@ -20,6 +21,9 @@ export default function PassePage() {
   const [autorise, setAutorise] = useState(false);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [organizationName, setOrganizationName] = useState("");
+  // Droits de l'offre, résolus AVANT d'afficher le module : aucun onglet hors offre ne s'affiche,
+  // même un instant, et un rechargement relit l'offre en base.
+  const [droits, setDroits] = useState<DroitsOrganisation | null>(null);
 
   useEffect(() => {
     if (!supabaseConfigured) {
@@ -51,6 +55,7 @@ export default function PassePage() {
   useEffect(() => {
     setAutorise(false);
     setOrganizationId(null);
+    setDroits(null);
     if (!supabaseConfigured || !userId) return;
 
     let annule = false;
@@ -77,6 +82,13 @@ export default function PassePage() {
         router.replace(ROUTE_FUTUR);
         return;
       }
+      const droitsOffre = await chargerDroitsOrganisation(supabase!, company.id);
+      if (annule) return;
+      if (!droitsOffre.capacites.canViewReporting) {
+        router.replace(ROUTE_FUTUR);
+        return;
+      }
+      setDroits(droitsOffre);
       setOrganizationId(company.id);
       setOrganizationName(company.name);
       setAutorise(true);
@@ -95,7 +107,7 @@ export default function PassePage() {
     return <LoginForm />;
   }
 
-  if (!session || !autorise || !organizationId) {
+  if (!session || !autorise || !organizationId || !droits) {
     return <main className="cockpit-chargement">Vérification de votre accès…</main>;
   }
 
@@ -112,6 +124,7 @@ export default function PassePage() {
         organizationId={organizationId}
         organizationName={organizationName}
         accessToken={session.access_token}
+        droits={droits}
       />
       {/* Le rappel TTC / HT estimé est posé par le module lui-même (PasseTransactions), car il
           dépend de la lecture choisie. */}

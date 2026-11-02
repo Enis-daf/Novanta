@@ -20,6 +20,7 @@ import FiabiliteProjection from "@/components/FiabiliteProjection";
 import LoginForm from "@/components/LoginForm";
 import IconTelechargement from "@/components/IconTelechargement";
 import EnTeteCockpit from "@/components/EnTeteCockpit";
+import OffreVerrouillee from "@/components/OffreVerrouillee";
 import Cartouche from "@/components/Cartouche";
 import { formatDate } from "@/lib/format";
 
@@ -101,7 +102,8 @@ import { RapprochementFacture } from "@/components/FacturesFournisseursTable";
 import { ajouterJours, parseDateISO } from "@/lib/dates";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
-import { moduleActifPourOrganisation } from "@/lib/organizationModules";
+import { moduleActifPourOrganisation, ROUTE_PASSE } from "@/lib/organizationModules";
+import { chargerDroitsOrganisation, Offre } from "@/lib/offres";
 import {
   categoriesARelire,
   CategorieFacture,
@@ -207,9 +209,13 @@ export default function Home() {
   const [companyId, setCompanyId] = useState<string | null>(null);
   // "verification" (par défaut, fail-closed) : le cockpit ne s'affiche jamais tant
   // qu'on n'est pas passé explicitement à "autorise" — jamais par défaut/erreur.
-  const [etatAcces, setEtatAcces] = useState<"verification" | "autorise" | "refuse" | "erreur">(
+  // "hors_offre" : accès au produit valide, mais l'offre de la société n'inclut pas la projection ;
+  // aucune donnée du cockpit n'est alors chargée.
+  const [etatAcces, setEtatAcces] = useState<"verification" | "autorise" | "hors_offre" | "refuse" | "erreur">(
     !supabaseConfigured ? "autorise" : "verification"
   );
+  // Offre effective, connue seulement à l'état "hors_offre" (pour la nommer à l'utilisateur).
+  const [offreHorsProjection, setOffreHorsProjection] = useState<Offre | null>(null);
   const [tentativeVerification, setTentativeVerification] = useState(0);
   const [donneesChargees, setDonneesChargees] = useState(!supabaseConfigured);
   // null = pas encore su (état de chargement) ; false par défaut sinon, jamais true tant que
@@ -409,6 +415,20 @@ export default function Home() {
       if (!company.accessEnabled) {
         setEtatAcces("refuse");
         router.replace("/account/billing");
+        return;
+      }
+
+      // Offre relue en base à chaque vérification (rechargement compris), avant tout affichage.
+      const droits = await chargerDroitsOrganisation(supabase!, company.id);
+      if (annule) return;
+      if (!droits.capacites.canViewForecast) {
+        // Le bouton « Passé » de l'en-tête et le lien de l'écran verrouillé suivent l'entitlement
+        // du module, lu ici puisque companyId (et donc l'effet dédié) n'est jamais posé dans ce cas.
+        const passeActif = await moduleActifPourOrganisation(supabase!, company.id, "past").catch(() => false);
+        if (annule) return;
+        setModulePasseActif(passeActif && droits.capacites.canViewReporting);
+        setOffreHorsProjection(droits.offreEffective);
+        setEtatAcces("hors_offre");
         return;
       }
       setEtatAcces("autorise");
@@ -1585,6 +1605,23 @@ export default function Home() {
             Se déconnecter
           </button>
         </div>
+      </main>
+    );
+  }
+
+  if (supabaseConfigured && etatAcces === "hors_offre" && session && offreHorsProjection) {
+    return (
+      <main className="cockpit">
+        <EnTeteCockpit
+          moduleActif="futur"
+          compte={{ email: session.user.email, passeDisponible: modulePasseActif, onDeconnexion: handleDeconnexion }}
+        />
+        <OffreVerrouillee
+          capacite="canViewForecast"
+          fonctionnalite="La projection de trésorerie"
+          offreActuelle={offreHorsProjection}
+          lien={modulePasseActif ? { href: ROUTE_PASSE, libelle: "Ouvrir l'analyse des flux" } : undefined}
+        />
       </main>
     );
   }

@@ -2418,6 +2418,47 @@ input[type="checkbox"] {
   color: var(--couleur-fond);
 }
 
+/* Onglet hors de l'offre de l'organisation : reste visible et cliquable (il ouvre l'écran
+   « Disponible avec l'offre … »), atténué et marqué d'un cadenas. */
+.passe-onglet--verrouille:not(.passe-onglet--actif) {
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Fonctionnalité hors offre : un simple filet, sans aplat ni rose (rien à « acheter » ici). */
+.offre-verrou {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  max-width: 560px;
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--couleur-filet);
+  border-radius: var(--radius-md);
+}
+
+.offre-verrou__offre {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.offre-verrou__texte {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--couleur-texte-secondaire);
+}
+
+.offre-verrou__lien {
+  text-decoration: none;
+}
+
 .passe-onglet__pastille {
   padding: 1px 7px;
   border-radius: 999px;

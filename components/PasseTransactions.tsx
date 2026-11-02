@@ -17,6 +17,9 @@ import PasseBfr from "./PasseBfr";
 import { synchroniserFacturesBfr } from "@/lib/pastBfrSyncClient";
 import PasseStocks from "./PasseStocks";
 import PastDetailDashboard from "./PastDetailDashboard";
+import OffreVerrouillee from "./OffreVerrouillee";
+import IconCadenas from "./IconCadenas";
+import { Capacite, DroitsOrganisation, messageOffreRequise } from "@/lib/offres";
 import { supabase } from "@/lib/supabaseClient";
 import { formatDateCourte, todayISO, toISODate } from "@/lib/dates";
 import {
@@ -43,7 +46,7 @@ import {
   StockFinDeMois,
 } from "@/lib/pastAdjustments";
 import { estMetriqueDetail, moisDeLaPeriode, partsMappees } from "@/lib/pastDetail";
-import { entetePnl, nomFichierPdf, pageBfrPdf, pageEcartsPdf, pagesExportPdf } from "@/lib/pastPdfModel";
+import { entetePnl, nomFichierPdf, PagePdf, pageBfrPdf, pageEcartsPdf, pagesExportPdf } from "@/lib/pastPdfModel";
 import { ChoixRapport, dernierMoisTermine, exercicesProposes, libelleExercice, moisProposes, planRapport, PlanRapport, resumeDuPlan } from "@/lib/pastPdfPeriodes";
 import { chargerFacturesBfr, chargerSituationsValidees } from "@/lib/pastBfrRepository";
 import { libelleMois } from "@/lib/pastDetail";
@@ -125,6 +128,8 @@ interface PasseTransactionsProps {
   // Nom affiché en tête de l'export PDF et repris dans le nom du fichier.
   organizationName: string;
   accessToken: string;
+  // Droits de l'offre de l'organisation, déjà résolus par la page avant tout affichage.
+  droits: DroitsOrganisation;
 }
 
 const LIGNES_PAR_PAGE = 50;
@@ -157,6 +162,17 @@ const ONGLETS = [
 ] as const;
 
 type Vue = (typeof ONGLETS)[number]["cle"];
+
+// Onglets soumis à une capacité de l'offre (lib/offres.ts) ; les autres suivent l'accès au module.
+const CAPACITE_PAR_VUE: Partial<Record<Vue, { capacite: Capacite; fonctionnalite: string }>> = {
+  ecarts: { capacite: "canViewVarianceAnalysis", fonctionnalite: "L'analyse d'écarts" },
+  bfr: { capacite: "canViewWorkingCapital", fonctionnalite: "Le BFR" },
+};
+
+function vueVerrouillee(vue: Vue, droits: DroitsOrganisation): boolean {
+  const restriction = CAPACITE_PAR_VUE[vue];
+  return restriction !== undefined && !droits.capacites[restriction.capacite];
+}
 const formatNombre = new Intl.NumberFormat("fr-FR");
 
 function pluriel(nombre: number, singulier: string, plurielTexte: string): string {
@@ -165,7 +181,7 @@ function pluriel(nombre: number, singulier: string, plurielTexte: string): strin
 
 // Tableau des transactions du module Passé. Lit uniquement past_transactions (jamais Pennylane
 // directement) : la source d'une transaction n'a aucune incidence sur l'affichage.
-export default function PasseTransactions({ organizationId, organizationName, accessToken }: PasseTransactionsProps) {
+export default function PasseTransactions({ organizationId, organizationName, accessToken, droits }: PasseTransactionsProps) {
   const router = useRouter();
   // PÉRIODE DU MODULE — source unique pour tous les onglets. Elle tient en deux états :
   //  - l'exercice de l'organisation (en base ; null tant qu'il n'est pas lu) ;
@@ -798,6 +814,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
   // Une seule action pour l'utilisateur, deux chaînes côté serveur enchaînées : les transactions de la
   // période (/api/passe/sync), puis les factures et leurs règlements pour le BFR (/api/passe/bfr), en
   // séquence car elles partagent le plafond d'appels Pennylane. L'échec de l'une n'empêche pas l'autre.
+  // Sans le BFR dans l'offre, seules les transactions sont synchronisées (la route BFR refuserait).
   const synchroniser = async () => {
     if (syncEnCours || !periodeOk) return;
     setSyncEnCours(true);
@@ -832,19 +849,21 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     } catch {
       erreurs.add(INDISPONIBLE);
     }
-    try {
-      const factures = await synchroniserFacturesBfr(accessToken, setSyncMessage);
-      if (factures.statut === "termine") {
-        phrases.push(
-          factures.restantes > 0
-            ? `Synchronisation des factures interrompue : ${factures.restantes} restent à dater. Relancez-la pour reprendre.`
-            : `${pluriel(factures.factures, "facture Pennylane à jour", "factures Pennylane à jour")}.${
-                factures.listeComplete ? "" : " Liste très volumineuse : certaines factures anciennes peuvent manquer."
-              }`
-        );
+    if (droits.capacites.canViewWorkingCapital) {
+      try {
+        const factures = await synchroniserFacturesBfr(accessToken, setSyncMessage);
+        if (factures.statut === "termine") {
+          phrases.push(
+            factures.restantes > 0
+              ? `Synchronisation des factures interrompue : ${factures.restantes} restent à dater. Relancez-la pour reprendre.`
+              : `${pluriel(factures.factures, "facture Pennylane à jour", "factures Pennylane à jour")}.${
+                  factures.listeComplete ? "" : " Liste très volumineuse : certaines factures anciennes peuvent manquer."
+                }`
+          );
+        }
+      } catch (e) {
+        erreurs.add(e instanceof Error && !(e instanceof TypeError) && e.message ? e.message : INDISPONIBLE);
       }
-    } catch (e) {
-      erreurs.add(e instanceof Error && !(e instanceof TypeError) && e.message ? e.message : INDISPONIBLE);
     }
     setSyncMessage(phrases.length > 0 ? phrases.join(" ") : null);
     setSyncErreur(erreurs.size > 0 ? [...erreurs].join(" ") : null);
@@ -906,11 +925,15 @@ export default function PasseTransactions({ organizationId, organizationName, ac
     setExportEnCours(true);
     setExportErreur(null);
     try {
+      // Seules les sections ouvertes par l'offre sont chargées et exportées : un PDF ne contourne pas
+      // le verrou d'un onglet.
+      const bfrInclus = droits.capacites.canViewWorkingCapital;
+      const ecartsInclus = droits.capacites.canViewVarianceAnalysis;
       const [lignesRapport, lignesA, faitsBfr, validees] = await Promise.all([
         chargerPastTransactions(supabase!, organizationId, plan.periode),
-        chargerPastTransactions(supabase!, organizationId, plan.ecarts.a),
-        chargerFacturesBfr(supabase!, organizationId),
-        chargerSituationsValidees(supabase!, organizationId),
+        ecartsInclus ? chargerPastTransactions(supabase!, organizationId, plan.ecarts.a) : [],
+        bfrInclus ? chargerFacturesBfr(supabase!, organizationId) : null,
+        bfrInclus ? chargerSituationsValidees(supabase!, organizationId) : [],
       ]);
       // B est toujours contenue dans la période du rapport (entière, ou à date) : pas de second chargement.
       const lignesB = lignesRapport.filter((t) => t.transactionDate >= plan.ecarts.b.debut && t.transactionDate <= plan.ecarts.b.fin);
@@ -932,19 +955,31 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         filtresOngletOuvert: { categorie: null, mois: null },
         entete: entetePnl(plan, aujourdhui),
       });
-      const synchroniseLe = faitsBfr.synchroniseesLe ? toISODate(new Date(faitsBfr.synchroniseesLe)) : null;
-      const pageBfr = pageBfrPdf(plan, { factures: faitsBfr.factures, validees, stocks, sansStock, synchroniseLe }, aujourdhui);
-      const pageEcarts = pageEcartsPdf({
-        plan: plan.ecarts,
-        transactionsA: lignesA,
-        transactionsB: lignesB,
-        axeId: axe.axeId,
-        mappings: mappingsIndexes,
-        ajustements: tousLesAjustements,
-        financementCompris: ecartsFinancementCompris,
-      });
+      const pages: PagePdf[] = [...pagesPnl];
+      if (faitsBfr) {
+        const synchroniseLe = faitsBfr.synchroniseesLe ? toISODate(new Date(faitsBfr.synchroniseesLe)) : null;
+        pages.push(
+          pageBfrPdf(plan, { factures: faitsBfr.factures, validees, stocks, sansStock, synchroniseLe }, aujourdhui, {
+            clients: droits.capacites.canViewDSO,
+            fournisseurs: droits.capacites.canViewDPO,
+          })
+        );
+      }
+      if (ecartsInclus) {
+        pages.push(
+          pageEcartsPdf({
+            plan: plan.ecarts,
+            transactionsA: lignesA,
+            transactionsB: lignesB,
+            axeId: axe.axeId,
+            mappings: mappingsIndexes,
+            ajustements: tousLesAjustements,
+            financementCompris: ecartsFinancementCompris,
+          })
+        );
+      }
       const { genererPdfPasse, telechargerPdf } = await import("@/lib/pastPdfDocument");
-      const blob = await genererPdfPasse({ organisation: organizationName, pages: [...pagesPnl, pageBfr, pageEcarts], teintes: teintesParCategorie(pnlTtc.categories) });
+      const blob = await genererPdfPasse({ organisation: organizationName, pages, teintes: teintesParCategorie(pnlTtc.categories) });
       telechargerPdf(blob, nomFichierPdf(organizationName, plan.periode));
       setExportOuvert(false);
     } catch (error) {
@@ -1121,14 +1156,16 @@ export default function PasseTransactions({ organizationId, organizationName, ac
                 )}
                 <span className="passe-controle__label">Le rapport contiendra</span>
                 <ul className="passe-export__resume">
-                  {resumeDuPlan(planExport).map((ligne) => (
+                  {resumeDuPlan(planExport, { bfr: droits.capacites.canViewWorkingCapital, ecarts: droits.capacites.canViewVarianceAnalysis }).map((ligne) => (
                     <li key={ligne}>{ligne}</li>
                   ))}
                 </ul>
                 <p className="passe-message">
-                  Montants du P&amp;L en {base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC} (Cash flow en {MENTION_TTC}) · BFR toujours HT · Analyse
-                  d&apos;écarts en {MENTION_TTC}, {ecartsFinancementCompris ? "financement compris" : "hors financement"}. Stocks, Objectifs et Correspondance
-                  P&amp;L ne sont pas exportés.
+                  Montants du P&amp;L en {base === "ht" ? MENTION_HT_ESTIME : MENTION_TTC} (Cash flow en {MENTION_TTC})
+                  {droits.capacites.canViewWorkingCapital && " · BFR toujours HT"}
+                  {droits.capacites.canViewVarianceAnalysis &&
+                    ` · Analyse d'écarts en ${MENTION_TTC}, ${ecartsFinancementCompris ? "financement compris" : "hors financement"}`}
+                  . Stocks, Objectifs et Correspondance P&amp;L ne sont pas exportés.
                 </p>
                 <button type="button" className="btn-add" onClick={() => exporterPdf(planExport)} disabled={exportEnCours || premiereDate === undefined}>
                   {exportEnCours ? "Génération du PDF…" : "Générer le PDF"}
@@ -1160,23 +1197,29 @@ export default function PasseTransactions({ organizationId, organizationName, ac
       <div className="passe-onglets" role="tablist">
         {[false, true].map((actions) => (
           <div key={String(actions)} className="passe-onglets__groupe" role="presentation">
-            {ONGLETS.filter((onglet) => !("horsNavigation" in onglet) && "actions" in onglet === actions).map((onglet) => (
-              <button
-                key={onglet.cle}
-                type="button"
-                role="tab"
-                aria-selected={vue === onglet.cle}
-                className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}${
-                  "vedette" in onglet ? " passe-onglet--vedette" : ""
-                }`}
-                onClick={() => setVue(onglet.cle)}
-              >
-                {onglet.libelle}
-                {onglet.cle === "mapping" && nombreAMapper > 0 && (
-                  <span className="passe-onglet__pastille">{nombreAMapper}</span>
-                )}
-              </button>
-            ))}
+            {ONGLETS.filter((onglet) => !("horsNavigation" in onglet) && "actions" in onglet === actions).map((onglet) => {
+              const verrouille = vueVerrouillee(onglet.cle, droits);
+              const restriction = CAPACITE_PAR_VUE[onglet.cle];
+              return (
+                <button
+                  key={onglet.cle}
+                  type="button"
+                  role="tab"
+                  aria-selected={vue === onglet.cle}
+                  className={`passe-onglet${vue === onglet.cle ? " passe-onglet--actif" : ""}${
+                    verrouille ? " passe-onglet--verrouille" : "vedette" in onglet ? " passe-onglet--vedette" : ""
+                  }`}
+                  title={verrouille && restriction ? messageOffreRequise(restriction.capacite) : undefined}
+                  onClick={() => setVue(onglet.cle)}
+                >
+                  {verrouille && <IconCadenas />}
+                  {onglet.libelle}
+                  {onglet.cle === "mapping" && nombreAMapper > 0 && (
+                    <span className="passe-onglet__pastille">{nombreAMapper}</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>
@@ -1389,6 +1432,14 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               // Objectifs exclusivement HT : aucune cible en lecture TTC, ni sur le Cash flow.
               cibles={base === "ht" && vue !== "cash_flow" ? cibles : undefined}
             />
+          ) : vueVerrouillee(vue, droits) && CAPACITE_PAR_VUE[vue] ? (
+            // Jamais monté hors offre : l'écran verrouillé remplace le composant, qui n'appelle donc
+            // aucune route (la route BFR refuse de toute façon, voir app/api/passe/bfr).
+            <OffreVerrouillee
+              capacite={CAPACITE_PAR_VUE[vue].capacite}
+              fonctionnalite={CAPACITE_PAR_VUE[vue].fonctionnalite}
+              offreActuelle={droits.offreEffective}
+            />
           ) : vue === "ecarts" ? (
             <>
             {base === "ht" && <p className="passe-message">{LIBELLE_ECARTS_EN_TTC}</p>}
@@ -1415,6 +1466,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               sansStock={sansStock}
               pennylaneConnecte={pennylaneConnecte}
               onOuvrirStocks={() => setVue("stocks")}
+              delaisVisibles={{ clients: droits.capacites.canViewDSO, fournisseurs: droits.capacites.canViewDPO }}
             />
           ) : vue === "stocks" ? (
             <PasseStocks
@@ -1522,7 +1574,7 @@ export default function PasseTransactions({ organizationId, organizationName, ac
         ]}
       />
       {/* Rappel permanent, commun à tous les onglets du module, selon la lecture choisie. */}
-      {vue === "bfr" ? (
+      {vue === "bfr" && vueVerrouillee(vue, droits) ? null : vue === "bfr" ? (
         <p className="passe-disclaimer">
           BFR toujours en HT : montants HT des factures Pennylane réelles et stocks saisis HT. Aucun taux de TVA appliqué,
           aucune facture prévisionnelle.
