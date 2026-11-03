@@ -1468,7 +1468,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               onOuvrirStocks={() => setVue("stocks")}
               delaisVisibles={{ clients: droits.capacites.canViewDSO, fournisseurs: droits.capacites.canViewDPO }}
               exercice={configExercice}
-              axes={axes}
+              axeId={axe.axeId}
+              mappings={mappingsIndexes}
             />
           ) : vue === "stocks" ? (
             <PasseStocks

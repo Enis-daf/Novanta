@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import { FactureBfr } from "./pastBfr";
 import {
   avecCategoriesDesTransactions,
-  categoriesProposees,
-  categoriesRecuperees,
+  etagesParTransaction,
+  etagesProposes,
+  diagnosticCategories,
   filtresInitiaux,
-  libelleCategorie,
+  libelleEtageFiltre,
   libelleTrimestre,
   periodeDuType,
   periodesProposees,
@@ -117,24 +118,55 @@ describe("périodes de l'analyse", () => {
   });
 });
 
-describe("catégories proposées", () => {
-  test("par axe, chaque catégorie une fois, du seul côté analysé", () => {
-    const a = { id: "1", label: "Projet A", groupId: "g1", weight: 0.5 };
-    const b = { id: "2", label: "Maintenance", groupId: "g1", weight: 0.5 };
-    const c = { id: "3", label: "Paris", groupId: "g2", weight: 1 };
-    const factures = [facture({ categories: [a, b] }), facture({ categories: [a] }), facture({ categories: [c] }), facture({ type: "client", categories: [{ id: "9", label: "Client", groupId: "g1", weight: 1 }] })];
-    const groupes = categoriesProposees(factures, "fournisseur", [{ groupId: "g1", name: "Activité" }]);
-    assert.deepEqual(groupes.map((g) => [g.nom, g.categories.map((x) => x.label)]), [
-      ["Activité", ["Maintenance", "Projet A"]],
-      ["Axe analytique", ["Paris"]],
+describe("étage P&L des transactions rapprochées", () => {
+  const cat = (id: string, groupId = "axe") => ({ id, label: id, groupId, weight: 0.5 });
+  const mapping = (id: string, pnlStage: "gross_margin" | "ebitda" | "revenue" | null) => [id, { sourceCategoryId: id, sourceCategoryName: id, sourceGroupId: "axe", pnlStage }] as const;
+  const mappings = new Map([mapping("sous-traitance", "gross_margin"), mapping("matiere", "gross_margin"), mapping("loyer", "ebitda"), mapping("nouvelle", null)]);
+
+  test("catégorie de l'axe de référence -> étage de la correspondance P&L ; chaque étage une fois", () => {
+    const parTransaction = new Map([
+      ["t1", [cat("sous-traitance"), cat("matiere")]], // deux catégories, même étage
+      ["t2", [cat("sous-traitance"), cat("loyer")]], // ventilée sur deux étages
+      ["t3", [cat("nouvelle")]], // catégorie non rattachée
+      ["t4", [cat("loyer", "autre-axe")]], // autre axe : ignorée
     ]);
-    assert.equal(libelleCategorie({ type: "categorie", id: "3" }, groupes), "Paris");
-    assert.equal(libelleCategorie({ type: "non_categorise" }, groupes), "Non catégorisé");
+    const etages = etagesParTransaction(parTransaction, "axe", mappings);
+    assert.deepEqual(etages.get("t1")!.map((e) => e.id), ["gross_margin"]);
+    assert.deepEqual(etages.get("t2")!.map((e) => e.label), ["Coûts directs", "Coûts de structure"]);
+    assert.deepEqual(etages.get("t3"), []); // Non classé
+    assert.deepEqual(etages.get("t4"), []);
   });
 
-  test("catégories récupérées et première émission", () => {
-    assert.equal(categoriesRecuperees([facture({ categories: null })], "fournisseur"), false);
-    assert.equal(categoriesRecuperees([facture({ categories: [] })], "fournisseur"), true);
+  test("axe non configuré : aucun étage connu", () => {
+    assert.equal(etagesParTransaction(new Map([["t1", [cat("loyer")]]]), null, mappings).size, 0);
+  });
+
+  test("facture sur deux étages : comptée une fois sous chacun, montant et délai entiers", () => {
+    const etages = etagesParTransaction(new Map([["t2", [cat("sous-traitance"), cat("loyer")]]]), "axe", mappings);
+    const f = facture({ montantHt: 100_000, montantTtc: 120_000, dateEmission: "2026-09-01", categories: undefined, reglements: [{ date: "2026-10-22", montant: 120_000, transactionId: "t2" }] });
+    const factures = avecCategoriesDesTransactions([f], etages);
+    for (const id of ["gross_margin", "ebitda"]) {
+      const c = delaisDeLaCohorte(factures, "fournisseur", { debut: "2026-09-01", fin: "2026-09-30" }, "2026-11-30", { categorie: { type: "categorie", id } });
+      assert.deepEqual([c.reglees.length, c.reglees[0].montantHt, c.delaiMoyen], [1, 100_000, 51]);
+    }
+    const toutes = delaisDeLaCohorte(factures, "fournisseur", { debut: "2026-09-01", fin: "2026-09-30" }, "2026-11-30");
+    assert.equal(toutes.reglees.length, 1);
+  });
+
+  test("étages proposés dans l'ordre du P&L, du seul côté analysé ; libellés du filtre", () => {
+    const e = (id: string, label: string) => ({ id, label, groupId: null, weight: 1 });
+    const factures = [
+      facture({ categories: [e("ebitda", "Coûts de structure")] }),
+      facture({ categories: [e("gross_margin", "Coûts directs")] }),
+      facture({ type: "client", categories: [e("revenue", "Encaissements")] }),
+    ];
+    assert.deepEqual(etagesProposes(factures, "fournisseur").map((x) => x.label), ["Coûts directs", "Coûts de structure"]);
+    assert.equal(libelleEtageFiltre({ type: "toutes" }), "Tous les étages");
+    assert.equal(libelleEtageFiltre({ type: "non_categorise" }), "Non classé");
+    assert.equal(libelleEtageFiltre({ type: "categorie", id: "ebitda" }), "Coûts de structure");
+  });
+
+  test("première émission", () => {
     assert.equal(premiereEmission([facture({ dateEmission: "2026-03-01" }), facture({ dateEmission: "2025-12-01" })], "fournisseur"), "2025-12-01");
   });
 });
@@ -183,5 +215,43 @@ describe("catégories déduites des transactions rapprochées", () => {
 
   test("identifiants des transactions rapprochées, chacun une fois", () => {
     assert.deepEqual(transactionsRapprochees([reglee("t1", "t2"), reglee("t2", null)]).sort(), ["t1", "t2"]);
+  });
+});
+
+describe("filtre d'étage P&L : cause exacte quand il est indisponible", () => {
+  const P = { id: "p", label: "Projet", groupId: "g", weight: 1 };
+  const reglee = (id: string | undefined) =>
+    facture({ categories: undefined, reglements: [id === undefined ? { date: "2026-10-20", montant: 1_200 } : { date: "2026-10-20", montant: 1_200, transactionId: id }] });
+  const diag = (factures: FactureBfr[], parTransaction: Map<string, (typeof P)[]> | null, erreur = false) =>
+    diagnosticCategories(parTransaction === null ? factures : avecCategoriesDesTransactions(factures, parTransaction), "fournisseur", parTransaction, erreur);
+
+  test("axe analytique du P&L non configuré", () => {
+    assert.equal(diagnosticCategories([reglee("t1")], "fournisseur", new Map(), false, false).raison, "axe_non_configure");
+  });
+
+  test("lecture en cours, puis erreur de lecture", () => {
+    assert.equal(diag([reglee("t1")], null).raison, "lecture");
+    assert.equal(diag([reglee("t1")], new Map(), true).raison, "erreur");
+  });
+
+  test("aucune facture réglée", () => {
+    assert.equal(diag([facture({ reglements: null, categories: undefined })], new Map()).raison, "aucune_reglee");
+  });
+
+  test("règlements datés avant l'identifiant de transaction : à resynchroniser", () => {
+    assert.equal(diag([reglee(undefined)], new Map([["t1", [P]]])).raison, "a_resynchroniser");
+  });
+
+  test("transactions absentes du module Passé", () => {
+    assert.equal(diag([reglee("t1")], new Map([["autre", [P]]])).raison, "transactions_absentes");
+  });
+
+  test("transactions connues sans aucune catégorie", () => {
+    assert.equal(diag([reglee("t1")], new Map([["t1", []]])).raison, "aucun_etage");
+  });
+
+  test("au moins une catégorie : filtre utilisable, compteurs de la chaîne", () => {
+    const d = diag([reglee("t1"), reglee("t2"), reglee(undefined), facture({ type: "client", categories: undefined })], new Map([["t1", [P]], ["t2", []]]));
+    assert.deepEqual(d, { reglees: 3, identifiees: 2, connues: 2, categorisees: 1, raison: null });
   });
 });

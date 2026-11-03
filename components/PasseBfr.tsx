@@ -29,9 +29,10 @@ import {
 import { CoteDelai, delaisDeLaCohorte, DelaisCohorte, delaisDuMois } from "@/lib/pastBfrDelais";
 import {
   avecCategoriesDesTransactions,
-  categoriesProposees,
-  categoriesRecuperees,
   CategoriesParTransaction,
+  diagnosticCategories,
+  etagesParTransaction,
+  etagesProposes,
   FiltresAnalyse,
   filtresInitiaux,
   premiereEmission,
@@ -39,7 +40,7 @@ import {
   transactionsRapprochees,
 } from "@/lib/pastBfrAnalyseDelais";
 import { ConfigExercice } from "@/lib/fiscalPeriods";
-import { AxeAnalytique } from "@/lib/pastTransactions";
+import { MappingCategorie } from "@/lib/pastCategoryMapping";
 import { DelaisVisibles, evolutionBfr, evolutionVisible, PointBfr, situationBfrDuMois, SourcesBfr, stockBfrDuMois, valideeDuMois } from "@/lib/pastBfrLecture";
 import PasseBfrEvolutionChart, { bfrAfficheDe, LegendeEvolution } from "./PasseBfrEvolutionChart";
 import { CartoucheDelai, MesureDistribution, VueDelais } from "./PasseBfrDelais";
@@ -58,9 +59,11 @@ interface PasseBfrProps {
   onOuvrirStocks: () => void;
   // Délais que l'offre de l'organisation ouvre (lib/offres.ts : canViewDSO, canViewDPO).
   delaisVisibles: DelaisVisibles;
-  // Analyse des délais : exercice fiscal (périodes Trimestre / Exercice) et noms des axes analytiques.
+  // Analyse des délais : exercice fiscal (périodes Trimestre / Exercice), et axe de référence et
+  // correspondance P&L du module, qui donnent l'étage P&L des transactions rapprochées.
   exercice: ConfigExercice;
-  axes: AxeAnalytique[];
+  axeId: string | null;
+  mappings: ReadonlyMap<string, MappingCategorie>;
 }
 
 // État d'une analyse des délais (clients ou fournisseurs) : ses filtres, ceux du détail d'une
@@ -198,7 +201,7 @@ function ReserveExclusions({ exclues }: { exclues: FactureIncertaine[] }) {
   );
 }
 
-export default function PasseBfr({ organizationId, rechargement, mois, stocks, sansStock, pennylaneConnecte, onOuvrirStocks, delaisVisibles, exercice, axes }: PasseBfrProps) {
+export default function PasseBfr({ organizationId, rechargement, mois, stocks, sansStock, pennylaneConnecte, onOuvrirStocks, delaisVisibles, exercice, axeId, mappings }: PasseBfrProps) {
   const [factures, setFactures] = useState<FactureBfr[]>([]);
   const [synchroniseesLe, setSynchroniseesLe] = useState<string | null>(null);
   const [validees, setValidees] = useState<SituationValidee[]>([]);
@@ -215,11 +218,13 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
   // Catégories des transactions rapprochées : lues à la première analyse ouverte, relues après une
   // synchronisation. null : pas encore lues.
   const [categoriesTransactions, setCategoriesTransactions] = useState<CategoriesParTransaction | null>(null);
+  const [erreurCategories, setErreurCategories] = useState(false);
 
   const charger = useCallback(async () => {
     const [faits, situations] = await Promise.all([chargerFacturesBfr(supabase!, organizationId), chargerSituationsValidees(supabase!, organizationId)]);
     setFactures(faits.factures);
     setCategoriesTransactions(null);
+    setErreurCategories(false);
     setSynchroniseesLe(faits.synchroniseesLe);
     setValidees(situations);
   }, [organizationId]);
@@ -284,16 +289,19 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
       .catch((e) => {
         // Sans elles, le filtre de catégorie reste indisponible ; l'analyse fonctionne.
         console.error(`[passe/bfr] step=transaction-categories organization=${organizationId} code=${(e as { code?: string } | null)?.code ?? "inconnu"}`);
-        if (!annule) setCategoriesTransactions(new Map());
+        if (annule) return;
+        setErreurCategories(true);
+        setCategoriesTransactions(new Map());
       });
     return () => {
       annule = true;
     };
   }, [analyseOuverte, categoriesTransactions, factures, organizationId]);
-  // Factures de l'analyse, avec les catégories de leurs transactions rapprochées. Le BFR lit `factures`.
+  // Factures de l'analyse, avec l'étage P&L de leurs transactions rapprochées (correspondance P&L
+  // courante : la modifier relit tout l'historique). Le BFR lit `factures`, jamais celles-ci.
   const facturesAnalyse = useMemo(
-    () => (analyseOuverte ? avecCategoriesDesTransactions(factures, categoriesTransactions ?? new Map()) : factures),
-    [analyseOuverte, factures, categoriesTransactions]
+    () => (analyseOuverte ? avecCategoriesDesTransactions(factures, etagesParTransaction(categoriesTransactions ?? new Map(), axeId, mappings)) : factures),
+    [analyseOuverte, factures, categoriesTransactions, axeId, mappings]
   );
   const analyse = useMemo(() => {
     if (coteAnalyse === null || filtresVue === null) return null;
@@ -303,12 +311,11 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
     return {
       resolue,
       cohorte: delaisDeLaCohorte(facturesAnalyse, coteAnalyse, resolue.periode, aujourdhuiDelais, { seuilHt: filtresVue.seuilHt, categorie: filtresVue.categorie }),
-      groupes: categoriesProposees(facturesAnalyse, coteAnalyse, axes),
-      categoriesDisponibles: categoriesRecuperees(facturesAnalyse, coteAnalyse),
-      categoriesEnLecture: categoriesTransactions === null,
+      etages: etagesProposes(facturesAnalyse, coteAnalyse),
+      diagnostic: diagnosticCategories(facturesAnalyse, coteAnalyse, categoriesTransactions, erreurCategories, axeId !== null),
       premiere: premiereEmission(facturesAnalyse, coteAnalyse),
     };
-  }, [facturesAnalyse, coteAnalyse, filtresVue, exercice, axes, aujourdhuiDelais, categoriesTransactions]);
+  }, [facturesAnalyse, coteAnalyse, filtresVue, exercice, axeId, aujourdhuiDelais, categoriesTransactions, erreurCategories]);
 
   const ouvrirAnalyse = (cote: CoteDelai) => {
     const existante = analyses[cote];
@@ -421,9 +428,8 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
           exercice={exercice}
           premiere={analyse.premiere}
           aujourdhui={aujourdhuiDelais}
-          groupes={analyse.groupes}
-          categoriesDisponibles={analyse.categoriesDisponibles}
-          categoriesEnLecture={analyse.categoriesEnLecture}
+          etages={analyse.etages}
+          diagnosticCategories={analyse.diagnostic}
           mesure={etatAnalyse.mesure}
           onMesure={(mesure) => majAnalyse({ mesure })}
           tranche={etatAnalyse.tranche}

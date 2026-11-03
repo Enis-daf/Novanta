@@ -8,9 +8,11 @@ import { NEUTRES, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
 import { ConfigExercice } from "@/lib/fiscalPeriods";
 import {
   ChoixPeriode,
+  DiagnosticCategories,
+  MESSAGES_CATEGORIES_INDISPONIBLES,
   FiltresAnalyse,
-  GroupeCategories,
-  libelleCategorie,
+  EtagePropose,
+  libelleEtageFiltre,
   periodeDuType,
   periodesProposees,
   PeriodeResolue,
@@ -45,7 +47,7 @@ import {
  *
  * Le cartouche est la lecture de référence : cohorte du mois du BFR, toutes les factures, sans
  * filtre. L'analyse (distribution) et le détail d'une tranche ont chacun leurs filtres — période,
- * catégorie analytique, montant HT minimum : le parent donne la valeur de départ au niveau suivant,
+ * étage P&L, montant HT minimum : le parent donne la valeur de départ au niveau suivant,
  * un changement dans un enfant ne remonte jamais.
  */
 
@@ -234,7 +236,7 @@ const valeurCategorie = (c: FiltreCategorie) => (c.type === "categorie" ? `c:${c
 const categorieDeValeur = (v: string): FiltreCategorie => (v.startsWith("c:") ? { type: "categorie", id: v.slice(2) } : v === "non_categorise" ? { type: "non_categorise" } : { type: "toutes" });
 
 /**
- * Filtres d'un niveau d'analyse, sur une ligne : période, catégorie analytique, montant HT minimum.
+ * Filtres d'un niveau d'analyse, sur une ligne : période, étage P&L, montant HT minimum.
  * Une période personnalisée n'est appliquée qu'une fois valide ; jusque-là la période en cours reste
  * affichée et l'erreur est dite.
  */
@@ -246,9 +248,8 @@ function BarreFiltres({
   exercice,
   premiere,
   aujourdhui,
-  groupes,
-  categoriesDisponibles,
-  categoriesEnLecture,
+  etages,
+  diagnosticCategories,
 }: {
   id: string;
   filtres: FiltresAnalyse;
@@ -257,11 +258,12 @@ function BarreFiltres({
   exercice: ConfigExercice;
   premiere: string | null;
   aujourdhui: string;
-  groupes: GroupeCategories[];
-  categoriesDisponibles: boolean;
-  categoriesEnLecture: boolean;
+  etages: EtagePropose[]; // étages P&L présents, dans l'ordre du P&L
+  diagnosticCategories: DiagnosticCategories;
 }) {
   const { periode } = filtres;
+  // Utilisable seulement s'il existe au moins une vraie catégorie à proposer ; sinon, la cause est dite.
+  const raisonCategories = diagnosticCategories.raison;
   const [brouillon, setBrouillon] = useState(periode.type === "personnalise" ? { debut: periode.debut, fin: periode.fin } : periodeResolue);
   const [erreur, setErreur] = useState<string | null>(null);
   const choix: ChoixPeriode[] = periode.type === "personnalise" ? [] : periodesProposees(periode.type, premiere, aujourdhui, exercice);
@@ -319,38 +321,34 @@ function BarreFiltres({
         )}
       </span>
       <span className="passe-bfr__filtre">
-        <label htmlFor={`${id}-categorie`}>Catégorie analytique</label>
+        <label htmlFor={`${id}-categorie`}>Étage P&amp;L</label>
         <select
           id={`${id}-categorie`}
           value={valeurCategorie(filtres.categorie)}
-          disabled={!categoriesDisponibles && filtres.categorie.type === "toutes"}
-          title={
-            categoriesEnLecture
-              ? "Lecture des catégories des transactions…"
-              : categoriesDisponibles
-                ? "Catégorie des transactions bancaires rapprochées de la facture"
-                : "Aucune transaction rapprochée connue du module Passé : synchronisez Pennylane."
-          }
+          disabled={raisonCategories !== null && filtres.categorie.type === "toutes"}
+          aria-describedby={raisonCategories !== null ? `${id}-categorie-etat` : undefined}
+          title="Étage P&L des transactions bancaires rapprochées de la facture (correspondance P&L du module)"
           onChange={(e) => onFiltres({ ...filtres, categorie: categorieDeValeur(e.target.value) })}
         >
-          <option value="toutes">Toutes</option>
-          {groupes.map((g) => (
-            <optgroup key={g.groupId ?? ""} label={g.nom}>
-              {g.categories.map((c) => (
-                <option key={c.id} value={`c:${c.id}`}>
-                  {c.label}
-                </option>
-              ))}
-            </optgroup>
+          <option value="toutes">Tous</option>
+          {etages.map((e) => (
+            <option key={e.id} value={`c:${e.id}`}>
+              {e.label}
+            </option>
           ))}
-          <option value="non_categorise">Non catégorisé</option>
-          {filtres.categorie.type === "categorie" && !groupes.some((g) => g.categories.some((c) => filtres.categorie.type === "categorie" && c.id === filtres.categorie.id)) && (
-            <option value={valeurCategorie(filtres.categorie)}>Catégorie introuvable</option>
+          <option value="non_categorise">Non classé</option>
+          {filtres.categorie.type === "categorie" && !etages.some((e) => filtres.categorie.type === "categorie" && e.id === filtres.categorie.id) && (
+            <option value={valeurCategorie(filtres.categorie)}>{libelleEtageFiltre(filtres.categorie)}</option>
           )}
         </select>
       </span>
       <FiltreMontant id={`${id}-montant`} seuil={filtres.seuilHt} onSeuil={(seuilHt) => onFiltres({ ...filtres, seuilHt })} />
       {erreur && <span className="passe-bfr__filtre-erreur">{erreur}</span>}
+      {raisonCategories !== null && (
+        <span id={`${id}-categorie-etat`} className="passe-bfr__filtre-etat">
+          {MESSAGES_CATEGORIES_INDISPONIBLES[raisonCategories]}
+        </span>
+      )}
     </div>
   );
 }
@@ -364,9 +362,8 @@ export function VueDelais({
   exercice,
   premiere,
   aujourdhui,
-  groupes,
-  categoriesDisponibles,
-  categoriesEnLecture,
+  etages,
+  diagnosticCategories,
   mesure,
   onMesure,
   tranche,
@@ -382,9 +379,8 @@ export function VueDelais({
   exercice: ConfigExercice;
   premiere: string | null;
   aujourdhui: string;
-  groupes: GroupeCategories[];
-  categoriesDisponibles: boolean;
-  categoriesEnLecture: boolean;
+  etages: EtagePropose[]; // étages P&L présents, dans l'ordre du P&L
+  diagnosticCategories: DiagnosticCategories;
   mesure: MesureDistribution;
   onMesure: (mesure: MesureDistribution) => void;
   tranche: string | null;
@@ -403,7 +399,7 @@ export function VueDelais({
   const analyse = cohorte.reglees.reduce((s, f) => s + f.montantHt, 0);
   const contexte = [
     libellePeriode,
-    filtres.categorie.type === "toutes" ? null : libelleCategorie(filtres.categorie, groupes),
+    filtres.categorie.type === "toutes" ? null : libelleEtageFiltre(filtres.categorie),
     filtres.seuilHt === null ? "Toutes les factures" : `Factures ${libelleSeuil(filtres.seuilHt)} HT`,
   ].filter(Boolean);
   // Valeurs absolues (nombre de factures, montant HT) : la barre « Encore ouvertes » se compare
@@ -452,9 +448,8 @@ export function VueDelais({
         exercice={exercice}
         premiere={premiere}
         aujourdhui={aujourdhui}
-        groupes={groupes}
-        categoriesDisponibles={categoriesDisponibles}
-        categoriesEnLecture={categoriesEnLecture}
+        etages={etages}
+        diagnosticCategories={diagnosticCategories}
       />
       {cohorte.delaiMoyen !== null ? (
         <p className="passe-kpi__montant">
@@ -481,12 +476,12 @@ export function VueDelais({
         {pluriel(cohorte.reglees.length, "facture réglée")} · {enK(analyse)} analysés
         {filtre.seuilHt !== null &&
           filtre.couverture !== null &&
-          ` · ${pourcent(filtre.couverture)} des montants réglés de la période${filtres.categorie.type === "toutes" ? "" : " et de la catégorie"}`}
+          ` · ${pourcent(filtre.couverture)} des montants réglés de la période${filtres.categorie.type === "toutes" ? "" : " et de l'étage"}`}
         {ecartees.length > 0 && ` · sous le seuil, écartées : ${ecartees.join(" et ")}`}
       </p>
       {filtres.categorie.type !== "toutes" && filtre.categoriesInconnues > 0 && (
         <p className="passe-reserve">
-          {pluriel(filtre.categoriesInconnues, "facture")} de la période sans catégorie connue, hors de ce filtre : encore ouvertes (aucune transaction
+          {pluriel(filtre.categoriesInconnues, "facture")} de la période sans étage P&amp;L connu, hors de ce filtre : encore ouvertes (aucune transaction
           rapprochée), ou transactions pas encore synchronisées dans le module Passé.
         </p>
       )}

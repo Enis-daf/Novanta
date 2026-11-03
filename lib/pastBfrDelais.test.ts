@@ -494,7 +494,7 @@ describe("seuil de montant des délais", () => {
   });
 });
 
-describe("catégorie analytique des délais", () => {
+describe("classement des délais (étage P&L des transactions, mécanisme générique)", () => {
   const cat = (id: string, label = id, weight = 1) => ({ id, label, groupId: "axe", weight });
   const avec = (montantHt: number, categories: ReturnType<typeof cat>[] | null, regleeLe = "2026-10-16") =>
     facture({ montantHt, montantTtc: montantHt * 1.2, regleeLe, categories });

@@ -59,10 +59,10 @@ export interface FactureBfr {
   factureAvoireeId: string | null;
   // Transactions rapprochées. null : pas encore récupérées (ou inutiles : rien n'est réglé).
   reglements: ReglementBfr[] | null;
-  // Catégories analytiques de la facture, DÉDUITES à la lecture de celles de ses transactions
-  // rapprochées (lib/pastBfrAnalyseDelais.ts) — jamais stockées. [] : non catégorisée ; null / absent :
-  // inconnues (facture encore ouverte, transactions pas encore synchronisées dans Passé). Ne servent
-  // qu'à filtrer l'analyse des délais, jamais au calcul du BFR.
+  // Classement de la facture pour l'analyse des délais — ses étages P&L, DÉDUITS à la lecture de ses
+  // transactions rapprochées (lib/pastBfrAnalyseDelais.ts), jamais stockés. [] : non classée ;
+  // null / absent : inconnu (facture encore ouverte, transactions pas encore synchronisées dans Passé).
+  // Ne sert qu'à filtrer l'analyse des délais, jamais au calcul du BFR.
   categories?: CategorieAnalytique[] | null;
 }
 

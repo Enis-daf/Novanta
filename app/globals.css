@@ -4708,6 +4708,13 @@ button.passe-cible--lien:focus-visible,
   max-width: 260px;
 }
 
+/* Filtre de catégorie indisponible : la cause, sur sa propre ligne, en gris (un état, pas une alerte). */
+.passe-bfr__filtre-etat {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
 .passe-bfr__filtre-erreur {
   font-size: 11px;
   color: var(--couleur-accent-fonce);

@@ -5,7 +5,7 @@ import { CategorieAnalytique, FactureBfr } from "./pastBfr";
 import { CoteDelai, FiltreCategorie, PeriodeDelai, TOUTES_CATEGORIES } from "./pastBfrDelais";
 import { libelleMois } from "./pastDetail";
 import { exercicesProposes, libelleExercice, moisProposes } from "./pastPdfPeriodes";
-import { AxeAnalytique } from "./pastTransactions";
+import { estEtagePnl, ETAGES_PNL, EtagePnl, identiteCategorie, libelleEtagePnl, MappingCategorie } from "./pastCategoryMapping";
 
 /**
  * Filtres de l'ANALYSE des délais clients / fournisseurs (onglet BFR) — fonctions pures. L'écran
@@ -14,9 +14,10 @@ import { AxeAnalytique } from "./pastTransactions";
  *  - Période : un mois civil, un trimestre ou l'exercice fiscal de l'organisation (trimestres de
  *    l'exercice, comme le reporting du module), ou deux dates. Une facture en fait partie par sa
  *    DATE D'ÉMISSION ; son délai court jusqu'à son règlement, même après la période.
- *  - Catégorie analytique : celle des TRANSACTIONS bancaires rapprochées de la facture (les factures
- *    elles-mêmes n'en portent pas forcément) — voir avecCategoriesDesTransactions ; filtre et seuil
- *    de montant : lib/pastBfrDelais.ts.
+ *  - Étage P&L : celui des TRANSACTIONS bancaires rapprochées de la facture, selon la correspondance
+ *    P&L du module (catégorie de l'axe de référence -> étage) — voir etagesParTransaction et
+ *    avecCategoriesDesTransactions. Le filtre réutilise le mécanisme générique de lib/pastBfrDelais.ts
+ *    (FiltreCategorie), dont les valeurs sont ici des étages ; seuil de montant : même fichier.
  */
 
 export type TypePeriodeAnalyse = "mois" | "trimestre" | "exercice" | "personnalise";
@@ -152,39 +153,124 @@ export function premiereEmission(factures: FactureBfr[], cote: CoteDelai): strin
   return premiere;
 }
 
-export interface GroupeCategories {
-  groupId: string | null;
-  nom: string; // nom de l'axe analytique
-  categories: CategorieAnalytique[];
+/** Étage proposé au filtre : clé de l'étage et son libellé. */
+export interface EtagePropose {
+  id: EtagePnl;
+  label: string;
 }
 
 /**
- * Catégories analytiques présentes sur les factures d'un côté, rangées par axe (nom tiré des axes
- * du module, sinon « Axe analytique »), par libellé. Chaque catégorie une fois.
+ * Étage(s) P&L d'une transaction : ceux des catégories de l'AXE DE RÉFÉRENCE du module, via la
+ * correspondance P&L courante — exactement la règle du P&L de Passé (lib/pastDetail.ts::partsMappees).
+ * Catégorie non rattachée, ou d'un autre axe : aucun étage. [] : transaction connue, aucun étage.
+ * Axe non configuré : rien n'est connu (carte vide).
  */
-export function categoriesProposees(factures: FactureBfr[], cote: CoteDelai, axes: AxeAnalytique[]): GroupeCategories[] {
-  const parId = new Map<string, CategorieAnalytique>();
-  for (const f of factures) if (f.type === cote && Array.isArray(f.categories)) for (const c of f.categories) if (!parId.has(c.id)) parId.set(c.id, c);
-  const groupes = new Map<string, GroupeCategories>();
-  for (const c of parId.values()) {
-    const cle = c.groupId ?? "";
-    const groupe = groupes.get(cle) ?? { groupId: c.groupId, nom: axes.find((a) => a.groupId === c.groupId)?.name ?? "Axe analytique", categories: [] };
-    groupe.categories.push(c);
-    groupes.set(cle, groupe);
+export function etagesParTransaction(
+  categories: CategoriesParTransaction,
+  axeId: string | null,
+  mappings: ReadonlyMap<string, MappingCategorie>
+): CategoriesParTransaction {
+  const parTransaction = new Map<string, CategorieAnalytique[]>();
+  if (axeId === null) return parTransaction;
+  for (const [tid, liste] of categories) {
+    const etages = new Map<EtagePnl, CategorieAnalytique>();
+    for (const c of liste) {
+      if (c.groupId !== axeId) continue;
+      const etage = mappings.get(identiteCategorie(c.id, c.label))?.pnlStage ?? null;
+      if (etage && !etages.has(etage)) etages.set(etage, { id: etage, label: libelleEtagePnl(etage), groupId: null, weight: 1 });
+    }
+    parTransaction.set(tid, [...etages.values()]);
   }
-  return [...groupes.values()]
-    .map((g) => ({ ...g, categories: g.categories.sort((a, b) => a.label.localeCompare(b.label, "fr")) }))
-    .sort((a, b) => a.nom.localeCompare(b.nom, "fr"));
+  return parTransaction;
 }
 
-/** Les catégories des factures d'un côté ont-elles été récupérées ? (aucune : filtre sans objet). */
-export function categoriesRecuperees(factures: FactureBfr[], cote: CoteDelai): boolean {
-  return factures.some((f) => f.type === cote && Array.isArray(f.categories));
+/** Étages présents sur les factures d'un côté, dans l'ordre du P&L. */
+export function etagesProposes(factures: FactureBfr[], cote: CoteDelai): EtagePropose[] {
+  const presents = new Set<string>();
+  for (const f of factures) if (f.type === cote && Array.isArray(f.categories)) for (const c of f.categories) presents.add(c.id);
+  return ETAGES_PNL.filter((e) => presents.has(e.cle)).map((e) => ({ id: e.cle, label: e.libelle }));
 }
 
-export function libelleCategorie(filtre: FiltreCategorie, groupes: GroupeCategories[]): string {
-  if (filtre.type === "toutes") return "Toutes les catégories";
-  if (filtre.type === "non_categorise") return "Non catégorisé";
-  for (const g of groupes) for (const c of g.categories) if (c.id === filtre.id) return c.label;
-  return "Catégorie introuvable";
+export function libelleEtageFiltre(filtre: FiltreCategorie): string {
+  if (filtre.type === "toutes") return "Tous les étages";
+  if (filtre.type === "non_categorise") return "Non classé";
+  return estEtagePnl(filtre.id) ? libelleEtagePnl(filtre.id) : "Étage inconnu";
 }
+
+/**
+ * Pourquoi le filtre d'étage P&L n'a rien à proposer, étape par étape de la chaîne
+ * facture -> règlements -> transaction Pennylane -> transaction du module Passé -> étage :
+ *  - "axe_non_configure" : plusieurs axes analytiques et aucun choisi pour le P&L du module ;
+ *  - "lecture" : catégories des transactions en cours de lecture ;
+ *  - "erreur" : lecture des transactions impossible ;
+ *  - "aucune_reglee" : aucune facture réglée de ce côté ;
+ *  - "a_resynchroniser" : aucun règlement ne porte encore l'identifiant de sa transaction (datés
+ *    avant ce champ : la prochaine synchronisation les redate) ;
+ *  - "transactions_absentes" : transactions inconnues du module Passé (périodes jamais synchronisées) ;
+ *  - "aucun_etage" : transactions connues, aucune de leurs catégories rattachée à un étage du P&L.
+ * null : des catégories existent, le filtre est utilisable.
+ */
+export type RaisonCategoriesIndisponibles =
+  | "lecture"
+  | "erreur"
+  | "axe_non_configure"
+  | "aucune_reglee"
+  | "a_resynchroniser"
+  | "transactions_absentes"
+  | "aucun_etage";
+
+export interface DiagnosticCategories {
+  reglees: number; // factures du côté avec au moins un règlement daté
+  identifiees: number; // dont au moins un règlement porte l'identifiant de sa transaction
+  connues: number; // dont au moins une transaction est connue du module Passé
+  categorisees: number; // dont au moins un étage P&L
+  raison: RaisonCategoriesIndisponibles | null;
+}
+
+/** `factures` : avec catégories déduites (avecCategoriesDesTransactions). */
+export function diagnosticCategories(
+  factures: FactureBfr[],
+  cote: CoteDelai,
+  parTransaction: CategoriesParTransaction | null,
+  erreur: boolean,
+  axeConfigure = true
+): DiagnosticCategories {
+  let reglees = 0;
+  let identifiees = 0;
+  let connues = 0;
+  let categorisees = 0;
+  for (const f of factures) {
+    if (f.type !== cote || !f.reglements || f.reglements.length === 0) continue;
+    reglees++;
+    if (f.reglements.some((r) => r.transactionId)) identifiees++;
+    if (Array.isArray(f.categories)) connues++;
+    if (Array.isArray(f.categories) && f.categories.length > 0) categorisees++;
+  }
+  const raison: RaisonCategoriesIndisponibles | null = erreur
+    ? "erreur"
+    : !axeConfigure
+      ? "axe_non_configure"
+      : parTransaction === null
+      ? "lecture"
+      : reglees === 0
+        ? "aucune_reglee"
+        : identifiees === 0
+          ? "a_resynchroniser"
+          : connues === 0
+            ? "transactions_absentes"
+            : categorisees === 0
+              ? "aucun_etage"
+              : null;
+  return { reglees, identifiees, connues, categorisees, raison };
+}
+
+export const MESSAGES_CATEGORIES_INDISPONIBLES: Record<RaisonCategoriesIndisponibles, string> = {
+  lecture: "Lecture des étages P&L des transactions…",
+  erreur: "Étages P&L non disponibles : lecture des transactions impossible. Réessayez.",
+  axe_non_configure: "Étages P&L non disponibles : choisissez l'axe analytique du P&L dans la correspondance P&L du module.",
+  aucune_reglee: "Étages P&L non disponibles : aucune facture réglée, donc aucune transaction rapprochée.",
+  a_resynchroniser:
+    "Étages P&L non disponibles dans les données Pennylane synchronisées : relancez « Synchroniser Pennylane » pour relier chaque facture réglée à ses transactions.",
+  transactions_absentes: "Étages P&L non disponibles : les transactions rapprochées de ces factures ne sont pas encore synchronisées dans le module Passé.",
+  aucun_etage: "Étages P&L non disponibles : les catégories des transactions rapprochées ne sont rattachées à aucun étage dans la correspondance P&L.",
+};

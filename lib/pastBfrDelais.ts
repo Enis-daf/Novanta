@@ -22,11 +22,12 @@ import { SEUIL_COUVERTURE_REGLEMENT } from "./pennylaneInvoiceAdapter";
  * Avoirs, brouillons, devis : ce ne sont pas des factures émises, ils n'entrent pas dans la cohorte.
  *
  * Filtres de l'analyse (optionnels, jamais sur l'écran principal du BFR) :
- *  - catégorie analytique Pennylane : une facture est retenue si L'UNE de ses catégories est celle
- *    choisie — une seule fois, pour son montant entier et son délai entier, même si elle porte
- *    plusieurs catégories (la pondération Pennylane n'est jamais utilisée pour ventiler un délai).
- *    « Non catégorisé » : catégories lues et vides. Catégories pas encore récupérées : la facture ne
- *    peut pas être classée, elle sort de la population et elle est comptée ;
+ *  - classement de la facture (l'étage P&L de ses transactions rapprochées, voir
+ *    lib/pastBfrAnalyseDelais.ts) : une facture est retenue si L'UN de ses classements est celui
+ *    choisi — une seule fois, pour son montant entier et son délai entier, même si elle en porte
+ *    plusieurs (aucune pondération n'est utilisée pour ventiler un délai). « Non classé » : connu et
+ *    vide. Inconnu (facture ouverte, transactions non synchronisées) : la facture ne peut pas être
+ *    classée, elle sort de la population et elle est comptée ;
  *  - seuil de montant : seules les factures dont le montant HT est STRICTEMENT supérieur au seuil
  *    forment la population. Une facture sans montant HT ne peut pas être située : hors population.
  * Ils s'appliquent aux réglées, ouvertes et exclues, donc à tout l'écran d'analyse. La couverture du
