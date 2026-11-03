@@ -35,6 +35,9 @@ export type ExclusionFacture = "brouillon" | "archivee" | "annulee" | "avoir" | 
 export interface ReglementBfr {
   date: string; // YYYY-MM-DD, date de la transaction
   montant: number; // montant de la TRANSACTION (TTC, éventuellement partagée entre plusieurs factures)
+  // Identifiant Pennylane de la transaction : relie la facture aux catégories analytiques de ses
+  // transactions (module Passé). Absent des règlements datés avant ce champ (redatés une fois).
+  transactionId?: string | null;
 }
 
 export interface FactureBfr {
@@ -56,6 +59,20 @@ export interface FactureBfr {
   factureAvoireeId: string | null;
   // Transactions rapprochées. null : pas encore récupérées (ou inutiles : rien n'est réglé).
   reglements: ReglementBfr[] | null;
+  // Catégories analytiques de la facture, DÉDUITES à la lecture de celles de ses transactions
+  // rapprochées (lib/pastBfrAnalyseDelais.ts) — jamais stockées. [] : non catégorisée ; null / absent :
+  // inconnues (facture encore ouverte, transactions pas encore synchronisées dans Passé). Ne servent
+  // qu'à filtrer l'analyse des délais, jamais au calcul du BFR.
+  categories?: CategorieAnalytique[] | null;
+}
+
+export interface CategorieAnalytique {
+  id: string;
+  label: string;
+  groupId: string | null; // axe analytique (category_group)
+  // Pondération de la catégorie sur la transaction, conservée telle quelle : un délai est celui de la
+  // facture entière, il n'est jamais ventilé entre catégories.
+  weight: number;
 }
 
 export type SoldeALaDate =

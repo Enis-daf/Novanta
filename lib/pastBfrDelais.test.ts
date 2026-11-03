@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { FactureBfr } from "./pastBfr";
-import { cleStockageSeuilsDelais, comparerAvecPrecedente, delaisDeLaCohorte, libelleSeuil, seuilsEnregistres, seuilValide, delaisDuMois, nombreDelaisIncertains, periodeDuMois, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
+import { comparerAvecPrecedente, dansLaCategorie, delaisDeLaCohorte, FiltreCategorie, libelleSeuil, seuilValide, delaisDuMois, nombreDelaisIncertains, periodeDuMois, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
 
 const SEPTEMBRE = { debut: "2026-09-01", fin: "2026-09-30" };
 const AUJOURDHUI = "2026-10-28";
@@ -378,7 +378,7 @@ describe("seuil de montant des délais", () => {
   // Petites factures payées vite (2 j), grosses payées lentement (45 j) : la moyenne « toutes » est tirée vers le bas.
   const petite = (regleeLe = "2026-09-03") => facture({ montantHt: 200, montantTtc: 240, regleeLe });
   const grosse = (montantHt: number, regleeLe = "2026-10-16") => facture({ montantHt, montantTtc: montantHt * 1.2, regleeLe });
-  const parSeuil = (factures: FactureBfr[], seuil: number | null) => delaisDeLaCohorte(factures, "client", SEPTEMBRE, AUJOURDHUI, seuil);
+  const parSeuil = (factures: FactureBfr[], seuil: number | null) => delaisDeLaCohorte(factures, "client", SEPTEMBRE, AUJOURDHUI, { seuilHt: seuil });
 
   test("Toutes : résultat identique à l'appel sans seuil", () => {
     const factures = [petite(), petite(), grosse(6_000), grosse(12_000), facture({ regleeLe: null, montantHt: 300, montantTtc: 360 })];
@@ -479,17 +479,9 @@ describe("seuil de montant des délais", () => {
     const sept = [grosse(6_000), grosse(7_000), grosse(8_000)];
     const aout = (montant: number) => [1, 2, 3].map(() => facture({ montantHt: montant, montantTtc: montant * 1.2, dateEmission: "2026-08-01", regleeLe: "2026-08-11" }));
     const AOUT = { debut: "2026-08-01", fin: "2026-08-31" };
-    const prec = (factures: FactureBfr[], seuil: number | null) => delaisDeLaCohorte(factures, "client", AOUT, AUJOURDHUI, seuil);
+    const prec = (factures: FactureBfr[], seuil: number | null) => delaisDeLaCohorte(factures, "client", AOUT, AUJOURDHUI, { seuilHt: seuil });
     proche(comparerAvecPrecedente(parSeuil(sept, 5_000), prec(aout(9_000), 5_000)).delai, 45 - 10);
     assert.equal(comparerAvecPrecedente(parSeuil(sept, 5_000), prec(aout(300), 5_000)).delai, null);
-  });
-
-  test("clients et fournisseurs indépendants ; seuils mémorisés relus prudemment", () => {
-    assert.deepEqual(seuilsEnregistres(JSON.stringify({ client: 10_000, fournisseur: 5_000 })), { client: 10_000, fournisseur: 5_000 });
-    assert.deepEqual(seuilsEnregistres(null), { client: null, fournisseur: null });
-    assert.deepEqual(seuilsEnregistres("pas du json"), { client: null, fournisseur: null });
-    assert.deepEqual(seuilsEnregistres(JSON.stringify({ client: -3, fournisseur: "7 500" })), { client: null, fournisseur: 7_500 });
-    assert.equal(cleStockageSeuilsDelais("org"), "past_bfr_delay_thresholds_org");
   });
 
   test("saisie et libellés du seuil", () => {
@@ -499,5 +491,62 @@ describe("seuil de montant des délais", () => {
     assert.equal(seuilValide("0"), null);
     assert.equal(libelleSeuil(null), "Toutes");
     assert.equal(libelleSeuil(5_000).replace(/\s/g, " "), "> 5 000 €");
+  });
+});
+
+describe("catégorie analytique des délais", () => {
+  const cat = (id: string, label = id, weight = 1) => ({ id, label, groupId: "axe", weight });
+  const avec = (montantHt: number, categories: ReturnType<typeof cat>[] | null, regleeLe = "2026-10-16") =>
+    facture({ montantHt, montantTtc: montantHt * 1.2, regleeLe, categories });
+  const filtrer = (factures: FactureBfr[], categorie: FiltreCategorie, seuilHt: number | null = null) =>
+    delaisDeLaCohorte(factures, "client", SEPTEMBRE, AUJOURDHUI, { categorie, seuilHt });
+
+  test("Toutes : identique à l'appel sans filtre, catégories lues ou non", () => {
+    const factures = [avec(1_000, [cat("A")]), avec(2_000, null), avec(3_000, [])];
+    assert.deepEqual(filtrer(factures, { type: "toutes" }), delaisDeLaCohorte(factures, "client", SEPTEMBRE, AUJOURDHUI));
+  });
+
+  test("une catégorie : seules ses factures ; facture multi-catégories comptée une seule fois, montant entier", () => {
+    const multi = avec(100_000, [cat("A", "Projet A", 0.5), cat("M", "Maintenance", 0.5)], "2026-10-22"); // 51 j
+    const factures = [multi, avec(2_000, [cat("M")], "2026-09-11"), avec(3_000, [cat("B")])];
+    const a = filtrer(factures, { type: "categorie", id: "A" });
+    assert.equal(a.reglees.length, 1);
+    assert.equal(a.reglees[0].montantHt, 100_000); // jamais pondéré par weight
+    proche(a.delaiMoyen, 51); // délai de la facture entière, jamais ventilé
+    const m = filtrer(factures, { type: "categorie", id: "M" });
+    assert.equal(m.reglees.length, 2);
+    proche(m.filtre.regleesTotal.montant, 102_000);
+    assert.equal(m.tranches.reduce((s, t) => s + t.factures.length, 0), 2);
+  });
+
+  test("Non catégorisé : catégories lues et vides ; non lues : hors population et comptées", () => {
+    const factures = [avec(1_000, []), avec(2_000, [cat("A")]), avec(3_000, null), avec(4_000, undefined as never)];
+    const n = filtrer(factures, { type: "non_categorise" });
+    assert.deepEqual(n.reglees.map((f) => f.montantHt), [1_000]);
+    assert.equal(n.filtre.categoriesInconnues, 2);
+    assert.equal(filtrer(factures, { type: "toutes" }).filtre.categoriesInconnues, 0);
+  });
+
+  test("catégorie + seuil : couverture rapportée à la catégorie, avant le seuil", () => {
+    const factures = [avec(8_000, [cat("S")]), avec(2_000, [cat("S")]), avec(90_000, [cat("X")])];
+    const c = filtrer(factures, { type: "categorie", id: "S" }, 5_000);
+    assert.equal(c.reglees.length, 1);
+    proche(c.filtre.couverture, 8_000 / 10_000); // jamais sur le total de toutes les catégories
+    assert.deepEqual(c.filtre.regleesSousSeuil, { nombre: 1, montant: 2_000 });
+  });
+
+  test("factures ouvertes : catégorie appliquée, toujours hors moyenne", () => {
+    const factures = [avec(5_000, [cat("A")], null as never), avec(6_000, [cat("B")], null as never), avec(1_000, [cat("A")])];
+    const c = filtrer(factures, { type: "categorie", id: "A" });
+    assert.equal(c.ouvertes.length, 1);
+    assert.equal(c.montantOuvertes, 5_000);
+    proche(c.delaiMoyen, 45);
+    assert.equal(c.statut, "provisoire");
+  });
+
+  test("dansLaCategorie", () => {
+    assert.equal(dansLaCategorie(avec(1, null), { type: "categorie", id: "A" }), null);
+    assert.equal(dansLaCategorie(avec(1, null), { type: "toutes" }), true);
+    assert.equal(dansLaCategorie(avec(1, [cat("A"), cat("B")]), { type: "categorie", id: "B" }), true);
   });
 });

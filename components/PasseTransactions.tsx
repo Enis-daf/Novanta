@@ -1467,6 +1467,8 @@ export default function PasseTransactions({ organizationId, organizationName, ac
               pennylaneConnecte={pennylaneConnecte}
               onOuvrirStocks={() => setVue("stocks")}
               delaisVisibles={{ clients: droits.capacites.canViewDSO, fournisseurs: droits.capacites.canViewDPO }}
+              exercice={configExercice}
+              axes={axes}
             />
           ) : vue === "stocks" ? (
             <PasseStocks

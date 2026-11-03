@@ -4664,7 +4664,7 @@ button.passe-cible--lien:focus-visible,
   max-width: 640px;
 }
 
-/* BFR : seuil de montant des délais — un contrôle compact, dans le cartouche et près du titre des vues. */
+/* BFR : filtres compacts de l'analyse des délais (jamais sur l'écran principal du BFR). */
 .passe-bfr__filtre {
   display: inline-flex;
   flex-wrap: wrap;
@@ -4696,19 +4696,19 @@ button.passe-cible--lien:focus-visible,
   gap: 4px;
 }
 
-.passe-bfr__filtre-ligne {
+/* Analyse des délais : période, catégorie analytique et montant sur une ligne, qui passe à la ligne. */
+.passe-bfr__filtres {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2);
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
 }
 
-/* Titre du cartouche : un bouton sans habillage, lu comme l'eyebrow d'origine. */
-button.passe-bfr__delai-titre {
-  padding: 0;
-  border: none;
-  background: none;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
+.passe-bfr__filtres select {
+  max-width: 260px;
+}
+
+.passe-bfr__filtre-erreur {
+  font-size: 11px;
+  color: var(--couleur-accent-fonce);
 }

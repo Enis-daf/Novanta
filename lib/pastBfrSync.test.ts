@@ -99,7 +99,7 @@ describe("synchronisation BFR — initialisation puis actualisation", () => {
     assert.equal(b.appels.listes, 2);
     assert.equal(b.appels.details, 2);
     assert.deepEqual([r.factures, r.aDater], [4, 2]);
-    assert.deepEqual(b.base.get("client|2")!.reglements, { etat: "dates", recuperesLe: JOUR1, transactions: [{ date: "2026-10-02", montant: 0 }] });
+    assert.deepEqual(b.base.get("client|2")!.reglements, { etat: "dates", recuperesLe: JOUR1, transactions: [{ date: "2026-10-02", montant: 0, transactionId: "1" }] });
   });
 
   test("actualisation sans changement : aucune réécriture, aucun appel de règlements", async () => {
@@ -242,5 +242,22 @@ describe("limiteur de débit", () => {
     }
     assert.equal(attentes.length, 2);
     assert.ok(horloge >= 2_000);
+  });
+});
+
+describe("synchronisation BFR — identifiant des transactions rapprochées", () => {
+  test("règlements datés avant l'identifiant : redatés une seule fois, puis réutilisés", async () => {
+    const b = banc({ client: [payee(2)], fournisseur: [] }, { 2: [{ id: 77, date: "2026-10-02" }] });
+    await b.synchroniser(JOUR1);
+    // Ligne stockée par l'ancienne version : transactions sans identifiant.
+    const ligne = b.base.get("client|2")!;
+    if (ligne.reglements?.etat === "dates") ligne.reglements.transactions = [{ date: "2026-10-02", montant: 0 }];
+    const avant = b.appels.details;
+    const r1 = await b.synchroniser("2026-10-22T10:00:00.000Z");
+    assert.equal(r1.aDater, 1);
+    assert.equal(b.appels.details, avant + 1);
+    assert.deepEqual(b.base.get("client|2")!.facture.reglements, [{ date: "2026-10-02", montant: 0, transactionId: "77" }]);
+    const r2 = await b.synchroniser("2026-10-23T10:00:00.000Z");
+    assert.equal(r2.aDater, 0);
   });
 });

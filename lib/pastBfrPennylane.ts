@@ -143,6 +143,10 @@ export function reglementsNecessaires(facture: FactureBfr): boolean {
 export function reglementsDepuisTransactions(transactions: TransactionRapprocheeBrute[]): ReglementBfr[] {
   return transactions
     .filter((t) => typeof t.date === "string" && t.date !== "")
-    .map((t) => ({ date: (t.date as string).slice(0, 10), montant: Math.abs(nombre(t.amount) ?? 0) }))
+    .map((t) => ({
+      date: (t.date as string).slice(0, 10),
+      montant: Math.abs(nombre(t.amount) ?? 0),
+      transactionId: t.id === null || t.id === undefined ? null : String(t.id),
+    }))
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 }

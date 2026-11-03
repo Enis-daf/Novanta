@@ -21,10 +21,17 @@ import { SEUIL_COUVERTURE_REGLEMENT } from "./pennylaneInvoiceAdapter";
  *
  * Avoirs, brouillons, devis : ce ne sont pas des factures émises, ils n'entrent pas dans la cohorte.
  *
- * Seuil de montant (optionnel) : seules les factures dont le montant HT est STRICTEMENT supérieur au
- * seuil forment la population — réglées, ouvertes et exclues, donc moyennes, dispersion, tranches et
- * détail. Une facture sans montant HT ne peut pas être située par rapport au seuil : hors population.
- * Le seuil ne touche que les délais, jamais le BFR (créances, dettes, situations validées).
+ * Filtres de l'analyse (optionnels, jamais sur l'écran principal du BFR) :
+ *  - catégorie analytique Pennylane : une facture est retenue si L'UNE de ses catégories est celle
+ *    choisie — une seule fois, pour son montant entier et son délai entier, même si elle porte
+ *    plusieurs catégories (la pondération Pennylane n'est jamais utilisée pour ventiler un délai).
+ *    « Non catégorisé » : catégories lues et vides. Catégories pas encore récupérées : la facture ne
+ *    peut pas être classée, elle sort de la population et elle est comptée ;
+ *  - seuil de montant : seules les factures dont le montant HT est STRICTEMENT supérieur au seuil
+ *    forment la population. Une facture sans montant HT ne peut pas être située : hors population.
+ * Ils s'appliquent aux réglées, ouvertes et exclues, donc à tout l'écran d'analyse. La couverture du
+ * seuil se lit sur la population de la période et de la catégorie, avant le seuil. Le BFR
+ * (créances, dettes, situations validées) ne les voit jamais.
  */
 
 export type CoteDelai = TypeFactureBfr;
@@ -127,22 +134,19 @@ export function libelleSeuil(seuil: number | null): string {
   return seuil === null ? "Toutes" : `> ${formatSeuil.format(seuil)} €`;
 }
 
-// Seuils des cartouches du BFR, indépendants clients / fournisseurs ; « Toutes » par défaut.
-export type SeuilsDelais = Record<CoteDelai, number | null>;
+export type FiltreCategorie = { type: "toutes" } | { type: "non_categorise" } | { type: "categorie"; id: string };
+export const TOUTES_CATEGORIES: FiltreCategorie = { type: "toutes" };
 
-export function cleStockageSeuilsDelais(organizationId: string): string {
-  return `past_bfr_delay_thresholds_${organizationId}`;
+export interface FiltresPopulation {
+  seuilHt?: number | null;
+  categorie?: FiltreCategorie;
 }
 
-/** Seuils mémorisés ; toute valeur illisible redevient « Toutes ». */
-export function seuilsEnregistres(brut: string | null): SeuilsDelais {
-  let lu: Partial<Record<CoteDelai, unknown>> = {};
-  try {
-    lu = brut ? JSON.parse(brut) : {};
-  } catch {
-    lu = {};
-  }
-  return { client: seuilValide(lu?.client ?? null), fournisseur: seuilValide(lu?.fournisseur ?? null) };
+/** La facture relève-t-elle de la catégorie ? null : impossible à dire (catégories pas encore lues). */
+export function dansLaCategorie(f: FactureBfr, filtre: FiltreCategorie): boolean | null {
+  if (filtre.type === "toutes") return true;
+  if (!Array.isArray(f.categories)) return null;
+  return filtre.type === "non_categorise" ? f.categories.length === 0 : f.categories.some((c) => c.id === filtre.id);
 }
 
 export interface Volume {
@@ -157,6 +161,9 @@ export interface Volume {
  */
 export interface FiltreDelais {
   seuilHt: number | null;
+  categorie: FiltreCategorie;
+  // Factures de la période dont les catégories ne sont pas encore récupérées : hors d'une catégorie filtrée.
+  categoriesInconnues: number;
   regleesTotal: Volume; // toutes les factures réglées de la cohorte, sans seuil
   regleesSousSeuil: Volume;
   ouvertesSousSeuil: Volume;
@@ -218,7 +225,10 @@ export interface PeriodeDelai {
   fin: string; // YYYY-MM-DD inclus
 }
 
-export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, periode: PeriodeDelai, aujourdhui: string, seuilHt: number | null = null): DelaisCohorte {
+export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, periode: PeriodeDelai, aujourdhui: string, filtres: FiltresPopulation = {}): DelaisCohorte {
+  const seuilHt = filtres.seuilHt ?? null;
+  const categorie = filtres.categorie ?? TOUTES_CATEGORIES;
+  let categoriesInconnues = 0;
   const avoirsTtc = new Map<string, number>();
   for (const f of factures) {
     if (f.exclusion === "avoir" && f.factureAvoireeId !== null && f.type === cote) {
@@ -241,6 +251,10 @@ export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, perio
   for (const f of factures) {
     if (f.type !== cote || f.dateEmission === null || f.dateEmission < periode.debut || f.dateEmission > periode.fin) continue;
     if (f.exclusion === "avoir" || f.exclusion === "brouillon" || f.exclusion === "hors_facture") continue;
+    // Catégorie avant tout : une facture hors catégorie n'est pas dans la population, même pour la couverture.
+    const relevance = dansLaCategorie(f, categorie);
+    if (relevance === null) categoriesInconnues++;
+    if (relevance !== true) continue;
     const base = { pennylaneId: f.pennylaneId, numero: f.numero, tiers: f.tiers, dateEmission: f.dateEmission, echeance: f.echeance };
     const exclure = (raison: RaisonExclusion) => {
       if (retenue(f.montantHt)) exclues.push({ ...base, montantHt: f.montantHt, raison });
@@ -324,6 +338,8 @@ export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, perio
     cote,
     filtre: {
       seuilHt,
+      categorie,
+      categoriesInconnues,
       regleesTotal,
       regleesSousSeuil,
       ouvertesSousSeuil,
@@ -419,8 +435,8 @@ export function periodeDuMois(mois: string): { debut: string; fin: string } {
  * Délais d'une cohorte mensuelle. Seule entrée utilisée par le KPI du mois ET par le graphique sur
  * 12 mois : le point de septembre est exactement « XX j en moyenne sur septembre ».
  */
-export function delaisDuMois(factures: FactureBfr[], cote: CoteDelai, mois: string, aujourdhui: string, seuilHt: number | null = null): DelaisCohorte {
-  return delaisDeLaCohorte(factures, cote, periodeDuMois(mois), aujourdhui, seuilHt);
+export function delaisDuMois(factures: FactureBfr[], cote: CoteDelai, mois: string, aujourdhui: string): DelaisCohorte {
+  return delaisDeLaCohorte(factures, cote, periodeDuMois(mois), aujourdhui);
 }
 
 /**
