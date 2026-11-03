@@ -20,6 +20,11 @@ import { SEUIL_COUVERTURE_REGLEMENT } from "./pennylaneInvoiceAdapter";
  *    émission, montant HT absent, facture annulée ou remplacée) est exclue ET comptée, avec sa raison.
  *
  * Avoirs, brouillons, devis : ce ne sont pas des factures émises, ils n'entrent pas dans la cohorte.
+ *
+ * Seuil de montant (optionnel) : seules les factures dont le montant HT est STRICTEMENT supérieur au
+ * seuil forment la population — réglées, ouvertes et exclues, donc moyennes, dispersion, tranches et
+ * détail. Une facture sans montant HT ne peut pas être située par rapport au seuil : hors population.
+ * Le seuil ne touche que les délais, jamais le BFR (créances, dettes, situations validées).
  */
 
 export type CoteDelai = TypeFactureBfr;
@@ -107,8 +112,60 @@ export interface Dispersion {
   max: number; // P90
 }
 
+// Seuils proposés (montants HT) ; null : toutes les factures.
+export const SEUILS_MONTANT_PROPOSES = [1_000, 5_000, 10_000] as const;
+
+/** Seuil exploitable : un montant HT positif et fini, sinon toutes les factures (null). */
+export function seuilValide(valeur: unknown): number | null {
+  const n = typeof valeur === "string" ? Number(valeur.replace(/\s/g, "").replace(",", ".")) : valeur;
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+const formatSeuil = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
+/** « > 5 000 € », « Toutes ». */
+export function libelleSeuil(seuil: number | null): string {
+  return seuil === null ? "Toutes" : `> ${formatSeuil.format(seuil)} €`;
+}
+
+// Seuils des cartouches du BFR, indépendants clients / fournisseurs ; « Toutes » par défaut.
+export type SeuilsDelais = Record<CoteDelai, number | null>;
+
+export function cleStockageSeuilsDelais(organizationId: string): string {
+  return `past_bfr_delay_thresholds_${organizationId}`;
+}
+
+/** Seuils mémorisés ; toute valeur illisible redevient « Toutes ». */
+export function seuilsEnregistres(brut: string | null): SeuilsDelais {
+  let lu: Partial<Record<CoteDelai, unknown>> = {};
+  try {
+    lu = brut ? JSON.parse(brut) : {};
+  } catch {
+    lu = {};
+  }
+  return { client: seuilValide(lu?.client ?? null), fournisseur: seuilValide(lu?.fournisseur ?? null) };
+}
+
+export interface Volume {
+  nombre: number;
+  montant: number; // HT
+}
+
+/**
+ * Ce que le seuil retient de la cohorte. La couverture se lit sur les factures RÉGLÉES, la population
+ * du délai moyen : montant HT réglé analysé / montant HT réglé de toute la cohorte (null sans facture
+ * réglée). Les factures ouvertes sous le seuil sont comptées à part.
+ */
+export interface FiltreDelais {
+  seuilHt: number | null;
+  regleesTotal: Volume; // toutes les factures réglées de la cohorte, sans seuil
+  regleesSousSeuil: Volume;
+  ouvertesSousSeuil: Volume;
+  couverture: number | null; // 0..1
+}
+
 export interface DelaisCohorte {
   cote: CoteDelai;
+  filtre: FiltreDelais;
   reglees: FactureReglee[];
   ouvertes: FactureOuverte[];
   exclues: FactureExclue[];
@@ -161,7 +218,7 @@ export interface PeriodeDelai {
   fin: string; // YYYY-MM-DD inclus
 }
 
-export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, periode: PeriodeDelai, aujourdhui: string): DelaisCohorte {
+export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, periode: PeriodeDelai, aujourdhui: string, seuilHt: number | null = null): DelaisCohorte {
   const avoirsTtc = new Map<string, number>();
   for (const f of factures) {
     if (f.exclusion === "avoir" && f.factureAvoireeId !== null && f.type === cote) {
@@ -172,11 +229,22 @@ export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, perio
   const reglees: FactureReglee[] = [];
   const ouvertes: FactureOuverte[] = [];
   const exclues: FactureExclue[] = [];
+  const regleesTotal: Volume = { nombre: 0, montant: 0 };
+  const regleesSousSeuil: Volume = { nombre: 0, montant: 0 };
+  const ouvertesSousSeuil: Volume = { nombre: 0, montant: 0 };
+  // Strictement au-dessus du seuil ; sans montant HT, une facture ne peut pas l'être.
+  const retenue = (montantHt: number | null) => seuilHt === null || (montantHt !== null && montantHt > seuilHt);
+  const compter = (v: Volume, montant: number) => {
+    v.nombre++;
+    v.montant += montant;
+  };
   for (const f of factures) {
     if (f.type !== cote || f.dateEmission === null || f.dateEmission < periode.debut || f.dateEmission > periode.fin) continue;
     if (f.exclusion === "avoir" || f.exclusion === "brouillon" || f.exclusion === "hors_facture") continue;
     const base = { pennylaneId: f.pennylaneId, numero: f.numero, tiers: f.tiers, dateEmission: f.dateEmission, echeance: f.echeance };
-    const exclure = (raison: RaisonExclusion) => exclues.push({ ...base, montantHt: f.montantHt, raison });
+    const exclure = (raison: RaisonExclusion) => {
+      if (retenue(f.montantHt)) exclues.push({ ...base, montantHt: f.montantHt, raison });
+    };
 
     if (f.exclusion === "annulee") {
       exclure("annulee");
@@ -196,6 +264,10 @@ export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, perio
       continue;
     }
     if (!estSoldee(f, avoirs)) {
+      if (!retenue(f.montantHt)) {
+        compter(ouvertesSousSeuil, f.montantHt);
+        continue;
+      }
       ouvertes.push({
         ...base,
         montantHt: f.montantHt,
@@ -216,6 +288,11 @@ export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, perio
     const delai = joursEntre(f.dateEmission, dateReglement);
     if (delai < 0) {
       exclure("reglement_avant_emission");
+      continue;
+    }
+    compter(regleesTotal, f.montantHt);
+    if (!retenue(f.montantHt)) {
+      compter(regleesSousSeuil, f.montantHt);
       continue;
     }
     reglees.push({ ...base, montantHt: f.montantHt, dateReglement, delai, ecartEcheance: f.echeance ? joursEntre(f.echeance, dateReglement) : null });
@@ -245,6 +322,13 @@ export function delaisDeLaCohorte(factures: FactureBfr[], cote: CoteDelai, perio
   const dominante = tranches.reduce<TrancheDelai | null>((max, t) => (t.factures.length > (max?.factures.length ?? 0) ? t : max), null);
   return {
     cote,
+    filtre: {
+      seuilHt,
+      regleesTotal,
+      regleesSousSeuil,
+      ouvertesSousSeuil,
+      couverture: regleesTotal.montant > 0 ? totalMontant / regleesTotal.montant : null,
+    },
     reglees,
     ouvertes,
     exclues,
@@ -335,8 +419,8 @@ export function periodeDuMois(mois: string): { debut: string; fin: string } {
  * Délais d'une cohorte mensuelle. Seule entrée utilisée par le KPI du mois ET par le graphique sur
  * 12 mois : le point de septembre est exactement « XX j en moyenne sur septembre ».
  */
-export function delaisDuMois(factures: FactureBfr[], cote: CoteDelai, mois: string, aujourdhui: string): DelaisCohorte {
-  return delaisDeLaCohorte(factures, cote, periodeDuMois(mois), aujourdhui);
+export function delaisDuMois(factures: FactureBfr[], cote: CoteDelai, mois: string, aujourdhui: string, seuilHt: number | null = null): DelaisCohorte {
+  return delaisDeLaCohorte(factures, cote, periodeDuMois(mois), aujourdhui, seuilHt);
 }
 
 /**

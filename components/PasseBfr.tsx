@@ -26,7 +26,7 @@ import {
   totauxRetenus,
   variationBfr,
 } from "@/lib/pastBfr";
-import { CoteDelai, delaisDeLaCohorte, DelaisCohorte, delaisDuMois } from "@/lib/pastBfrDelais";
+import { cleStockageSeuilsDelais, CoteDelai, delaisDeLaCohorte, DelaisCohorte, delaisDuMois, SeuilsDelais, seuilsEnregistres } from "@/lib/pastBfrDelais";
 import { DelaisVisibles, evolutionBfr, evolutionVisible, PointBfr, situationBfrDuMois, SourcesBfr, stockBfrDuMois, valideeDuMois } from "@/lib/pastBfrLecture";
 import PasseBfrEvolutionChart, { bfrAfficheDe, LegendeEvolution } from "./PasseBfrEvolutionChart";
 import { CartoucheDelai, MesureDistribution, VueDelais } from "./PasseBfrDelais";
@@ -187,7 +187,32 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
   const [moisChoisi, setMoisChoisi] = useState<string | null>(null);
   const [action, setAction] = useState<Action>("creances");
   // Délais de paiement : vue détaillée ouverte (null : synthèse BFR).
-  const [vueDelais, setVueDelais] = useState<{ cote: CoteDelai; tranche: string | null; mesure: MesureDistribution } | null>(null);
+  // Chaque niveau garde son seuil : distribution et détail partent du niveau parent à l'ouverture,
+  // puis s'en détachent (aucun changement d'un enfant ne remonte).
+  const [vueDelais, setVueDelais] = useState<{
+    cote: CoteDelai;
+    tranche: string | null;
+    mesure: MesureDistribution;
+    seuilDistribution: number | null;
+    seuilDetail: number | null;
+  } | null>(null);
+  // Seuils de montant des cartouches, indépendants clients / fournisseurs, mémorisés sur ce navigateur.
+  const [seuils, setSeuils] = useState<SeuilsDelais>(() => {
+    try {
+      return seuilsEnregistres(window.localStorage.getItem(cleStockageSeuilsDelais(organizationId)));
+    } catch {
+      return seuilsEnregistres(null);
+    }
+  });
+  const choisirSeuil = (cote: CoteDelai, seuil: number | null) => {
+    const suivants = { ...seuils, [cote]: seuil };
+    setSeuils(suivants);
+    try {
+      window.localStorage.setItem(cleStockageSeuilsDelais(organizationId), JSON.stringify(suivants));
+    } catch {
+      // Stockage local indisponible : le seuil vaut pour la session en cours seulement.
+    }
+  };
 
   const charger = useCallback(async () => {
     const [faits, situations] = await Promise.all([chargerFacturesBfr(supabase!, organizationId), chargerSituationsValidees(supabase!, organizationId)]);
@@ -230,17 +255,27 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
   const delais = useMemo(() => {
     if (courant === null) return null;
     const p = periodeDesDelais(courant);
-    const cohorte = (cote: CoteDelai, periode: { debut: string; fin: string }): DelaisCohorte => delaisDeLaCohorte(factures, cote, periode, aujourdhuiDelais);
+    // Période précédente au MÊME seuil que la cohorte comparée.
+    const cohorte = (cote: CoteDelai, periode: { debut: string; fin: string }): DelaisCohorte =>
+      delaisDeLaCohorte(factures, cote, periode, aujourdhuiDelais, seuils[cote]);
     return {
       libelle: p.libelle,
       court: p.court,
       courtPrecedent: p.courtPrecedent,
-      client: delaisDuMois(factures, "client", courant, aujourdhuiDelais),
-      fournisseur: delaisDuMois(factures, "fournisseur", courant, aujourdhuiDelais),
+      client: delaisDuMois(factures, "client", courant, aujourdhuiDelais, seuils.client),
+      fournisseur: delaisDuMois(factures, "fournisseur", courant, aujourdhuiDelais, seuils.fournisseur),
       clientPrecedent: cohorte("client", p.precedente),
       fournisseurPrecedent: cohorte("fournisseur", p.precedente),
     };
-  }, [factures, courant, aujourdhuiDelais]);
+  }, [factures, courant, aujourdhuiDelais, seuils]);
+
+  // Cohorte de la vue détaillée, au seuil du niveau affiché (distribution ou détail d'une tranche).
+  const coteVue = vueDelais?.cote ?? null;
+  const seuilVue = vueDelais === null ? null : vueDelais.tranche === null ? vueDelais.seuilDistribution : vueDelais.seuilDetail;
+  const cohorteVue = useMemo(
+    () => (coteVue === null || courant === null ? null : delaisDuMois(factures, coteVue, courant, aujourdhuiDelais, seuilVue)),
+    [factures, courant, aujourdhuiDelais, coteVue, seuilVue]
+  );
 
   // Évolution : les 12 derniers mois glissants jusqu'au mois choisi (lib/pastBfrLecture.ts).
   const evolution = useMemo<PointBfr[]>(
@@ -326,16 +361,18 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
       {erreur && <p className="login-erreur">{erreur}</p>}
       {message && <p className="passe-message">{message}</p>}
 
-      {vueDelais && delais ? (
+      {vueDelais && delais && cohorteVue ? (
         <VueDelais
-          cohorte={delais[vueDelais.cote]}
+          cohorte={cohorteVue}
           libellePeriode={delais.libelle}
           periode={delais.court}
           mesure={vueDelais.mesure}
           onMesure={(mesure) => setVueDelais({ ...vueDelais, mesure })}
           tranche={vueDelais.tranche}
-          onTranche={(tranche) => setVueDelais({ ...vueDelais, tranche })}
+          // Ouvrir une tranche : le détail part du seuil de la distribution ; revenir garde celui de la distribution.
+          onTranche={(tranche) => setVueDelais({ ...vueDelais, tranche, seuilDetail: tranche === null ? vueDelais.seuilDetail : vueDelais.seuilDistribution })}
           onRetour={() => setVueDelais(null)}
+          onSeuil={(seuil) => setVueDelais(vueDelais.tranche === null ? { ...vueDelais, seuilDistribution: seuil } : { ...vueDelais, seuilDetail: seuil })}
         />
       ) : (
         <>
@@ -412,7 +449,8 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
                 precedente={delais.clientPrecedent}
                 periode={delais.court}
                 periodePrecedente={delais.courtPrecedent}
-                onOuvrir={() => setVueDelais({ cote: "client", tranche: null, mesure: "nombre" })}
+                onOuvrir={() => setVueDelais({ cote: "client", tranche: null, mesure: "nombre", seuilDistribution: seuils.client, seuilDetail: seuils.client })}
+                onSeuil={(seuil) => choisirSeuil("client", seuil)}
               />
             )}
           </div>
@@ -431,7 +469,8 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
                 precedente={delais.fournisseurPrecedent}
                 periode={delais.court}
                 periodePrecedente={delais.courtPrecedent}
-                onOuvrir={() => setVueDelais({ cote: "fournisseur", tranche: null, mesure: "nombre" })}
+                onOuvrir={() => setVueDelais({ cote: "fournisseur", tranche: null, mesure: "nombre", seuilDistribution: seuils.fournisseur, seuilDetail: seuils.fournisseur })}
+                onSeuil={(seuil) => choisirSeuil("fournisseur", seuil)}
               />
             )}
           </div>
@@ -450,6 +489,10 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
           {delaisVisibles.clients || delaisVisibles.fournisseurs ? "Évolution sur 12 mois — BFR HT et délais de paiement" : "Évolution sur 12 mois — BFR HT"}
         </h3>
         <LegendeEvolution bfrAffiche={bfrAffiche} delaiClients={delaisVisibles.clients} delaiFournisseurs={delaisVisibles.fournisseurs} />
+        {/* Le seuil des cartouches ne touche pas ce graphique : ses courbes restent sur toutes les factures. */}
+        {((delaisVisibles.clients && seuils.client !== null) || (delaisVisibles.fournisseurs && seuils.fournisseur !== null)) && (
+          <p className="passe-message">Courbes de délais : toutes les factures, sans le seuil de montant choisi dans les cartouches.</p>
+        )}
         <PasseBfrEvolutionChart
           evolution={evolution}
           courant={courant}

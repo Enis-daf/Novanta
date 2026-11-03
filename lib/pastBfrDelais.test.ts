@@ -1,7 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { FactureBfr } from "./pastBfr";
-import { comparerAvecPrecedente, delaisDeLaCohorte, delaisDuMois, nombreDelaisIncertains, periodeDuMois, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
+import { cleStockageSeuilsDelais, comparerAvecPrecedente, delaisDeLaCohorte, libelleSeuil, seuilsEnregistres, seuilValide, delaisDuMois, nombreDelaisIncertains, periodeDuMois, joursEntre, libelleEcartEcheance, libelleRetardOuverte, libelleTrancheDansPhrase, libelleVariationJours, niveauDeDispersion } from "./pastBfrDelais";
 
 const SEPTEMBRE = { debut: "2026-09-01", fin: "2026-09-30" };
 const AUJOURDHUI = "2026-10-28";
@@ -371,5 +371,133 @@ describe("Délais — factures au paiement incertain : réserve, jamais un bloca
     assert.equal(c.reglees.length, 1);
     assert.equal(c.delaiMoyen, 45);
     assert.equal(nombreDelaisIncertains(c), 2);
+  });
+});
+
+describe("seuil de montant des délais", () => {
+  // Petites factures payées vite (2 j), grosses payées lentement (45 j) : la moyenne « toutes » est tirée vers le bas.
+  const petite = (regleeLe = "2026-09-03") => facture({ montantHt: 200, montantTtc: 240, regleeLe });
+  const grosse = (montantHt: number, regleeLe = "2026-10-16") => facture({ montantHt, montantTtc: montantHt * 1.2, regleeLe });
+  const parSeuil = (factures: FactureBfr[], seuil: number | null) => delaisDeLaCohorte(factures, "client", SEPTEMBRE, AUJOURDHUI, seuil);
+
+  test("Toutes : résultat identique à l'appel sans seuil", () => {
+    const factures = [petite(), petite(), grosse(6_000), grosse(12_000), facture({ regleeLe: null, montantHt: 300, montantTtc: 360 })];
+    const sans = delaisDeLaCohorte(factures, "client", SEPTEMBRE, AUJOURDHUI);
+    const toutes = parSeuil(factures, null);
+    assert.deepEqual(toutes, sans);
+    assert.equal(toutes.filtre.seuilHt, null);
+    proche(toutes.filtre.couverture, 1);
+    assert.equal(toutes.filtre.regleesSousSeuil.nombre, 0);
+  });
+
+  test("> 1 000, > 5 000, > 10 000 : population, moyenne, dispersion et couverture recalculées", () => {
+    const factures = [petite(), petite(), petite(), grosse(1_500, "2026-09-11"), grosse(6_000), grosse(12_000, "2026-10-31")];
+    const total = 600 + 1_500 + 6_000 + 12_000;
+    const t = parSeuil(factures, null);
+    assert.equal(t.reglees.length, 6);
+
+    const m1 = parSeuil(factures, 1_000);
+    assert.equal(m1.reglees.length, 3);
+    proche(m1.delaiMoyen, (1_500 * 10 + 6_000 * 45 + 12_000 * 60) / 19_500);
+    proche(m1.filtre.couverture, 19_500 / total);
+    assert.deepEqual(m1.filtre.regleesSousSeuil, { nombre: 3, montant: 600 });
+
+    const m5 = parSeuil(factures, 5_000);
+    assert.equal(m5.reglees.length, 2);
+    proche(m5.delaiMoyen, (6_000 * 45 + 12_000 * 60) / 18_000);
+    assert.equal(m5.niveauDispersion, null); // 2 factures : pas de niveau de dispersion
+    assert.equal(m5.representatif, false);
+    assert.equal(m5.tranches.reduce((s, tr) => s + tr.factures.length, 0), 2);
+    proche(m5.tranches.reduce((s, tr) => s + tr.partMontant, 0), 1);
+
+    const m10 = parSeuil(factures, 10_000);
+    assert.equal(m10.reglees.length, 1);
+    proche(m10.delaiMoyen, 60);
+    proche(m10.ecartType, 0);
+    assert.ok(m10.delaiMoyen! > t.delaiMoyen!);
+  });
+
+  test("strictement au-dessus : une facture égale au seuil est écartée", () => {
+    const c = parSeuil([grosse(5_000), grosse(5_000.01)], 5_000);
+    assert.equal(c.reglees.length, 1);
+    assert.equal(c.filtre.regleesSousSeuil.nombre, 1);
+  });
+
+  test("seuil personnalisé 7 500", () => {
+    const c = parSeuil([grosse(6_000), grosse(8_000), petite()], 7_500);
+    assert.deepEqual(c.reglees.map((f) => f.montantHt), [8_000]);
+  });
+
+  test("écart à l'échéance recalculé sur la population filtrée", () => {
+    const factures = [
+      facture({ montantHt: 200, montantTtc: 240, echeance: "2026-09-30", regleeLe: "2026-09-03" }), // −27 j
+      facture({ montantHt: 9_000, montantTtc: 10_800, echeance: "2026-10-01", regleeLe: "2026-10-11" }), // +10 j
+    ];
+    proche(parSeuil(factures, 5_000).ecartEcheanceMoyen, 10);
+    assert.ok(parSeuil(factures, null).ecartEcheanceMoyen! < 10);
+  });
+
+  test("factures ouvertes : seuil appliqué au compteur, au montant et à l'ancienneté", () => {
+    const factures = [
+      facture({ regleeLe: null, montantHt: 300, montantTtc: 360, dateEmission: "2026-09-01" }),
+      facture({ regleeLe: null, montantHt: 8_000, montantTtc: 9_600, dateEmission: "2026-09-18" }),
+      grosse(6_000),
+    ];
+    const c = parSeuil(factures, 5_000);
+    assert.equal(c.ouvertes.length, 1);
+    assert.equal(c.montantOuvertes, 8_000);
+    proche(c.ancienneteMoyenneOuvertes, joursEntre("2026-09-18", AUJOURDHUI));
+    assert.deepEqual(c.filtre.ouvertesSousSeuil, { nombre: 1, montant: 300 });
+    // Les ouvertes restent hors de la moyenne réalisée.
+    proche(c.delaiMoyen, 45);
+  });
+
+  test("exclusions : seules celles au-dessus du seuil restent ; sans montant HT, hors population", () => {
+    const factures = [
+      facture({ montantHt: 300, montantTtc: 360, reglements: [] }),
+      facture({ montantHt: 9_000, montantTtc: 10_800, reglements: [] }),
+      facture({ montantHt: null }),
+    ];
+    assert.equal(parSeuil(factures, null).exclues.length, 3);
+    const c = parSeuil(factures, 5_000);
+    assert.equal(c.exclues.length, 1);
+    assert.equal(nombreDelaisIncertains(c), 1);
+  });
+
+  test("zéro facture au-dessus du seuil : aucune moyenne, aucune division invalide", () => {
+    const c = parSeuil([petite(), petite()], 10_000);
+    assert.equal(c.reglees.length, 0);
+    assert.equal(c.delaiMoyen, null);
+    assert.equal(c.ecartType, null);
+    assert.equal(c.dispersion, null);
+    assert.ok(c.tranches.every((t) => t.partNombre === 0 && t.partMontant === 0));
+    proche(c.filtre.couverture, 0);
+    assert.equal(parSeuil([], 10_000).filtre.couverture, null);
+  });
+
+  test("comparaison : période précédente au même seuil ; sans facture au-dessus du seuil, indisponible", () => {
+    const sept = [grosse(6_000), grosse(7_000), grosse(8_000)];
+    const aout = (montant: number) => [1, 2, 3].map(() => facture({ montantHt: montant, montantTtc: montant * 1.2, dateEmission: "2026-08-01", regleeLe: "2026-08-11" }));
+    const AOUT = { debut: "2026-08-01", fin: "2026-08-31" };
+    const prec = (factures: FactureBfr[], seuil: number | null) => delaisDeLaCohorte(factures, "client", AOUT, AUJOURDHUI, seuil);
+    proche(comparerAvecPrecedente(parSeuil(sept, 5_000), prec(aout(9_000), 5_000)).delai, 45 - 10);
+    assert.equal(comparerAvecPrecedente(parSeuil(sept, 5_000), prec(aout(300), 5_000)).delai, null);
+  });
+
+  test("clients et fournisseurs indépendants ; seuils mémorisés relus prudemment", () => {
+    assert.deepEqual(seuilsEnregistres(JSON.stringify({ client: 10_000, fournisseur: 5_000 })), { client: 10_000, fournisseur: 5_000 });
+    assert.deepEqual(seuilsEnregistres(null), { client: null, fournisseur: null });
+    assert.deepEqual(seuilsEnregistres("pas du json"), { client: null, fournisseur: null });
+    assert.deepEqual(seuilsEnregistres(JSON.stringify({ client: -3, fournisseur: "7 500" })), { client: null, fournisseur: 7_500 });
+    assert.equal(cleStockageSeuilsDelais("org"), "past_bfr_delay_thresholds_org");
+  });
+
+  test("saisie et libellés du seuil", () => {
+    assert.equal(seuilValide("7 500"), 7_500);
+    assert.equal(seuilValide("7500,5"), 7_500.5);
+    assert.equal(seuilValide(""), null);
+    assert.equal(seuilValide("0"), null);
+    assert.equal(libelleSeuil(null), "Toutes");
+    assert.equal(libelleSeuil(5_000).replace(/\s/g, " "), "> 5 000 €");
   });
 });

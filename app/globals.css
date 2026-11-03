@@ -4663,3 +4663,52 @@ button.passe-cible--lien:focus-visible,
 .passe-bfr__tranches {
   max-width: 640px;
 }
+
+/* BFR : seuil de montant des délais — un contrôle compact, dans le cartouche et près du titre des vues. */
+.passe-bfr__filtre {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+  cursor: default;
+}
+
+.passe-bfr__filtre select,
+.passe-bfr__filtre input {
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-fond);
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--couleur-texte);
+}
+
+.passe-bfr__filtre input {
+  width: 72px;
+  font-variant-numeric: tabular-nums;
+}
+
+.passe-bfr__filtre-saisie {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.passe-bfr__filtre-ligne {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+/* Titre du cartouche : un bouton sans habillage, lu comme l'eyebrow d'origine. */
+button.passe-bfr__delai-titre {
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatDateCourte } from "@/lib/dates";
 import { formatKiloEuros, formatMontant } from "@/lib/format";
@@ -10,6 +11,7 @@ import {
   LIBELLES_EXCLUSION,
   libelleEcartEcheance,
   libelleRetardOuverte,
+  libelleSeuil,
   libelleTrancheDansPhrase,
   libelleVariationJours,
   comparerAvecPrecedente,
@@ -17,6 +19,9 @@ import {
   NiveauDispersion,
   RaisonExclusion,
   SEUIL_DISPERSION,
+  SEUILS_MONTANT_PROPOSES,
+  seuilValide,
+  Volume,
 } from "@/lib/pastBfrDelais";
 
 /*
@@ -24,6 +29,9 @@ import {
  * (créances clients, dettes fournisseurs), puis, au clic, la distribution des délais de la cohorte —
  * avec les factures encore ouvertes à part — et le détail d'une tranche. Calculs :
  * lib/pastBfrDelais.ts. Aucune donnée n'est écrite ici.
+ *
+ * Chaque niveau (cartouche, distribution, détail d'une tranche) a son propre seuil de montant : le
+ * parent donne la valeur de départ au niveau suivant, un changement dans un enfant ne remonte jamais.
  */
 
 export type MesureDistribution = "nombre" | "montant";
@@ -45,6 +53,87 @@ const pluriel = (n: number, expression: string) =>
   `${n} ${n > 1 ? expression.split(" ").map((mot) => (mot === "encore" || mot === "sans" ? mot : `${mot}s`)).join(" ") : expression}`;
 
 /**
+ * Seuil de montant HT des factures analysées : Toutes, > 1 000 €, > 5 000 €, > 10 000 €, ou un seuil
+ * saisi (strictement au-dessus, comme les seuils proposés). Le clic ne se propage pas au cartouche.
+ */
+export function FiltreMontant({ id, seuil, onSeuil }: { id: string; seuil: number | null; onSeuil: (seuil: number | null) => void }) {
+  const proposes: readonly number[] = SEUILS_MONTANT_PROPOSES;
+  const [perso, setPerso] = useState(seuil !== null && !proposes.includes(seuil));
+  const [saisie, setSaisie] = useState(seuil !== null && !proposes.includes(seuil) ? String(seuil) : "");
+  const appliquer = () => {
+    const valeur = seuilValide(saisie);
+    if (valeur !== null && valeur !== seuil) onSeuil(valeur);
+  };
+  return (
+    <span className="passe-bfr__filtre" onClick={(e) => e.stopPropagation()}>
+      <label htmlFor={id}>Factures analysées</label>
+      <select
+        id={id}
+        value={perso ? "perso" : seuil === null ? "toutes" : String(seuil)}
+        onChange={(e) => {
+          const choix = e.target.value;
+          if (choix === "perso") {
+            setPerso(true);
+            setSaisie(seuil === null ? "" : String(seuil));
+            return;
+          }
+          setPerso(false);
+          onSeuil(choix === "toutes" ? null : Number(choix));
+        }}
+      >
+        <option value="toutes">Toutes</option>
+        {proposes.map((s) => (
+          <option key={s} value={String(s)}>
+            {libelleSeuil(s)}
+          </option>
+        ))}
+        <option value="perso">{perso && seuil !== null && !proposes.includes(seuil) ? `${libelleSeuil(seuil)} (personnalisé)` : "Personnalisé…"}</option>
+      </select>
+      {perso && (
+        <span className="passe-bfr__filtre-saisie">
+          &gt;
+          <input
+            type="text"
+            inputMode="decimal"
+            aria-label="Montant HT au-dessus duquel les factures sont analysées"
+            placeholder="7 500"
+            value={saisie}
+            autoFocus
+            onChange={(e) => setSaisie(e.target.value)}
+            onBlur={appliquer}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") appliquer();
+            }}
+          />
+          € HT
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Ce que le seuil retient : rien à dire sans seuil ; sinon volume analysé, couverture, factures écartées. */
+function Couverture({ cohorte }: { cohorte: DelaisCohorte }) {
+  const { filtre } = cohorte;
+  if (filtre.seuilHt === null) return null;
+  const analyse = cohorte.reglees.reduce((s, f) => s + f.montantHt, 0);
+  return (
+    <>
+      <span className="passe-bfr__delai-note">
+        {pluriel(cohorte.reglees.length, "facture réglée")} · {enK(analyse)} analysés
+        {filtre.couverture !== null && ` · ${pourcent(filtre.couverture)} des montants réglés de la période`}
+      </span>
+      {filtre.regleesSousSeuil.nombre > 0 && (
+        <span className="passe-bfr__delai-note">
+          {pluriel(filtre.regleesSousSeuil.nombre, "facture réglée")} sous le seuil, écartée{filtre.regleesSousSeuil.nombre > 1 ? "s" : ""} ·{" "}
+          {enK(filtre.regleesSousSeuil.montant)}
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
  * Cartouche compact, sous Créances clients HT ou Dettes fournisseurs HT. Ordre de lecture : moyenne,
  * qualification, dispersion, factures ouvertes. Un clic ouvre la distribution.
  */
@@ -54,22 +143,37 @@ export function CartoucheDelai({
   periode,
   periodePrecedente,
   onOuvrir,
+  onSeuil,
 }: {
+  // Cohortes au même seuil : la comparaison ne mélange jamais deux populations.
   cohorte: DelaisCohorte;
   precedente: DelaisCohorte;
   periode: string; // « septembre 2026 », « T3 2026 » : exactement la cohorte affichée
   periodePrecedente: string; // « août 2026 », « T2 2026 »
   onOuvrir: () => void;
+  onSeuil: (seuil: number | null) => void;
 }) {
   // Un delta par indicateur, à côté de lui : délai vs délai, écart vs écart.
   const comparaison = comparerAvecPrecedente(cohorte, precedente);
   const delta = (valeur: number | null) =>
     valeur === null ? `comparaison avec ${periodePrecedente} indisponible` : `${libelleVariationJours(valeur)} vs ${periodePrecedente}`;
   return (
-    <button type="button" className="passe-bfr__delai" onClick={onOuvrir} aria-label={`${TITRES[cohorte.cote]} : voir la distribution des délais`}>
-      <span className="passe-bfr__delai-titre">{TITRES[cohorte.cote]}</span>
+    // Tout le cartouche ouvre la distribution ; le titre est le bouton accessible au clavier.
+    <div className="passe-bfr__delai" onClick={onOuvrir}>
+      <button
+        type="button"
+        className="passe-bfr__delai-titre"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOuvrir();
+        }}
+        aria-label={`${TITRES[cohorte.cote]} : voir la distribution des délais`}
+      >
+        {TITRES[cohorte.cote]}
+      </button>
+      <FiltreMontant id={`passe-bfr-seuil-${cohorte.cote}`} seuil={cohorte.filtre.seuilHt} onSeuil={onSeuil} />
       {cohorte.delaiMoyen === null ? (
-        <span>Aucune facture réglée sur cette période.</span>
+        <span>{cohorte.filtre.seuilHt === null ? "Aucune facture réglée sur cette période." : "Aucune facture réglée au-dessus du seuil sur cette période."}</span>
       ) : (
         <>
           <span className="passe-bfr__delai-moyenne">
@@ -102,6 +206,7 @@ export function CartoucheDelai({
           )}
         </>
       )}
+      <Couverture cohorte={cohorte} />
       {/* Paiement impossible à dater : hors de la moyenne, dit ici ; le détail est dans la distribution. */}
       {nombreDelaisIncertains(cohorte) > 0 && (
         <span className="passe-bfr__delai-note">{pluriel(nombreDelaisIncertains(cohorte), "facture exclue")} : délai impossible à établir</span>
@@ -114,7 +219,7 @@ export function CartoucheDelai({
           <span className="passe-bfr__delai-note">Ancienneté moyenne actuelle : {jours(cohorte.ancienneteMoyenneOuvertes as number)}</span>
         </>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -148,7 +253,9 @@ export function VueDelais({
   tranche,
   onTranche,
   onRetour,
+  onSeuil,
 }: {
+  // Cohorte au seuil du niveau affiché : celui de la distribution, ou celui du détail d'une tranche.
   cohorte: DelaisCohorte;
   libellePeriode: string;
   periode: string; // « septembre 2026 », « T3 2026 »
@@ -157,7 +264,17 @@ export function VueDelais({
   tranche: string | null;
   onTranche: (cle: string | null) => void;
   onRetour: () => void;
+  onSeuil: (seuil: number | null) => void;
 }) {
+  const filtre = cohorte.filtre;
+  const ecartees = (
+    [
+      [filtre.regleesSousSeuil, "facture réglée"],
+      [filtre.ouvertesSousSeuil, "facture encore ouverte"],
+    ] as [Volume, string][]
+  )
+    .filter(([v]) => v.nombre > 0)
+    .map(([v, libelle]) => `${pluriel(v.nombre, libelle)} (${enK(v.montant)})`);
   // Valeurs absolues (nombre de factures, montant HT) : la barre « Encore ouvertes » se compare
   // directement aux tranches réglées, sans entrer dans leurs parts (calculées sur les seules réglées).
   const points: PointTranche[] = [
@@ -211,6 +328,20 @@ export function VueDelais({
           </>
         )}
       </p>
+      {cohorte.reglees.length > 0 && !cohorte.representatif && (
+        <p className="passe-reserve">Seulement {pluriel(cohorte.reglees.length, "facture réglée")} sur cette période : moyenne peu représentative, dispersion non qualifiée.</p>
+      )}
+      {/* Clé distincte par niveau : le détail repart du seuil hérité, sans la saisie de la distribution. */}
+      <div className="passe-bfr__filtre-ligne">
+        <FiltreMontant key={tranche === null ? "distribution" : "detail"} id="passe-bfr-seuil-vue" seuil={filtre.seuilHt} onSeuil={onSeuil} />
+        {filtre.seuilHt !== null && (
+          <span className="passe-message">
+            {pluriel(cohorte.reglees.length, "facture réglée")} · {enK(cohorte.reglees.reduce((s, f) => s + f.montantHt, 0))} analysés
+            {filtre.couverture !== null && ` · ${pourcent(filtre.couverture)} des montants réglés de la période`}
+            {ecartees.length > 0 && ` · sous le seuil, écartées : ${ecartees.join(" et ")}`}
+          </span>
+        )}
+      </div>
 
       {tranche === null ? (
         <>
@@ -227,7 +358,9 @@ export function VueDelais({
             ))}
           </div>
           {cohorte.reglees.length + cohorte.ouvertes.length === 0 ? (
-            <p className="passe-structure__vide">Aucune facture émise sur cette période.</p>
+            <p className="passe-structure__vide">
+              {filtre.seuilHt === null ? "Aucune facture émise sur cette période." : "Aucune facture au-dessus du seuil sur cette période."}
+            </p>
           ) : (
             <div style={{ fontFamily: "var(--font-lexend), sans-serif", cursor: "pointer" }}>
               <ResponsiveContainer width="100%" height={240}>
@@ -343,6 +476,8 @@ export function VueDelais({
             </div>
           )}
         </>
+      ) : ouvertesChoisies && cohorte.ouvertes.length === 0 ? (
+        <p className="passe-structure__vide">Aucune facture encore ouverte au-dessus du seuil.</p>
       ) : ouvertesChoisies ? (
         <div className="passe-detail__table">
           <table className="passe-table">
@@ -377,6 +512,8 @@ export function VueDelais({
           </table>
           <p className="passe-message">Factures non soldées : ancienneté et retard calculés à ce jour. Tri par ancienneté décroissante.</p>
         </div>
+      ) : choisie && choisie.factures.length === 0 ? (
+        <p className="passe-structure__vide">Aucune facture réglée {choisie.libelle} au-dessus du seuil.</p>
       ) : (
         choisie && (
           <div className="passe-detail__table">
