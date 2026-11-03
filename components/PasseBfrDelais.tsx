@@ -1,15 +1,32 @@
 "use client";
 
+import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatDateCourte } from "@/lib/dates";
 import { formatKiloEuros, formatMontant } from "@/lib/format";
 import { NEUTRES, TEINTE_SERIE_PRINCIPALE } from "@/lib/dataviz";
+import { ConfigExercice } from "@/lib/fiscalPeriods";
+import {
+  ChoixPeriode,
+  DiagnosticCategories,
+  MESSAGES_CATEGORIES_INDISPONIBLES,
+  FiltresAnalyse,
+  EtagePropose,
+  libelleEtageFiltre,
+  periodeDuType,
+  periodesProposees,
+  PeriodeResolue,
+  resoudrePeriode,
+  TypePeriodeAnalyse,
+} from "@/lib/pastBfrAnalyseDelais";
 import {
   CoteDelai,
   DelaisCohorte,
+  FiltreCategorie,
   LIBELLES_EXCLUSION,
   libelleEcartEcheance,
   libelleRetardOuverte,
+  libelleSeuil,
   libelleTrancheDansPhrase,
   libelleVariationJours,
   comparerAvecPrecedente,
@@ -17,6 +34,9 @@ import {
   NiveauDispersion,
   RaisonExclusion,
   SEUIL_DISPERSION,
+  SEUILS_MONTANT_PROPOSES,
+  seuilValide,
+  Volume,
 } from "@/lib/pastBfrDelais";
 
 /*
@@ -24,6 +44,11 @@ import {
  * (créances clients, dettes fournisseurs), puis, au clic, la distribution des délais de la cohorte —
  * avec les factures encore ouvertes à part — et le détail d'une tranche. Calculs :
  * lib/pastBfrDelais.ts. Aucune donnée n'est écrite ici.
+ *
+ * Le cartouche est la lecture de référence : cohorte du mois du BFR, toutes les factures, sans
+ * filtre. L'analyse (distribution) et le détail d'une tranche ont chacun leurs filtres — période,
+ * étage P&L, montant HT minimum : le parent donne la valeur de départ au niveau suivant,
+ * un changement dans un enfant ne remonte jamais.
  */
 
 export type MesureDistribution = "nombre" | "montant";
@@ -45,6 +70,66 @@ const pluriel = (n: number, expression: string) =>
   `${n} ${n > 1 ? expression.split(" ").map((mot) => (mot === "encore" || mot === "sans" ? mot : `${mot}s`)).join(" ") : expression}`;
 
 /**
+ * Seuil de montant HT des factures analysées : Toutes, > 1 000 €, > 5 000 €, > 10 000 €, ou un seuil
+ * saisi (strictement au-dessus, comme les seuils proposés). Le clic ne se propage pas au cartouche.
+ */
+export function FiltreMontant({ id, seuil, onSeuil }: { id: string; seuil: number | null; onSeuil: (seuil: number | null) => void }) {
+  const proposes: readonly number[] = SEUILS_MONTANT_PROPOSES;
+  const [perso, setPerso] = useState(seuil !== null && !proposes.includes(seuil));
+  const [saisie, setSaisie] = useState(seuil !== null && !proposes.includes(seuil) ? String(seuil) : "");
+  const appliquer = () => {
+    const valeur = seuilValide(saisie);
+    if (valeur !== null && valeur !== seuil) onSeuil(valeur);
+  };
+  return (
+    <span className="passe-bfr__filtre" onClick={(e) => e.stopPropagation()}>
+      <label htmlFor={id}>Montant HT minimum</label>
+      <select
+        id={id}
+        value={perso ? "perso" : seuil === null ? "toutes" : String(seuil)}
+        onChange={(e) => {
+          const choix = e.target.value;
+          if (choix === "perso") {
+            setPerso(true);
+            setSaisie(seuil === null ? "" : String(seuil));
+            return;
+          }
+          setPerso(false);
+          onSeuil(choix === "toutes" ? null : Number(choix));
+        }}
+      >
+        <option value="toutes">Toutes</option>
+        {proposes.map((s) => (
+          <option key={s} value={String(s)}>
+            {libelleSeuil(s)}
+          </option>
+        ))}
+        <option value="perso">{perso && seuil !== null && !proposes.includes(seuil) ? `${libelleSeuil(seuil)} (personnalisé)` : "Personnalisé…"}</option>
+      </select>
+      {perso && (
+        <span className="passe-bfr__filtre-saisie">
+          &gt;
+          <input
+            type="text"
+            inputMode="decimal"
+            aria-label="Montant HT au-dessus duquel les factures sont analysées"
+            placeholder="7 500"
+            value={saisie}
+            autoFocus
+            onChange={(e) => setSaisie(e.target.value)}
+            onBlur={appliquer}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") appliquer();
+            }}
+          />
+          € HT
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
  * Cartouche compact, sous Créances clients HT ou Dettes fournisseurs HT. Ordre de lecture : moyenne,
  * qualification, dispersion, factures ouvertes. Un clic ouvre la distribution.
  */
@@ -55,6 +140,7 @@ export function CartoucheDelai({
   periodePrecedente,
   onOuvrir,
 }: {
+  // Toutes les factures de la cohorte mensuelle : jamais filtrées sur l'écran du BFR.
   cohorte: DelaisCohorte;
   precedente: DelaisCohorte;
   periode: string; // « septembre 2026 », « T3 2026 » : exactement la cohorte affichée
@@ -66,7 +152,7 @@ export function CartoucheDelai({
   const delta = (valeur: number | null) =>
     valeur === null ? `comparaison avec ${periodePrecedente} indisponible` : `${libelleVariationJours(valeur)} vs ${periodePrecedente}`;
   return (
-    <button type="button" className="passe-bfr__delai" onClick={onOuvrir} aria-label={`${TITRES[cohorte.cote]} : voir la distribution des délais`}>
+    <button type="button" className="passe-bfr__delai" onClick={onOuvrir} aria-label={`${TITRES[cohorte.cote]} : analyser les délais de paiement`}>
       <span className="passe-bfr__delai-titre">{TITRES[cohorte.cote]}</span>
       {cohorte.delaiMoyen === null ? (
         <span>Aucune facture réglée sur cette période.</span>
@@ -75,7 +161,7 @@ export function CartoucheDelai({
           <span className="passe-bfr__delai-moyenne">
             <strong>{jours(cohorte.delaiMoyen)}</strong> en moyenne sur {periode}
           </span>
-          <span className="passe-bfr__delai-note">{QUALIFICATION}</span>
+          <span className="passe-bfr__delai-note">Toutes les factures · {QUALIFICATION.charAt(0).toLowerCase()}{QUALIFICATION.slice(1)}</span>
           <span className="passe-bfr__delai-note">Délai : {delta(comparaison.delai)}</span>
           {cohorte.ecartEcheanceMoyen !== null && (
             <>
@@ -139,25 +225,183 @@ function InfoBulleTranche({ active, payload }: { active?: boolean; payload?: { p
   );
 }
 
+const TYPES_PERIODE: [TypePeriodeAnalyse, string][] = [
+  ["mois", "Mois"],
+  ["trimestre", "Trimestre"],
+  ["exercice", "Exercice"],
+  ["personnalise", "Personnalisé"],
+];
+
+const valeurCategorie = (c: FiltreCategorie) => (c.type === "categorie" ? `c:${c.id}` : c.type);
+const categorieDeValeur = (v: string): FiltreCategorie => (v.startsWith("c:") ? { type: "categorie", id: v.slice(2) } : v === "non_categorise" ? { type: "non_categorise" } : { type: "toutes" });
+
+/**
+ * Filtres d'un niveau d'analyse, sur une ligne : période, étage P&L, montant HT minimum.
+ * Une période personnalisée n'est appliquée qu'une fois valide ; jusque-là la période en cours reste
+ * affichée et l'erreur est dite.
+ */
+function BarreFiltres({
+  id,
+  filtres,
+  onFiltres,
+  periodeResolue,
+  exercice,
+  premiere,
+  aujourdhui,
+  etages,
+  diagnosticCategories,
+}: {
+  id: string;
+  filtres: FiltresAnalyse;
+  onFiltres: (filtres: FiltresAnalyse) => void;
+  periodeResolue: { debut: string; fin: string };
+  exercice: ConfigExercice;
+  premiere: string | null;
+  aujourdhui: string;
+  etages: EtagePropose[]; // étages P&L présents, dans l'ordre du P&L
+  diagnosticCategories: DiagnosticCategories;
+}) {
+  const { periode } = filtres;
+  // Utilisable seulement s'il existe au moins une vraie catégorie à proposer ; sinon, la cause est dite.
+  const raisonCategories = diagnosticCategories.raison;
+  const [brouillon, setBrouillon] = useState(periode.type === "personnalise" ? { debut: periode.debut, fin: periode.fin } : periodeResolue);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const choix: ChoixPeriode[] = periode.type === "personnalise" ? [] : periodesProposees(periode.type, premiere, aujourdhui, exercice);
+  const valeurPeriode = periode.type === "mois" ? periode.mois : periode.type === "personnalise" ? "" : periode.debut;
+  const appliquerDates = (debut: string, fin: string) => {
+    setBrouillon({ debut, fin });
+    const resolue: PeriodeResolue = resoudrePeriode({ type: "personnalise", debut, fin }, exercice);
+    setErreur(resolue.ok ? null : resolue.erreur);
+    if (resolue.ok) onFiltres({ ...filtres, periode: { type: "personnalise", debut, fin } });
+  };
+
+  return (
+    <div className="passe-bfr__filtres">
+      <span className="passe-bfr__filtre">
+        <label htmlFor={`${id}-periode`}>Période</label>
+        <select
+          id={`${id}-periode`}
+          aria-label="Type de période"
+          value={periode.type}
+          onChange={(e) => {
+            const suivante = periodeDuType(e.target.value as TypePeriodeAnalyse, periodeResolue, exercice);
+            if (suivante.type === "personnalise") setBrouillon({ debut: suivante.debut, fin: suivante.fin });
+            setErreur(null);
+            onFiltres({ ...filtres, periode: suivante });
+          }}
+        >
+          {TYPES_PERIODE.map(([cle, libelle]) => (
+            <option key={cle} value={cle}>
+              {libelle}
+            </option>
+          ))}
+        </select>
+        {periode.type === "personnalise" ? (
+          <span className="passe-bfr__filtre-saisie">
+            <input type="date" aria-label="Date de début" value={brouillon.debut} onChange={(e) => appliquerDates(e.target.value, brouillon.fin)} />
+            →
+            <input type="date" aria-label="Date de fin" value={brouillon.fin} onChange={(e) => appliquerDates(brouillon.debut, e.target.value)} />
+          </span>
+        ) : (
+          <select
+            aria-label="Période analysée"
+            value={valeurPeriode}
+            onChange={(e) =>
+              onFiltres({ ...filtres, periode: periode.type === "mois" ? { type: "mois", mois: e.target.value } : { type: periode.type, debut: e.target.value } })
+            }
+          >
+            {/* La période en cours reste proposée même hors de la liste (avant la première facture). */}
+            {!choix.some((c) => c.valeur === valeurPeriode) && <option value={valeurPeriode}>{valeurPeriode}</option>}
+            {choix.map((c) => (
+              <option key={c.valeur} value={c.valeur}>
+                {c.libelle}
+              </option>
+            ))}
+          </select>
+        )}
+      </span>
+      <span className="passe-bfr__filtre">
+        <label htmlFor={`${id}-categorie`}>Étage P&amp;L</label>
+        <select
+          id={`${id}-categorie`}
+          value={valeurCategorie(filtres.categorie)}
+          disabled={raisonCategories !== null && filtres.categorie.type === "toutes"}
+          aria-describedby={raisonCategories !== null ? `${id}-categorie-etat` : undefined}
+          title="Étage P&L des transactions bancaires rapprochées de la facture (correspondance P&L du module)"
+          onChange={(e) => onFiltres({ ...filtres, categorie: categorieDeValeur(e.target.value) })}
+        >
+          <option value="toutes">Tous</option>
+          {etages.map((e) => (
+            <option key={e.id} value={`c:${e.id}`}>
+              {e.label}
+            </option>
+          ))}
+          <option value="non_categorise">Non classé</option>
+          {filtres.categorie.type === "categorie" && !etages.some((e) => filtres.categorie.type === "categorie" && e.id === filtres.categorie.id) && (
+            <option value={valeurCategorie(filtres.categorie)}>{libelleEtageFiltre(filtres.categorie)}</option>
+          )}
+        </select>
+      </span>
+      <FiltreMontant id={`${id}-montant`} seuil={filtres.seuilHt} onSeuil={(seuilHt) => onFiltres({ ...filtres, seuilHt })} />
+      {erreur && <span className="passe-bfr__filtre-erreur">{erreur}</span>}
+      {raisonCategories !== null && (
+        <span id={`${id}-categorie-etat`} className="passe-bfr__filtre-etat">
+          {MESSAGES_CATEGORIES_INDISPONIBLES[raisonCategories]}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function VueDelais({
   cohorte,
+  filtres,
+  onFiltres,
   libellePeriode,
-  periode,
+  periodeResolue,
+  exercice,
+  premiere,
+  aujourdhui,
+  etages,
+  diagnosticCategories,
   mesure,
   onMesure,
   tranche,
   onTranche,
   onRetour,
 }: {
+  // Cohorte aux filtres du niveau affiché : ceux de l'analyse, ou ceux du détail d'une tranche.
   cohorte: DelaisCohorte;
-  libellePeriode: string;
-  periode: string; // « septembre 2026 », « T3 2026 »
+  filtres: FiltresAnalyse;
+  onFiltres: (filtres: FiltresAnalyse) => void;
+  libellePeriode: string; // « Septembre 2026 », « T3 2026 », « Exercice 2026 », « Du … au … »
+  periodeResolue: { debut: string; fin: string };
+  exercice: ConfigExercice;
+  premiere: string | null;
+  aujourdhui: string;
+  etages: EtagePropose[]; // étages P&L présents, dans l'ordre du P&L
+  diagnosticCategories: DiagnosticCategories;
   mesure: MesureDistribution;
   onMesure: (mesure: MesureDistribution) => void;
   tranche: string | null;
   onTranche: (cle: string | null) => void;
   onRetour: () => void;
 }) {
+  const filtre = cohorte.filtre;
+  const ecartees = (
+    [
+      [filtre.regleesSousSeuil, "facture réglée"],
+      [filtre.ouvertesSousSeuil, "facture encore ouverte"],
+    ] as [Volume, string][]
+  )
+    .filter(([v]) => v.nombre > 0)
+    .map(([v, libelle]) => `${pluriel(v.nombre, libelle)} (${enK(v.montant)})`);
+  const analyse = cohorte.reglees.reduce((s, f) => s + f.montantHt, 0);
+  const contexte = [
+    libellePeriode,
+    filtres.categorie.type === "toutes" ? null : libelleEtageFiltre(filtres.categorie),
+    filtres.seuilHt === null ? "Toutes les factures" : `Factures ${libelleSeuil(filtres.seuilHt)} HT`,
+  ].filter(Boolean);
   // Valeurs absolues (nombre de factures, montant HT) : la barre « Encore ouvertes » se compare
   // directement aux tranches réglées, sans entrer dans leurs parts (calculées sur les seules réglées).
   const points: PointTranche[] = [
@@ -184,21 +428,37 @@ export function VueDelais({
     <section className="passe-bfr__vue-delais">
       <div className="passe-bfr__barre">
         <button type="button" className="btn-secondaire" onClick={tranche !== null ? () => onTranche(null) : onRetour}>
-          {tranche !== null ? "← Distribution" : "← Retour au BFR"}
+          {tranche !== null ? "← Analyse" : "← Retour au BFR"}
         </button>
         <span className="passe-message">
-          Factures émises {libellePeriode} · {cohorte.statut === "provisoire" ? "provisoire" : "stabilisé"}
+          Factures émises sur la période · {cohorte.statut === "provisoire" ? "provisoire" : "stabilisé"}
         </span>
       </div>
       <p className="eyebrow eyebrow--grand">
         {TITRES[cohorte.cote]}
         {ouvertesChoisies ? " · encore ouvertes" : choisie ? ` · réglées ${choisie.libelle}` : ""}
       </p>
-      {cohorte.delaiMoyen !== null && (
+      {/* Clé distincte par niveau : le détail repart des filtres hérités, sans les saisies de l'analyse. */}
+      <BarreFiltres
+        key={tranche === null ? "analyse" : "detail"}
+        id={tranche === null ? "passe-bfr-analyse" : "passe-bfr-detail"}
+        filtres={filtres}
+        onFiltres={onFiltres}
+        periodeResolue={periodeResolue}
+        exercice={exercice}
+        premiere={premiere}
+        aujourdhui={aujourdhui}
+        etages={etages}
+        diagnosticCategories={diagnosticCategories}
+      />
+      {cohorte.delaiMoyen !== null ? (
         <p className="passe-kpi__montant">
-          {jours(cohorte.delaiMoyen)} <span className="passe-kpi__contexte">en moyenne sur {periode}</span>
+          {jours(cohorte.delaiMoyen)} <span className="passe-kpi__contexte">en moyenne</span>
         </p>
+      ) : (
+        <p className="passe-structure__vide">Aucune facture réglée dans cette population.</p>
       )}
+      <p className="passe-kpi__ratio">{contexte.join(" · ")}</p>
       <p className="passe-kpi__ratio">
         {QUALIFICATION}
         {cohorte.ecartEcheanceMoyen !== null && ` · ${libelleEcartEcheance(cohorte.ecartEcheanceMoyen)}`}
@@ -211,6 +471,23 @@ export function VueDelais({
           </>
         )}
       </p>
+      {/* Ce qui est réellement analysé ; la part se lit sur la période et la catégorie, avant le seuil. */}
+      <p className="passe-message">
+        {pluriel(cohorte.reglees.length, "facture réglée")} · {enK(analyse)} analysés
+        {filtre.seuilHt !== null &&
+          filtre.couverture !== null &&
+          ` · ${pourcent(filtre.couverture)} des montants réglés de la période${filtres.categorie.type === "toutes" ? "" : " et de l'étage"}`}
+        {ecartees.length > 0 && ` · sous le seuil, écartées : ${ecartees.join(" et ")}`}
+      </p>
+      {filtres.categorie.type !== "toutes" && filtre.categoriesInconnues > 0 && (
+        <p className="passe-reserve">
+          {pluriel(filtre.categoriesInconnues, "facture")} de la période sans étage P&amp;L connu, hors de ce filtre : encore ouvertes (aucune transaction
+          rapprochée), ou transactions pas encore synchronisées dans le module Passé.
+        </p>
+      )}
+      {cohorte.reglees.length > 0 && !cohorte.representatif && (
+        <p className="passe-reserve">Seulement {pluriel(cohorte.reglees.length, "facture réglée")} sur cette période : moyenne peu représentative, dispersion non qualifiée.</p>
+      )}
 
       {tranche === null ? (
         <>
@@ -227,7 +504,9 @@ export function VueDelais({
             ))}
           </div>
           {cohorte.reglees.length + cohorte.ouvertes.length === 0 ? (
-            <p className="passe-structure__vide">Aucune facture émise sur cette période.</p>
+            <p className="passe-structure__vide">
+              Aucune facture émise sur cette période pour ces filtres.
+            </p>
           ) : (
             <div style={{ fontFamily: "var(--font-lexend), sans-serif", cursor: "pointer" }}>
               <ResponsiveContainer width="100%" height={240}>
@@ -343,6 +622,8 @@ export function VueDelais({
             </div>
           )}
         </>
+      ) : ouvertesChoisies && cohorte.ouvertes.length === 0 ? (
+        <p className="passe-structure__vide">Aucune facture encore ouverte pour ces filtres.</p>
       ) : ouvertesChoisies ? (
         <div className="passe-detail__table">
           <table className="passe-table">
@@ -377,6 +658,8 @@ export function VueDelais({
           </table>
           <p className="passe-message">Factures non soldées : ancienneté et retard calculés à ce jour. Tri par ancienneté décroissante.</p>
         </div>
+      ) : choisie && choisie.factures.length === 0 ? (
+        <p className="passe-structure__vide">Aucune facture réglée {choisie.libelle} pour ces filtres.</p>
       ) : (
         choisie && (
           <div className="passe-detail__table">

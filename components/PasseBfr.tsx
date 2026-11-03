@@ -27,15 +27,24 @@ import {
   variationBfr,
 } from "@/lib/pastBfr";
 import { CoteDelai, delaisDeLaCohorte, DelaisCohorte, delaisDuMois } from "@/lib/pastBfrDelais";
+import {
+  avecCategoriesDesTransactions,
+  CategoriesParTransaction,
+  diagnosticCategories,
+  etagesParTransaction,
+  etagesProposes,
+  FiltresAnalyse,
+  filtresInitiaux,
+  premiereEmission,
+  resoudrePeriode,
+  transactionsRapprochees,
+} from "@/lib/pastBfrAnalyseDelais";
+import { ConfigExercice } from "@/lib/fiscalPeriods";
+import { MappingCategorie } from "@/lib/pastCategoryMapping";
 import { DelaisVisibles, evolutionBfr, evolutionVisible, PointBfr, situationBfrDuMois, SourcesBfr, stockBfrDuMois, valideeDuMois } from "@/lib/pastBfrLecture";
 import PasseBfrEvolutionChart, { bfrAfficheDe, LegendeEvolution } from "./PasseBfrEvolutionChart";
 import { CartoucheDelai, MesureDistribution, VueDelais } from "./PasseBfrDelais";
-import {
-  chargerFacturesBfr,
-  chargerSituationsValidees,
-  reviserSituationBfr,
-  validerSituationBfr,
-} from "@/lib/pastBfrRepository";
+import { chargerCategoriesDesTransactions, chargerFacturesBfr, chargerSituationsValidees, reviserSituationBfr, validerSituationBfr } from "@/lib/pastBfrRepository";
 
 interface PasseBfrProps {
   organizationId: string;
@@ -50,6 +59,22 @@ interface PasseBfrProps {
   onOuvrirStocks: () => void;
   // Délais que l'offre de l'organisation ouvre (lib/offres.ts : canViewDSO, canViewDPO).
   delaisVisibles: DelaisVisibles;
+  // Analyse des délais : exercice fiscal (périodes Trimestre / Exercice), et axe de référence et
+  // correspondance P&L du module, qui donnent l'étage P&L des transactions rapprochées.
+  exercice: ConfigExercice;
+  axeId: string | null;
+  mappings: ReadonlyMap<string, MappingCategorie>;
+}
+
+// État d'une analyse des délais (clients ou fournisseurs) : ses filtres, ceux du détail d'une
+// tranche (repartis de l'analyse à chaque ouverture de tranche, jamais remontés), et le mois du BFR
+// d'où elle a été ouverte — rouverte depuis un autre mois, elle repart de ce mois-là.
+interface EtatAnalyse {
+  moisBfr: string;
+  filtres: FiltresAnalyse;
+  filtresDetail: FiltresAnalyse;
+  tranche: string | null;
+  mesure: MesureDistribution;
 }
 
 const LIGNES_VISIBLES = 10;
@@ -176,7 +201,7 @@ function ReserveExclusions({ exclues }: { exclues: FactureIncertaine[] }) {
   );
 }
 
-export default function PasseBfr({ organizationId, rechargement, mois, stocks, sansStock, pennylaneConnecte, onOuvrirStocks, delaisVisibles }: PasseBfrProps) {
+export default function PasseBfr({ organizationId, rechargement, mois, stocks, sansStock, pennylaneConnecte, onOuvrirStocks, delaisVisibles, exercice, axeId, mappings }: PasseBfrProps) {
   const [factures, setFactures] = useState<FactureBfr[]>([]);
   const [synchroniseesLe, setSynchroniseesLe] = useState<string | null>(null);
   const [validees, setValidees] = useState<SituationValidee[]>([]);
@@ -186,12 +211,20 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
   const [enregistrement, setEnregistrement] = useState(false);
   const [moisChoisi, setMoisChoisi] = useState<string | null>(null);
   const [action, setAction] = useState<Action>("creances");
-  // Délais de paiement : vue détaillée ouverte (null : synthèse BFR).
-  const [vueDelais, setVueDelais] = useState<{ cote: CoteDelai; tranche: string | null; mesure: MesureDistribution } | null>(null);
+  // Analyse des délais ouverte (null : écran du BFR, sans aucun filtre) ; une analyse par côté,
+  // indépendantes, gardées le temps de la session.
+  const [coteAnalyse, setCoteAnalyse] = useState<CoteDelai | null>(null);
+  const [analyses, setAnalyses] = useState<Partial<Record<CoteDelai, EtatAnalyse>>>({});
+  // Catégories des transactions rapprochées : lues à la première analyse ouverte, relues après une
+  // synchronisation. null : pas encore lues.
+  const [categoriesTransactions, setCategoriesTransactions] = useState<CategoriesParTransaction | null>(null);
+  const [erreurCategories, setErreurCategories] = useState(false);
 
   const charger = useCallback(async () => {
     const [faits, situations] = await Promise.all([chargerFacturesBfr(supabase!, organizationId), chargerSituationsValidees(supabase!, organizationId)]);
     setFactures(faits.factures);
+    setCategoriesTransactions(null);
+    setErreurCategories(false);
     setSynchroniseesLe(faits.synchroniseesLe);
     setValidees(situations);
   }, [organizationId]);
@@ -227,12 +260,12 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
   // Délais clients / fournisseurs de la cohorte (factures émises sur la période) et de la période
   // précédente (mois civil précédent) — lecture analytique, sans effet sur le BFR ni sur les situations validées.
   const aujourdhuiDelais = toISODate(new Date());
+  // Écran du BFR : cohorte du mois, toutes les factures — jamais de filtre ici.
   const delais = useMemo(() => {
     if (courant === null) return null;
     const p = periodeDesDelais(courant);
     const cohorte = (cote: CoteDelai, periode: { debut: string; fin: string }): DelaisCohorte => delaisDeLaCohorte(factures, cote, periode, aujourdhuiDelais);
     return {
-      libelle: p.libelle,
       court: p.court,
       courtPrecedent: p.courtPrecedent,
       client: delaisDuMois(factures, "client", courant, aujourdhuiDelais),
@@ -241,6 +274,61 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
       fournisseurPrecedent: cohorte("fournisseur", p.precedente),
     };
   }, [factures, courant, aujourdhuiDelais]);
+
+  // Analyse : la population des filtres du niveau affiché (analyse, ou détail d'une tranche).
+  const etatAnalyse = coteAnalyse === null ? null : analyses[coteAnalyse] ?? null;
+  const filtresVue = etatAnalyse === null ? null : etatAnalyse.tranche === null ? etatAnalyse.filtres : etatAnalyse.filtresDetail;
+  const analyseOuverte = coteAnalyse !== null;
+  useEffect(() => {
+    if (!analyseOuverte || categoriesTransactions !== null) return;
+    let annule = false;
+    chargerCategoriesDesTransactions(supabase!, organizationId, transactionsRapprochees(factures))
+      .then((parTransaction) => {
+        if (!annule) setCategoriesTransactions(parTransaction);
+      })
+      .catch((e) => {
+        // Sans elles, le filtre de catégorie reste indisponible ; l'analyse fonctionne.
+        console.error(`[passe/bfr] step=transaction-categories organization=${organizationId} code=${(e as { code?: string } | null)?.code ?? "inconnu"}`);
+        if (annule) return;
+        setErreurCategories(true);
+        setCategoriesTransactions(new Map());
+      });
+    return () => {
+      annule = true;
+    };
+  }, [analyseOuverte, categoriesTransactions, factures, organizationId]);
+  // Factures de l'analyse, avec l'étage P&L de leurs transactions rapprochées (correspondance P&L
+  // courante : la modifier relit tout l'historique). Le BFR lit `factures`, jamais celles-ci.
+  const facturesAnalyse = useMemo(
+    () => (analyseOuverte ? avecCategoriesDesTransactions(factures, etagesParTransaction(categoriesTransactions ?? new Map(), axeId, mappings)) : factures),
+    [analyseOuverte, factures, categoriesTransactions, axeId, mappings]
+  );
+  const analyse = useMemo(() => {
+    if (coteAnalyse === null || filtresVue === null) return null;
+    const resolue = resoudrePeriode(filtresVue.periode, exercice);
+    // Seules des périodes valides sont enregistrées ; par sûreté, une période illisible n'analyse rien.
+    if (!resolue.ok) return null;
+    return {
+      resolue,
+      cohorte: delaisDeLaCohorte(facturesAnalyse, coteAnalyse, resolue.periode, aujourdhuiDelais, { seuilHt: filtresVue.seuilHt, categorie: filtresVue.categorie }),
+      etages: etagesProposes(facturesAnalyse, coteAnalyse),
+      diagnostic: diagnosticCategories(facturesAnalyse, coteAnalyse, categoriesTransactions, erreurCategories, axeId !== null),
+      premiere: premiereEmission(facturesAnalyse, coteAnalyse),
+    };
+  }, [facturesAnalyse, coteAnalyse, filtresVue, exercice, axeId, aujourdhuiDelais, categoriesTransactions, erreurCategories]);
+
+  const ouvrirAnalyse = (cote: CoteDelai) => {
+    const existante = analyses[cote];
+    if (!existante || existante.moisBfr !== courant) {
+      const initiaux = filtresInitiaux(courant as string);
+      setAnalyses({ ...analyses, [cote]: { moisBfr: courant as string, filtres: initiaux, filtresDetail: initiaux, tranche: null, mesure: "nombre" } });
+    }
+    setCoteAnalyse(cote);
+  };
+  const majAnalyse = (changement: Partial<EtatAnalyse>) => {
+    if (coteAnalyse === null || !etatAnalyse) return;
+    setAnalyses({ ...analyses, [coteAnalyse]: { ...etatAnalyse, ...changement } });
+  };
 
   // Évolution : les 12 derniers mois glissants jusqu'au mois choisi (lib/pastBfrLecture.ts).
   const evolution = useMemo<PointBfr[]>(
@@ -304,6 +392,8 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
 
   return (
     <div className="passe-bfr">
+      {/* La date de référence pilote le BFR seul : l'analyse des délais a sa propre période. */}
+      {etatAnalyse === null && (
       <div className="passe-bfr__barre">
         <label className="passe-controle__label" htmlFor="passe-bfr-mois">
           Date de référence
@@ -323,19 +413,32 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
               : "Factures jamais synchronisées pour le BFR."}
         </span>
       </div>
+      )}
       {erreur && <p className="login-erreur">{erreur}</p>}
       {message && <p className="passe-message">{message}</p>}
 
-      {vueDelais && delais ? (
+      {etatAnalyse && analyse && filtresVue ? (
         <VueDelais
-          cohorte={delais[vueDelais.cote]}
-          libellePeriode={delais.libelle}
-          periode={delais.court}
-          mesure={vueDelais.mesure}
-          onMesure={(mesure) => setVueDelais({ ...vueDelais, mesure })}
-          tranche={vueDelais.tranche}
-          onTranche={(tranche) => setVueDelais({ ...vueDelais, tranche })}
-          onRetour={() => setVueDelais(null)}
+          cohorte={analyse.cohorte}
+          filtres={filtresVue}
+          // Chaque niveau modifie ses seuls filtres : le détail ne remonte jamais vers l'analyse.
+          onFiltres={(filtres) => majAnalyse(etatAnalyse.tranche === null ? { filtres } : { filtresDetail: filtres })}
+          libellePeriode={analyse.resolue.libelle}
+          periodeResolue={analyse.resolue.periode}
+          exercice={exercice}
+          premiere={analyse.premiere}
+          aujourdhui={aujourdhuiDelais}
+          etages={analyse.etages}
+          diagnosticCategories={analyse.diagnostic}
+          mesure={etatAnalyse.mesure}
+          onMesure={(mesure) => majAnalyse({ mesure })}
+          tranche={etatAnalyse.tranche}
+          // Ouvrir une tranche : le détail part des filtres de l'analyse ; revenir garde ceux de l'analyse.
+          onTranche={(tranche) => majAnalyse(tranche === null ? { tranche } : { tranche, filtresDetail: etatAnalyse.filtres })}
+          onRetour={() => {
+            majAnalyse({ tranche: null });
+            setCoteAnalyse(null);
+          }}
         />
       ) : (
         <>
@@ -412,7 +515,7 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
                 precedente={delais.clientPrecedent}
                 periode={delais.court}
                 periodePrecedente={delais.courtPrecedent}
-                onOuvrir={() => setVueDelais({ cote: "client", tranche: null, mesure: "nombre" })}
+                onOuvrir={() => ouvrirAnalyse("client")}
               />
             )}
           </div>
@@ -431,7 +534,7 @@ export default function PasseBfr({ organizationId, rechargement, mois, stocks, s
                 precedente={delais.fournisseurPrecedent}
                 periode={delais.court}
                 periodePrecedente={delais.courtPrecedent}
-                onOuvrir={() => setVueDelais({ cote: "fournisseur", tranche: null, mesure: "nombre" })}
+                onOuvrir={() => ouvrirAnalyse("fournisseur")}
               />
             )}
           </div>

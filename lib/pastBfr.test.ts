@@ -367,7 +367,7 @@ describe("BFR — lecture des factures Pennylane", () => {
     assert.equal(lire("fournisseur", { payment_status: "to_be_paid" }), null);
   });
 
-  test("règlements datés par les transactions rapprochées, triés ; sans date : ignorés", () => {
+  test("règlements datés par les transactions rapprochées, triés, avec leur identifiant ; sans date : ignorés", () => {
     assert.deepEqual(
       reglementsDepuisTransactions([
         { id: 2, date: "2026-10-02", amount: "-500.0" },
@@ -375,8 +375,8 @@ describe("BFR — lecture des factures Pennylane", () => {
         { id: 3, date: null, amount: "1.0" },
       ]),
       [
-        { date: "2026-09-02", montant: 700 },
-        { date: "2026-10-02", montant: 500 },
+        { date: "2026-09-02", montant: 700, transactionId: "1" },
+        { date: "2026-10-02", montant: 500, transactionId: "2" },
       ]
     );
   });

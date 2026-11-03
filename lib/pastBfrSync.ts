@@ -142,7 +142,11 @@ function reglementsReutilisables(ancienne: LigneStockee | undefined, facture: Fa
   const validite = validiteReglementsJours(cleFacture(facture.type, facture.pennylaneId)) * MS_PAR_JOUR;
   const frais = Date.parse(maintenant) - Date.parse(stockes.recuperesLe) < validite;
   const inchangee = instant(pennylaneUpdatedAt) !== null && instant(ancienne.pennylaneUpdatedAt) === instant(pennylaneUpdatedAt) && ancienne.facture.resteTtc === facture.resteTtc;
-  return frais && inchangee ? stockes : null;
+  // Règlements datés avant l'identifiant de transaction : redatés une fois, pour relier la facture
+  // aux catégories analytiques de ses transactions (champ présent, même null si Pennylane n'en donne pas :
+  // sinon la facture serait redatée à chaque synchronisation).
+  const identifies = stockes.transactions.every((t) => t.transactionId !== undefined);
+  return frais && inchangee && identifies ? stockes : null;
 }
 
 export interface ResultatFactures {

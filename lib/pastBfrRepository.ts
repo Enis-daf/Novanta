@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ExclusionFacture, FactureBfr, FactureIncertaine, LigneBfr, ReglementBfr, RevisionBfr, SituationValidee, TypeFactureBfr } from "./pastBfr";
+import { CategorieAnalytique, ExclusionFacture, FactureBfr, FactureIncertaine, LigneBfr, ReglementBfr, RevisionBfr, SituationValidee, TypeFactureBfr } from "./pastBfr";
 import type { LigneStockee, ReglementsStockes } from "./pastBfrSync";
 
 /**
@@ -83,6 +83,45 @@ export async function chargerFacturesBfr(supabase: SupabaseClient, organizationI
     if (lignes.length < 1000) break;
   }
   return { factures, synchroniseesLe };
+}
+
+// --- Catégories des transactions rapprochées (analyse des délais) ---
+
+const LOT_TRANSACTIONS = 150;
+
+/**
+ * Catégories analytiques des transactions Pennylane du module Passé (past_transactions,
+ * past_transaction_categories), par identifiant Pennylane de transaction — pour les seules
+ * transactions demandées. Une transaction absente de Passé (période jamais synchronisée) n'a pas
+ * d'entrée : ses catégories sont inconnues, pas vides. Lecture seule, RLS.
+ */
+export async function chargerCategoriesDesTransactions(
+  supabase: SupabaseClient,
+  organizationId: string,
+  transactionIds: string[]
+): Promise<Map<string, CategorieAnalytique[]>> {
+  const parTransaction = new Map<string, CategorieAnalytique[]>();
+  for (let i = 0; i < transactionIds.length; i += LOT_TRANSACTIONS) {
+    const { data, error } = await supabase
+      .from("past_transactions")
+      .select("source_transaction_id, past_transaction_categories(analytic_group_id, analytic_category_id, analytic_category_name, weight)")
+      .eq("organization_id", organizationId)
+      .eq("source_type", "pennylane")
+      .in("source_transaction_id", transactionIds.slice(i, i + LOT_TRANSACTIONS));
+    if (error) throw error;
+    for (const row of (data ?? []) as Row[]) {
+      const categories = ((row.past_transaction_categories as Row[] | null) ?? [])
+        .filter((c) => c.analytic_category_id !== null && c.analytic_category_id !== undefined)
+        .map((c) => ({
+          id: String(c.analytic_category_id),
+          label: ((c.analytic_category_name as string | null) ?? "").trim() || "Catégorie sans nom",
+          groupId: (c.analytic_group_id as string | null) ?? null,
+          weight: Number(c.weight),
+        }));
+      parTransaction.set(String(row.source_transaction_id), categories);
+    }
+  }
+  return parTransaction;
 }
 
 // --- Situations validées ---

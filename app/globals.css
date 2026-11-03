@@ -4663,3 +4663,59 @@ button.passe-cible--lien:focus-visible,
 .passe-bfr__tranches {
   max-width: 640px;
 }
+
+/* BFR : filtres compacts de l'analyse des délais (jamais sur l'écran principal du BFR). */
+.passe-bfr__filtre {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+  cursor: default;
+}
+
+.passe-bfr__filtre select,
+.passe-bfr__filtre input {
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-fond);
+  padding: 2px 4px;
+  font-size: 11px;
+  color: var(--couleur-texte);
+}
+
+.passe-bfr__filtre input {
+  width: 72px;
+  font-variant-numeric: tabular-nums;
+}
+
+.passe-bfr__filtre-saisie {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Analyse des délais : période, catégorie analytique et montant sur une ligne, qui passe à la ligne. */
+.passe-bfr__filtres {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.passe-bfr__filtres select {
+  max-width: 260px;
+}
+
+/* Filtre de catégorie indisponible : la cause, sur sa propre ligne, en gris (un état, pas une alerte). */
+.passe-bfr__filtre-etat {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.passe-bfr__filtre-erreur {
+  font-size: 11px;
+  color: var(--couleur-accent-fonce);
+}
