@@ -20,7 +20,7 @@ const CONTENU_OFFRES: Record<Offre, readonly string[]> = {
     "Analyse du BFR",
     "Suivi des délais de paiement clients et fournisseurs",
     "Identification des leviers d'amélioration",
-    "Actions recommandées",
+    "Suivi de plan d'action",
   ],
 };
 
