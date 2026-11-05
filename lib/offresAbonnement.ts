@@ -14,10 +14,10 @@ const CONTENU_OFFRES: Record<Offre, readonly string[]> = {
     "Fiabilité de la projection",
     "Analyse des écarts réel / prévisionnel",
     "Identification des variations à surveiller",
+    "Analyse du BFR",
   ],
   steering: [
     "Reporting financier à partir des données comptables",
-    "Analyse du BFR",
     "Suivi des délais de paiement clients et fournisseurs",
     "Identification des leviers d'amélioration",
     "Suivi de plan d'action",

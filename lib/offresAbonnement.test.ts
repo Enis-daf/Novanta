@@ -36,19 +36,19 @@ describe("contenu des cartes", () => {
     ]);
   });
 
-  test("Prévision : sans BFR", () => {
+  test("Prévision : écarts, variations et BFR", () => {
     assert.deepEqual(nouveautesDeLOffre("forecast"), [
       "Projection de trésorerie",
       "Fiabilité de la projection",
       "Analyse des écarts réel / prévisionnel",
       "Identification des variations à surveiller",
+      "Analyse du BFR",
     ]);
   });
 
-  test("Pilotage : BFR, délais, leviers et actions", () => {
+  test("Pilotage : reporting comptable, délais, leviers et plan d'action", () => {
     assert.deepEqual(nouveautesDeLOffre("steering"), [
       "Reporting financier à partir des données comptables",
-      "Analyse du BFR",
       "Suivi des délais de paiement clients et fournisseurs",
       "Identification des leviers d'amélioration",
       "Suivi de plan d'action",
