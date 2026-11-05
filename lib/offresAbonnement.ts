@@ -1,33 +1,27 @@
-import { Capacite, CAPACITES, capacitesDeLOffre, Offre, OFFRES } from "./offres";
+import { Offre, OFFRES } from "./offres";
 
-// Contenu affiché des offres sur la page Abonnement, dérivé de la matrice de lib/offres.ts : déplacer
-// une capacité d'une offre à l'autre déplace aussi sa ligne d'une carte à l'autre.
-
-// Ce que l'utilisateur voit de chaque capacité, avec les noms des écrans du produit. Une capacité
-// sans écran en production n'affiche rien.
-const LIBELLES_CAPACITE: Record<Capacite, readonly string[]> = {
-  canViewReporting: [
+// Contenu commercial des cartes de la page Abonnement : ce que chaque offre ajoute à la précédente
+// (« Tout Essentiel, plus : »). Liste éditoriale, distincte de la matrice des droits de lib/offres.ts.
+const CONTENU_OFFRES: Record<Offre, readonly string[]> = {
+  essential: [
     "Reporting financier à partir des flux bancaires",
     "Analyse des flux de trésorerie",
-    "Encaissements, marges et EBITDA",
-    "Export PDF du reporting",
+    "Indicateurs clés",
+    "Tableaux de bord essentiels",
   ],
-  canViewForecast: ["Projection de trésorerie", "Fiabilité de la projection"],
-  canViewVarianceAnalysis: ["Analyse d'écarts"],
-  canViewWorkingCapital: ["Analyse du BFR"],
-  // Une seule ligne pour les deux délais, portée par canViewDSO : les deux capacités vont ensemble.
-  canViewDSO: ["Suivi des délais de paiement clients et fournisseurs"],
-  canViewDPO: [],
-  // Module Action : pas encore en production.
-  canViewActions: [],
-};
-
-// Lignes annoncées sans capacité correspondante (décision commerciale) : le reporting comptable,
-// pas encore en production. À remplacer par une capacité de la matrice quand il sortira.
-const ANNONCES_HORS_MATRICE: Record<Offre, readonly string[]> = {
-  essential: [],
-  forecast: [],
-  steering: ["Reporting financier à partir des données comptables"],
+  forecast: [
+    "Projection de trésorerie",
+    "Fiabilité de la projection",
+    "Analyse des écarts réel / prévisionnel",
+    "Identification des variations à surveiller",
+  ],
+  steering: [
+    "Reporting financier à partir des données comptables",
+    "Analyse du BFR",
+    "Suivi des délais de paiement clients et fournisseurs",
+    "Identification des leviers d'amélioration",
+    "Actions recommandées",
+  ],
 };
 
 export const PROMESSES_OFFRES: Record<Offre, string> = {
@@ -48,13 +42,7 @@ export function offrePrecedente(offre: Offre): Offre | null {
 
 // Ce que l'offre ajoute à la précédente (« Tout Essentiel, plus : »).
 export function nouveautesDeLOffre(offre: Offre): string[] {
-  const avant = offrePrecedente(offre);
-  const capacites = capacitesDeLOffre(offre);
-  const precedentes = avant ? capacitesDeLOffre(avant) : null;
-  return [
-    ...ANNONCES_HORS_MATRICE[offre],
-    ...CAPACITES.filter((c) => capacites[c] && !precedentes?.[c]).flatMap((c) => LIBELLES_CAPACITE[c]),
-  ];
+  return [...CONTENU_OFFRES[offre]];
 }
 
 // Situation lue par GET /api/billing/offre.

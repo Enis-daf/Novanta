@@ -26,29 +26,32 @@ function incluses(s: SituationAbonnement): Offre[] {
   return (["essential", "forecast", "steering"] as Offre[]).filter((o) => etatCarte(o, s).incluseDansEssai);
 }
 
-describe("contenu des cartes, dérivé de la matrice", () => {
-  test("Essentiel : le reporting du module Passé", () => {
+describe("contenu des cartes", () => {
+  test("Essentiel", () => {
     assert.deepEqual(nouveautesDeLOffre("essential"), [
       "Reporting financier à partir des flux bancaires",
       "Analyse des flux de trésorerie",
-      "Encaissements, marges et EBITDA",
-      "Export PDF du reporting",
+      "Indicateurs clés",
+      "Tableaux de bord essentiels",
     ]);
   });
 
-  test("Prévision : projection, fiabilité, écarts et BFR (ouvert à Prévision)", () => {
+  test("Prévision : sans BFR", () => {
     assert.deepEqual(nouveautesDeLOffre("forecast"), [
       "Projection de trésorerie",
       "Fiabilité de la projection",
-      "Analyse d'écarts",
-      "Analyse du BFR",
+      "Analyse des écarts réel / prévisionnel",
+      "Identification des variations à surveiller",
     ]);
   });
 
-  test("Pilotage : reporting comptable annoncé, délais de paiement en une ligne ; rien pour le module Action", () => {
+  test("Pilotage : BFR, délais, leviers et actions", () => {
     assert.deepEqual(nouveautesDeLOffre("steering"), [
       "Reporting financier à partir des données comptables",
+      "Analyse du BFR",
       "Suivi des délais de paiement clients et fournisseurs",
+      "Identification des leviers d'amélioration",
+      "Actions recommandées",
     ]);
   });
 });
