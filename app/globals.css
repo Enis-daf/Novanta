@@ -2042,6 +2042,204 @@ input[type="checkbox"] {
   white-space: nowrap;
 }
 
+/* ---------- Abonnement : choix de l'offre ---------- */
+
+/* Trois cartes côte à côte : l'écran éditorial s'élargit, le haut de page n'est plus centré
+   verticalement (la grille est plus haute qu'une carte de connexion). */
+.ecran-editorial--large {
+  justify-content: flex-start;
+  padding-top: var(--space-6);
+}
+
+.billing-page__header--large,
+.abonnement {
+  max-width: 1040px;
+}
+
+.abonnement {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.abonnement__intro h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.abonnement__sous-titre {
+  margin: var(--space-1) 0 0;
+  font-size: 14px;
+  font-weight: 300;
+  color: var(--couleur-texte-secondaire);
+}
+
+.abonnement__essai {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+
+.offres-grille {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: stretch;
+}
+
+@media (max-width: 900px) {
+  .offres-grille {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.offre-carte {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: var(--radius-lg);
+  background: var(--couleur-fond);
+}
+
+/* Offre recommandée : un filet d'encre plutôt qu'un aplat — la mise en avant reste discrète. */
+.offre-carte--recommandee {
+  border-color: var(--couleur-filet);
+}
+
+/* Offre actuelle : bordure d'encre épaisse, repère immédiat sans couleur supplémentaire. */
+.offre-carte--actuelle {
+  border: 2px solid var(--couleur-texte);
+  padding: calc(var(--space-4) - 1px);
+}
+
+.offre-carte__entete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+.offre-carte__nom {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.offre-carte__badge {
+  color: var(--couleur-accent-fonce);
+}
+
+.offre-carte__promesse {
+  margin: 0;
+  min-height: 2.8em;
+  font-size: 13px;
+  font-weight: 300;
+  line-height: 1.4;
+  color: var(--couleur-texte-secondaire);
+}
+
+.offre-carte__prix {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.offre-carte__montant {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.offre-carte__periode {
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Hauteur réservée même sans bouton : les listes des trois cartes démarrent à la même ligne. */
+.offre-carte__action {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 32px;
+}
+
+.offre-carte__action .btn-add,
+.offre-carte__action .btn-secondaire {
+  margin-top: 0;
+  width: 100%;
+  justify-content: center;
+}
+
+.offre-carte__essai {
+  margin: 0;
+  font-size: 11px;
+  color: #0f766e;
+}
+
+.offre-carte__socle {
+  margin: var(--space-1) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--couleur-bordure);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--couleur-texte-secondaire);
+}
+
+.offre-carte__liste {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.offre-carte__liste li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.offre-carte__liste li::before {
+  content: "";
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  transform: translateY(-2px);
+  background: var(--couleur-texte);
+}
+
+.abonnement__gestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--couleur-bordure);
+}
+
+.abonnement__statut {
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
 .pennylane-badge {
   display: inline-flex;
   align-items: center;

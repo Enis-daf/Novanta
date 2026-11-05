@@ -6,9 +6,10 @@ import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling, CompanyBilling } from "@/lib/billing";
-import { Offre, LIBELLES_OFFRES } from "@/lib/offres";
-import { OFFRES_PAYANTES, OffrePayante } from "@/lib/offresStripe";
+import type { OffrePayante } from "@/lib/offresStripe";
+import type { PrixAffiche, SituationAbonnement } from "@/lib/offresAbonnement";
 import LoginForm from "@/components/LoginForm";
+import ChoixOffre from "@/components/ChoixOffre";
 
 const LIBELLES_STATUT: Record<string, string> = {
   active: "Actif",
@@ -21,23 +22,17 @@ const LIBELLES_STATUT: Record<string, string> = {
   paused: "En pause — moyen de paiement requis",
 };
 
-// Abonnements souscrits avant les offres : un seul prix, sans offre associée.
-const LIBELLE_ANCIEN_PLAN = "Novanta — 9,99 € / mois";
+// Lue par /api/billing/offre : les Price IDs et les prix ne sont connus que du serveur.
+type OffreAbonnement = SituationAbonnement & { prix: Partial<Record<OffrePayante, PrixAffiche | null>> };
 
-// Offre de l'abonnement, lue par /api/billing/offre : les Price IDs ne sont connus que du serveur.
-interface OffreAbonnement {
-  offre: Offre | null;
-  souscriptionPossible: boolean;
-}
-
-function libellePlan(offre: Offre | null): string {
-  return offre ? LIBELLES_OFFRES[offre] : LIBELLE_ANCIEN_PLAN;
-}
-
-function libelleStatut(statut: string | null): string {
-  if (!statut) return "Aucun abonnement";
-  return LIBELLES_STATUT[statut] ?? statut;
-}
+// Situation affichée tant que la lecture n'a pas abouti (ou sans Supabase) : aucune action proposée.
+const SITUATION_VIDE: OffreAbonnement = {
+  offreActuelle: null,
+  essai: null,
+  souscriptionPossible: false,
+  portailDisponible: false,
+  prix: {},
+};
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
@@ -156,24 +151,26 @@ function BillingPageContent() {
     return <LoginForm />;
   }
 
-  const peutDemarrerNouvelAbonnement = offreAbonnement?.souscriptionPossible ?? false;
+  const statut = company?.subscriptionStatus ?? null;
   const finPeriode = formatDate(company?.subscriptionCurrentPeriodEnd ?? null);
+  const statutAbonnement = statut
+    ? `Abonnement : ${LIBELLES_STATUT[statut] ?? statut}${finPeriode ? ` · période en cours jusqu'au ${finPeriode}` : ""}`
+    : null;
 
   return (
-    <main className="ecran-editorial">
-      <div className="billing-page__header">
+    <main className="ecran-editorial ecran-editorial--large">
+      <div className="billing-page__header billing-page__header--large">
         <Link href="/" className="btn-secondaire">
           ← Retour au cockpit
         </Link>
         {session && <span className="billing-page__email">{session.user.email}</span>}
       </div>
 
-      <div className="carte-editoriale billing-card">
-        <p className="eyebrow">
-          Novanta
-          <span className="carte-editoriale__rubrique">Compte</span>
-        </p>
-        <h1>Abonnement</h1>
+      <section className="abonnement">
+        <div className="abonnement__intro">
+          <h1>Votre offre Novanta</h1>
+          <p className="abonnement__sous-titre">Choisissez le niveau adapté à votre pilotage financier.</p>
+        </div>
 
         {success && (
           <div className="login-info">Paiement reçu. Votre abonnement est en cours d&apos;activation.</div>
@@ -181,64 +178,26 @@ function BillingPageContent() {
         {canceled && (
           <div className="login-erreur">Le paiement a été annulé. Aucun abonnement n&apos;a été activé.</div>
         )}
+        {statut === "paused" && (
+          <div className="login-info">
+            Votre période d&apos;essai est terminée. Choisissez une offre pour retrouver l&apos;accès.
+          </div>
+        )}
         {erreur && <div className="login-erreur">{erreur}</div>}
 
         {chargementCompany ? (
-          <p>Chargement de votre abonnement…</p>
+          <p className="abonnement__sous-titre">Chargement de votre abonnement…</p>
         ) : (
-          <>
-            <dl className="billing-status">
-              <dt>Statut</dt>
-              <dd>{libelleStatut(company?.subscriptionStatus ?? null)}</dd>
-
-              {company?.subscriptionPlan && (
-                <>
-                  <dt>Offre</dt>
-                  <dd>{libellePlan(offreAbonnement?.offre ?? null)}</dd>
-                </>
-              )}
-
-              {finPeriode && (
-                <>
-                  <dt>Fin de la période en cours</dt>
-                  <dd>{finPeriode}</dd>
-                </>
-              )}
-            </dl>
-
-            {company?.subscriptionStatus === "paused" && (
-              <p className="login-info">
-                Votre période d&apos;essai est terminée. Souscrivez à une offre pour retrouver l&apos;accès.
-              </p>
-            )}
-
-            <div className="billing-actions">
-              {peutDemarrerNouvelAbonnement &&
-                OFFRES_PAYANTES.map((offre) => (
-                  <button
-                    key={offre}
-                    type="button"
-                    className="btn-add"
-                    onClick={() => handleSubscribe(offre)}
-                    disabled={actionEnCours !== null}
-                  >
-                    {actionEnCours === offre ? "Redirection…" : `Souscrire à ${LIBELLES_OFFRES[offre]}`}
-                  </button>
-                ))}
-              {company?.stripeCustomerId && (
-                <button
-                  type="button"
-                  className="btn-secondaire"
-                  onClick={handleManage}
-                  disabled={actionEnCours !== null}
-                >
-                  {actionEnCours === "portal" ? "Redirection…" : "Gérer mon abonnement"}
-                </button>
-              )}
-            </div>
-          </>
+          <ChoixOffre
+            situation={offreAbonnement ?? SITUATION_VIDE}
+            prix={(offreAbonnement ?? SITUATION_VIDE).prix}
+            enCours={actionEnCours}
+            onSouscrire={handleSubscribe}
+            onPortail={handleManage}
+            statutAbonnement={statutAbonnement}
+          />
         )}
-      </div>
+      </section>
     </main>
   );
 }
