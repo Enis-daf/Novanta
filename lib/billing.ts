@@ -1,4 +1,5 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
+import type { Offre } from "./offres";
 
 export interface CompanyBilling {
   id: string;
@@ -152,6 +153,9 @@ export interface BillingUpdate {
   subscriptionCurrentPeriodEnd?: string | null;
   billingEmail?: string;
   accessEnabled?: boolean;
+  plan?: Offre;
+  planOverride?: Offre;
+  planOverrideUntil?: string;
 }
 
 export async function updateCompanyBilling(
@@ -168,6 +172,9 @@ export async function updateCompanyBilling(
     patch.subscription_current_period_end = update.subscriptionCurrentPeriodEnd;
   if (update.billingEmail !== undefined) patch.billing_email = update.billingEmail;
   if (update.accessEnabled !== undefined) patch.access_enabled = update.accessEnabled;
+  if (update.plan !== undefined) patch.plan = update.plan;
+  if (update.planOverride !== undefined) patch.plan_override = update.planOverride;
+  if (update.planOverrideUntil !== undefined) patch.plan_override_until = update.planOverrideUntil;
   if (Object.keys(patch).length === 0) return;
 
   const { error } = await admin.from("companies").update(patch).eq("id", companyId);
@@ -176,10 +183,9 @@ export async function updateCompanyBilling(
 
 // Statuts Stripe qui donnent accès à l'app pour cette première version.
 const STATUTS_AVEC_ACCES = new Set(["active", "trialing"]);
-// "paused" : essai de 30 jours terminé sans moyen de paiement (voir
-// subscription_data.trial_settings.end_behavior dans create-checkout-session) — aucune
-// facture générée, mais l'accès doit être coupé jusqu'à ce que le client ajoute une carte
-// et que l'abonnement reprenne (webhook customer.subscription.updated).
+// "paused" : ancien essai de 30 jours terminé sans moyen de paiement — aucune facture générée,
+// mais l'accès doit être coupé jusqu'à ce que le client ajoute une carte et que l'abonnement
+// reprenne (webhook customer.subscription.updated).
 const STATUTS_SANS_ACCES = new Set(["canceled", "incomplete_expired", "paused"]);
 
 // past_due / unpaid et tout autre statut non listé : on ne change pas access_enabled

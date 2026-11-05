@@ -3,6 +3,7 @@ import { stripe, stripeConfigured } from "@/lib/stripe";
 import { requireUser } from "@/lib/supabaseServer";
 import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseAdmin";
 import { getOrCreateCompanyForBilling, setStripeCustomerId } from "@/lib/billing";
+import { abonnementOffreEnCours, estOffrePayante, prixDeLOffre } from "@/lib/offresStripe";
 
 // La company de l'utilisateur connecté est toujours dérivée de son token (jamais
 // d'un company_id envoyé par le client) : impossible de créer une session pour
@@ -12,7 +13,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Stripe n'est pas configuré (STRIPE_SECRET_KEY manquante)." }, { status: 501 });
   }
 
-  const priceId = process.env.STRIPE_PRICE_ID;
+  // Le client ne choisit que le nom d'une offre payante, jamais un Price : le Price est lu côté
+  // serveur, et l'offre n'est attribuée que par le webhook, une fois l'abonnement vérifié chez Stripe.
+  const corps = await req.json().catch(() => null);
+  const offre: unknown = corps?.offre;
+  if (!estOffrePayante(offre)) {
+    return NextResponse.json({ error: "Offre inconnue." }, { status: 400 });
+  }
+  const priceId = prixDeLOffre(offre, process.env.STRIPE_SECRET_KEY);
   // Dérivée de la requête elle-même (Host réel), jamais figée : contrairement à
   // NEXT_PUBLIC_APP_URL (une seule valeur possible dans les réglages Vercel), ça
   // correspond automatiquement à l'URL réellement utilisée — localhost:PORT en
@@ -22,7 +30,8 @@ export async function POST(req: NextRequest) {
   // de l'utilisateur ne suit pas. NEXT_PUBLIC_APP_URL reste un filet de sécurité.
   const appUrl = req.nextUrl.origin || process.env.NEXT_PUBLIC_APP_URL;
   if (!priceId) {
-    return NextResponse.json({ error: "STRIPE_PRICE_ID n'est pas configuré." }, { status: 500 });
+    console.error(`[billing/create-checkout-session] Price live absent pour l'offre ${offre}`);
+    return NextResponse.json({ error: "Cette offre n'est pas encore disponible." }, { status: 500 });
   }
   if (!appUrl) {
     return NextResponse.json({ error: "Impossible de déterminer l'URL de l'application." }, { status: 500 });
@@ -39,6 +48,10 @@ export async function POST(req: NextRequest) {
 
   try {
     const company = await getOrCreateCompanyForBilling(supabase, user);
+
+    if (abonnementOffreEnCours(company.subscriptionStatus, company.subscriptionPlan)) {
+      return NextResponse.json({ error: "Un abonnement est déjà en cours : modifiez-le via « Gérer mon abonnement »." }, { status: 409 });
+    }
 
     // Si un stripe_customer_id est déjà enregistré, on vérifie qu'il correspond
     // toujours à un client Stripe existant (mode test purgé, client supprimé
@@ -59,7 +72,7 @@ export async function POST(req: NextRequest) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
         name: company.name,
-        metadata: { company_id: company.id, user_id: user.id },
+        metadata: { company_id: company.id },
       });
       customerId = customer.id;
       // stripe_customer_id est une colonne protégée (migration
@@ -75,21 +88,8 @@ export async function POST(req: NextRequest) {
       success_url: `${appUrl}/account/billing?success=true`,
       cancel_url: `${appUrl}/account/billing?canceled=true`,
       allow_promotion_codes: true,
-      metadata: { company_id: company.id, user_id: user.id },
-      // Essai de 30 jours sans carte bancaire (campagne de test) : rien n'étant dû
-      // aujourd'hui, Checkout n'exige pas de moyen de paiement ("if_required"). Si le
-      // client en ajoute un quand même, il est enregistré normalement.
-      payment_method_collection: "if_required",
-      subscription_data: {
-        metadata: { company_id: company.id, user_id: user.id },
-        trial_period_days: 30,
-        trial_settings: {
-          // Sans moyen de paiement à la fin de l'essai : l'abonnement passe en "paused"
-          // (aucune facture générée, aucun impayé) plutôt qu'en dette ou "past_due".
-          // Il reprend quand le client ajoute une carte via le Customer Portal.
-          end_behavior: { missing_payment_method: "pause" },
-        },
-      },
+      metadata: { company_id: company.id },
+      subscription_data: { metadata: { company_id: company.id } },
     });
 
     return NextResponse.json({ url: session.url });
