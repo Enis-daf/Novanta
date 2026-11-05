@@ -117,6 +117,20 @@ describe("correspondance Price <-> offre", () => {
     assert.equal(prixDeLOffre("steering", "sk_live_x"), null);
   });
 
+  test("STRIPE_PRICE_FORECAST / STRIPE_PRICE_STEERING : utilisées pour le Checkout et reconnues par le webhook", () => {
+    process.env.STRIPE_PRICE_FORECAST = "price_live_prevision";
+    process.env.STRIPE_PRICE_STEERING = " price_live_pilotage ";
+    try {
+      assert.equal(prixDeLOffre("forecast", "sk_live_x"), "price_live_prevision");
+      assert.equal(prixDeLOffre("steering", "sk_live_x"), "price_live_pilotage");
+      assert.equal(offreDuPrix("price_live_prevision"), "forecast");
+      assert.equal(offreDuPrix("price_live_pilotage"), "steering");
+    } finally {
+      delete process.env.STRIPE_PRICE_FORECAST;
+      delete process.env.STRIPE_PRICE_STEERING;
+    }
+  });
+
   test("seules Prévision et Pilotage se souscrivent", () => {
     for (const valeur of ["essential", "test", "Pilotage", PRIX_PILOTAGE, null, 1]) assert.equal(estOffrePayante(valeur), false);
     assert.equal(estOffrePayante("forecast"), true);
@@ -414,5 +428,11 @@ describe("Checkout : garde-fous statiques", () => {
     const page = readFileSync(join(process.cwd(), "app/account/billing/page.tsx"), "utf8");
     assert.ok(!route.includes("plan:"));
     assert.ok(!page.includes(".update("));
+  });
+
+  test("la page Abonnement ne lit pas les Price : l'offre vient du serveur", () => {
+    const page = readFileSync(join(process.cwd(), "app/account/billing/page.tsx"), "utf8");
+    assert.ok(!/offreDuPrix|abonnementOffreEnCours|STRIPE_PRICE/.test(page));
+    assert.ok(page.includes('"/api/billing/offre"'));
   });
 });

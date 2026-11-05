@@ -1,12 +1,11 @@
 import type { Offre } from "./offres";
 
-// Correspondance Price Stripe <-> offre Novanta. SEUL endroit où figurent les Price IDs. Essentiel
-// est gratuit et l'offre Test est gérée côté Novanta : ni l'une ni l'autre n'a de Price.
+// Correspondance Price Stripe <-> offre Novanta. SEUL endroit où l'on associe un Price à une offre.
+// Essentiel est gratuit et l'offre Test est gérée côté Novanta : ni l'une ni l'autre n'a de Price.
 //
-// Les valeurs écrites ici sont celles du compte Stripe de TEST. Un Price n'existe que dans le compte
-// et le mode où il a été créé : la Production (clé live, autre compte) doit fournir les siens via
-// NEXT_PUBLIC_STRIPE_PRICE_FORECAST et NEXT_PUBLIC_STRIPE_PRICE_STEERING. Un Price ID n'est pas un
-// secret ; le préfixe NEXT_PUBLIC_ permet à la page Abonnement de lire la même correspondance.
+// Les Price viennent de STRIPE_PRICE_FORECAST et STRIPE_PRICE_STEERING (serveur uniquement). Sans
+// elles, seule une clé de test retombe sur les Price du compte de test ci-dessous : un Price
+// n'existe que dans le compte et le mode où il a été créé.
 export const OFFRES_PAYANTES = ["forecast", "steering"] as const;
 export type OffrePayante = (typeof OFFRES_PAYANTES)[number];
 
@@ -15,28 +14,29 @@ const PRIX_DE_TEST: Record<OffrePayante, string> = {
   steering: "price_1UXO6qV05PdV9lFGjcqvzirH",
 };
 
-const PRIX_CONFIGURES: Record<OffrePayante, string | undefined> = {
-  forecast: process.env.NEXT_PUBLIC_STRIPE_PRICE_FORECAST || undefined,
-  steering: process.env.NEXT_PUBLIC_STRIPE_PRICE_STEERING || undefined,
-};
+function prixConfigure(offre: OffrePayante): string | undefined {
+  const valeur = offre === "forecast" ? process.env.STRIPE_PRICE_FORECAST : process.env.STRIPE_PRICE_STEERING;
+  return valeur?.trim() || undefined;
+}
 
 export function estOffrePayante(valeur: unknown): valeur is OffrePayante {
   return typeof valeur === "string" && (OFFRES_PAYANTES as readonly string[]).includes(valeur);
 }
 
-// Price à utiliser pour un Checkout. Avec une clé live, null tant que le Price live n'est pas
-// configuré : les Price de test y répondraient « No such price ».
+// Price à utiliser pour un Checkout. Avec une clé live, null tant que la variable n'est pas définie :
+// les Price de test y répondraient « No such price ».
 export function prixDeLOffre(offre: OffrePayante, cleSecrete: string | undefined): string | null {
-  const configure = PRIX_CONFIGURES[offre];
+  const configure = prixConfigure(offre);
   if (configure) return configure;
   return cleSecrete?.startsWith("sk_live_") ? null : PRIX_DE_TEST[offre];
 }
 
 // Offre d'un Price reçu de Stripe ; null pour un Price inconnu (ancien abonnement à prix unique).
+// Serveur uniquement : dans le navigateur, les variables ne sont pas lisibles.
 export function offreDuPrix(prix: string | null | undefined): Offre | null {
   if (!prix) return null;
   for (const offre of OFFRES_PAYANTES) {
-    if (prix === PRIX_CONFIGURES[offre] || prix === PRIX_DE_TEST[offre]) return offre;
+    if (prix === prixConfigure(offre) || prix === PRIX_DE_TEST[offre]) return offre;
   }
   return null;
 }

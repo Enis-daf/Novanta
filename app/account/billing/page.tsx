@@ -6,8 +6,8 @@ import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling, CompanyBilling } from "@/lib/billing";
-import { LIBELLES_OFFRES } from "@/lib/offres";
-import { abonnementOffreEnCours, offreDuPrix, OFFRES_PAYANTES, OffrePayante } from "@/lib/offresStripe";
+import { Offre, LIBELLES_OFFRES } from "@/lib/offres";
+import { OFFRES_PAYANTES, OffrePayante } from "@/lib/offresStripe";
 import LoginForm from "@/components/LoginForm";
 
 const LIBELLES_STATUT: Record<string, string> = {
@@ -24,8 +24,13 @@ const LIBELLES_STATUT: Record<string, string> = {
 // Abonnements souscrits avant les offres : un seul prix, sans offre associée.
 const LIBELLE_ANCIEN_PLAN = "Novanta — 9,99 € / mois";
 
-function libellePlan(prix: string): string {
-  const offre = offreDuPrix(prix);
+// Offre de l'abonnement, lue par /api/billing/offre : les Price IDs ne sont connus que du serveur.
+interface OffreAbonnement {
+  offre: Offre | null;
+  souscriptionPossible: boolean;
+}
+
+function libellePlan(offre: Offre | null): string {
   return offre ? LIBELLES_OFFRES[offre] : LIBELLE_ANCIEN_PLAN;
 }
 
@@ -56,6 +61,7 @@ function BillingPageContent() {
   const [sessionChargee, setSessionChargee] = useState(!supabaseConfigured);
   const [company, setCompany] = useState<CompanyBilling | null>(null);
   const [chargementCompany, setChargementCompany] = useState(true);
+  const [offreAbonnement, setOffreAbonnement] = useState<OffreAbonnement | null>(null);
   const [actionEnCours, setActionEnCours] = useState<OffrePayante | "portal" | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -83,9 +89,17 @@ function BillingPageContent() {
     }
     let annule = false;
     setChargementCompany(true);
-    getOrCreateCompanyForBilling(supabase!, session.user)
-      .then((c) => {
-        if (!annule) setCompany(c);
+    Promise.all([
+      getOrCreateCompanyForBilling(supabase!, session.user),
+      fetch("/api/billing/offre", { headers: { Authorization: `Bearer ${session.access_token}` } }).then(async (res) => {
+        if (!res.ok) throw new Error("Lecture de l'offre impossible.");
+        return (await res.json()) as OffreAbonnement;
+      }),
+    ])
+      .then(([c, o]) => {
+        if (annule) return;
+        setCompany(c);
+        setOffreAbonnement(o);
       })
       .catch((error) => {
         console.error("Échec du chargement de la facturation :", error);
@@ -142,7 +156,7 @@ function BillingPageContent() {
     return <LoginForm />;
   }
 
-  const peutDemarrerNouvelAbonnement = !abonnementOffreEnCours(company?.subscriptionStatus, company?.subscriptionPlan);
+  const peutDemarrerNouvelAbonnement = offreAbonnement?.souscriptionPossible ?? false;
   const finPeriode = formatDate(company?.subscriptionCurrentPeriodEnd ?? null);
 
   return (
@@ -180,7 +194,7 @@ function BillingPageContent() {
               {company?.subscriptionPlan && (
                 <>
                   <dt>Offre</dt>
-                  <dd>{libellePlan(company.subscriptionPlan)}</dd>
+                  <dd>{libellePlan(offreAbonnement?.offre ?? null)}</dd>
                 </>
               )}
 
