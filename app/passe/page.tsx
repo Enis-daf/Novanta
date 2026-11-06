@@ -10,6 +10,7 @@ import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { moduleActifPourOrganisation, ROUTE_FUTUR } from "@/lib/organizationModules";
 import { chargerDroitsOrganisation, DroitsOrganisation } from "@/lib/offres";
+import { entrerDansLaSession, quitterLaSession } from "@/lib/atterrissageSession";
 
 export default function PassePage() {
   const router = useRouter();
@@ -31,15 +32,24 @@ export default function PassePage() {
       return;
     }
 
+    // Arrivée sur Passé avec une session : la session de navigation commence ici, un passage
+    // ensuite par Futur n'y renvoie pas (lib/atterrissageSession.ts). Sans session : la prochaine
+    // connexion est une nouvelle session.
+    const appliquerSession = (nouvelle: Session | null) => {
+      if (nouvelle) entrerDansLaSession();
+      else quitterLaSession();
+      setSession(nouvelle);
+    };
+
     supabase!.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+      appliquerSession(data.session);
       setSessionChargee(true);
     });
 
     const {
       data: { subscription },
     } = supabase!.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
+      appliquerSession(newSession);
     });
 
     return () => subscription.unsubscribe();
