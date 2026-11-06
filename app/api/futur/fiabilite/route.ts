@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
   let companyId: string;
   try {
     const company = await getOrCreateCompanyForBilling(auth.supabase, auth.user);
-    if (!company?.id || !company.accessEnabled) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
+    if (!company?.id) return NextResponse.json({ error: "Accès refusé." }, { status: 403 });
     if (!(await chargerDroitsOrganisation(auth.supabase, company.id)).capacites.canViewForecast) {
       return NextResponse.json(refusOffre("canViewForecast"), { status: 403 });
     }

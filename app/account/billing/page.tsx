@@ -183,7 +183,7 @@ function BillingPageContent() {
         )}
         {statut === "paused" && (
           <div className="login-info">
-            Votre période d&apos;essai est terminée. Choisissez une offre pour retrouver l&apos;accès.
+            Votre période d&apos;essai est terminée : vous utilisez Essentiel. Choisissez une offre pour aller plus loin.
           </div>
         )}
         {erreur && <div className="login-erreur">{erreur}</div>}

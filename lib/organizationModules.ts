@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Clés des modules activables par organisation (table organization_modules). Le cockpit de
-// trésorerie ("Futur") n'en fait pas partie : il reste piloté par companies.access_enabled.
+// trésorerie ("Futur") n'en fait pas partie : il dépend seulement de l'offre (lib/offres.ts).
 export type ModuleKey = "past";
 
 export const ROUTE_FUTUR = "/";

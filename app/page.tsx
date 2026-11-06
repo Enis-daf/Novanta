@@ -211,7 +211,7 @@ export default function Home() {
   // qu'on n'est pas passé explicitement à "autorise" — jamais par défaut/erreur.
   // "hors_offre" : accès au produit valide, mais l'offre de la société n'inclut pas la projection ;
   // aucune donnée du cockpit n'est alors chargée.
-  const [etatAcces, setEtatAcces] = useState<"verification" | "autorise" | "hors_offre" | "refuse" | "erreur">(
+  const [etatAcces, setEtatAcces] = useState<"verification" | "autorise" | "hors_offre" | "erreur">(
     !supabaseConfigured ? "autorise" : "verification"
   );
   // Offre effective, connue seulement à l'état "hors_offre" (pour la nommer à l'utilisateur).
@@ -411,12 +411,6 @@ export default function Home() {
 
       const company = await getOrCreateCompanyForBilling(supabase!, userData.user);
       if (annule) return;
-
-      if (!company.accessEnabled) {
-        setEtatAcces("refuse");
-        router.replace("/account/billing");
-        return;
-      }
 
       // Offre relue en base à chaque vérification (rechargement compris), avant tout affichage.
       const droits = await chargerDroitsOrganisation(supabase!, company.id);
@@ -1585,10 +1579,6 @@ export default function Home() {
 
   if (supabaseConfigured && etatAcces === "verification") {
     return <main className="cockpit-chargement">Vérification de votre accès…</main>;
-  }
-
-  if (supabaseConfigured && etatAcces === "refuse") {
-    return <main className="cockpit-chargement">Redirection vers la page d&apos;abonnement…</main>;
   }
 
   if (supabaseConfigured && etatAcces === "erreur") {

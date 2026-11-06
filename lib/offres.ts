@@ -82,13 +82,16 @@ export interface OffreOrganisationBrute {
   // est la fin de l'essai.
   subscription_status?: unknown;
   subscription_current_period_end?: unknown;
+  // Offre payante en cours (abonnement Stripe actif, ou accès ouvert à la main par Novanta). false :
+  // aucune offre payante, l'organisation utilise Essentiel — jamais un blocage du produit.
+  access_enabled?: unknown;
 }
 
 // Offre accordée pendant un essai actif : l'essai n'est pas un niveau à part, il ouvre Pilotage.
 export const OFFRE_ESSAI: Offre = "steering";
 
 export interface DroitsOrganisation {
-  // Offre contractuelle (companies.plan), après repli éventuel.
+  // Offre contractuelle : companies.plan, après repli éventuel ; Essentiel sans offre payante en cours.
   offreContractuelle: Offre;
   // Offre qui détermine les droits : l'override s'il est valide, sinon Pilotage pendant un essai
   // actif, sinon l'offre contractuelle.
@@ -125,8 +128,11 @@ function essaiEnCours(brute: OffreOrganisationBrute, maintenant: Date): boolean 
 // Priorité : override manuel de Novanta (décision explicite, y compris pour montrer une offre
 // inférieure en démo) > essai actif > offre contractuelle. Ni l'essai ni l'override ne modifient
 // companies.plan : à leur fin, l'organisation retrouve son offre contractuelle.
+// Sans offre payante en cours (access_enabled = false, ex. nouvelle société ou abonnement terminé),
+// l'offre contractuelle est Essentiel, gratuite : companies.plan (Pilotage par défaut) n'ouvre rien.
 export function droitsOrganisation(brute: OffreOrganisationBrute, maintenant: Date = new Date()): DroitsOrganisation {
-  const offreContractuelle = estOffre(brute.plan) ? brute.plan : OFFRE_DE_REPLI;
+  const offreContractuelle =
+    brute.access_enabled === false ? "essential" : estOffre(brute.plan) ? brute.plan : OFFRE_DE_REPLI;
   const override = overrideValide(brute, maintenant);
   const essaiActif = override === null && essaiEnCours(brute, maintenant);
   const offreEffective = override ?? (essaiActif ? OFFRE_ESSAI : offreContractuelle);
@@ -149,7 +155,7 @@ export async function chargerDroitsOrganisation(
 ): Promise<DroitsOrganisation> {
   const { data, error } = await supabase
     .from("companies")
-    .select("plan, plan_override, plan_override_until, subscription_status, subscription_current_period_end")
+    .select("plan, plan_override, plan_override_until, subscription_status, subscription_current_period_end, access_enabled")
     .eq("id", organizationId)
     .maybeSingle();
   if (error) throw error;

@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
     const company = await getOrCreateCompanyForBilling(auth.supabase, auth.user);
     const { data: brute, error } = await auth.supabase
       .from("companies")
-      .select("plan, plan_override, plan_override_until, subscription_status, subscription_current_period_end")
+      .select("plan, plan_override, plan_override_until, subscription_status, subscription_current_period_end, access_enabled")
       .eq("id", company.id)
       .maybeSingle();
     if (error) throw error;
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const fin = droits.essaiActif ? brute.subscription_current_period_end : brute.plan_override_until;
 
     const situation: SituationAbonnement = {
-      offreActuelle: company.accessEnabled ? droits.offreContractuelle : null,
+      offreActuelle: droits.offreContractuelle,
       essai: essaiPilotage ? { fin: typeof fin === "string" ? fin : null } : null,
       souscriptionPossible: !abonnementOffreEnCours(company.subscriptionStatus, company.subscriptionPlan),
       portailDisponible:
