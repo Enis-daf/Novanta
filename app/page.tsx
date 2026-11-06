@@ -1573,9 +1573,7 @@ export default function Home() {
     if (companyId) persist(() => supprimerRentreeReguliere(id));
   };
 
-  const handleDeconnexion = () => {
-    supabase!.auth.signOut();
-  };
+  const handleDeconnexion = () => supabase!.auth.signOut();
 
   if (supabaseConfigured && !sessionChargee) {
     return <main className="cockpit-chargement">Chargement…</main>;
