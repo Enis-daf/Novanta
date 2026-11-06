@@ -1,31 +1,21 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { chargerDroitsOrganisation } from "./offres";
 
-// Clés des modules activables par organisation (table organization_modules). Le cockpit de
-// trésorerie ("Futur") n'en fait pas partie : il dépend seulement de l'offre (lib/offres.ts).
+// Modules du produit hors cockpit de trésorerie ("Futur"), qui dépend seulement de l'offre.
 export type ModuleKey = "past";
 
 export const ROUTE_FUTUR = "/";
 export const ROUTE_PASSE = "/passe";
 
-// Fail-closed : un module n'est actif que si une ligne existe ET enabled vaut exactement true.
-export function ligneModuleActive(ligne: { enabled?: unknown } | null | undefined): boolean {
-  return ligne?.enabled === true;
-}
-
-// Vérifie l'entitlement au niveau de l'organisation (jamais de l'utilisateur). La RLS de
-// organization_modules ne laisse lire que les lignes de la société de l'utilisateur connecté :
-// passer l'id d'une autre organisation renvoie simplement false.
+// Le module Passé porte le reporting, inclus dans toutes les offres (Essentiel compris) : il suit la
+// capacité canViewReporting de l'offre de l'organisation, sans activation au cas par cas. La table
+// organization_modules n'est plus lue. Droits relus en base (RLS : seulement la société de
+// l'utilisateur connecté) ; une société illisible est une erreur, jamais un accès.
 export async function moduleActifPourOrganisation(
   supabase: SupabaseClient,
   organizationId: string,
   moduleKey: ModuleKey
 ): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("organization_modules")
-    .select("enabled")
-    .eq("organization_id", organizationId)
-    .eq("module_key", moduleKey)
-    .maybeSingle();
-  if (error) throw error;
-  return ligneModuleActive(data);
+  const { capacites } = await chargerDroitsOrganisation(supabase, organizationId);
+  return moduleKey === "past" && capacites.canViewReporting;
 }

@@ -1,21 +1,30 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { ligneModuleActive } from "./organizationModules";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { moduleActifPourOrganisation } from "./organizationModules";
 
-describe("ligneModuleActive — entitlement d'un module pour une organisation", () => {
-  test("aucune ligne : module inactif", () => {
-    assert.equal(ligneModuleActive(null), false);
-    assert.equal(ligneModuleActive(undefined), false);
+// Faux client : une seule ligne companies, comme la RLS la renvoie à l'utilisateur connecté.
+function client(ligne: Record<string, unknown> | null) {
+  return {
+    from(table: string) {
+      assert.equal(table, "companies", "organization_modules n'est plus lue");
+      return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: ligne, error: null }) }) }) };
+    },
+  } as unknown as SupabaseClient;
+}
+
+describe("module Passé : inclus dans toutes les offres", () => {
+  test("Essentiel sans abonnement payant : module actif, sans activation", async () => {
+    assert.equal(await moduleActifPourOrganisation(client({ plan: "steering", access_enabled: false }), "org-1", "past"), true);
   });
 
-  test("ligne présente mais désactivée : module inactif", () => {
-    assert.equal(ligneModuleActive({ enabled: false }), false);
+  test("Prévision et Pilotage : module actif", async () => {
+    for (const plan of ["forecast", "steering"]) {
+      assert.equal(await moduleActifPourOrganisation(client({ plan, access_enabled: true }), "org-1", "past"), true, plan);
+    }
   });
 
-  test("seul enabled === true active le module (fail-closed)", () => {
-    assert.equal(ligneModuleActive({ enabled: true }), true);
-    assert.equal(ligneModuleActive({ enabled: "true" }), false);
-    assert.equal(ligneModuleActive({ enabled: null }), false);
-    assert.equal(ligneModuleActive({}), false);
+  test("société illisible : erreur, jamais un accès par défaut", async () => {
+    await assert.rejects(moduleActifPourOrganisation(client(null), "org-x", "past"));
   });
 });
