@@ -103,6 +103,7 @@ import { ajouterJours, parseDateISO } from "@/lib/dates";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { moduleActifPourOrganisation, ROUTE_PASSE } from "@/lib/organizationModules";
+import { entrerDansLaSession, quitterLaSession } from "@/lib/atterrissageSession";
 import { chargerDroitsOrganisation, Offre } from "@/lib/offres";
 import {
   categoriesARelire,
@@ -295,22 +296,41 @@ export default function Home() {
     financements,
   ]);
 
+  // Toute nouvelle session (connexion, réouverture du navigateur) arrive sur Passé, quelle que soit
+  // l'offre (lib/atterrissageSession.ts). Pendant la redirection, rien de Futur ne s'affiche ni ne
+  // se charge : la session n'est pas posée ici.
+  const [versPasse, setVersPasse] = useState(false);
+  const versPasseRef = useRef(false);
+
   useEffect(() => {
     if (!supabaseConfigured) return;
 
+    const appliquerSession = (nouvelle: Session | null) => {
+      if (versPasseRef.current) return;
+      if (!nouvelle) {
+        quitterLaSession();
+      } else if (entrerDansLaSession()) {
+        versPasseRef.current = true;
+        setVersPasse(true);
+        router.replace(ROUTE_PASSE);
+        return;
+      }
+      setSession(nouvelle);
+    };
+
     supabase!.auth.getSession().then(({ data }) => {
-      setSession(data.session);
+      appliquerSession(data.session);
       setSessionChargee(true);
     });
 
     const {
       data: { subscription },
     } = supabase!.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession);
+      appliquerSession(newSession);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [router]);
 
   // État de connexion Pennylane : purement informatif pour l'UI (quel parcours proposer en
   // premier dans "Identifier mes charges fixes" / "Vérifier mes données") — jamais le token
@@ -1569,7 +1589,7 @@ export default function Home() {
 
   const handleDeconnexion = () => supabase!.auth.signOut();
 
-  if (supabaseConfigured && !sessionChargee) {
+  if (supabaseConfigured && (!sessionChargee || versPasse)) {
     return <main className="cockpit-chargement">Chargement…</main>;
   }
 
