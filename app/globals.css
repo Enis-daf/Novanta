@@ -204,11 +204,91 @@ input[type="checkbox"] {
   gap: var(--space-2);
 }
 
-.page-intro__email {
+/* Menu de compte (MenuCompte) : l'e-mail de l'en-tête, cliquable, ouvre « Changer de compte » et
+   « Se déconnecter ». Le menu reprend le popover des filtres du module Passé. */
+.menu-compte {
+  position: relative;
+  min-width: 0;
+}
+
+.page-intro__actions .menu-compte {
+  margin-right: var(--space-1);
+}
+
+/* Pages Compte : le retour au cockpit garde sa largeur, l'e-mail se tronque à sa place. */
+.billing-page__header {
+  gap: var(--space-2);
+}
+
+.billing-page__header > .btn-secondaire {
+  flex-shrink: 0;
+}
+
+.menu-compte__declencheur {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
   font-size: 13px;
   font-weight: 300;
   color: var(--couleur-texte-secondaire);
-  margin-right: var(--space-1);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.menu-compte__declencheur:hover,
+.menu-compte__declencheur[aria-expanded="true"] {
+  background: var(--couleur-survol);
+  color: var(--couleur-texte);
+}
+
+.menu-compte__declencheur:focus-visible,
+.menu-compte__item:focus-visible {
+  outline: 2px solid var(--couleur-texte);
+  outline-offset: 1px;
+}
+
+.menu-compte__email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu-compte__chevron {
+  font-size: 10px;
+}
+
+/* Sélecteurs doublés : .passe-filtre__popover, déclaré plus loin, l'emporterait à égalité. */
+.menu-compte .menu-compte__menu {
+  min-width: 200px;
+  max-width: calc(100vw - 2 * var(--space-3));
+}
+
+.menu-compte .menu-compte__menu--droite {
+  left: auto;
+  right: 0;
+}
+
+.menu-compte__item {
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--couleur-texte);
+  cursor: pointer;
+}
+
+.menu-compte__item:hover,
+.menu-compte__item:focus-visible {
+  background: var(--couleur-survol);
 }
 
 .cockpit__col--droite {
@@ -2003,12 +2083,6 @@ input[type="checkbox"] {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.billing-page__email {
-  font-size: 13px;
-  font-weight: 300;
-  color: var(--couleur-texte-secondaire);
 }
 
 .billing-status {

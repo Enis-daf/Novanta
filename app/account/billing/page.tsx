@@ -9,6 +9,7 @@ import { getOrCreateCompanyForBilling, CompanyBilling } from "@/lib/billing";
 import type { OffrePayante } from "@/lib/offresStripe";
 import type { PrixAffiche, SituationAbonnement } from "@/lib/offresAbonnement";
 import LoginForm from "@/components/LoginForm";
+import MenuCompte from "@/components/MenuCompte";
 import ChoixOffre from "@/components/ChoixOffre";
 
 const LIBELLES_STATUT: Record<string, string> = {
@@ -163,7 +164,9 @@ function BillingPageContent() {
         <Link href="/" className="btn-secondaire">
           ← Retour au cockpit
         </Link>
-        {session && <span className="billing-page__email">{session.user.email}</span>}
+        {session && (
+          <MenuCompte email={session.user.email} onDeconnexion={() => supabase!.auth.signOut()} alignement="droite" />
+        )}
       </div>
 
       <section className="abonnement">

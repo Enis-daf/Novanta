@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Session } from "@supabase/supabase-js";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import LoginForm from "@/components/LoginForm";
+import MenuCompte from "@/components/MenuCompte";
 import PennylaneIntegration from "@/components/PennylaneIntegration";
 
 export default function IntegrationsPage() {
@@ -42,7 +43,9 @@ export default function IntegrationsPage() {
         <Link href="/" className="btn-secondaire">
           ← Retour au cockpit
         </Link>
-        {session && <span className="billing-page__email">{session.user.email}</span>}
+        {session && (
+          <MenuCompte email={session.user.email} onDeconnexion={() => supabase!.auth.signOut()} alignement="droite" />
+        )}
       </div>
 
       {!supabaseConfigured && (

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import NavigationModules from "@/components/NavigationModules";
+import MenuCompte from "@/components/MenuCompte";
 
 interface EnTeteCockpitProps {
   moduleActif: "passe" | "futur";
@@ -7,7 +8,7 @@ interface EnTeteCockpitProps {
   compte?: {
     email: string | undefined;
     passeDisponible: boolean;
-    onDeconnexion: () => void;
+    onDeconnexion: () => unknown;
   };
 }
 
@@ -30,7 +31,7 @@ export default function EnTeteCockpit({ moduleActif, compte }: EnTeteCockpitProp
         </div>
         {compte && (
           <div className="page-intro__actions">
-            <span className="page-intro__email">{compte.email}</span>
+            <MenuCompte email={compte.email} onDeconnexion={compte.onDeconnexion} />
             <NavigationModules moduleActif={moduleActif} passeDisponible={compte.passeDisponible} />
             <Link href="/account/billing" className="btn-secondaire">
               Abonnement
@@ -38,9 +39,6 @@ export default function EnTeteCockpit({ moduleActif, compte }: EnTeteCockpitProp
             <Link href="/account/integrations" className="btn-secondaire">
               Intégrations
             </Link>
-            <button type="button" className="btn-deconnexion" onClick={compte.onDeconnexion}>
-              Se déconnecter
-            </button>
           </div>
         )}
       </header>
