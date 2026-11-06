@@ -47,7 +47,7 @@ export function nouveautesDeLOffre(offre: Offre): string[] {
 
 // Situation lue par GET /api/billing/offre.
 export interface SituationAbonnement {
-  // Offre permanente (companies.plan) ; null tant que l'accès au produit n'est pas ouvert.
+  // Offre permanente (Essentiel sans offre payante en cours) ; null tant qu'elle n'est pas lue.
   offreActuelle: Offre | null;
   // Essai Pilotage en cours (essai Stripe ou override Novanta). fin = null : sans échéance.
   essai: { fin: string | null } | null;

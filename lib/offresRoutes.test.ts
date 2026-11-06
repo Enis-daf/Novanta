@@ -50,3 +50,20 @@ describe("écrans du module Passé soumis à l'offre", () => {
     assert.ok(passe.includes("clients: droits.capacites.canViewDSO,\n            fournisseurs: droits.capacites.canViewDPO,"));
   });
 });
+
+describe("absence d'abonnement payant : jamais de blocage du produit", () => {
+  test("le cockpit et le module Passé ne renvoient pas vers la page Abonnement", () => {
+    for (const page of ["app/page.tsx", "app/passe/page.tsx"]) {
+      const source = readFileSync(join(process.cwd(), page), "utf8");
+      assert.ok(!source.includes('router.replace("/account/billing")'), page);
+      assert.ok(!source.includes("company.accessEnabled"), page);
+    }
+  });
+
+  test("les routes s'en remettent à l'offre, pas à access_enabled", () => {
+    for (const route of ["app/api/passe/sync/route.ts", "app/api/passe/bfr/route.ts", "app/api/futur/fiabilite/route.ts"]) {
+      const source = readFileSync(join(process.cwd(), route), "utf8");
+      assert.ok(!source.includes("accessEnabled"), route);
+    }
+  });
+});

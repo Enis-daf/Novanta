@@ -59,8 +59,8 @@ export async function getOrCreateCompanyForBilling(supabase: SupabaseClient, use
   const lastName = metadataString(metadata, "last_name");
   const companyName = metadataString(metadata, "company_name") ?? user.email ?? "Ma société";
 
-  // access_enabled démarre à false pour toute nouvelle société : l'accès n'est
-  // accordé qu'après un abonnement actif confirmé par le webhook Stripe. Les
+  // access_enabled démarre à false pour toute nouvelle société : elle utilise Essentiel (gratuit)
+  // tant qu'aucun abonnement actif n'est confirmé par le webhook Stripe. Les
   // sociétés déjà existantes gardent leur valeur actuelle (colonne "default true"
   // au niveau du schéma), donc aucune n'est bloquée rétroactivement.
   const { data: created, error: insertError } = await supabase

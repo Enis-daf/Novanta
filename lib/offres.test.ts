@@ -215,6 +215,30 @@ describe("essai (Test) : droits Pilotage, retour à l'offre contractuelle à l'�
   });
 });
 
+describe("sans offre payante en cours : Essentiel, jamais un blocage", () => {
+  test("nouvelle société (plan Pilotage par défaut, access_enabled = false) : Essentiel", () => {
+    const droits = droitsOrganisation({ plan: "steering", access_enabled: false }, MAINTENANT);
+    assert.equal(droits.offreContractuelle, "essential");
+    assert.equal(droits.offreEffective, "essential");
+    assert.deepEqual(accessiblesDe(droits), ["canViewReporting"]);
+  });
+
+  test("offre payante en cours : companies.plan s'applique", () => {
+    assert.equal(droitsOrganisation({ plan: "forecast", access_enabled: true }, MAINTENANT).offreEffective, "forecast");
+    assert.equal(droitsOrganisation({ plan: "steering", access_enabled: true }, MAINTENANT).offreEffective, "steering");
+    // Colonne absente ou illisible : comportement inchangé.
+    assert.equal(droitsOrganisation({ plan: "steering" }, MAINTENANT).offreEffective, "steering");
+  });
+
+  test("Test actif sans offre payante : Pilotage, puis Essentiel à l'échéance", () => {
+    const essai = { plan: "steering", access_enabled: false, plan_override: "steering", plan_override_until: "2026-11-15T10:00:00Z" };
+    assert.equal(droitsOrganisation(essai, MAINTENANT).offreEffective, "steering");
+    assert.equal(droitsOrganisation(essai, new Date("2026-11-16T00:00:00Z")).offreEffective, "essential");
+    const essaiStripe = { plan: "forecast", access_enabled: false, subscription_status: "trialing", subscription_current_period_end: "2026-11-15T10:00:00Z" };
+    assert.equal(droitsOrganisation(essaiStripe, MAINTENANT).offreEffective, "steering");
+  });
+});
+
 describe("chargerDroitsOrganisation : relu en base à chaque appel (pages, rechargement, routes)", () => {
   function clientFactice(ligne: Record<string, unknown> | null) {
     const appel: { colonnes?: string; id?: string } = {};
@@ -248,7 +272,7 @@ describe("chargerDroitsOrganisation : relu en base à chaque appel (pages, recha
     });
     const pendant = await chargerDroitsOrganisation(client, "org-1", MAINTENANT);
     assert.equal(appel.id, "org-1");
-    for (const colonne of ["plan", "plan_override", "plan_override_until", "subscription_status", "subscription_current_period_end"]) {
+    for (const colonne of ["plan", "plan_override", "plan_override_until", "subscription_status", "subscription_current_period_end", "access_enabled"]) {
       assert.ok(appel.colonnes?.split(",").map((c) => c.trim()).includes(colonne), colonne);
     }
     // Route Pilotage (ex. BFR) : autorisée pendant l'essai, refusée après, sans écriture en base.

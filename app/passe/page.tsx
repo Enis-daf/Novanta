@@ -71,10 +71,6 @@ export default function PassePage() {
 
       const company = await getOrCreateCompanyForBilling(supabase!, userData.user);
       if (annule) return;
-      if (!company.accessEnabled) {
-        router.replace("/account/billing");
-        return;
-      }
 
       const actif = await moduleActifPourOrganisation(supabase!, company.id, "past");
       if (annule) return;

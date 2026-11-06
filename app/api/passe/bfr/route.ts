@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
   let organizationId: string;
   try {
     const company = await getOrCreateCompanyForBilling(supabase, user);
-    if (!company?.id || !company.accessEnabled) {
+    if (!company?.id) {
       return NextResponse.json({ error: "Accès au module Passé refusé." }, { status: 403 });
     }
     if (!(await moduleActifPourOrganisation(supabase, company.id, "past"))) {
