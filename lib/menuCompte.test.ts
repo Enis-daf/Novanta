@@ -28,6 +28,14 @@ describe("menu de compte", () => {
     assert.equal(menu.match(/await onDeconnexion\(\)/g)?.length, 2);
   });
 
+  test("pages Compte : l'en-tête passe au-dessus du contenu, le menu reste cliquable", () => {
+    const css = lire("app/globals.css");
+    const entete = css.match(/\.billing-page__header \{\s*position: relative;\s*z-index: (\d+);/);
+    const contenu = css.match(/\.abonnement \{\s*position: relative;\s*z-index: (\d+);/);
+    assert.ok(entete && contenu);
+    assert.ok(Number(entete[1]) > Number(contenu[1]));
+  });
+
   test("tous les en-têtes qui affichent l'e-mail passent par MenuCompte", () => {
     for (const chemin of ["components/EnTeteCockpit.tsx", "app/account/billing/page.tsx", "app/account/integrations/page.tsx"]) {
       const source = lire(chemin);

@@ -2075,9 +2075,11 @@ input[type="checkbox"] {
   color: var(--couleur-texte);
 }
 
+/* Au-dessus du contenu de la page (cartes à z-index 1, placées après lui) : le menu de compte
+   s'ouvre par-dessus et reste cliquable. */
 .billing-page__header {
   position: relative;
-  z-index: 1;
+  z-index: 2;
   width: 100%;
   max-width: 420px;
   display: flex;
