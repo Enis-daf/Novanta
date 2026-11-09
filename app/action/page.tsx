@@ -8,7 +8,10 @@ import EnTeteCockpit from "@/components/EnTeteCockpit";
 import ActionChantier from "@/components/ActionChantier";
 import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
-import { moduleActifPourOrganisation, ROUTE_FUTUR } from "@/lib/organizationModules";
+import { moduleActifPourOrganisation, ROUTE_FUTUR, ROUTE_PASSE } from "@/lib/organizationModules";
+import { chargerDroitsOrganisation, DroitsOrganisation } from "@/lib/offres";
+import { moduleActionActif } from "@/lib/featureFlags";
+import OffreVerrouillee from "@/components/OffreVerrouillee";
 
 export default function ActionPage() {
   const router = useRouter();
@@ -19,9 +22,11 @@ export default function ActionPage() {
   // local sans Supabase) renvoie vers Futur.
   const [autorise, setAutorise] = useState(false);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  // Droits de l'offre : Action n'est monté que pour une offre qui l'inclut (lib/offres.ts).
+  const [droits, setDroits] = useState<DroitsOrganisation | null>(null);
 
   useEffect(() => {
-    if (!supabaseConfigured) {
+    if (!supabaseConfigured || !moduleActionActif()) {
       router.replace(ROUTE_FUTUR);
       return;
     }
@@ -50,6 +55,7 @@ export default function ActionPage() {
   useEffect(() => {
     setAutorise(false);
     setOrganizationId(null);
+    setDroits(null);
     if (!supabaseConfigured || !userId) return;
 
     let annule = false;
@@ -65,10 +71,6 @@ export default function ActionPage() {
 
       const company = await getOrCreateCompanyForBilling(supabase!, userData.user);
       if (annule) return;
-      if (!company.accessEnabled) {
-        router.replace("/account/billing");
-        return;
-      }
 
       const actif = await moduleActifPourOrganisation(supabase!, company.id, "past");
       if (annule) return;
@@ -76,6 +78,9 @@ export default function ActionPage() {
         router.replace(ROUTE_FUTUR);
         return;
       }
+      const droitsOffre = await chargerDroitsOrganisation(supabase!, company.id);
+      if (annule) return;
+      setDroits(droitsOffre);
       setOrganizationId(company.id);
       setAutorise(true);
     })().catch((error) => {
@@ -93,7 +98,7 @@ export default function ActionPage() {
     return <LoginForm />;
   }
 
-  if (!session || !autorise || !organizationId) {
+  if (!session || !autorise || !organizationId || !droits) {
     return <main className="cockpit-chargement">Vérification de votre accès…</main>;
   }
 
@@ -103,8 +108,17 @@ export default function ActionPage() {
         moduleActif="action"
         compte={{ email: session.user.email, passeDisponible: true, onDeconnexion: () => supabase!.auth.signOut() }}
       />
-      {/* `key` : une organisation = une instance du module. */}
-      <ActionChantier key={organizationId} organizationId={organizationId} />
+      {droits.capacites.canViewActions ? (
+        // `key` : une organisation = une instance du module.
+        <ActionChantier key={organizationId} organizationId={organizationId} />
+      ) : (
+        <OffreVerrouillee
+          capacite="canViewActions"
+          fonctionnalite="Le module Action"
+          offreActuelle={droits.offreEffective}
+          lien={{ href: ROUTE_PASSE, libelle: "Revenir au Passé" }}
+        />
+      )}
     </main>
   );
 }
