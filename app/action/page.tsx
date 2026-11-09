@@ -10,7 +10,6 @@ import { supabase, supabaseConfigured } from "@/lib/supabaseClient";
 import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { moduleActifPourOrganisation, ROUTE_FUTUR, ROUTE_PASSE } from "@/lib/organizationModules";
 import { chargerDroitsOrganisation, DroitsOrganisation } from "@/lib/offres";
-import { moduleActionActif } from "@/lib/featureFlags";
 import OffreVerrouillee from "@/components/OffreVerrouillee";
 
 export default function ActionPage() {
@@ -26,7 +25,7 @@ export default function ActionPage() {
   const [droits, setDroits] = useState<DroitsOrganisation | null>(null);
 
   useEffect(() => {
-    if (!supabaseConfigured || !moduleActionActif()) {
+    if (!supabaseConfigured) {
       router.replace(ROUTE_FUTUR);
       return;
     }

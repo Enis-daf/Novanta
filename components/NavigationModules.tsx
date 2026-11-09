@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { moduleActionActif } from "@/lib/featureFlags";
 import { ROUTE_ACTION, ROUTE_FUTUR, ROUTE_PASSE } from "@/lib/organizationModules";
 
 export type ModuleCockpit = "passe" | "action" | "futur";
@@ -24,7 +23,7 @@ export default function NavigationModules({ moduleActif, passeDisponible }: Navi
 
   return (
     <nav className="nav-modules selecteur" aria-label="Modules">
-      {MODULES.filter((module) => module.cle !== "action" || moduleActionActif()).map((module) => (
+      {MODULES.map((module) => (
         <Link
           key={module.cle}
           href={module.route}
