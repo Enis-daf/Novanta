@@ -5084,6 +5084,44 @@ button.passe-cible--lien:focus-visible,
   margin-top: 0;
 }
 
+.action-confirmation__titre {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--couleur-texte);
+}
+
+/* Pied de fiche d'un chantier clôturé : action secondaire (suppression), sous le cartouche,
+   séparée par un filet — jamais au niveau du retour à l'historique. */
+.action-zone-secondaire {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--couleur-bordure);
+}
+
+/* Lien discret, à l'encre secondaire ; rose foncé au survol, comme .btn-remove. */
+.action-lien-secondaire {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.action-lien-secondaire:hover,
+.action-lien-secondaire:focus-visible {
+  color: var(--couleur-accent-fonce);
+}
+
+/* Retour d'une action (« Chantier supprimé. ») au-dessus de l'écran suivant. */
+.action-annonce {
+  margin: 0;
+  font-size: 13px;
+  color: var(--couleur-texte);
+}
+
 /* Trois cartes côte à côte seulement quand chacune garde une largeur lisible ; sinon empilées
    pleine largeur — jamais trois colonnes comprimées. */
 .action-kpis {

@@ -28,7 +28,9 @@ import {
   enregistrerValeurManuelle,
   estTableAbsente,
   lancerChantier,
+  supprimerChantierCloture,
 } from "@/lib/actionRepository";
+import { IssueSuppression, MESSAGES_SUPPRESSION } from "@/lib/actionSuppression";
 import { todayISO } from "@/lib/dates";
 import { ConfigExercice } from "@/lib/fiscalPeriods";
 import { supabase } from "@/lib/supabaseClient";
@@ -56,6 +58,8 @@ export default function ActionChantier({ organizationId }: ActionChantierProps) 
   const [creation, setCreation] = useState(false);
   const [vue, setVue] = useState<"en_cours" | "historique">("en_cours");
   const [ficheId, setFicheId] = useState<string | null>(null);
+  // Retour d'une suppression (« Chantier supprimé. »), affiché au-dessus de l'écran suivant.
+  const [annonce, setAnnonce] = useState<string | null>(null);
 
   useEffect(() => {
     let annule = false;
@@ -116,26 +120,55 @@ export default function ActionChantier({ organizationId }: ActionChantierProps) 
   }
 
   const { exercice, charge, historique } = chargement;
-  const fiche = vue === "historique" && ficheId ? (historique.find((c) => c.id === ficheId) ?? null) : null;
+  // Historique vidé (dernier chantier clôturé supprimé) : plus d'onglet, retour au chantier en cours.
+  const vueAffichee = historique.length > 0 ? vue : "en_cours";
+  // Fiche relue dans l'historique chargé : un chantier supprimé n'a plus de fiche à afficher.
+  const fiche = vueAffichee === "historique" && ficheId ? (historique.find((c) => c.id === ficheId) ?? null) : null;
+
+  // Après suppression (ou chantier déjà absent) : retour à la liste, relue en base.
+  const apresSuppression = (issue: Extract<IssueSuppression, { type: "supprime" | "deja_absent" }>) => {
+    setFicheId(null);
+    setAnnonce(MESSAGES_SUPPRESSION[issue.type]);
+    setRechargement((n) => n + 1);
+  };
 
   return (
     <section className="passe action">
       {historique.length > 0 && (
         <OngletsAction
-          vue={vue}
+          vue={vueAffichee}
           nombreClotures={historique.length}
           choisir={(v) => {
             setVue(v);
             setFicheId(null);
+            setAnnonce(null);
           }}
         />
       )}
 
-      {vue === "historique" ? (
+      {annonce && (
+        <p className="action-annonce" role="status">
+          {annonce}
+        </p>
+      )}
+
+      {vueAffichee === "historique" ? (
         fiche ? (
-          <FicheCloturee chantier={fiche} retour={() => setFicheId(null)} />
+          <FicheCloturee
+            chantier={fiche}
+            retour={() => setFicheId(null)}
+            supprimer={() => supprimerChantierCloture(supabase!, organizationId, fiche.id)}
+            onSupprime={apresSuppression}
+          />
         ) : (
-          <HistoriqueChantiers historique={historique} exercice={exercice} ouvrir={setFicheId} />
+          <HistoriqueChantiers
+            historique={historique}
+            exercice={exercice}
+            ouvrir={(id) => {
+              setFicheId(id);
+              setAnnonce(null);
+            }}
+          />
         )
       ) : charge ? (
         <SuiviCharge
@@ -457,13 +490,27 @@ function avancementALaCloture(photo: PhotographieChantier): string {
 }
 
 /** Fiche d'un chantier clôturé : la photographie de la clôture, en lecture seule. */
-export function FicheCloturee({ chantier, retour }: { chantier: ChantierCloture; retour: () => void }) {
+export function FicheCloturee({
+  chantier,
+  retour,
+  supprimer,
+  onSupprime,
+}: {
+  chantier: ChantierCloture;
+  retour: () => void;
+  // Absents : fiche sans action de suppression.
+  supprimer?: () => Promise<IssueSuppression>;
+  onSupprime?: (issue: Extract<IssueSuppression, { type: "supprime" | "deja_absent" }>) => void;
+}) {
   const photo: PhotographieChantier | null = chantier.photographie;
   const retourBouton = (
     <button type="button" className="btn-secondaire" onClick={retour}>
       ← Retour à l'historique
     </button>
   );
+  // Action secondaire, en pied de fiche : jamais au niveau du retour ni dans l'en-tête.
+  const suppression =
+    supprimer && onSupprime ? <SuppressionChantier supprimer={supprimer} onSupprime={onSupprime} /> : null;
   const bandeau = (
     <p className="action-chantier__cloture">
       <span className="action-statut action-statut--clos">Clôturé le {dateDeCloture(chantier.clotureLe)}</span>
@@ -483,11 +530,13 @@ export function FicheCloturee({ chantier, retour }: { chantier: ChantierCloture;
           <div className="action-chantier__actions">{retourBouton}</div>
         </header>
         <p className="login-erreur">Ce chantier a été clôturé avant l'historisation des résultats : aucune photographie de ses indicateurs n'est disponible.</p>
+        {suppression}
       </>
     );
   }
 
   return (
+    <>
     <ActionSuivi
       entete={{ titre: photo.titre, changement: photo.changement, libellePeriode: photo.libellePeriode, periode: photo.periode, avancement: avancementALaCloture(photo) }}
       actions={retourBouton}
@@ -501,5 +550,60 @@ export function FicheCloturee({ chantier, retour }: { chantier: ChantierCloture;
         { libelle: "Objectifs", valeur: "valeurs finales fixes, sans trajectoire" },
       ]}
     />
+    {suppression}
+    </>
+  );
+}
+
+/**
+ * Suppression définitive d'un chantier clôturé : lien discret en pied de fiche, puis une seule
+ * confirmation explicite. Le chantier ne quitte l'écran qu'une fois la suppression confirmée par
+ * la base ; en cas d'échec, il reste affiché avec le message.
+ */
+export function SuppressionChantier({
+  supprimer,
+  onSupprime,
+}: {
+  supprimer: () => Promise<IssueSuppression>;
+  onSupprime: (issue: Extract<IssueSuppression, { type: "supprime" | "deja_absent" }>) => void;
+}) {
+  const [etat, setEtat] = useState<{ ouverte: boolean; enCours: boolean; erreur: string | null }>({ ouverte: false, enCours: false, erreur: null });
+
+  const confirmer = async () => {
+    setEtat({ ouverte: true, enCours: true, erreur: null });
+    const issue = await supprimer();
+    if (issue.type === "echec") {
+      setEtat({ ouverte: true, enCours: false, erreur: issue.message });
+      return;
+    }
+    onSupprime(issue);
+  };
+
+  return (
+    <div className="action-zone-secondaire">
+      {etat.ouverte ? (
+        <div className="action-confirmation" role="alertdialog" aria-labelledby="action-suppression-titre" aria-describedby="action-suppression-texte">
+          <p id="action-suppression-titre" className="action-confirmation__titre">
+            Supprimer ce chantier ?
+          </p>
+          <p id="action-suppression-texte">
+            Cette action supprimera définitivement ce chantier et son historique de suivi. Les données financières sources ne seront pas modifiées.
+          </p>
+          <div className="action-confirmation__boutons">
+            <button type="button" className="btn-secondaire" onClick={() => setEtat({ ouverte: false, enCours: false, erreur: null })} disabled={etat.enCours}>
+              Annuler
+            </button>
+            <button type="button" className="btn-add" onClick={() => void confirmer()} disabled={etat.enCours}>
+              {etat.enCours ? "Suppression…" : "Supprimer définitivement"}
+            </button>
+          </div>
+          {etat.erreur && <p className="login-erreur">{etat.erreur}</p>}
+        </div>
+      ) : (
+        <button type="button" className="action-lien-secondaire" onClick={() => setEtat({ ouverte: true, enCours: false, erreur: null })}>
+          Supprimer ce chantier
+        </button>
+      )}
+    </div>
   );
 }

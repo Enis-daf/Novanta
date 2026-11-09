@@ -14,6 +14,7 @@ import {
   TypePeriode,
   ValeurManuelle,
 } from "./actionChantier";
+import { IssueSuppression, issueSuppression } from "./actionSuppression";
 import { ajustementsDepuisStocks } from "./pastAdjustments";
 import { chargerSituationsValidees } from "./pastBfrRepository";
 import { indexerMappings } from "./pastCategoryMapping";
@@ -194,6 +195,27 @@ export async function chargerChantiersClotures(supabase: SupabaseClient, organiz
       photographie: lirePhotographie(row.closing_snapshot),
     };
   });
+}
+
+/**
+ * Supprime définitivement un chantier CLÔTURÉ, avec sa photographie, ses indicateurs et ses valeurs
+ * saisies (fonction action_supprimer_chantier). Un chantier actif est refusé en base. Ne lève
+ * jamais : l'issue dit si le chantier a disparu ou pourquoi il est toujours là.
+ */
+export async function supprimerChantierCloture(
+  supabase: SupabaseClient,
+  organizationId: string,
+  chantierId: string
+): Promise<IssueSuppression> {
+  try {
+    const { data, error } = await supabase.rpc("action_supprimer_chantier", {
+      p_organization_id: organizationId,
+      p_initiative_id: chantierId,
+    });
+    return issueSuppression(data, error);
+  } catch (error) {
+    return issueSuppression(null, error ?? new Error("Échec réseau"));
+  }
 }
 
 /** Saisit (ou corrige) la valeur observée d'un mois pour l'indicateur personnalisé. */
