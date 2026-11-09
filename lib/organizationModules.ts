@@ -6,6 +6,9 @@ export type ModuleKey = "past";
 
 export const ROUTE_FUTUR = "/";
 export const ROUTE_PASSE = "/passe";
+// Module Action (le chantier de rentabilité prioritaire) : lit les données du module Passé, donc
+// soumis au même entitlement "past".
+export const ROUTE_ACTION = "/action";
 
 // Le module Passé porte le reporting, inclus dans toutes les offres (Essentiel compris) : il suit la
 // capacité canViewReporting de l'offre de l'organisation, sans activation au cas par cas. La table
