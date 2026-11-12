@@ -60,11 +60,20 @@ function evenement(champs: Partial<EvenementTresorerie> & { cleLigne?: string } 
     dateEcheance: null,
     fiabiliteDate: 100,
     tiers: null,
+    etage: null,
     ...champs,
   };
 }
 
-const ligne = (cle: string, probabilite = 100, parentCle: string | null = null): LigneProbabiliste => ({ cle, probabilite, parentCle });
+const ligne = (cle: string, probabilite = 100, parentCle: string | null = null, autres: Partial<LigneProbabiliste> = {}): LigneProbabiliste => ({
+  cle,
+  probabilite,
+  condition: parentCle ? { type: "evenement", parentCle } : null,
+  fiabiliteMontant: 100,
+  modeDate: "echeance",
+  aRenseigner: false,
+  ...autres,
+});
 
 /** Une simulation à un seul événement ; renvoie la part des simulations où il est encaissé avant l'horizon. */
 function partEncaissee(probabilite: number, n = 20_000, graine = 7): number {
@@ -360,7 +369,7 @@ describe("Dépendances", () => {
     assert.equal(ordre.length, 4);
     assert.ok(ordre.findIndex((l) => l.cle === "a") < ordre.findIndex((l) => l.cle === "d"));
     assert.deepEqual(dependancesIgnorees.map((d) => d.raison).sort(), ["cycle", "parent_absent"]);
-    assert.deepEqual([...descendants([ligne("a"), ligne("b", 100, "a"), ligne("c", 100, "b")], "a")].sort(), ["b", "c"]);
+    assert.deepEqual([...descendants([{ cle: "a", parentCle: null }, { cle: "b", parentCle: "a" }, { cle: "c", parentCle: "b" }], "a")].sort(), ["b", "c"]);
   });
 });
 
@@ -493,30 +502,49 @@ describe("Indicateurs", () => {
 });
 
 describe("Construction des événements", () => {
-  test("hypothèses par défaut, hypothèses saisies, tiers et échéance des factures", () => {
+  test("hypothèses par défaut selon le type de ligne, hypothèses saisies, tiers, échéance, valeur cible", () => {
     const { lignes, evenements } = construireEvenements(
       [
         { source: "facture_client", sourceId: "fc1", libelle: "F1 — ACME", date: "2026-12-01", montant: 1_000 },
         { source: "charge_fixe", sourceId: "cf1", libelle: "Loyer", date: "2026-12-01", montant: -500 },
         { source: "charge_fixe", sourceId: "cf1", libelle: "Loyer", date: "2027-01-01", montant: -500 },
         { source: "rentree_reguliere", sourceId: "r1", libelle: "Contrat", date: "2026-12-05", montant: 2_000 },
+        { source: "financement", sourceId: "fi1", libelle: "Prêt", date: "2026-12-10", montant: 30_000 },
       ],
-      { facturesClients: [{ id: "fc1", client: "ACME", dateEcheance: "2026-11-25" }], facturesFournisseurs: [] },
-      [{ source: "rentree_reguliere", sourceId: "r1", probabilite: 75, fiabiliteDate: 25, parentSource: "facture_client", parentSourceId: "fc1" }]
+      { facturesClients: [{ id: "fc1", client: "ACME", dateEcheance: "2026-11-25" }], facturesFournisseurs: [], rentreesRegulieres: [{ id: "r1", modeMontant: "fixe" }] },
+      [
+        {
+          source: "rentree_reguliere",
+          sourceId: "r1",
+          probabilite: 75,
+          fiabiliteDate: 25,
+          fiabiliteMontant: 50,
+          montantCible: 2_500,
+          condition: { type: "evenement", source: "facture_client", sourceId: "fc1" },
+        },
+      ]
     );
     assert.deepEqual(lignes, [
-      { cle: "facture_client:fc1", probabilite: 100, parentCle: null },
-      { cle: "charge_fixe:cf1", probabilite: 100, parentCle: null },
-      { cle: "rentree_reguliere:r1", probabilite: 75, parentCle: "facture_client:fc1" },
+      { cle: "facture_client:fc1", probabilite: 100, condition: null, fiabiliteMontant: 100, modeDate: "echeance", aRenseigner: false },
+      { cle: "charge_fixe:cf1", probabilite: 100, condition: null, fiabiliteMontant: 100, modeDate: "debut", aRenseigner: false },
+      {
+        cle: "rentree_reguliere:r1",
+        probabilite: 75,
+        condition: { type: "evenement", parentCle: "facture_client:fc1" },
+        fiabiliteMontant: 50,
+        modeDate: "debut",
+        aRenseigner: false,
+      },
+      { cle: "financement:fi1", probabilite: 100, condition: null, fiabiliteMontant: 100, modeDate: "echeance", aRenseigner: true },
     ]);
-    assert.equal(evenements.length, 4);
     assert.deepEqual(
-      evenements.map((e) => [e.id, e.sens, e.montant, e.fiabiliteDate, e.tiers, e.dateEcheance]),
+      evenements.map((e) => [e.id, e.sens, e.montant, e.fiabiliteDate, e.tiers, e.dateEcheance, e.etage]),
       [
-        ["facture_client:fc1#0", "encaissement", 1_000, 50, "ACME", "2026-11-25"],
-        ["charge_fixe:cf1#0", "decaissement", 500, 100, null, null],
-        ["charge_fixe:cf1#1", "decaissement", 500, 100, null, null],
-        ["rentree_reguliere:r1#0", "encaissement", 2_000, 25, null, null],
+        ["facture_client:fc1#0", "encaissement", 1_000, 50, "ACME", "2026-11-25", "revenue"],
+        ["charge_fixe:cf1#0", "decaissement", 500, 100, null, null, null],
+        ["charge_fixe:cf1#1", "decaissement", 500, 100, null, null, null],
+        ["rentree_reguliere:r1#0", "encaissement", 2_500, 25, null, null, "revenue"],
+        ["financement:fi1#0", "encaissement", 30_000, 100, null, null, "financing"],
       ]
     );
   });
@@ -546,8 +574,8 @@ describe("Validation des requêtes", () => {
     soldeInitial: 1_000,
     dateDepart: "2026-11-12",
     horizonJours: 90,
-    lignes: [{ cle: "facture_client:a", probabilite: 75, parentCle: null }],
-    evenements: [{ id: "facture_client:a#0", cleLigne: "facture_client:a", libelle: "F", montant: 10, sens: "encaissement", datePrevue: "2026-11-20", dateEcheance: null, fiabiliteDate: 50, tiers: "ACME" }],
+    lignes: [{ cle: "facture_client:a", probabilite: 75, condition: null, fiabiliteMontant: 100, modeDate: "echeance", aRenseigner: false }],
+    evenements: [{ id: "facture_client:a#0", cleLigne: "facture_client:a", libelle: "F", montant: 10, sens: "encaissement", datePrevue: "2026-11-20", dateEcheance: null, fiabiliteDate: 50, tiers: "ACME", etage: "revenue" }],
   };
 
   test("requête valide acceptée, nombre de simulations borné", () => {
@@ -561,15 +589,24 @@ describe("Validation des requêtes", () => {
     assert.equal(validerRequeteSimulation({ ...requete, horizonJours: 5_000 }).ok, false);
     assert.equal(validerRequeteSimulation({ ...requete, evenements: [{ ...requete.evenements[0], montant: -5 }] }).ok, false);
     assert.equal(validerRequeteSimulation({ ...requete, evenements: [{ ...requete.evenements[0], fiabiliteDate: 60 }] }).ok, false);
-    assert.equal(validerRequeteSimulation({ ...requete, lignes: [{ cle: "x", probabilite: 120, parentCle: null }] }).ok, false);
+    assert.equal(validerRequeteSimulation({ ...requete, lignes: [{ ...requete.lignes[0], probabilite: 120 }] }).ok, false);
+    assert.equal(validerRequeteSimulation({ ...requete, lignes: [{ ...requete.lignes[0], condition: { type: "seuil", indicateur: "x", comparateur: ">", valeur: 1 } }] }).ok, false);
+    assert.equal(validerRequeteSimulation({ ...requete, evenements: [{ ...requete.evenements[0], etage: "inconnu" }] }).ok, false);
   });
 
   test("hypothèse : valeurs proposées seulement, jamais sa propre dépendance", () => {
-    const h = { source: "facture_client", sourceId: "a", probabilite: 75, fiabiliteDate: 25, parentSource: null, parentSourceId: null };
+    const h = { source: "rentree_reguliere", sourceId: "a", probabilite: 75, fiabiliteDate: 25, fiabiliteMontant: 50, montantCible: 80_000, condition: null };
     assert.equal(validerHypothese(h).ok, true);
     assert.equal(validerHypothese({ ...h, probabilite: 60 }).ok, false);
-    assert.equal(validerHypothese({ ...h, parentSource: "facture_client", parentSourceId: "a" }).ok, false);
-    assert.equal(validerHypothese({ ...h, parentSource: "facture_client", parentSourceId: null }).ok, false);
-    assert.equal(validerHypothese({ ...h, parentSource: "rentree_reguliere", parentSourceId: "r" }).ok, true);
+    assert.equal(validerHypothese({ ...h, condition: { type: "evenement", source: "rentree_reguliere", sourceId: "a" } }).ok, false);
+    assert.equal(validerHypothese({ ...h, condition: { type: "evenement", source: "facture_client" } }).ok, false);
+    assert.equal(validerHypothese({ ...h, condition: { type: "evenement", source: "financement", sourceId: "f" } }).ok, true);
+    assert.equal(validerHypothese({ ...h, condition: { type: "seuil", indicateur: "ca_mois_precedent", comparateur: ">", valeur: 100_000 } }).ok, true);
+    assert.equal(validerHypothese({ ...h, condition: { type: "seuil", indicateur: "inconnu", comparateur: ">", valeur: 1 } }).ok, false);
+    assert.equal(validerHypothese({ ...h, condition: { type: "apres_evenement", source: "financement", sourceId: "f", decalageMois: 99 } }).ok, false);
+    assert.equal(validerHypothese({ ...h, montantCible: -5 }).ok, false);
+    // Montant variable seulement là où il a un sens ; valeur cible seulement pour une rentrée régulière.
+    assert.equal(validerHypothese({ ...h, source: "facture_client", fiabiliteMontant: 50, montantCible: null }).ok, false);
+    assert.equal(validerHypothese({ ...h, source: "charge_fixe", fiabiliteMontant: null, montantCible: 100 }).ok, false);
   });
 });

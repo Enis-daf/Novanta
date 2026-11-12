@@ -1,14 +1,20 @@
-import type { SourceFlux } from "./cash-engine";
 import type { ScoreConfiance } from "./probaCalibration";
 import {
+  ConditionMoteur,
+  DIMENSIONS,
   estFiabilite,
+  estIndicateurSeuil,
   estProbabilite,
   estSourceFlux,
   EvenementTresorerie,
+  DECALAGE_MOIS_MAX,
   HypotheseLigne,
   LigneProbabiliste,
+  lireConditionSaisie,
   OrdreLignes,
 } from "./probaEvenements";
+import { estEtagePnl } from "./pastCategoryMapping";
+import type { Completude } from "./probaEcran";
 import type { IndicateursRisque } from "./probaIndicateurs";
 
 /**
@@ -49,6 +55,7 @@ export interface ResumeCalibration {
 
 export interface ReponseSimulation {
   indicateurs: IndicateursRisque;
+  completude: Pick<Completude, "aRenseigner" | "importantesARenseigner" | "secondairesARenseigner">;
   calibration: { client: ResumeCalibration; fournisseur: ResumeCalibration };
   dependancesIgnorees: OrdreLignes["dependancesIgnorees"];
   parametres: { nombreSimulations: number; graine: number; dateDepart: string; horizonJours: number };
@@ -60,6 +67,21 @@ const estTexte = (v: unknown, max: number): v is string => typeof v === "string"
 const estNombreFini = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
 export type Validation<T> = { ok: true; valeur: T } | { ok: false; erreur: string };
+
+/** Condition du moteur : null (aucune), une condition valide, ou undefined (refusée). */
+function validerConditionMoteur(brut: unknown): ConditionMoteur | null | undefined {
+  if (brut === null) return null;
+  if (typeof brut !== "object") return undefined;
+  const c = brut as Record<string, unknown>;
+  if (c.type === "evenement" && estTexte(c.parentCle, 200)) return { type: "evenement", parentCle: c.parentCle };
+  if (c.type === "seuil" && estIndicateurSeuil(c.indicateur) && (c.comparateur === ">" || c.comparateur === "<") && estNombreFini(c.valeur)) {
+    return { type: "seuil", indicateur: c.indicateur, comparateur: c.comparateur, valeur: c.valeur };
+  }
+  if (c.type === "apres_evenement" && estTexte(c.parentCle, 200) && Number.isInteger(c.decalageMois) && (c.decalageMois as number) >= 0 && (c.decalageMois as number) <= DECALAGE_MOIS_MAX) {
+    return { type: "apres_evenement", parentCle: c.parentCle, decalageMois: c.decalageMois as number };
+  }
+  return undefined;
+}
 
 /** Valide le corps d'une requête de simulation ; jamais d'exception, jamais de valeur douteuse retenue. */
 export function validerRequeteSimulation(corps: unknown): Validation<RequeteSimulation> {
@@ -77,8 +99,12 @@ export function validerRequeteSimulation(corps: unknown): Validation<RequeteSimu
   for (const l of c.lignes as Record<string, unknown>[]) {
     if (typeof l !== "object" || l === null || !estTexte(l.cle, 200)) return { ok: false, erreur: "Ligne invalide." };
     if (!estNombreFini(l.probabilite) || l.probabilite < 0 || l.probabilite > 100) return { ok: false, erreur: "Probabilité invalide." };
-    if (l.parentCle !== null && !estTexte(l.parentCle, 200)) return { ok: false, erreur: "Dépendance invalide." };
-    lignes.push({ cle: l.cle, probabilite: l.probabilite, parentCle: l.parentCle as string | null });
+    if (!estFiabilite(l.fiabiliteMontant)) return { ok: false, erreur: "Fiabilité du montant invalide." };
+    if (l.modeDate !== "echeance" && l.modeDate !== "debut") return { ok: false, erreur: "Ligne invalide." };
+    if (typeof l.aRenseigner !== "boolean") return { ok: false, erreur: "Ligne invalide." };
+    const condition = validerConditionMoteur(l.condition);
+    if (condition === undefined) return { ok: false, erreur: "Condition invalide." };
+    lignes.push({ cle: l.cle, probabilite: l.probabilite, condition, fiabiliteMontant: l.fiabiliteMontant, modeDate: l.modeDate, aRenseigner: l.aRenseigner });
   }
 
   const evenements: EvenementTresorerie[] = [];
@@ -91,6 +117,7 @@ export function validerRequeteSimulation(corps: unknown): Validation<RequeteSimu
     if (e.dateEcheance !== null && !estDate(e.dateEcheance)) return { ok: false, erreur: "Échéance invalide." };
     if (!estFiabilite(e.fiabiliteDate)) return { ok: false, erreur: "Fiabilité invalide." };
     if (e.tiers !== null && typeof e.tiers !== "string") return { ok: false, erreur: "Tiers invalide." };
+    if (e.etage !== null && !estEtagePnl(e.etage)) return { ok: false, erreur: "Étage invalide." };
     evenements.push({
       id: e.id,
       cleLigne: e.cleLigne,
@@ -101,6 +128,7 @@ export function validerRequeteSimulation(corps: unknown): Validation<RequeteSimu
       dateEcheance: e.dateEcheance as string | null,
       fiabiliteDate: e.fiabiliteDate,
       tiers: e.tiers === null ? null : (e.tiers as string).slice(0, 300),
+      etage: e.etage as EvenementTresorerie["etage"],
     });
   }
 
@@ -127,10 +155,19 @@ export function validerHypothese(corps: unknown): Validation<HypotheseLigne> {
   if (!estSourceFlux(h.source) || !estTexte(h.sourceId, 100)) return { ok: false, erreur: "Ligne invalide." };
   if (!estProbabilite(h.probabilite)) return { ok: false, erreur: "Probabilité invalide." };
   if (!estFiabilite(h.fiabiliteDate)) return { ok: false, erreur: "Fiabilité invalide." };
-  const sansParent = h.parentSource === null && h.parentSourceId === null;
-  const avecParent = estSourceFlux(h.parentSource) && estTexte(h.parentSourceId, 100);
-  if (!sansParent && !avecParent) return { ok: false, erreur: "Dépendance invalide." };
-  if (avecParent && h.parentSource === h.source && h.parentSourceId === h.sourceId) return { ok: false, erreur: "Une ligne ne peut pas dépendre d'elle-même." };
+  const dims = DIMENSIONS[h.source];
+  if (h.fiabiliteMontant !== null && !(dims.montant && estFiabilite(h.fiabiliteMontant))) return { ok: false, erreur: "Fiabilité du montant invalide." };
+  if (h.montantCible !== null && !(h.source === "rentree_reguliere" && estNombreFini(h.montantCible) && h.montantCible > 0)) {
+    return { ok: false, erreur: "Montant cible invalide." };
+  }
+  let condition = null;
+  if (h.condition !== null) {
+    condition = lireConditionSaisie(h.condition);
+    if (condition === null) return { ok: false, erreur: "Condition invalide." };
+    if (condition.type !== "seuil" && condition.source === h.source && condition.sourceId === h.sourceId) {
+      return { ok: false, erreur: "Une ligne ne peut pas dépendre d'elle-même." };
+    }
+  }
   return {
     ok: true,
     valeur: {
@@ -138,8 +175,9 @@ export function validerHypothese(corps: unknown): Validation<HypotheseLigne> {
       sourceId: h.sourceId,
       probabilite: h.probabilite,
       fiabiliteDate: h.fiabiliteDate,
-      parentSource: avecParent ? (h.parentSource as SourceFlux) : null,
-      parentSourceId: avecParent ? (h.parentSourceId as string) : null,
+      fiabiliteMontant: (h.fiabiliteMontant as HypotheseLigne["fiabiliteMontant"]) ?? null,
+      montantCible: (h.montantCible as number | null) ?? null,
+      condition,
     },
   };
 }

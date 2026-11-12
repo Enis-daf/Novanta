@@ -1,10 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { estFiabilite, estProbabilite, estSourceFlux, hypotheseParDefaut, HypotheseLigne } from "./probaEvenements";
+import { DIMENSIONS, estFiabilite, estProbabilite, estSourceFlux, hypotheseParDefaut, HypotheseLigne, lireConditionSaisie } from "./probaEvenements";
 import { FacturePayeeFutur } from "./probaHistorique";
 import { ProfilPaiement } from "./probaCalibration";
 
 /**
- * Accès Supabase de la prévision probabiliste (supabase/migrations/20261112_forecast_probabilistic.sql).
+ * Accès Supabase de la prévision probabiliste (supabase/migrations/20261112_forecast_probabilistic.sql,
+ * 20261113_forecast_assumption_dimensions.sql).
  * Toutes les lectures et écritures sont bornées à la société passée par la route, toujours dérivée
  * de l'utilisateur connecté.
  */
@@ -16,35 +17,63 @@ export function estTableAbsente(error: { code?: string } | null): boolean {
   return error?.code === "42P01" || error?.code === "PGRST205";
 }
 
+const COLONNES_HYPOTHESES = "source_type, source_id, probability, date_reliability, parent_source_type, parent_source_id";
+const COLONNES_DIMENSIONS = "amount_reliability, target_amount, activation_condition";
+
+/** Colonne absente (migration 20261113 pas encore passée). */
+export function estColonneAbsente(error: { code?: string } | null): boolean {
+  return error?.code === "42703" || error?.code === "PGRST204";
+}
+
+/** Lit une ligne stockée ; une valeur douteuse est ignorée (jamais une hypothèse inventée). */
+export function versHypothese(row: Row): HypotheseLigne | null {
+  if (!estSourceFlux(row.source_type) || typeof row.source_id !== "string") return null;
+  if (!estProbabilite(row.probability) || !estFiabilite(row.date_reliability)) return null;
+  const source = row.source_type;
+  // Ancien format : parent_source_* = condition « evenement ».
+  const conditionLegacy =
+    estSourceFlux(row.parent_source_type) && typeof row.parent_source_id === "string"
+      ? { type: "evenement", source: row.parent_source_type, sourceId: row.parent_source_id }
+      : null;
+  const fiabiliteMontant = DIMENSIONS[source].montant && estFiabilite(row.amount_reliability) ? row.amount_reliability : null;
+  const cible = row.target_amount === null || row.target_amount === undefined ? null : Number(row.target_amount);
+  return {
+    source,
+    sourceId: row.source_id,
+    probabilite: row.probability,
+    fiabiliteDate: row.date_reliability,
+    fiabiliteMontant,
+    montantCible: source === "rentree_reguliere" && cible !== null && Number.isFinite(cible) && cible > 0 ? cible : null,
+    condition: lireConditionSaisie(row.activation_condition ?? conditionLegacy),
+  };
+}
+
 export async function chargerHypotheses(supabase: SupabaseClient, companyId: string): Promise<HypotheseLigne[]> {
-  const { data, error } = await supabase
-    .from("forecast_event_assumptions")
-    .select("source_type, source_id, probability, date_reliability, parent_source_type, parent_source_id")
-    .eq("company_id", companyId);
+  const lire = (colonnes: string) => supabase.from("forecast_event_assumptions").select(colonnes).eq("company_id", companyId);
+  let reponse = await lire(`${COLONNES_HYPOTHESES}, ${COLONNES_DIMENSIONS}`);
+  if (reponse.error && estColonneAbsente(reponse.error)) reponse = await lire(COLONNES_HYPOTHESES);
+  const { data, error } = reponse;
   if (error) {
     if (estTableAbsente(error)) return [];
     throw error;
   }
-  const hypotheses: HypotheseLigne[] = [];
-  for (const row of (data ?? []) as Row[]) {
-    if (!estSourceFlux(row.source_type) || typeof row.source_id !== "string") continue;
-    if (!estProbabilite(row.probability) || !estFiabilite(row.date_reliability)) continue;
-    hypotheses.push({
-      source: row.source_type,
-      sourceId: row.source_id,
-      probabilite: row.probability,
-      fiabiliteDate: row.date_reliability,
-      parentSource: estSourceFlux(row.parent_source_type) ? row.parent_source_type : null,
-      parentSourceId: typeof row.parent_source_id === "string" ? row.parent_source_id : null,
-    });
-  }
-  return hypotheses;
+  return ((data ?? []) as unknown as Row[]).map(versHypothese).filter((h): h is HypotheseLigne => h !== null);
 }
 
-/** Enregistre une hypothèse ; revenir aux valeurs par défaut sans dépendance supprime la ligne. */
+/**
+ * Enregistre une hypothèse. Pour une ligne « À renseigner » par défaut, la ligne stockée vaut
+ * validation : elle est toujours conservée. Pour les autres, revenir aux valeurs par défaut la
+ * supprime.
+ */
 export async function enregistrerHypothese(supabase: SupabaseClient, companyId: string, h: HypotheseLigne): Promise<void> {
   const defaut = hypotheseParDefaut(h.source);
-  const estDefaut = h.probabilite === defaut.probabilite && h.fiabiliteDate === defaut.fiabiliteDate && h.parentSource === null;
+  const estDefaut =
+    !DIMENSIONS[h.source].aRenseignerParDefaut &&
+    h.probabilite === defaut.probabilite &&
+    h.fiabiliteDate === defaut.fiabiliteDate &&
+    (h.fiabiliteMontant ?? 100) === 100 &&
+    h.montantCible === null &&
+    h.condition === null;
   if (estDefaut) {
     const { error } = await supabase.from("forecast_event_assumptions").delete().eq("company_id", companyId).eq("source_type", h.source).eq("source_id", h.sourceId);
     if (error) throw error;
@@ -57,8 +86,11 @@ export async function enregistrerHypothese(supabase: SupabaseClient, companyId: 
       source_id: h.sourceId,
       probability: h.probabilite,
       date_reliability: h.fiabiliteDate,
-      parent_source_type: h.parentSource,
-      parent_source_id: h.parentSourceId,
+      amount_reliability: h.fiabiliteMontant,
+      target_amount: h.montantCible,
+      activation_condition: h.condition,
+      parent_source_type: null,
+      parent_source_id: null,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "company_id,source_type,source_id" }

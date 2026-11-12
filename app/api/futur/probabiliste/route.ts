@@ -10,6 +10,8 @@ import { calculerIndicateurs } from "@/lib/probaIndicateurs";
 import { GRAINE_PAR_DEFAUT } from "@/lib/probaAlea";
 import { ReponseSimulation, ResumeCalibration, validerRequeteSimulation } from "@/lib/probaApi";
 import { dateDansFuseau } from "@/lib/fiabiliteProjection";
+import { completudeMoteur } from "@/lib/probaEcran";
+import { decalerDateISO } from "@/lib/dates";
 
 // Prévision probabiliste de trésorerie (offre Pilotage). Le navigateur envoie les échéances de sa
 // projection et leurs hypothèses ; ici, après contrôle de l'offre :
@@ -52,6 +54,14 @@ export async function POST(req: NextRequest) {
   const validation = validerRequeteSimulation(corps);
   if (!validation.ok) return NextResponse.json({ error: validation.erreur }, { status: 400 });
   const requete = validation.valeur;
+  // Hypothèse importante à renseigner : pas de prévision probabiliste (règle de lib/probaEcran.ts).
+  const etat = completudeMoteur(requete.lignes, requete.evenements, decalerDateISO(requete.dateDepart, requete.horizonJours));
+  if (etat.bloquee) {
+    return NextResponse.json(
+      { error: "Des hypothèses importantes doivent être renseignées.", code: "hypotheses_a_renseigner", importantesARenseigner: etat.importantesARenseigner },
+      { status: 409 }
+    );
+  }
 
   try {
     const debut = Date.now();
@@ -82,6 +92,7 @@ export async function POST(req: NextRequest) {
     );
     const reponse: ReponseSimulation = {
       indicateurs,
+      completude: { aRenseigner: etat.aRenseigner, importantesARenseigner: etat.importantesARenseigner, secondairesARenseigner: etat.secondairesARenseigner },
       calibration: { client: resume(modeles.client, profils.client), fournisseur: resume(modeles.fournisseur, profils.fournisseur) },
       dependancesIgnorees: brute.dependancesIgnorees,
       parametres: { nombreSimulations, graine, dateDepart: requete.dateDepart, horizonJours: requete.horizonJours },

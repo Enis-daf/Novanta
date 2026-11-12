@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { accesPrevisionProbabiliste } from "@/lib/probaAcces";
-import { chargerHypotheses, enregistrerHypothese, estTableAbsente } from "@/lib/probaRepository";
+import { chargerHypotheses, enregistrerHypothese, estColonneAbsente, estTableAbsente } from "@/lib/probaRepository";
 import { validerHypothese } from "@/lib/probaApi";
 
 // Hypothèses de la prévision probabiliste (probabilité, fiabilité de la date, dépendance), ligne
@@ -36,7 +36,7 @@ export async function PUT(req: NextRequest) {
     await enregistrerHypothese(acces.supabase, acces.companyId, validation.valeur);
     return NextResponse.json({ ok: true });
   } catch (erreur) {
-    if (estTableAbsente(erreur as { code?: string })) {
+    if (estTableAbsente(erreur as { code?: string }) || estColonneAbsente(erreur as { code?: string })) {
       return NextResponse.json({ error: "Enregistrement indisponible : la base n'est pas encore à jour." }, { status: 503 });
     }
     console.error(`[futur/probabiliste/hypotheses] écriture échouée company=${acces.companyId}`, erreur);

@@ -1,24 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PrevisionProbabilisteChart from "./PrevisionProbabilisteChart";
-import SectionRepliable from "./SectionRepliable";
+import HypothesesProbabilistes from "./HypothesesProbabilistes";
 import DateField from "./DateField";
 import { formatDate, formatMontant } from "@/lib/format";
 import { listerFluxProjetes, ParametresProjectionCash, SourceFlux } from "@/lib/cash-engine";
-import {
-  cleLigne,
-  construireEvenements,
-  descendants,
-  FIABILITES,
-  FiabiliteDate,
-  hypotheseParDefaut,
-  HypotheseLigne,
-  LIBELLES_FIABILITE,
-  LIBELLES_PROBABILITE,
-  PROBABILITES,
-  ProbabiliteSaisie,
-} from "@/lib/probaEvenements";
+import { classerDepense, CorrespondanceFutur, groupeDeClassement } from "@/lib/futurPnl";
+import type { EtagePnl } from "@/lib/pastCategoryMapping";
+import { cleLigne, construireEvenements, descendants, HypotheseLigne, parentDeCondition, conditionVersMoteur } from "@/lib/probaEvenements";
+import { CleGroupeHypotheses, completude, construireLignesHypotheses, HypotheseEffective, LigneHypothese, messageCompletude } from "@/lib/probaEcran";
 import type { ReponseSimulation, RequeteSimulation, ResumeCalibration } from "@/lib/probaApi";
 import type { SoldeJournalier } from "@/lib/types";
 
@@ -27,6 +18,7 @@ interface PrevisionProbabilisteProps {
   actif: boolean;
   soldeInitial: number;
   projection: Omit<ParametresProjectionCash, "soldeInitial">;
+  correspondance: CorrespondanceFutur;
   serieDeterministe: SoldeJournalier[];
 }
 
@@ -37,26 +29,6 @@ const pourcent = (x: number) => {
   if (p < 100 && p > 99) return "> 99 %";
   return `${Math.round(p)} %`;
 };
-
-const LIBELLES_SOURCE: Record<SourceFlux, string> = {
-  facture_client: "Facture client",
-  facture_fournisseur: "Facture fournisseur",
-  financement: "Financement",
-  charge_fixe: "Charge fixe",
-  autre_depense: "Autre dépense",
-  rentree_reguliere: "Rentrée régulière",
-};
-
-interface LigneAffichee {
-  cle: string;
-  source: SourceFlux;
-  sourceId: string;
-  libelle: string;
-  encaissement: boolean;
-  total: number;
-  premiereDate: string;
-  echeances: number;
-}
 
 function phraseCalibration(c: ResumeCalibration): string {
   const n = c.nombreFactures;
@@ -72,11 +44,12 @@ function phraseCalibration(c: ResumeCalibration): string {
 
 function phraseComportement(c: ResumeCalibration): string | null {
   if (c.nombreFactures === 0 || c.retardMedian === null || c.partALHeure === null || c.partPlus30 === null) return null;
-  const median = c.retardMedian <= 0 ? "à l'échéance" : `${Math.round(c.retardMedian)} jour${Math.round(c.retardMedian) > 1 ? "s" : ""} après l'échéance`;
+  const jours = Math.round(c.retardMedian);
+  const median = jours <= 0 ? "à l'échéance" : `${jours} jour${jours > 1 ? "s" : ""} après l'échéance`;
   return `Vos clients paient en général ${median} ; ${pourcent(c.partALHeure)} des factures sont réglées à l'heure, ${pourcent(c.partPlus30)} avec plus de 30 jours de retard.`;
 }
 
-export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial, projection, serieDeterministe }: PrevisionProbabilisteProps) {
+export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial, projection, correspondance, serieDeterministe }: PrevisionProbabilisteProps) {
   const [hypotheses, setHypotheses] = useState<Map<string, HypotheseLigne> | null>(null);
   const [erreurHypotheses, setErreurHypotheses] = useState<string | null>(null);
   const [resultat, setResultat] = useState<ReponseSimulation | null>(null);
@@ -108,32 +81,52 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
     };
   }, [actif, hypotheses, accessToken]);
 
+  // Classement P&L existant de Futur : encaissements, groupes d'étage des dépenses, « À classer ».
+  const classement = useMemo(() => {
+    const depenses = new Map<string, { etagePnlManuel?: unknown; categoriesPennylane?: unknown }>();
+    for (const f of projection.facturesFournisseurs) depenses.set(cleLigne("facture_fournisseur", f.id), f);
+    for (const c of projection.chargesFixes) depenses.set(cleLigne("charge_fixe", c.id), c);
+    for (const d of projection.autresDepenses) depenses.set(cleLigne("autre_depense", d.id), d);
+    const classer = (source: SourceFlux, sourceId: string) => {
+      const depense = depenses.get(cleLigne(source, sourceId));
+      return depense ? classerDepense(depense as Parameters<typeof classerDepense>[0], correspondance) : null;
+    };
+    return {
+      groupeDe: (source: SourceFlux, sourceId: string): CleGroupeHypotheses => {
+        if (source === "facture_client" || source === "rentree_reguliere") return "revenue";
+        if (source === "financement") return "financing";
+        const c = classer(source, sourceId);
+        return (c && groupeDeClassement(c)) ?? "a_classer";
+      },
+      etageDe: (source: SourceFlux, sourceId: string): EtagePnl | null => {
+        if (source === "facture_client" || source === "rentree_reguliere") return "revenue";
+        if (source === "financement") return "financing";
+        return classer(source, sourceId)?.etage ?? null;
+      },
+    };
+  }, [projection, correspondance]);
+
   const flux = useMemo(() => listerFluxProjetes(projection), [projection]);
+  const lignes = useMemo(() => (hypotheses === null ? [] : construireLignesHypotheses(flux, hypotheses, classement.groupeDe)), [flux, hypotheses, classement]);
+  const etat = useMemo(() => completude(lignes), [lignes]);
   const construit = useMemo(
-    () => (hypotheses === null ? null : construireEvenements(flux, projection, Array.from(hypotheses.values()))),
-    [flux, projection, hypotheses]
+    () => (hypotheses === null ? null : construireEvenements(flux, projection, Array.from(hypotheses.values()), classement.etageDe)),
+    [flux, projection, hypotheses, classement]
   );
+  const montantsFixes = useMemo(
+    () => new Map(projection.rentreesRegulieres.filter((r) => r.modeMontant === "fixe").map((r) => [cleLigne("rentree_reguliere", r.id), r.montant])),
+    [projection.rentreesRegulieres]
+  );
+  const liens = useMemo(
+    () => lignes.map((l) => ({ cle: l.cle, parentCle: parentDeCondition(conditionVersMoteur(l.hypothese.condition)) })),
+    [lignes]
+  );
+  const descendantsDe = useCallback((cle: string) => descendants(liens, cle), [liens]);
 
-  const lignesAffichees = useMemo<LigneAffichee[]>(() => {
-    const parCle = new Map<string, LigneAffichee>();
-    for (const f of flux) {
-      if (f.montant === 0) continue;
-      const cle = cleLigne(f.source, f.sourceId);
-      const ligne = parCle.get(cle);
-      if (ligne) {
-        ligne.total += f.montant;
-        ligne.echeances++;
-        if (f.date < ligne.premiereDate) ligne.premiereDate = f.date;
-      } else {
-        parCle.set(cle, { cle, source: f.source, sourceId: f.sourceId, libelle: f.libelle, encaissement: f.montant > 0, total: f.montant, premiereDate: f.date, echeances: 1 });
-      }
-    }
-    return Array.from(parCle.values()).sort((a, b) => a.premiereDate.localeCompare(b.premiereDate) || a.libelle.localeCompare(b.libelle));
-  }, [flux]);
-
-  // Calcul serveur, relancé (avec un léger délai) à chaque changement de données ou d'hypothèse.
+  // Calcul serveur, relancé (avec un léger délai) à chaque changement — jamais quand une hypothèse
+  // importante reste à renseigner (le serveur le refuserait aussi).
   useEffect(() => {
-    if (!actif || !accessToken || construit === null) return;
+    if (!actif || !accessToken || construit === null || etat.bloquee) return;
     const minuteur = setTimeout(() => {
       requeteEnCours.current?.abort();
       const controleur = new AbortController();
@@ -169,12 +162,19 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
         });
     }, DELAI_CALCUL_MS);
     return () => clearTimeout(minuteur);
-  }, [actif, accessToken, construit, soldeInitial, projection.dateDepart, projection.horizonJours]);
+  }, [actif, accessToken, construit, etat.bloquee, soldeInitial, projection.dateDepart, projection.horizonJours]);
 
-  const modifierHypothese = (ligne: LigneAffichee, changement: Partial<Pick<HypotheseLigne, "probabilite" | "fiabiliteDate" | "parentSource" | "parentSourceId">>) => {
+  const modifierHypothese = (ligne: LigneHypothese, h: HypotheseEffective) => {
     if (!hypotheses) return;
-    const actuelle = hypotheses.get(ligne.cle) ?? { source: ligne.source, sourceId: ligne.sourceId, ...hypotheseParDefaut(ligne.source), parentSource: null, parentSourceId: null };
-    const nouvelle: HypotheseLigne = { ...actuelle, ...changement };
+    const nouvelle: HypotheseLigne = {
+      source: ligne.source,
+      sourceId: ligne.sourceId,
+      probabilite: h.probabilite,
+      fiabiliteDate: h.fiabiliteDate,
+      fiabiliteMontant: ligne.source === "rentree_reguliere" || ligne.source === "financement" || ligne.source === "autre_depense" ? h.fiabiliteMontant : null,
+      montantCible: ligne.source === "rentree_reguliere" ? h.montantCible : null,
+      condition: h.condition,
+    };
     const suivantes = new Map(hypotheses);
     suivantes.set(ligne.cle, nouvelle);
     setHypotheses(suivantes);
@@ -192,22 +192,22 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
       .catch(() => setErreurHypotheses("L'hypothèse n'a pas pu être enregistrée."));
   };
 
-  const indicateurs = resultat?.indicateurs ?? null;
+  if (hypotheses === null) return <p className="proba-attente">{actif ? "Chargement des hypothèses…" : null}</p>;
+
+  const indicateurs = !etat.bloquee ? resultat?.indicateurs ?? null : null;
   const serie = indicateurs?.serie ?? [];
   const dernierJour = serie.length > 0 ? serie[serie.length - 1].date : null;
   const pointCible = serie.find((p) => p.date === dateCible) ?? (dernierJour ? serie[serie.length - 1] : null);
-  const libelles = useMemo(() => new Map(lignesAffichees.map((l) => [l.cle, l.libelle])), [lignesAffichees]);
-  const lignesPourDependance = useMemo(() => (construit ? construit.lignes : []), [construit]);
-
-  if (!indicateurs && !erreur) {
-    return <p className="proba-attente">{actif ? "Calcul de la prévision en cours…" : null}</p>;
-  }
-
+  const libelles = new Map(lignes.map((l) => [l.cle, l.libelle]));
   const tension = indicateurs?.periodesTension[0] ?? null;
+  const message = messageCompletude(etat);
 
   return (
     <section className="proba" aria-label="Risque de trésorerie">
-      {erreur && <p className="fiabilite-alerte">{erreur}</p>}
+      {message && <p className={etat.bloquee ? "proba-bloquee" : "fiabilite-alerte"}>{message}</p>}
+      {erreur && !etat.bloquee && <p className="fiabilite-alerte">{erreur}</p>}
+      {!etat.bloquee && !indicateurs && !erreur && lignes.length > 0 && <p className="proba-attente">Calcul de la prévision en cours…</p>}
+
       {indicateurs && resultat && (
         <>
           <div className="pilotage__vue-ensemble">
@@ -240,9 +240,7 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
                 ) : (
                   <>
                     <p className="pilotage__stat-valeur pilotage__stat-valeur--compact">Aucune période de tension</p>
-                    <p className="pilotage__stat-sous-valeur">
-                      trésorerie la plus basse attendue vers le {formatDate(indicateurs.dateMinimumP50)}
-                    </p>
+                    <p className="pilotage__stat-sous-valeur">trésorerie la plus basse attendue vers le {formatDate(indicateurs.dateMinimumP50)}</p>
                   </>
                 )}
               </div>
@@ -259,7 +257,23 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
               {calculEnCours ? " — mise à jour…" : "."}
             </p>
           </div>
+        </>
+      )}
 
+      <div className="proba-section">
+        <h4>Hypothèses de la prévision</h4>
+        {erreurHypotheses && <p className="fiabilite-alerte">{erreurHypotheses}</p>}
+        {resultat?.dependancesIgnorees.map((d) => (
+          <p key={d.cle} className="fiabilite-alerte">
+            « {libelles.get(d.cle) ?? d.cle} » est traité sans condition :{" "}
+            {d.raison === "cycle" ? "ses conditions forment une boucle." : "la ligne dont il dépend n'a pas d'échéance dans l'horizon."}
+          </p>
+        ))}
+        <HypothesesProbabilistes lignes={lignes} completude={etat} montantsFixes={montantsFixes} descendantsDe={descendantsDe} onModifier={modifierHypothese} />
+      </div>
+
+      {indicateurs && resultat && (
+        <>
           <div className="proba-financement">
             <h4>Besoin de financement</h4>
             <div className="fiabilite-controles">
@@ -302,108 +316,8 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
             <p>{phraseCalibration(resultat.calibration.client)}</p>
             {phraseComportement(resultat.calibration.client) && <p>{phraseComportement(resultat.calibration.client)}</p>}
           </div>
-
-          {resultat.dependancesIgnorees.map((d) => (
-            <p key={d.cle} className="fiabilite-alerte">
-              « {libelles.get(d.cle) ?? d.cle} » est traité comme indépendant :{" "}
-              {d.raison === "cycle" ? "ses dépendances forment une boucle." : "la ligne dont il dépend n'a pas d'échéance dans l'horizon."}
-            </p>
-          ))}
         </>
       )}
-
-      <SectionRepliable titre="Hypothèses par ligne" ouvertParDefaut>
-        <p className="fiabilite-note">
-          Probabilité : la ligne a-t-elle des chances de se réaliser ? Fiabilité de la date : faut-il s&apos;attendre à un décalage, selon les habitudes de paiement observées
-          chez vous ? Une ligne qui dépend d&apos;une autre ne se réalise que si l&apos;autre se réalise.
-        </p>
-        {erreurHypotheses && <p className="fiabilite-alerte">{erreurHypotheses}</p>}
-        <div className="proba-hypotheses">
-          <table className="invoice-table proba-hypotheses__table">
-            <thead>
-              <tr>
-                <th>Ligne</th>
-                <th>Montant</th>
-                <th>Date prévue</th>
-                <th>Probabilité</th>
-                <th>Fiabilité de la date</th>
-                <th>Dépend de</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lignesAffichees.map((ligne) => {
-                const h = hypotheses?.get(ligne.cle);
-                const defaut = hypotheseParDefaut(ligne.source);
-                const probabilite = h?.probabilite ?? defaut.probabilite;
-                const fiabilite = h?.fiabiliteDate ?? defaut.fiabiliteDate;
-                const parent = h?.parentSource && h.parentSourceId ? cleLigne(h.parentSource, h.parentSourceId) : "";
-                const exclus = descendants(lignesPourDependance, ligne.cle);
-                return (
-                  <tr key={ligne.cle}>
-                    <td className="fiabilite-table__libelle">
-                      {ligne.libelle}
-                      <span className="proba-hypotheses__source">{LIBELLES_SOURCE[ligne.source]}</span>
-                    </td>
-                    <td className={ligne.encaissement ? "proba-montant--entree" : undefined}>{formatMontant(ligne.total)}</td>
-                    <td>
-                      {formatDate(ligne.premiereDate)}
-                      {ligne.echeances > 1 && <span className="proba-hypotheses__source">{ligne.echeances} échéances</span>}
-                    </td>
-                    <td>
-                      <select
-                        aria-label={`Probabilité — ${ligne.libelle}`}
-                        value={probabilite}
-                        disabled={hypotheses === null}
-                        onChange={(e) => modifierHypothese(ligne, { probabilite: Number(e.target.value) as ProbabiliteSaisie })}
-                      >
-                        {PROBABILITES.map((p) => (
-                          <option key={p} value={p}>
-                            {LIBELLES_PROBABILITE[p]} ({p} %)
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        aria-label={`Fiabilité de la date — ${ligne.libelle}`}
-                        value={fiabilite}
-                        disabled={hypotheses === null}
-                        onChange={(e) => modifierHypothese(ligne, { fiabiliteDate: Number(e.target.value) as FiabiliteDate })}
-                      >
-                        {FIABILITES.map((f) => (
-                          <option key={f} value={f}>
-                            {LIBELLES_FIABILITE[f]}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        aria-label={`Dépend de — ${ligne.libelle}`}
-                        value={parent}
-                        disabled={hypotheses === null}
-                        onChange={(e) => {
-                          const cible = lignesAffichees.find((l) => l.cle === e.target.value);
-                          modifierHypothese(ligne, { parentSource: cible?.source ?? null, parentSourceId: cible?.sourceId ?? null });
-                        }}
-                      >
-                        <option value="">Aucune ligne</option>
-                        {lignesAffichees
-                          .filter((l) => l.cle !== ligne.cle && !exclus.has(l.cle))
-                          .map((l) => (
-                            <option key={l.cle} value={l.cle}>
-                              {l.libelle}
-                            </option>
-                          ))}
-                      </select>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </SectionRepliable>
     </section>
   );
 }

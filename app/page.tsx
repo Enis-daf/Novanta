@@ -1929,6 +1929,7 @@ export default function Home() {
             actif={ongletFutur === "risque"}
             soldeInitial={soldeInitial}
             projection={projectionProbabiliste}
+            correspondance={correspondancePnl}
             serieDeterministe={resultat.serie}
           />
         ) : droitsRisque ? (
