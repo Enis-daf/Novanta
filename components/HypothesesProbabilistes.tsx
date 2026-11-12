@@ -52,6 +52,35 @@ const LIBELLES_CONDITION: Record<TypeCondition, string> = {
   apres_evenement: "À partir du mois suivant une autre ligne",
 };
 
+/** État de l'enregistrement d'une ligne (mêmes états que les autres saisies de Novanta). */
+export interface EtatSauvegarde {
+  enCours: boolean;
+  erreur: string | null;
+  ok: boolean;
+}
+const SAUVEGARDE_AU_REPOS: EtatSauvegarde = { enCours: false, erreur: null, ok: false };
+
+/** Deux jeux d'hypothèses identiques ? (le brouillon diffère-t-il de ce qui est enregistré ?) */
+export function memesHypotheses(a: HypotheseEffective, b: HypotheseEffective): boolean {
+  return (
+    a.probabilite === b.probabilite &&
+    a.fiabiliteDate === b.fiabiliteDate &&
+    a.fiabiliteMontant === b.fiabiliteMontant &&
+    a.montantCible === b.montantCible &&
+    JSON.stringify(a.condition) === JSON.stringify(b.condition)
+  );
+}
+
+/** Certitude du montant telle que le moteur l'utilise ; un montant sans incertitude possible est « Certain ». */
+export function libelleCertitudeMontant(l: LigneHypothese): string {
+  return LIBELLES_FIABILITE_MONTANT[DIMENSIONS[l.source].montant ? l.hypothese.fiabiliteMontant : 100];
+}
+
+/** Certitude de la date telle que le moteur l'utilise (date d'échéance, ou début de la série). */
+export function libelleCertitudeDate(l: LigneHypothese): string {
+  return LIBELLES_FIABILITE[l.hypothese.fiabiliteDate];
+}
+
 interface HypothesesProbabilistesProps {
   lignes: LigneHypothese[];
   completude: Completude;
@@ -59,25 +88,9 @@ interface HypothesesProbabilistesProps {
   montantsFixes: ReadonlyMap<string, number>;
   // Lignes qui dépendent (directement ou non) de chaque ligne : on ne peut pas les choisir comme condition.
   descendantsDe: (cle: string) => ReadonlySet<string>;
-  onModifier: (ligne: LigneHypothese, hypothese: HypotheseEffective) => void;
+  // Enregistre l'hypothèse ; rejette (avec le message à afficher) si l'enregistrement échoue.
+  onEnregistrer: (ligne: LigneHypothese, hypothese: HypotheseEffective) => Promise<void>;
   desactive?: boolean;
-}
-
-/** Résumé court des incertitudes d'une ligne, en mots simples. */
-export function resumeLigne(l: LigneHypothese): string {
-  const dims = DIMENSIONS[l.source];
-  const h = l.hypothese;
-  const parties: string[] = [LIBELLES_PROBABILITE[h.probabilite]];
-  if (dims.montant && h.fiabiliteMontant < 100) parties.push(`montant ±${Math.round(ECARTS_MONTANT[h.fiabiliteMontant] * 100)} %`);
-  if (h.fiabiliteDate < 100) {
-    parties.push(
-      l.source === "facture_client" && h.fiabiliteDate === 50
-        ? "date selon vos habitudes de paiement"
-        : `${dims.date === "debut" ? "début" : "date"} ${LIBELLES_FIABILITE[h.fiabiliteDate].toLowerCase()}`
-    );
-  }
-  if (h.condition) parties.push("conditionnelle");
-  return parties.join(" · ");
 }
 
 function EditeurLigne({
@@ -85,23 +98,33 @@ function EditeurLigne({
   lignes,
   montantFixe,
   exclus,
-  onModifier,
+  brouillon,
+  onBrouillon,
+  sauvegarde,
+  onEnregistrer,
   desactive,
 }: {
   ligne: LigneHypothese;
   lignes: LigneHypothese[];
   montantFixe: number | undefined;
   exclus: ReadonlySet<string>;
-  onModifier: (h: HypotheseEffective) => void;
+  brouillon: HypotheseEffective;
+  onBrouillon: (h: HypotheseEffective) => void;
+  sauvegarde: EtatSauvegarde;
+  onEnregistrer: () => void;
   desactive?: boolean;
 }) {
   const dims = DIMENSIONS[ligne.source];
-  const h = ligne.hypothese;
+  const h = brouillon;
+  const modifie = !memesHypotheses(brouillon, ligne.hypothese);
+  // Une ligne « À renseigner » s'enregistre même inchangée : l'enregistrement vaut validation.
+  const enregistrable = (modifie || ligne.aRenseigner) && !sauvegarde.enCours && !desactive;
   const id = `hyp-${ligne.cle.replace(/[^\w-]/g, "_")}`;
   const [cible, setCible] = useState(h.montantCible !== null ? String(h.montantCible) : "");
   const seuilInitial = h.condition?.type === "seuil" ? String(h.condition.valeur) : "";
   const [seuil, setSeuil] = useState(seuilInitial);
-  const changer = (c: Partial<HypotheseEffective>) => onModifier({ ...h, ...c });
+  // Chaque changement reste local (brouillon) : rien n'est enregistré avant « Enregistrer ».
+  const changer = (c: Partial<HypotheseEffective>) => onBrouillon({ ...h, ...c });
   const autres = lignes.filter((l) => l.cle !== ligne.cle && !exclus.has(l.cle));
   const typeCondition: TypeCondition = h.condition?.type ?? "aucune";
   const cleParent = h.condition && h.condition.type !== "seuil" ? cleLigne(h.condition.source, h.condition.sourceId) : "";
@@ -283,13 +306,14 @@ function EditeurLigne({
         )}
       </div>
 
-      {ligne.aRenseigner && (
-        <div className="proba-editeur__valider">
-          <button type="button" className="btn-secondaire" disabled={desactive} onClick={() => onModifier({ ...h })}>
-            Valider ces hypothèses
-          </button>
-        </div>
-      )}
+      <div className="proba-editeur__valider">
+        <button type="button" className="btn-add" disabled={!enregistrable} onClick={onEnregistrer}>
+          {sauvegarde.enCours ? "Enregistrement…" : "Enregistrer"}
+        </button>
+        {modifie && !sauvegarde.enCours && <p className="proba-editeur__aide">Modifications non enregistrées</p>}
+        {sauvegarde.erreur && <p className="login-erreur">{sauvegarde.erreur}</p>}
+        {sauvegarde.ok && !modifie && <p className="passe-message">Hypothèse enregistrée.</p>}
+      </div>
     </div>
   );
 }
@@ -299,10 +323,34 @@ function EditeurLigne({
  * les plus matérielles en premier, filtre par probabilité / « À renseigner ». Les détails ne
  * s'ouvrent que ligne par ligne (« Ajuster ») : pas de tableau géant.
  */
-export default function HypothesesProbabilistes({ lignes, completude, montantsFixes, descendantsDe, onModifier, desactive }: HypothesesProbabilistesProps) {
+export default function HypothesesProbabilistes({ lignes, completude, montantsFixes, descendantsDe, onEnregistrer, desactive }: HypothesesProbabilistesProps) {
   const [filtre, setFiltre] = useState<FiltreHypotheses>("toutes");
   const [replies, setReplies] = useState<Set<string>>(new Set());
   const [ouverte, setOuverte] = useState<string | null>(null);
+  // Brouillons par ligne : conservés si l'on ferme la ligne ou change de filtre, jusqu'à « Enregistrer ».
+  // Les filtres lisent l'état ENREGISTRÉ : une ligne ne quitte « À renseigner » qu'après un
+  // enregistrement réussi.
+  const [brouillons, setBrouillons] = useState<Map<string, HypotheseEffective>>(new Map());
+  const [sauvegardes, setSauvegardes] = useState<Map<string, EtatSauvegarde>>(new Map());
+  const majCle = <T,>(setter: (f: (m: Map<string, T>) => Map<string, T>) => void, cle: string, valeur: T | null) =>
+    setter((m) => {
+      const suivante = new Map(m);
+      if (valeur === null) suivante.delete(cle);
+      else suivante.set(cle, valeur);
+      return suivante;
+    });
+  const enregistrer = (l: LigneHypothese) => {
+    const h = brouillons.get(l.cle) ?? l.hypothese;
+    majCle(setSauvegardes, l.cle, { enCours: true, erreur: null, ok: false });
+    onEnregistrer(l, h).then(
+      () => {
+        majCle(setBrouillons, l.cle, null);
+        majCle(setSauvegardes, l.cle, { enCours: false, erreur: null, ok: true });
+      },
+      (e: unknown) =>
+        majCle(setSauvegardes, l.cle, { enCours: false, erreur: e instanceof Error ? e.message : "L'hypothèse n'a pas pu être enregistrée.", ok: false })
+    );
+  };
   const groupes = grouperHypotheses(lignes, filtre);
   const aRenseigner = phraseARenseigner(completude);
 
@@ -376,24 +424,49 @@ export default function HypothesesProbabilistes({ lignes, completude, montantsFi
             </button>
             {!replie && (
               <ul className="proba-groupe__lignes">
+                <li className="proba-ligne__resume proba-ligne__entete" aria-hidden>
+                  <span>Ligne</span>
+                  <span>Montant</span>
+                  <span>Certitude du montant</span>
+                  <span>Date</span>
+                  <span>Certitude de la date</span>
+                  <span>Probabilité</span>
+                  <span />
+                </li>
                 {g.lignes.map((l) => {
                   const edition = ouverte === l.cle;
+                  const brouillon = brouillons.get(l.cle);
+                  const nonEnregistree = brouillon !== undefined && !memesHypotheses(brouillon, l.hypothese);
                   return (
                     <li key={l.cle} className={`proba-ligne${l.aRenseigner ? " proba-ligne--a-renseigner" : ""}`}>
                       <div className="proba-ligne__resume">
                         <div className="proba-ligne__libelle">
                           <span>{l.libelle}</span>
                           <span className="proba-ligne__detail">
-                            {LIBELLES_SOURCE[l.source]} · {formatDate(l.premiereDate)}
-                            {l.echeances > 1 ? ` · ${l.echeances} échéances` : ""}
+                            {LIBELLES_SOURCE[l.source]}
+                            {nonEnregistree ? " · modifications non enregistrées" : ""}
                           </span>
                         </div>
                         <span className={`proba-ligne__montant${l.encaissement ? " proba-montant--entree" : ""}`}>{formatMontant(l.encaissement ? l.impact : -l.impact)}</span>
-                        <span className="proba-ligne__etat">
+                        <span className="proba-ligne__etat" data-colonne="Certitude du montant">
+                          {libelleCertitudeMontant(l)}
+                        </span>
+                        <span className="proba-ligne__etat" data-colonne="Date">
+                          {formatDate(l.premiereDate)}
+                          {l.echeances > 1 && <span className="proba-ligne__detail">{DIMENSIONS[l.source].date === "debut" ? "début · " : ""}{l.echeances} échéances</span>}
+                        </span>
+                        <span
+                          className="proba-ligne__etat"
+                          data-colonne="Certitude de la date"
+                          title={l.source === "facture_client" && l.hypothese.fiabiliteDate === 50 ? "Selon les habitudes de paiement de vos clients" : undefined}
+                        >
+                          {libelleCertitudeDate(l)}
+                        </span>
+                        <span className="proba-ligne__etat" data-colonne="Probabilité">
                           {l.aRenseigner ? (
                             <span className="proba-badge-renseigner">À renseigner{l.importante ? " · important" : ""}</span>
                           ) : (
-                            resumeLigne(l)
+                            `${LIBELLES_PROBABILITE[l.hypothese.probabilite]}${l.hypothese.condition ? " · sous condition" : ""}`
                           )}
                         </span>
                         <button type="button" className="etage-pnl-outils__lien" aria-expanded={edition} onClick={() => setOuverte(edition ? null : l.cle)}>
@@ -406,7 +479,13 @@ export default function HypothesesProbabilistes({ lignes, completude, montantsFi
                           lignes={lignes}
                           montantFixe={montantsFixes.get(l.cle)}
                           exclus={descendantsDe(l.cle)}
-                          onModifier={(h) => onModifier(l, h)}
+                          brouillon={brouillon ?? l.hypothese}
+                          onBrouillon={(h) => {
+                            majCle(setBrouillons, l.cle, h);
+                            majCle(setSauvegardes, l.cle, null);
+                          }}
+                          sauvegarde={sauvegardes.get(l.cle) ?? SAUVEGARDE_AU_REPOS}
+                          onEnregistrer={() => enregistrer(l)}
                           desactive={desactive}
                         />
                       )}

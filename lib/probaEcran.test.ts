@@ -22,6 +22,8 @@ import { cleLigne, HypotheseLigne } from "./probaEvenements";
 import {
   CleGroupeHypotheses,
   completude,
+  HypotheseEffective,
+  LigneHypothese,
   completudeMoteur,
   construireLignesHypotheses,
   correspondAuFiltre,
@@ -228,52 +230,210 @@ describe("Offre Pilotage", () => {
 // Rendu
 // ---------------------------------------------------------------------------------------------
 
-function rendre(lignes: ReturnType<typeof construireLignesHypotheses>) {
+type Enregistreur = (l: LigneHypothese, h: HypotheseEffective) => Promise<void>;
+
+/**
+ * L'écran monté comme dans Futur : un parent garde les hypothèses ENREGISTRÉES et reconstruit les
+ * lignes (statut « À renseigner », filtres) seulement quand l'enregistrement a réussi.
+ */
+function rendre(fluxInitiaux: FluxProjete[] = FLUX, persister: Enregistreur = async () => {}) {
   const conteneur = document.createElement("div");
   document.body.appendChild(conteneur);
   const racine = createRoot(conteneur);
-  const modifications: unknown[] = [];
-  act(() => {
-    racine.render(
-      createElement(HypothesesProbabilistes, {
-        lignes,
-        completude: completude(lignes),
-        montantsFixes: new Map([["rentree_reguliere:r1", 8_000]]),
-        descendantsDe: () => new Set<string>(),
-        onModifier: (_l, h) => modifications.push(h),
-      })
-    );
-  });
+  const appels: { cle: string; h: HypotheseEffective }[] = [];
+  function Parent() {
+    const [enregistrees, setEnregistrees] = React.useState<Map<string, HypotheseLigne>>(new Map());
+    const lignes = construireLignesHypotheses(fluxInitiaux, enregistrees, groupeDe);
+    return createElement(HypothesesProbabilistes, {
+      lignes,
+      completude: completude(lignes),
+      montantsFixes: new Map([["rentree_reguliere:r1", 8_000]]),
+      descendantsDe: () => new Set<string>(),
+      onEnregistrer: async (l: LigneHypothese, h: HypotheseEffective) => {
+        appels.push({ cle: l.cle, h });
+        await persister(l, h);
+        setEnregistrees((m) =>
+          new Map(m).set(l.cle, { source: l.source, sourceId: l.sourceId, ...h, fiabiliteMontant: h.fiabiliteMontant, montantCible: h.montantCible })
+        );
+      },
+    });
+  }
+  act(() => racine.render(createElement(Parent)));
+  const clic = (el: Element) => el.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   const boutons = () => Array.from(conteneur.querySelectorAll("button"));
   const cliquer = (texte: string) =>
     act(() => {
       const b = boutons().find((x) => x.textContent?.replace("▾", "").trim().startsWith(texte));
       assert.ok(b, `bouton « ${texte} » introuvable`);
-      b!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      clic(b!);
     });
+  const ligneDe = (libelle: string) =>
+    Array.from(conteneur.querySelectorAll("li.proba-ligne")).find((x) => x.querySelector(".proba-ligne__libelle span")?.textContent === libelle);
+  const ouvrir = (libelle: string) => {
+    const li = ligneDe(libelle)!;
+    act(() => clic(li.querySelector(".proba-ligne__resume > .etage-pnl-outils__lien")!));
+    return li;
+  };
+  const choisir = (libelle: string, suffixe: string, valeur: string) =>
+    act(() => {
+      const select = ligneDe(libelle)!.querySelector<HTMLSelectElement>(`select[id$="-${suffixe}"]`)!;
+      select.value = valeur;
+      select.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+  const bouton = (libelle: string) =>
+    Array.from(ligneDe(libelle)!.querySelectorAll<HTMLButtonElement>(".proba-editeur__valider button"))[0];
+  const colonne = (libelle: string, nom: string) => ligneDe(libelle)!.querySelector(`[data-colonne="${nom}"]`)!.textContent;
   const lignesAffichees = () => Array.from(conteneur.querySelectorAll(".proba-ligne__libelle > span:first-child")).map((e) => e.textContent);
-  return { conteneur, cliquer, lignesAffichees, modifications, demonter: () => act(() => racine.unmount()) };
+  return { conteneur, cliquer, ouvrir, choisir, bouton, colonne, ligneDe, lignesAffichees, appels, clic, demonter: () => act(() => racine.unmount()) };
 }
 
-describe("Écran des hypothèses", () => {
+function differe() {
+  let resoudre!: () => void;
+  let rejeter!: (e: Error) => void;
+  const promesse = new Promise<void>((ok, ko) => {
+    resoudre = ok;
+    rejeter = ko;
+  });
+  return { promesse, resoudre, rejeter };
+}
+
+describe("Vue « À renseigner » : édition en brouillon, enregistrement explicite", () => {
+  test("plusieurs champs modifiés sans que la ligne disparaisse, puis enregistrement et sortie du filtre", async () => {
+    const attente = differe();
+    const ecran = rendre(FLUX, () => attente.promesse);
+    ecran.cliquer("À renseigner");
+    assert.deepEqual(ecran.lignesAffichees().sort(), ["ad1", "fi1", "r1"]);
+    ecran.ouvrir("r1");
+
+    ecran.choisir("r1", "montant", "50");
+    assert.ok(ecran.lignesAffichees().includes("r1"), "toujours visible après la certitude du montant");
+    ecran.choisir("r1", "date", "75");
+    assert.ok(ecran.lignesAffichees().includes("r1"), "toujours visible après la certitude de la date");
+    assert.equal(ecran.appels.length, 0, "rien n'est enregistré avant « Enregistrer »");
+    assert.match(ecran.ligneDe("r1")!.textContent!, /Modifications non enregistrées/);
+
+    // Chargement : bouton désactivé, libellé d'attente, ligne toujours là.
+    await act(async () => ecran.clic(ecran.bouton("r1")));
+    assert.equal(ecran.bouton("r1").textContent, "Enregistrement…");
+    assert.equal(ecran.bouton("r1").disabled, true);
+    assert.ok(ecran.lignesAffichees().includes("r1"));
+
+    await act(async () => {
+      attente.resoudre();
+      await attente.promesse;
+    });
+    assert.equal(ecran.appels.length, 1);
+    assert.deepEqual([ecran.appels[0].cle, ecran.appels[0].h.fiabiliteMontant, ecran.appels[0].h.fiabiliteDate], ["rentree_reguliere:r1", 50, 75]);
+    assert.equal(ecran.lignesAffichees().includes("r1"), false, "renseignée : elle quitte le filtre après l'enregistrement");
+
+    ecran.cliquer("Toutes");
+    assert.equal(ecran.colonne("r1", "Certitude du montant"), "Approximatif");
+    assert.equal(ecran.colonne("r1", "Certitude de la date"), "Assez fiable");
+    ecran.demonter();
+  });
+
+  test("échec d'enregistrement : la ligne reste, les valeurs saisies aussi, l'erreur s'affiche", async () => {
+    const ecran = rendre(FLUX, async () => {
+      throw new Error("L'hypothèse n'a pas pu être enregistrée.");
+    });
+    ecran.cliquer("À renseigner");
+    ecran.ouvrir("fi1");
+    ecran.choisir("fi1", "proba", "50");
+    await act(async () => ecran.clic(ecran.bouton("fi1")));
+    await act(async () => {});
+    assert.ok(ecran.lignesAffichees().includes("fi1"));
+    assert.match(ecran.ligneDe("fi1")!.querySelector(".login-erreur")!.textContent!, /pas pu être enregistrée/);
+    assert.equal(ecran.ligneDe("fi1")!.querySelector<HTMLSelectElement>('select[id$="-proba"]')!.value, "50");
+    assert.match(ecran.colonne("fi1", "Probabilité")!, /À renseigner/, "le statut enregistré ne change pas");
+    assert.equal(ecran.bouton("fi1").disabled, false, "on peut réessayer");
+    ecran.demonter();
+  });
+
+  test("brouillon conservé en fermant la ligne et en changeant de filtre", () => {
+    const ecran = rendre();
+    ecran.cliquer("À renseigner");
+    ecran.ouvrir("r1");
+    ecran.choisir("r1", "montant", "25");
+    ecran.ouvrir("r1"); // « Fermer »
+    assert.match(ecran.ligneDe("r1")!.textContent!, /modifications non enregistrées/);
+    ecran.cliquer("Toutes");
+    ecran.cliquer("À renseigner");
+    ecran.ouvrir("r1");
+    assert.equal(ecran.ligneDe("r1")!.querySelector<HTMLSelectElement>('select[id$="-montant"]')!.value, "25");
+    ecran.demonter();
+  });
+});
+
+describe("Bouton « Enregistrer »", () => {
+  test("bouton primaire Novanta (btn-add), désactivé sans changement, actif dès qu'un champ change", () => {
+    const ecran = rendre();
+    ecran.ouvrir("fc2");
+    assert.ok(ecran.bouton("fc2").classList.contains("btn-add"));
+    assert.equal(ecran.bouton("fc2").textContent, "Enregistrer");
+    assert.equal(ecran.bouton("fc2").disabled, true);
+    ecran.choisir("fc2", "proba", "75");
+    assert.equal(ecran.bouton("fc2").disabled, false);
+    ecran.choisir("fc2", "proba", "100");
+    assert.equal(ecran.bouton("fc2").disabled, true, "revenu à la valeur enregistrée : rien à enregistrer");
+    ecran.demonter();
+  });
+
+  test("ligne « À renseigner » inchangée : l'enregistrement vaut validation, le bouton est actif", () => {
+    const ecran = rendre();
+    ecran.ouvrir("ad1");
+    assert.equal(ecran.bouton("ad1").disabled, false);
+    ecran.demonter();
+  });
+
+  test("édition hors filtre « À renseigner » : enregistrée, la ligne rejoint le bon filtre", async () => {
+    const ecran = rendre();
+    ecran.ouvrir("fc2");
+    ecran.choisir("fc2", "proba", "75");
+    await act(async () => ecran.clic(ecran.bouton("fc2")));
+    assert.match(ecran.ligneDe("fc2")!.textContent!, /Hypothèse enregistrée/);
+    ecran.cliquer("75 %");
+    assert.deepEqual(ecran.lignesAffichees(), ["fc2"]);
+    ecran.demonter();
+  });
+});
+
+describe("Colonnes de certitude", () => {
+  test("Certitude du montant et Certitude de la date, distinctes et côte à côte", () => {
+    const ecran = rendre();
+    const entete = Array.from(ecran.conteneur.querySelector(".proba-ligne__entete")!.children).map((e) => e.textContent);
+    assert.deepEqual(entete, ["Ligne", "Montant", "Certitude du montant", "Date", "Certitude de la date", "Probabilité", ""]);
+    ecran.demonter();
+  });
+
+  test("valeurs utilisées par le moteur, même nomenclature que l'édition", () => {
+    const ecran = rendre();
+    // Facture client : montant certain, date selon les habitudes de paiement (« Approximative »).
+    assert.equal(ecran.colonne("fc1", "Certitude du montant"), "Certain");
+    assert.equal(ecran.colonne("fc1", "Certitude de la date"), "Approximative");
+    // Charge fixe : montant certain, début ferme.
+    assert.equal(ecran.colonne("cf1", "Certitude du montant"), "Certain");
+    assert.equal(ecran.colonne("cf1", "Certitude de la date"), "Ferme");
+    assert.match(ecran.colonne("cf1", "Date")!, /début · 2 échéances/);
+    ecran.demonter();
+  });
+});
+
+describe("Écran des hypothèses : non-régression", () => {
   test("étages repliables avec résumé, lignes triées, cartouche « À renseigner » qui filtre", () => {
-    const lignes = construireLignesHypotheses(FLUX, new Map(), groupeDe);
-    const ecran = rendre(lignes);
+    const ecran = rendre();
     const titres = Array.from(ecran.conteneur.querySelectorAll(".proba-groupe__resume")).map((e) => e.textContent);
     assert.equal(titres[0], "Encaissements — 3 hypothèses — 68 k€ d'impact — 1 à renseigner");
     assert.deepEqual(ecran.lignesAffichees().slice(0, 3), ["fc2", "r1", "fc1"]);
     assert.match(ecran.conteneur.querySelector(".proba-a-renseigner")!.textContent!, /3 hypothèses à renseigner.*dont 2 importantes/);
-
     ecran.cliquer("3 hypothèses à renseigner");
     assert.deepEqual(ecran.lignesAffichees().sort(), ["ad1", "fi1", "r1"]);
-
     ecran.cliquer("Encaissements");
     assert.equal(ecran.lignesAffichees().includes("r1"), false, "étage replié");
     ecran.demonter();
   });
 
   test("filtre par probabilité et état vide du filtre", () => {
-    const ecran = rendre(construireLignesHypotheses(FLUX, new Map(), groupeDe));
+    const ecran = rendre();
     ecran.cliquer("50 %");
     assert.equal(ecran.lignesAffichees().length, 0);
     assert.match(ecran.conteneur.textContent!, /Aucune hypothèse pour ce filtre/);
@@ -283,26 +443,18 @@ describe("Écran des hypothèses", () => {
   });
 
   test("champs selon le type : facture sans montant, rentrée avec montant cible et certitude", () => {
-    const ecran = rendre(construireLignesHypotheses(FLUX, new Map(), groupeDe));
-    const ouvrir = (libelle: string) => {
-      const li = Array.from(ecran.conteneur.querySelectorAll(".proba-ligne")).find((x) => x.querySelector(".proba-ligne__libelle span")?.textContent === libelle)!;
-      act(() => li.querySelector<HTMLButtonElement>(".etage-pnl-outils__lien")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
-      return li;
-    };
-    const facture = ouvrir("fc2");
-    assert.equal(facture.textContent!.includes("Certitude du montant"), false);
+    const ecran = rendre();
+    const facture = ecran.ouvrir("fc2");
+    assert.equal(facture.querySelector(".proba-editeur")!.textContent!.includes("Certitude du montant"), false);
     assert.equal(facture.textContent!.includes("Fiabilité de la date"), true);
-    const rentree = ouvrir("r1");
+    const rentree = ecran.ouvrir("r1");
     assert.equal(rentree.textContent!.includes("Montant cible par échéance"), true);
     assert.equal(rentree.textContent!.includes("Fiabilité de la date de début"), true);
-    // « Valider ces hypothèses » enregistre les valeurs affichées telles quelles.
-    act(() => Array.from(rentree.querySelectorAll("button")).find((b) => b.textContent === "Valider ces hypothèses")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
-    assert.equal(ecran.modifications.length, 1);
     ecran.demonter();
   });
 
   test("aucun jargon statistique à l'écran", () => {
-    const ecran = rendre(construireLignesHypotheses(FLUX, new Map(), groupeDe));
+    const ecran = rendre();
     const texte = ecran.conteneur.textContent!.toLowerCase();
     for (const mot of ["bernoulli", "sigma", "variance", "écart-type", "gamma", "normal", "shrinkage", "monte carlo"]) assert.equal(texte.includes(mot), false, mot);
     ecran.demonter();

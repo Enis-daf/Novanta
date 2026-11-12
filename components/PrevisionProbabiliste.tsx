@@ -8,7 +8,7 @@ import { formatDate, formatMontant } from "@/lib/format";
 import { listerFluxProjetes, ParametresProjectionCash, SourceFlux } from "@/lib/cash-engine";
 import { classerDepense, CorrespondanceFutur, groupeDeClassement } from "@/lib/futurPnl";
 import type { EtagePnl } from "@/lib/pastCategoryMapping";
-import { cleLigne, construireEvenements, descendants, HypotheseLigne, parentDeCondition, conditionVersMoteur } from "@/lib/probaEvenements";
+import { cleLigne, construireEvenements, descendants, DIMENSIONS, HypotheseLigne, parentDeCondition, conditionVersMoteur } from "@/lib/probaEvenements";
 import { CleGroupeHypotheses, completude, construireLignesHypotheses, HypotheseEffective, LigneHypothese, messageCompletude } from "@/lib/probaEcran";
 import type { ReponseSimulation, RequeteSimulation, ResumeCalibration } from "@/lib/probaApi";
 import type { SoldeJournalier } from "@/lib/types";
@@ -164,32 +164,39 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
     return () => clearTimeout(minuteur);
   }, [actif, accessToken, construit, etat.bloquee, soldeInitial, projection.dateDepart, projection.horizonJours]);
 
-  const modifierHypothese = (ligne: LigneHypothese, h: HypotheseEffective) => {
-    if (!hypotheses) return;
+  // Enregistre une hypothèse validée par l'utilisateur. L'état partagé (filtres, statut « À
+  // renseigner », calcul) n'est mis à jour qu'APRÈS la réponse du serveur : un échec ne fait jamais
+  // croire que la modification est enregistrée.
+  const enregistrerHypothese = async (ligne: LigneHypothese, h: HypotheseEffective): Promise<void> => {
     const nouvelle: HypotheseLigne = {
       source: ligne.source,
       sourceId: ligne.sourceId,
       probabilite: h.probabilite,
       fiabiliteDate: h.fiabiliteDate,
-      fiabiliteMontant: ligne.source === "rentree_reguliere" || ligne.source === "financement" || ligne.source === "autre_depense" ? h.fiabiliteMontant : null,
+      fiabiliteMontant: DIMENSIONS[ligne.source].montant ? h.fiabiliteMontant : null,
       montantCible: ligne.source === "rentree_reguliere" ? h.montantCible : null,
       condition: h.condition,
     };
-    const suivantes = new Map(hypotheses);
-    suivantes.set(ligne.cle, nouvelle);
-    setHypotheses(suivantes);
-    if (!accessToken) return;
-    fetch("/api/futur/probabiliste/hypotheses", {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify(nouvelle),
-    })
-      .then(async (r) => {
-        if (r.ok) return setErreurHypotheses(null);
-        const corps = await r.json().catch(() => ({}));
-        setErreurHypotheses(corps.error ?? "L'hypothèse n'a pas pu être enregistrée.");
-      })
-      .catch(() => setErreurHypotheses("L'hypothèse n'a pas pu être enregistrée."));
+    if (!accessToken) throw new Error("Session expirée : reconnectez-vous.");
+    let reponse: Response;
+    try {
+      reponse = await fetch("/api/futur/probabiliste/hypotheses", {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(nouvelle),
+      });
+    } catch {
+      throw new Error("L'hypothèse n'a pas pu être enregistrée. Vérifiez votre connexion.");
+    }
+    if (!reponse.ok) {
+      const corps = await reponse.json().catch(() => ({}));
+      throw new Error(corps.error ?? "L'hypothèse n'a pas pu être enregistrée.");
+    }
+    setHypotheses((actuelles) => {
+      const suivantes = new Map(actuelles ?? []);
+      suivantes.set(ligne.cle, nouvelle);
+      return suivantes;
+    });
   };
 
   if (hypotheses === null) return <p className="proba-attente">{actif ? "Chargement des hypothèses…" : null}</p>;
@@ -269,7 +276,7 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
             {d.raison === "cycle" ? "ses conditions forment une boucle." : "la ligne dont il dépend n'a pas d'échéance dans l'horizon."}
           </p>
         ))}
-        <HypothesesProbabilistes lignes={lignes} completude={etat} montantsFixes={montantsFixes} descendantsDe={descendantsDe} onModifier={modifierHypothese} />
+        <HypothesesProbabilistes lignes={lignes} completude={etat} montantsFixes={montantsFixes} descendantsDe={descendantsDe} onEnregistrer={enregistrerHypothese} />
       </div>
 
       {indicateurs && resultat && (
