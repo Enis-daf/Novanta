@@ -1,4 +1,6 @@
 import type { FluxProjete, SourceFlux } from "./cash-engine";
+import { formatMontant } from "./format";
+import { normaliserRecherche } from "./recherche";
 import { GROUPES_ETAGE, GroupeEtage, LIBELLE_A_CLASSER } from "./futurPnl";
 import { LIBELLE_ENCAISSEMENTS } from "./pastCategoryMapping";
 import {
@@ -50,14 +52,27 @@ export interface HypotheseEffective {
   condition: ConditionSaisie | null;
 }
 
+export const LIBELLES_SOURCE: Record<SourceFlux, string> = {
+  facture_client: "Facture client",
+  facture_fournisseur: "Facture fournisseur",
+  financement: "Financement",
+  charge_fixe: "Charge fixe",
+  autre_depense: "Autre dépense",
+  rentree_reguliere: "Rentrée régulière",
+};
+
 export interface LigneHypothese {
   cle: string;
   source: SourceFlux;
   sourceId: string;
   libelle: string;
   encaissement: boolean;
-  impact: number; // somme des montants de l'horizon, en valeur absolue
-  premiereDate: string;
+  impact: number; // somme des montants de l'horizon retenus par le moteur, en valeur absolue
+  // Montant de référence de chaque échéance, tel que le moteur le simule ; null si les échéances
+  // n'ont pas toutes le même montant (saisonnalité, montant calculé).
+  montantParEcheance: number | null;
+  premiereDate: string; // date prévue de la première échéance : plancher de la date simulée
+  dateEcheance: string | null; // échéance contractuelle (factures) : point de départ des retards
   echeances: number;
   groupe: CleGroupeHypotheses;
   hypothese: HypotheseEffective;
@@ -72,20 +87,26 @@ export interface LigneHypothese {
 export function construireLignesHypotheses(
   flux: FluxProjete[],
   hypotheses: ReadonlyMap<string, HypotheseLigne>,
-  groupeDe: (source: SourceFlux, sourceId: string) => CleGroupeHypotheses
+  groupeDe: (source: SourceFlux, sourceId: string) => CleGroupeHypotheses,
+  // Mêmes règles que lib/probaEvenements.ts::construireEvenements : la valeur cible enregistrée
+  // remplace le montant des rentrées régulières à montant fixe ; l'échéance des factures.
+  options: { rentreesFixes?: ReadonlySet<string>; echeanceDe?: (source: SourceFlux, sourceId: string) => string | null } = {}
 ): LigneHypothese[] {
   const parCle = new Map<string, LigneHypothese>();
   for (const f of flux) {
     if (f.montant === 0) continue;
     const cle = cleLigne(f.source, f.sourceId);
+    const h = hypotheses.get(cle);
+    const cible = f.source === "rentree_reguliere" && options.rentreesFixes?.has(cle) && h?.montantCible ? h.montantCible : null;
+    const montant = cible ?? Math.abs(f.montant);
     const existante = parCle.get(cle);
     if (existante) {
-      existante.impact += Math.abs(f.montant);
+      existante.impact += montant;
       existante.echeances++;
+      if (existante.montantParEcheance !== null && Math.abs(existante.montantParEcheance - montant) > 0.005) existante.montantParEcheance = null;
       if (f.date < existante.premiereDate) existante.premiereDate = f.date;
       continue;
     }
-    const h = hypotheses.get(cle);
     const defaut = hypotheseParDefaut(f.source);
     parCle.set(cle, {
       cle,
@@ -93,8 +114,10 @@ export function construireLignesHypotheses(
       sourceId: f.sourceId,
       libelle: f.libelle,
       encaissement: f.montant > 0,
-      impact: Math.abs(f.montant),
+      impact: montant,
+      montantParEcheance: montant,
       premiereDate: f.date,
+      dateEcheance: options.echeanceDe?.(f.source, f.sourceId) || null,
       echeances: 1,
       groupe: groupeDe(f.source, f.sourceId),
       hypothese: {
@@ -179,6 +202,21 @@ export function correspondAuFiltre(l: LigneHypothese, filtre: FiltreHypotheses):
   return !l.aRenseigner && l.hypothese.probabilite === filtre;
 }
 
+/**
+ * Recherche dans l'écran : libellé (n° de facture et tiers compris), type de ligne, étage P&L,
+ * montant (« 25 000 », « 25000 »). Insensible à la casse et aux accents (lib/recherche.ts).
+ */
+export function correspondALaRecherche(l: LigneHypothese, recherche: string): boolean {
+  const terme = normaliserRecherche(recherche);
+  if (!terme) return true;
+  const groupe = ORDRE_GROUPES.find((g) => g.cle === l.groupe)?.libelle ?? "";
+  const champs = [l.libelle, LIBELLES_SOURCE[l.source], groupe, formatMontant(l.impact), String(Math.round(l.impact))];
+  if (l.montantParEcheance !== null && l.echeances > 1) champs.push(formatMontant(l.montantParEcheance), String(Math.round(l.montantParEcheance)));
+  // Espaces fines des montants formatés : « 25 000 » doit trouver « 25 000 € ».
+  const espaces = (t: string) => normaliserRecherche(t).replace(/[\s\u202f\u00a0]/g, " ");
+  return champs.some((c) => espaces(c).includes(espaces(terme)));
+}
+
 export interface GroupeHypotheses {
   cle: CleGroupeHypotheses;
   libelle: string;
@@ -188,9 +226,12 @@ export interface GroupeHypotheses {
   aRenseigner: number;
 }
 
-/** Groupes non vides, dans l'ordre de la taxonomie ; lignes triées par impact décroissant. */
-export function grouperHypotheses(lignes: LigneHypothese[], filtre: FiltreHypotheses = "toutes"): GroupeHypotheses[] {
-  const retenues = lignes.filter((l) => correspondAuFiltre(l, filtre));
+/**
+ * Groupes non vides, dans l'ordre de la taxonomie ; lignes triées par impact décroissant. Filtre
+ * et recherche se combinent ; un groupe sans résultat n'apparaît pas.
+ */
+export function grouperHypotheses(lignes: LigneHypothese[], filtre: FiltreHypotheses = "toutes", recherche = ""): GroupeHypotheses[] {
+  const retenues = lignes.filter((l) => correspondAuFiltre(l, filtre) && correspondALaRecherche(l, recherche));
   return ORDRE_GROUPES.map(({ cle, libelle }) => {
     const dedans = retenues.filter((l) => l.groupe === cle).sort((a, b) => b.impact - a.impact || a.libelle.localeCompare(b.libelle));
     return {

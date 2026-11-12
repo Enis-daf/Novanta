@@ -5,6 +5,8 @@
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { JSDOM } from "jsdom";
 
 // jsdom doit être posé AVANT tout import de react-dom/client (voir analyseSessionContext.test.ts).
@@ -15,7 +17,6 @@ Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, co
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 import React, { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
 import HypothesesProbabilistes from "../components/HypothesesProbabilistes";
 import type { FluxProjete, SourceFlux } from "./cash-engine";
 import { cleLigne, HypotheseLigne } from "./probaEvenements";
@@ -35,6 +36,10 @@ import {
 import { capacitesDeLOffre } from "./offres";
 
 (globalThis as unknown as { React: typeof React }).React = React;
+// react-dom est chargé APRÈS la mise en place de jsdom : chargé avant (import hissé), il croit ne
+// pas être dans un navigateur et n'écoute pas les événements « input » des champs texte.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { createRoot } = require("react-dom/client") as typeof import("react-dom/client");
 
 const flux = (source: SourceFlux, sourceId: string, montant: number, date = "2026-12-01", libelle = sourceId): FluxProjete => ({ source, sourceId, libelle, date, montant });
 
@@ -230,6 +235,12 @@ describe("Offre Pilotage", () => {
 // Rendu
 // ---------------------------------------------------------------------------------------------
 
+// Comme dans Futur : r1 est une rentrée à montant fixe, fc1 a une échéance antérieure à sa date prévue.
+const OPTIONS = {
+  rentreesFixes: new Set(["rentree_reguliere:r1"]),
+  echeanceDe: (source: SourceFlux, id: string) => (source === "facture_client" && id === "fc1" ? "2026-11-20" : null),
+};
+
 type Enregistreur = (l: LigneHypothese, h: HypotheseEffective) => Promise<void>;
 
 /**
@@ -243,7 +254,7 @@ function rendre(fluxInitiaux: FluxProjete[] = FLUX, persister: Enregistreur = as
   const appels: { cle: string; h: HypotheseEffective }[] = [];
   function Parent() {
     const [enregistrees, setEnregistrees] = React.useState<Map<string, HypotheseLigne>>(new Map());
-    const lignes = construireLignesHypotheses(fluxInitiaux, enregistrees, groupeDe);
+    const lignes = construireLignesHypotheses(fluxInitiaux, enregistrees, groupeDe, OPTIONS);
     return createElement(HypothesesProbabilistes, {
       lignes,
       completude: completude(lignes),
@@ -446,10 +457,10 @@ describe("Écran des hypothèses : non-régression", () => {
     const ecran = rendre();
     const facture = ecran.ouvrir("fc2");
     assert.equal(facture.querySelector(".proba-editeur")!.textContent!.includes("Certitude du montant"), false);
-    assert.equal(facture.textContent!.includes("Fiabilité de la date"), true);
+    assert.equal(facture.textContent!.includes("Certitude de la date"), true);
     const rentree = ecran.ouvrir("r1");
     assert.equal(rentree.textContent!.includes("Montant cible par échéance"), true);
-    assert.equal(rentree.textContent!.includes("Fiabilité de la date de début"), true);
+    assert.equal(rentree.textContent!.includes("Certitude de la date de début"), true);
     ecran.demonter();
   });
 
@@ -464,5 +475,167 @@ describe("Écran des hypothèses : non-régression", () => {
     const ecran = rendre([]);
     assert.match(ecran.conteneur.textContent!, /Aucun flux sur l'horizon/);
     ecran.demonter();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Perspectives pondérées : renommage, recherche, valeurs de référence
+// ---------------------------------------------------------------------------------------------
+
+describe("Onglet « Perspectives pondérées »", () => {
+  test("l'onglet de Futur s'appelle exactement « Perspectives pondérées » ; l'ancien libellé a disparu", () => {
+    const page = readFileSync(join(__dirname, "../app/page.tsx"), "utf8");
+    assert.match(page, /\{ cle: "risque", libelle: "Perspectives pondérées" \}/);
+    assert.equal(/Risque de tr[ée]so/.test(page), false);
+    // Les deux autres onglets ne sont pas renommés.
+    assert.match(page, /libelle: "Flux de tréso"/);
+    assert.match(page, /libelle: "Fiabilité de la projection"/);
+  });
+});
+
+const FLUX_TIERS: FluxProjete[] = [
+  flux("facture_client", "fc1", 25_000, "2026-11-30", "FC-2026-101 — Dupont Industries"),
+  flux("facture_client", "fc2", 12_000, "2026-12-03", "FC-2026-102 — Éléonore Conseil"),
+  flux("facture_client", "fc3", 4_000, "2026-12-08", "FC-2026-103 — Dupont Industries"),
+  flux("rentree_reguliere", "r1", 8_000, "2026-12-05", "Abonnements Dupont"),
+  flux("charge_fixe", "cf1", -4_500, "2026-12-01", "Salaires"),
+  flux("facture_fournisseur", "ff1", -15_000, "2026-12-10", "FF-88 — Dupuis Matériaux"),
+];
+
+describe("Recherche (modèle)", () => {
+  const lignes = construireLignesHypotheses(FLUX_TIERS, new Map(), groupeDeTiers);
+  const trouver = (recherche: string, filtre: Parameters<typeof grouperHypotheses>[1] = "toutes") =>
+    grouperHypotheses(lignes, filtre, recherche).flatMap((g) => g.lignes.map((l) => l.sourceId));
+
+  test("par libellé, par tiers, par numéro de facture", () => {
+    assert.deepEqual(trouver("salaires"), ["cf1"]);
+    assert.deepEqual(trouver("Dupont"), ["fc1", "fc3", "r1"].sort((a, b) => ["fc1", "r1", "fc3"].indexOf(a) - ["fc1", "r1", "fc3"].indexOf(b)));
+    assert.deepEqual(trouver("FF-88"), ["ff1"]);
+  });
+
+  test("insensible à la casse et aux accents", () => {
+    assert.deepEqual(trouver("DUPUIS"), ["ff1"]);
+    assert.deepEqual(trouver("eleonore"), ["fc2"]);
+  });
+
+  test("par type de ligne, étage P&L et montant", () => {
+    assert.deepEqual(trouver("charge fixe"), ["cf1"]);
+    assert.deepEqual(trouver("coûts de structure"), ["cf1"]);
+    assert.deepEqual(trouver("25 000"), ["fc1"]);
+    assert.deepEqual(trouver("25000"), ["fc1"]);
+  });
+
+  test("combinée aux filtres, groupes vides masqués, tri par impact conservé", () => {
+    // « Dupont » : 3 encaissements, triés 25 000 / 8 000 / 4 000 ; aucun autre groupe affiché.
+    const groupes = grouperHypotheses(lignes, "toutes", "dupont");
+    assert.deepEqual(groupes.map((g) => g.libelle), ["Encaissements"]);
+    assert.deepEqual(groupes[0].lignes.map((l) => l.sourceId), ["fc1", "r1", "fc3"]);
+    // + filtre « À renseigner » : seule la rentrée régulière (à renseigner par défaut).
+    assert.deepEqual(trouver("dupont", "a_renseigner"), ["r1"]);
+    // + filtre 100 % : les factures, pas la rentrée à renseigner.
+    assert.deepEqual(trouver("dupont", 100), ["fc1", "fc3"]);
+  });
+
+  test("recherche vide : tout ; aucun résultat : aucun groupe", () => {
+    assert.equal(trouver("  ").length, 6);
+    assert.deepEqual(grouperHypotheses(lignes, "toutes", "zzz"), []);
+  });
+});
+
+function groupeDeTiers(source: SourceFlux): CleGroupeHypotheses {
+  if (source === "facture_client" || source === "rentree_reguliere") return "revenue";
+  if (source === "charge_fixe") return "ebitda";
+  return "gross_margin";
+}
+
+describe("Recherche (écran)", () => {
+  test("barre de recherche Novanta, filtrage instantané, combinaison avec « À renseigner », effacement, aucun résultat", () => {
+    const ecran = rendre(FLUX);
+    const champ = ecran.conteneur.querySelector<HTMLInputElement>(".barre-recherche__input")!;
+    assert.equal(champ.placeholder, "Rechercher une transaction…");
+    const taper = (texte: string) =>
+      act(() => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(champ, texte);
+        champ.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      });
+    taper("FC2");
+    assert.deepEqual(ecran.lignesAffichees(), ["fc2"]);
+    assert.deepEqual(
+      Array.from(ecran.conteneur.querySelectorAll(".proba-groupe__resume")).map((e) => e.textContent!.split(" — ")[0]),
+      ["Encaissements"],
+      "groupes sans résultat masqués"
+    );
+    taper("r1");
+    ecran.cliquer("À renseigner");
+    assert.deepEqual(ecran.lignesAffichees(), ["r1"]);
+    assert.equal(champ.value, "r1", "le filtre ne réinitialise pas la recherche");
+    taper("introuvable");
+    assert.match(ecran.conteneur.textContent!, /Aucune transaction ne correspond à votre recherche\./);
+    ecran.cliquer("Toutes");
+    assert.equal(champ.value, "introuvable", "la recherche ne réinitialise pas le filtre ni l'inverse");
+    act(() => ecran.clic(ecran.conteneur.querySelector(".barre-recherche__effacer")!));
+    assert.equal(ecran.lignesAffichees().length, 8);
+    ecran.demonter();
+  });
+});
+
+describe("Valeurs de référence pendant le choix de la certitude", () => {
+  // Espaces insécables des montants et dates formatés ramenées à des espaces simples.
+  const reference = (li: Element, n: number) => Array.from(li.querySelectorAll(".proba-editeur__reference"))[n].textContent!.replace(/[\u202f\u00a0]/g, " ");
+
+  test("date : la date prévue utilisée par le moteur, et l'échéance d'où partent les retards", () => {
+    const ecran = rendre();
+    const li = ecran.ouvrir("fc1");
+    assert.equal(reference(li, 0), "Date prévue01 déc. 2026Échéance de la facture : 20 nov. 2026");
+    ecran.choisir("fc1", "date", "25");
+    assert.equal(reference(ecran.ligneDe("fc1")!, 0), "Date prévue01 déc. 2026Échéance de la facture : 20 nov. 2026", "toujours visible pendant l'édition");
+    ecran.demonter();
+  });
+
+  test("date de début d'une série", () => {
+    const ecran = rendre();
+    const li = ecran.ouvrir("cf1");
+    assert.equal(reference(li, 0), "Début prévu01 déc. 2026, puis 1 échéance");
+    assert.match(li.textContent!, /Certitude de la date de début/);
+    ecran.demonter();
+  });
+
+  test("montant : la valeur cible, mise à jour dès la saisie, conservée pendant le choix de la certitude, enregistrée en une fois", async () => {
+    const ecran = rendre();
+    ecran.cliquer("À renseigner");
+    const li = ecran.ouvrir("r1");
+    assert.equal(reference(li, 0), "Montant prévu8 000 € par échéance");
+    act(() => {
+      const champ = ecran.ligneDe("r1")!.querySelector<HTMLInputElement>('input[id$="-cible"]')!;
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(champ, "9000");
+      champ.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+    });
+    assert.equal(reference(ecran.ligneDe("r1")!, 0), "Montant prévu9 000 € par échéance");
+    ecran.choisir("r1", "montant", "50");
+    assert.equal(reference(ecran.ligneDe("r1")!, 0), "Montant prévu9 000 € par échéance");
+    assert.match(ecran.ligneDe("r1")!.textContent!.replace(/[\u202f\u00a0]/g, " "), /8 fois sur 10 entre 6 750 € et 11 250 € par échéance/);
+    ecran.choisir("r1", "date", "75");
+    assert.equal(ecran.appels.length, 0, "rien n'est enregistré avant « Enregistrer »");
+    assert.ok(ecran.lignesAffichees().includes("r1"));
+    await act(async () => ecran.clic(ecran.bouton("r1")));
+    assert.deepEqual(
+      [ecran.appels[0].h.montantCible, ecran.appels[0].h.fiabiliteMontant, ecran.appels[0].h.fiabiliteDate],
+      [9_000, 50, 75]
+    );
+    assert.equal(ecran.lignesAffichees().includes("r1"), false, "renseignée : sortie du filtre après l'enregistrement");
+    ecran.cliquer("Toutes");
+    // La colonne Montant suit la valeur cible enregistrée, comme le moteur (2 échéances × 9 000 €).
+    assert.match(ecran.ligneDe("r1")!.querySelector(".proba-ligne__montant")!.textContent!, /18\s000/);
+    ecran.demonter();
+  });
+
+  test("montants variables d'une échéance à l'autre : le total de l'horizon, sans montant inventé", () => {
+    const lignes = construireLignesHypotheses(
+      [flux("rentree_reguliere", "rs", 1_000, "2026-12-01"), flux("rentree_reguliere", "rs", 3_000, "2027-01-01")],
+      new Map(),
+      () => "revenue"
+    );
+    assert.equal(lignes[0].montantParEcheance, null);
+    assert.equal(lignes[0].impact, 4_000);
   });
 });

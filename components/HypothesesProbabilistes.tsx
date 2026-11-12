@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import BarreRecherche from "./BarreRecherche";
 import { formatDate, formatMontant } from "@/lib/format";
-import type { SourceFlux } from "@/lib/cash-engine";
 import {
   Comparateur,
   ConditionSaisie,
@@ -28,6 +28,8 @@ import {
   FILTRES_HYPOTHESES,
   FiltreHypotheses,
   grouperHypotheses,
+  correspondALaRecherche,
+  LIBELLES_SOURCE,
   HypotheseEffective,
   LigneHypothese,
   phraseARenseigner,
@@ -35,14 +37,7 @@ import {
   correspondAuFiltre,
 } from "@/lib/probaEcran";
 
-export const LIBELLES_SOURCE: Record<SourceFlux, string> = {
-  facture_client: "Facture client",
-  facture_fournisseur: "Facture fournisseur",
-  financement: "Financement",
-  charge_fixe: "Charge fixe",
-  autre_depense: "Autre dépense",
-  rentree_reguliere: "Rentrée régulière",
-};
+export { LIBELLES_SOURCE };
 
 type TypeCondition = "aucune" | ConditionSaisie["type"];
 const LIBELLES_CONDITION: Record<TypeCondition, string> = {
@@ -128,7 +123,10 @@ function EditeurLigne({
   const autres = lignes.filter((l) => l.cle !== ligne.cle && !exclus.has(l.cle));
   const typeCondition: TypeCondition = h.condition?.type ?? "aucune";
   const cleParent = h.condition && h.condition.type !== "seuil" ? cleLigne(h.condition.source, h.condition.sourceId) : "";
-  const montantReference = h.montantCible ?? montantFixe ?? (ligne.echeances > 0 ? ligne.impact / ligne.echeances : 0);
+  // Valeur autour de laquelle le moteur fait varier le montant : la valeur cible du brouillon (rentrée
+  // régulière à montant fixe), sinon le montant de chaque échéance retenu par la prévision.
+  const montantReference = h.montantCible ?? (montantFixe !== undefined ? montantFixe : ligne.montantParEcheance);
+  const parEcheance = ligne.echeances > 1 ? " par échéance" : "";
   const ecart = ECARTS_MONTANT[h.fiabiliteMontant];
   const lireNombre = (texte: string) => {
     const n = Number(texte.replace(/\s/g, "").replace(",", "."));
@@ -149,7 +147,15 @@ function EditeurLigne({
       </div>
 
       {dims.montant && (
-        <div className="proba-editeur__champ">
+        <div className="proba-editeur__champ proba-editeur__bloc">
+          <p className="proba-editeur__reference">
+            <span>Montant prévu</span>
+            <strong>
+              {montantReference !== null
+                ? `${formatMontant(montantReference)}${parEcheance}`
+                : `${formatMontant(ligne.impact)} sur l'horizon, en ${ligne.echeances} échéances de montants variables`}
+            </strong>
+          </p>
           {montantFixe !== undefined && (
             <>
               <label htmlFor={`${id}-cible`}>Montant cible par échéance</label>
@@ -160,12 +166,13 @@ function EditeurLigne({
                 placeholder={formatMontant(montantFixe)}
                 value={cible}
                 disabled={desactive}
-                onChange={(e) => setCible(e.target.value)}
-                onBlur={() => {
-                  const n = cible.trim() === "" ? null : lireNombre(cible);
-                  if (n !== null && n <= 0) return setCible(h.montantCible !== null ? String(h.montantCible) : "");
-                  if (n !== h.montantCible) changer({ montantCible: n });
+                onChange={(e) => {
+                  setCible(e.target.value);
+                  // La nouvelle valeur s'affiche aussitôt comme référence ; rien n'est enregistré.
+                  const n = e.target.value.trim() === "" ? null : lireNombre(e.target.value);
+                  if ((n === null && e.target.value.trim() === "") || (n !== null && n > 0)) changer({ montantCible: n });
                 }}
+                onBlur={() => setCible(h.montantCible !== null ? String(h.montantCible) : "")}
               />
             </>
           )}
@@ -177,17 +184,27 @@ function EditeurLigne({
               </option>
             ))}
           </select>
-          {ecart > 0 && montantReference > 0 && (
+          {ecart > 0 && montantReference !== null && montantReference > 0 && (
             <p className="proba-editeur__aide">
               8 fois sur 10 entre {formatMontant(montantReference * (1 - ecart))} et {formatMontant(montantReference * (1 + ecart))}
-              {ligne.echeances > 1 ? " par échéance" : ""}
+              {parEcheance}
             </p>
           )}
         </div>
       )}
 
-      <div className="proba-editeur__champ">
-        <label htmlFor={`${id}-date`}>{dims.date === "debut" ? "Fiabilité de la date de début" : "Fiabilité de la date"}</label>
+      <div className="proba-editeur__champ proba-editeur__bloc">
+        <p className="proba-editeur__reference">
+          <span>{dims.date === "debut" ? "Début prévu" : "Date prévue"}</span>
+          <strong>
+            {formatDate(ligne.premiereDate)}
+            {ligne.echeances > 1 ? `, puis ${ligne.echeances - 1} échéance${ligne.echeances > 2 ? "s" : ""}` : ""}
+          </strong>
+          {ligne.dateEcheance && ligne.dateEcheance < ligne.premiereDate && (
+            <span className="proba-editeur__aide">Échéance de la facture : {formatDate(ligne.dateEcheance)}</span>
+          )}
+        </p>
+        <label htmlFor={`${id}-date`}>{dims.date === "debut" ? "Certitude de la date de début" : "Certitude de la date"}</label>
         <select id={`${id}-date`} value={h.fiabiliteDate} disabled={desactive} onChange={(e) => changer({ fiabiliteDate: Number(e.target.value) as FiabiliteDate })}>
           {FIABILITES.map((f) => (
             <option key={f} value={f}>
@@ -197,7 +214,10 @@ function EditeurLigne({
         </select>
         {h.fiabiliteDate < 100 && (
           <p className="proba-editeur__aide">
-            {ligne.encaissement ? "Décalage tiré des habitudes de paiement de vos clients" : "Décalage tiré de vos habitudes de paiement fournisseurs"}
+            {ligne.dateEcheance && ligne.dateEcheance < ligne.premiereDate
+              ? "Décalage tiré de l'historique à partir de l'échéance, jamais avant la date prévue"
+              : `Décalage tiré de l'historique, jamais avant la ${dims.date === "debut" ? "date de début prévue" : "date prévue"}`}
+            {ligne.encaissement ? " (habitudes de paiement de vos clients)" : " (vos habitudes de paiement fournisseurs)"}
             {dims.date === "debut" ? " ; une fois démarrée, la série suit sa fréquence." : "."}
           </p>
         )}
@@ -325,6 +345,8 @@ function EditeurLigne({
  */
 export default function HypothesesProbabilistes({ lignes, completude, montantsFixes, descendantsDe, onEnregistrer, desactive }: HypothesesProbabilistesProps) {
   const [filtre, setFiltre] = useState<FiltreHypotheses>("toutes");
+  // Recherche locale : les lignes sont déjà dans le navigateur, aucune requête réseau.
+  const [recherche, setRecherche] = useState("");
   const [replies, setReplies] = useState<Set<string>>(new Set());
   const [ouverte, setOuverte] = useState<string | null>(null);
   // Brouillons par ligne : conservés si l'on ferme la ligne ou change de filtre, jusqu'à « Enregistrer ».
@@ -351,7 +373,7 @@ export default function HypothesesProbabilistes({ lignes, completude, montantsFi
         majCle(setSauvegardes, l.cle, { enCours: false, erreur: e instanceof Error ? e.message : "L'hypothèse n'a pas pu être enregistrée.", ok: false })
     );
   };
-  const groupes = grouperHypotheses(lignes, filtre);
+  const groupes = grouperHypotheses(lignes, filtre, recherche);
   const aRenseigner = phraseARenseigner(completude);
 
   if (lignes.length === 0) {
@@ -383,9 +405,13 @@ export default function HypothesesProbabilistes({ lignes, completude, montantsFi
         </p>
       </div>
 
+      <div className="barre-outils-recherche proba-recherche">
+        <BarreRecherche valeur={recherche} onChange={setRecherche} placeholder="Rechercher une transaction…" />
+      </div>
+
       <div className="passe-tri selecteur" role="group" aria-label="Filtrer les hypothèses">
         {FILTRES_HYPOTHESES.map((f) => {
-          const nombre = lignes.filter((l) => correspondAuFiltre(l, f.cle)).length;
+          const nombre = lignes.filter((l) => correspondAuFiltre(l, f.cle) && correspondALaRecherche(l, recherche)).length;
           return (
             <button
               key={String(f.cle)}
@@ -400,7 +426,9 @@ export default function HypothesesProbabilistes({ lignes, completude, montantsFi
         })}
       </div>
 
-      {groupes.length === 0 && <p className="proba-vide">Aucune hypothèse pour ce filtre.</p>}
+      {groupes.length === 0 && (
+        <p className="proba-vide">{recherche.trim() ? "Aucune transaction ne correspond à votre recherche." : "Aucune hypothèse pour ce filtre."}</p>
+      )}
 
       {groupes.map((g) => {
         const replie = replies.has(g.cle);

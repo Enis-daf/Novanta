@@ -5708,7 +5708,7 @@ button.passe-cible--lien:focus-visible,
   white-space: nowrap;
 }
 
-/* ---------- Futur · Risque de trésorerie (prévision probabiliste, offre Pilotage) ---------- */
+/* ---------- Futur · Perspectives pondérées (prévision probabiliste, offre Pilotage) ---------- */
 
 .proba {
   display: flex;
@@ -6085,4 +6085,39 @@ button.passe-cible--lien:focus-visible,
 
 .proba-ligne__etat .proba-ligne__detail {
   display: block;
+}
+
+/* Perspectives pondérées — recherche et valeurs de référence de l'édition. */
+
+.proba-recherche {
+  max-width: 420px;
+}
+
+.proba-editeur__bloc {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+/* La valeur à laquelle se rapporte la certitude, juste au-dessus de son sélecteur. */
+.proba-editeur__reference {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+.proba-editeur__reference > span:first-child {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-editeur__reference strong {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }

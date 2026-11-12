@@ -45,7 +45,7 @@ export type Capacites = Record<Capacite, boolean>;
 //  - canViewDSO / canViewDPO : Délai clients / Délai fournisseurs de l'onglet BFR (cartouche,
 //    distribution, courbe, export PDF) ; s'affichent dans cet onglet, donc requièrent aussi le BFR.
 //  - canViewActions          : module Action.
-//  - canViewProbabilisticForecast : onglet « Risque de trésorerie » de Futur — prévision
+//  - canViewProbabilisticForecast : onglet « Perspectives pondérées » de Futur — prévision
 //    probabiliste (simulations, fourchettes, risque de passer sous zéro, délais de paiement
 //    appris de l'historique, besoin de financement). Calcul serveur seulement
 //    (app/api/futur/probabiliste), revérifié à chaque appel ; requiert aussi canViewForecast.

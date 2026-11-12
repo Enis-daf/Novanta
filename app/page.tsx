@@ -1684,7 +1684,7 @@ export default function Home() {
             [
               { cle: "flux", libelle: "Flux de tréso" },
               { cle: "fiabilite", libelle: "Fiabilité de la projection" },
-              { cle: "risque", libelle: "Risque de trésorerie" },
+              { cle: "risque", libelle: "Perspectives pondérées" },
             ] as const
           ).map((onglet) => (
             <button
@@ -1918,9 +1918,9 @@ export default function Home() {
       {/* Fiabilité de la projection. Futur seul : « Vérifier mes données » et l'ancien Contrôle
           mensuel. Passé + Futur : le contrôle prévu / réalisé le remplace (droits revérifiés côté
           serveur par /api/futur/fiabilite). */}
-      {/* Risque de trésorerie : prévision probabiliste, offre Pilotage. Hors Pilotage, rien n'est
+      {/* Perspectives pondérées : prévision probabiliste, offre Pilotage. Hors Pilotage, rien n'est
           calculé ni demandé au serveur : l'onglet nomme l'offre nécessaire. */}
-      <section className="onglet-fiabilite" hidden={ongletFutur !== "risque"} aria-label="Risque de trésorerie">
+      <section className="onglet-fiabilite" hidden={ongletFutur !== "risque"} aria-label="Perspectives pondérées">
         {!supabaseConfigured ? (
           <p className="fiabilite-note">La prévision probabiliste est calculée par le serveur : configurez Supabase pour l&apos;utiliser.</p>
         ) : droitsRisque?.autorise ? (
@@ -1935,7 +1935,7 @@ export default function Home() {
         ) : droitsRisque ? (
           <OffreVerrouillee
             capacite="canViewProbabilisticForecast"
-            fonctionnalite="La prévision probabiliste de trésorerie"
+            fonctionnalite="La vue « Perspectives pondérées »"
             offreActuelle={droitsRisque.offre}
           />
         ) : null}

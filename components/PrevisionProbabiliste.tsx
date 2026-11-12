@@ -107,15 +107,30 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
   }, [projection, correspondance]);
 
   const flux = useMemo(() => listerFluxProjetes(projection), [projection]);
-  const lignes = useMemo(() => (hypotheses === null ? [] : construireLignesHypotheses(flux, hypotheses, classement.groupeDe)), [flux, hypotheses, classement]);
+  const montantsFixes = useMemo(
+    () => new Map(projection.rentreesRegulieres.filter((r) => r.modeMontant === "fixe").map((r) => [cleLigne("rentree_reguliere", r.id), r.montant])),
+    [projection.rentreesRegulieres]
+  );
+  const echeances = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const f of projection.facturesClients) if (f.dateEcheance) m.set(cleLigne("facture_client", f.id), f.dateEcheance);
+    for (const f of projection.facturesFournisseurs) if (f.dateEcheance) m.set(cleLigne("facture_fournisseur", f.id), f.dateEcheance);
+    return m;
+  }, [projection.facturesClients, projection.facturesFournisseurs]);
+  const lignes = useMemo(
+    () =>
+      hypotheses === null
+        ? []
+        : construireLignesHypotheses(flux, hypotheses, classement.groupeDe, {
+            rentreesFixes: new Set(montantsFixes.keys()),
+            echeanceDe: (source, sourceId) => echeances.get(cleLigne(source, sourceId)) ?? null,
+          }),
+    [flux, hypotheses, classement, montantsFixes, echeances]
+  );
   const etat = useMemo(() => completude(lignes), [lignes]);
   const construit = useMemo(
     () => (hypotheses === null ? null : construireEvenements(flux, projection, Array.from(hypotheses.values()), classement.etageDe)),
     [flux, projection, hypotheses, classement]
-  );
-  const montantsFixes = useMemo(
-    () => new Map(projection.rentreesRegulieres.filter((r) => r.modeMontant === "fixe").map((r) => [cleLigne("rentree_reguliere", r.id), r.montant])),
-    [projection.rentreesRegulieres]
   );
   const liens = useMemo(
     () => lignes.map((l) => ({ cle: l.cle, parentCle: parentDeCondition(conditionVersMoteur(l.hypothese.condition)) })),
@@ -210,7 +225,10 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
   const message = messageCompletude(etat);
 
   return (
-    <section className="proba" aria-label="Risque de trésorerie">
+    <section className="proba" aria-label="Perspectives pondérées">
+      <div className="fiabilite-entete">
+        <p>Simulation probabiliste des trajectoires de trésorerie, à partir de vos hypothèses et de vos habitudes de paiement.</p>
+      </div>
       {message && <p className={etat.bloquee ? "proba-bloquee" : "fiabilite-alerte"}>{message}</p>}
       {erreur && !etat.bloquee && <p className="fiabilite-alerte">{erreur}</p>}
       {!etat.bloquee && !indicateurs && !erreur && lignes.length > 0 && <p className="proba-attente">Calcul de la prévision en cours…</p>}
