@@ -5707,3 +5707,417 @@ button.passe-cible--lien:focus-visible,
   color: var(--couleur-texte-option);
   white-space: nowrap;
 }
+
+/* ---------- Futur · Perspectives pondérées (prévision probabiliste, offre Pilotage) ---------- */
+
+.proba {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  color: var(--couleur-texte);
+}
+
+.proba h4 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.proba-attente {
+  margin: 0;
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-infobulle {
+  padding: var(--space-1) var(--space-2);
+  background: var(--couleur-fond);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.proba-infobulle p {
+  margin: 2px 0;
+}
+
+.proba-infobulle__date {
+  font-weight: 600;
+}
+
+.proba-legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-legende li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.proba-legende__trait {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 2px solid;
+}
+
+.proba-legende__trait--mediane {
+  border-color: var(--couleur-accent);
+}
+
+.proba-legende__trait--bande {
+  height: 10px;
+  border: 0;
+  background: rgba(107, 114, 128, 0.16);
+}
+
+.proba-legende__trait--projection {
+  border-top: 1.5px dashed rgba(3, 10, 22, 0.55);
+}
+
+.proba-financement {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 560px;
+}
+
+.proba-financement__risque {
+  margin: 0;
+  font-size: 13px;
+}
+
+.proba-calibration {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--couleur-bordure);
+  font-size: 12px;
+  color: var(--couleur-texte-option);
+}
+
+.proba-calibration p {
+  margin: 0 0 4px;
+}
+
+.proba-montant--entree {
+  color: #0f766e;
+}
+
+.proba-financement label {
+  font-size: 13px;
+}
+
+/* Prévision probabiliste — hypothèses par étage P&L. */
+
+.proba-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.proba-bloquee {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--couleur-filet);
+  border-left: 3px solid var(--couleur-accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.proba-vide {
+  margin: 0;
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-hypotheses {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.proba-hypotheses__entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.proba-hypotheses__compte {
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+/* Cartouche « À renseigner » : cliquable, elle filtre les lignes concernées. */
+.proba-a-renseigner {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--couleur-filet);
+  border-left: 3px solid var(--couleur-accent);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-fond);
+  font: inherit;
+  color: var(--couleur-texte);
+  text-align: left;
+  cursor: pointer;
+}
+
+.proba-a-renseigner strong {
+  font-size: 15px;
+}
+
+.proba-a-renseigner span {
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-a-renseigner:hover,
+.proba-a-renseigner--actif {
+  background: var(--couleur-survol);
+}
+
+.proba-a-renseigner--complet {
+  border-left-color: var(--couleur-filet);
+  cursor: default;
+  font-size: 12px;
+}
+
+.proba-groupe {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.proba-groupe__titre {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 10px 0 6px;
+  border: 0;
+  border-bottom: 1px solid var(--couleur-texte);
+  background: none;
+  font: inherit;
+  color: var(--couleur-texte);
+  text-align: left;
+  cursor: pointer;
+}
+
+.proba-groupe__resume {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.proba-groupe__lignes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.proba-ligne {
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+.proba-ligne__resume {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) 96px 108px 96px 112px minmax(110px, 0.8fr) 72px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 0;
+  font-size: 13px;
+}
+
+.proba-ligne__libelle {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.proba-ligne__libelle > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.proba-ligne__detail {
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-ligne__montant {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.proba-ligne__etat {
+  font-size: 12px;
+  color: var(--couleur-texte-option);
+}
+
+.proba-badge-renseigner {
+  color: var(--couleur-accent-fonce);
+  font-weight: 600;
+}
+
+.proba-editeur {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-2) 0 var(--space-3);
+}
+
+.proba-editeur__champ {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+  font-size: 12px;
+}
+
+.proba-editeur__champ--large {
+  flex: 1 1 280px;
+}
+
+.proba-editeur__champ label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-editeur__aide {
+  margin: 0;
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-editeur__seuil,
+.proba-editeur__inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.proba-editeur__seuil input,
+.proba-editeur__inline input {
+  width: 110px;
+}
+
+.proba-editeur__valider {
+  display: flex;
+  flex-basis: 100%;
+}
+
+/* En-tête de colonnes d'un étage : même typographie que les en-têtes de tableaux. */
+.proba-ligne__entete {
+  padding: 6px 0 4px;
+  border-bottom: 1px solid var(--couleur-bordure);
+  color: var(--couleur-texte-secondaire);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.proba-ligne__montant {
+  text-align: right;
+}
+
+.proba-ligne__entete span:nth-child(2) {
+  text-align: right;
+}
+
+.proba-ligne__resume > .etage-pnl-outils__lien {
+  justify-self: end;
+}
+
+.proba-editeur__valider {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.proba-editeur__valider .btn-add {
+  margin-top: 0;
+}
+
+.proba-editeur__valider p {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .proba-ligne__entete {
+    display: none;
+  }
+
+  .proba-ligne__resume {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  /* Sans en-tête, chaque valeur porte le nom de sa colonne. */
+  .proba-ligne__etat[data-colonne]::before {
+    content: attr(data-colonne) " : ";
+    color: var(--couleur-texte-secondaire);
+  }
+}
+
+.proba-filtre-compte {
+  margin-left: 6px;
+}
+
+.proba-ligne__etat .proba-ligne__detail {
+  display: block;
+}
+
+/* Perspectives pondérées — recherche et valeurs de référence de l'édition. */
+
+.proba-recherche {
+  max-width: 420px;
+}
+
+.proba-editeur__bloc {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+/* La valeur à laquelle se rapporte la certitude, juste au-dessus de son sélecteur. */
+.proba-editeur__reference {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--couleur-bordure);
+}
+
+.proba-editeur__reference > span:first-child {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-editeur__reference strong {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
