@@ -17,6 +17,7 @@ import BarreRecherche from "@/components/BarreRecherche";
 import BandeauPeriodeFiltre from "@/components/BandeauPeriodeFiltre";
 import ControleMensuel from "@/components/ControleMensuel";
 import FiabiliteProjection from "@/components/FiabiliteProjection";
+import PrevisionProbabiliste from "@/components/PrevisionProbabiliste";
 import LoginForm from "@/components/LoginForm";
 import IconTelechargement from "@/components/IconTelechargement";
 import EnTeteCockpit from "@/components/EnTeteCockpit";
@@ -234,7 +235,12 @@ export default function Home() {
   // Correspondance catégorie -> étage P&L partagée avec Passé, lisible sans le module Passé.
   const [correspondancePnl, setCorrespondancePnl] = useState<CorrespondanceFutur>(CORRESPONDANCE_VIDE);
   // Onglets de Futur : le cockpit opérationnel, et la fiabilité de la projection (contrôles).
-  const [ongletFutur, setOngletFutur] = useState<"flux" | "fiabilite">("flux");
+  const [ongletFutur, setOngletFutur] = useState<"flux" | "fiabilite" | "risque">("flux");
+  // Prévision probabiliste (offre Pilotage) : null tant que l'offre n'est pas lue. Ne règle que
+  // l'affichage de l'onglet ; l'API /api/futur/probabiliste revérifie l'offre à chaque appel.
+  const [droitsRisque, setDroitsRisque] = useState<{ autorise: boolean; offre: Offre } | null>(
+    !supabaseConfigured ? { autorise: false, offre: "steering" } : null
+  );
   // Échec d'enregistrement d'un étage P&L, par tableau (le classement précédent reste affiché).
   const [erreursEtage, setErreursEtage] = useState<Partial<Record<TableDepense, string>>>({});
 
@@ -445,6 +451,7 @@ export default function Home() {
         setEtatAcces("hors_offre");
         return;
       }
+      setDroitsRisque({ autorise: droits.capacites.canViewProbabilisticForecast, offre: droits.offreEffective });
       setEtatAcces("autorise");
 
       const donnees = await chargerOuInitialiserDonnees(company.id);
@@ -531,6 +538,22 @@ export default function Home() {
       horizonJours,
       remplacements,
     ]
+  );
+
+  // Projection transmise à la prévision probabiliste : mêmes flux que la courbe déterministe.
+  const projectionProbabiliste = useMemo(
+    () => ({
+      facturesClients,
+      facturesFournisseurs,
+      chargesFixes,
+      autresDepenses,
+      financements,
+      rentreesRegulieres,
+      dateDepart,
+      horizonJours,
+      remplacements,
+    }),
+    [facturesClients, facturesFournisseurs, chargesFixes, autresDepenses, financements, rentreesRegulieres, dateDepart, horizonJours, remplacements]
   );
 
   // Synthèse mensuelle : calcul indépendant, purement pour l'affichage du panneau
@@ -1661,6 +1684,7 @@ export default function Home() {
             [
               { cle: "flux", libelle: "Flux de tréso" },
               { cle: "fiabilite", libelle: "Fiabilité de la projection" },
+              { cle: "risque", libelle: "Risque de trésorerie" },
             ] as const
           ).map((onglet) => (
             <button
@@ -1894,6 +1918,28 @@ export default function Home() {
       {/* Fiabilité de la projection. Futur seul : « Vérifier mes données » et l'ancien Contrôle
           mensuel. Passé + Futur : le contrôle prévu / réalisé le remplace (droits revérifiés côté
           serveur par /api/futur/fiabilite). */}
+      {/* Risque de trésorerie : prévision probabiliste, offre Pilotage. Hors Pilotage, rien n'est
+          calculé ni demandé au serveur : l'onglet nomme l'offre nécessaire. */}
+      <section className="onglet-fiabilite" hidden={ongletFutur !== "risque"} aria-label="Risque de trésorerie">
+        {!supabaseConfigured ? (
+          <p className="fiabilite-note">La prévision probabiliste est calculée par le serveur : configurez Supabase pour l&apos;utiliser.</p>
+        ) : droitsRisque?.autorise ? (
+          <PrevisionProbabiliste
+            accessToken={session?.access_token ?? null}
+            actif={ongletFutur === "risque"}
+            soldeInitial={soldeInitial}
+            projection={projectionProbabiliste}
+            serieDeterministe={resultat.serie}
+          />
+        ) : droitsRisque ? (
+          <OffreVerrouillee
+            capacite="canViewProbabilisticForecast"
+            fonctionnalite="La prévision probabiliste de trésorerie"
+            offreActuelle={droitsRisque.offre}
+          />
+        ) : null}
+      </section>
+
       <section className="onglet-fiabilite" hidden={ongletFutur !== "fiabilite"} aria-label="Fiabilité de la projection">
         <SectionRepliable titre="Vérifier mes données" ouvertParDefaut>
           <VerifierMesDonnees

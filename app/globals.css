@@ -5707,3 +5707,125 @@ button.passe-cible--lien:focus-visible,
   color: var(--couleur-texte-option);
   white-space: nowrap;
 }
+
+/* ---------- Futur · Risque de trésorerie (prévision probabiliste, offre Pilotage) ---------- */
+
+.proba {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  color: var(--couleur-texte);
+}
+
+.proba h4 {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.proba-attente {
+  margin: 0;
+  font-size: 13px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-infobulle {
+  padding: var(--space-1) var(--space-2);
+  background: var(--couleur-fond);
+  border: 1px solid var(--couleur-bordure);
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.proba-infobulle p {
+  margin: 2px 0;
+}
+
+.proba-infobulle__date {
+  font-weight: 600;
+}
+
+.proba-legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-legende li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.proba-legende__trait {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top: 2px solid;
+}
+
+.proba-legende__trait--mediane {
+  border-color: var(--couleur-accent);
+}
+
+.proba-legende__trait--bande {
+  height: 10px;
+  border: 0;
+  background: rgba(107, 114, 128, 0.16);
+}
+
+.proba-legende__trait--projection {
+  border-top: 1.5px dashed rgba(3, 10, 22, 0.55);
+}
+
+.proba-financement {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 560px;
+}
+
+.proba-financement__risque {
+  margin: 0;
+  font-size: 13px;
+}
+
+.proba-calibration {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--couleur-bordure);
+  font-size: 12px;
+  color: var(--couleur-texte-option);
+}
+
+.proba-calibration p {
+  margin: 0 0 4px;
+}
+
+.proba-hypotheses {
+  overflow-x: auto;
+}
+
+.proba-hypotheses__table select {
+  max-width: 220px;
+}
+
+.proba-hypotheses__source {
+  display: block;
+  font-size: 10px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-montant--entree {
+  color: #0f766e;
+}
+
+.proba-financement label {
+  font-size: 13px;
+}
