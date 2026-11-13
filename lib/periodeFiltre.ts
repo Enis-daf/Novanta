@@ -1,4 +1,4 @@
-import { genererOccurrencesRecurrentes } from "./cash-engine";
+import { dateEffectiveFactureFournisseur, genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO, toISODate } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
@@ -131,6 +131,9 @@ export interface ResultatFluxPeriode {
 export interface ParametresFluxPeriode {
   debut: string; // YYYY-MM-DD
   fin: string; // YYYY-MM-DD
+  // Premier jour de la projection (dateDepart du moteur) : une facture fournisseur en retard y est
+  // comptée, comme dans la courbe. Absent = date de paiement prévue (à défaut l'échéance) telle quelle.
+  dateDepart?: string;
   facturesClients: FactureClient[];
   facturesFournisseurs: FactureFournisseur[];
   chargesFixes: ChargeFixe[];
@@ -162,7 +165,7 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
   );
   const facturesFournisseursRes = itemSimple(
     params.facturesFournisseurs,
-    (f) => f.datePaiementPrevue,
+    (f) => dateEffectiveFactureFournisseur(f, params.dateDepart ?? ""),
     -1,
     (f) => f.litigieuse || f.payee,
     debut,

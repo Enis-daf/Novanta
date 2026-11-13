@@ -42,6 +42,29 @@ export interface ResultatProjectionCash {
 export { genererOccurrencesRecurrentes };
 export type { FrequenceRecurrence } from "./dates";
 
+/**
+ * Date à laquelle une facture fournisseur pèse sur la projection : la date de paiement prévue, à
+ * défaut l'échéance ; si cette date précède le début de la projection (facture non payée en retard),
+ * le premier jour de la projection — une dette échue ne disparaît jamais de la trésorerie projetée.
+ * "" si la facture n'a ni date de paiement prévue ni échéance (exclue, comme avant).
+ * Date de calcul uniquement : la date enregistrée de la facture n'est jamais modifiée.
+ * SEULE définition de cette règle : moteur (courbe, KPIs, point bas, référence de fiabilité),
+ * synthèse mensuelle et filtre de période la partagent. Ne dit rien du statut Payée / Litigieuse.
+ */
+export function dateEffectiveFactureFournisseur(
+  facture: Pick<FactureFournisseur, "datePaiementPrevue" | "dateEcheance">,
+  dateDepart: string
+): string {
+  const dateTheorique = estDateValide(facture.datePaiementPrevue)
+    ? facture.datePaiementPrevue
+    : estDateValide(facture.dateEcheance)
+      ? facture.dateEcheance
+      : "";
+  if (!dateTheorique) return "";
+  if (!estDateValide(dateDepart)) return dateTheorique;
+  return parseDateISO(dateTheorique) < parseDateISO(dateDepart) ? toISODate(parseDateISO(dateDepart)) : dateTheorique;
+}
+
 /** Type de ligne Futur à l'origine d'un flux projeté. */
 export type SourceFlux =
   | "facture_client"
@@ -103,7 +126,13 @@ export function listerFluxProjetes(
 
   for (const facture of facturesFournisseurs) {
     if (facture.litigieuse || facture.payee) continue;
-    enregistrerFlux("facture_fournisseur", facture.id, `${facture.facture} — ${facture.fournisseur}`, facture.datePaiementPrevue, -facture.montant);
+    enregistrerFlux(
+      "facture_fournisseur",
+      facture.id,
+      `${facture.facture} — ${facture.fournisseur}`,
+      dateEffectiveFactureFournisseur(facture, dateDepart),
+      -facture.montant
+    );
   }
 
   for (const financement of financements) {
