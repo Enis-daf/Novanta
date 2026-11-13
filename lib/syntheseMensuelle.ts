@@ -1,4 +1,4 @@
-import { genererOccurrencesRecurrentes } from "./cash-engine";
+import { dateEffectiveFactureFournisseur, genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
@@ -108,12 +108,14 @@ function occurrencesFacturesClients(factures: FactureClient[], debut: Date, fin:
   return res;
 }
 
-function occurrencesFacturesFournisseurs(factures: FactureFournisseur[], debut: Date, fin: Date): Occurrence[] {
+function occurrencesFacturesFournisseurs(factures: FactureFournisseur[], dateReleve: string, debut: Date, fin: Date): Occurrence[] {
   const res: Occurrence[] = [];
   for (const f of factures) {
     if (f.litigieuse || f.payee) continue;
-    if (!estDateValide(f.datePaiementPrevue)) continue;
-    const date = parseDateISO(f.datePaiementPrevue);
+    // Même date que le moteur : une facture en retard compte au premier jour de la projection.
+    const dateEffective = dateEffectiveFactureFournisseur(f, dateReleve);
+    if (!estDateValide(dateEffective)) continue;
+    const date = parseDateISO(dateEffective);
     if (!dansHorizon(date, debut, fin)) continue;
     res.push({ date, montant: -f.montant });
   }
@@ -211,7 +213,7 @@ export function calculerSyntheseMensuelle(params: ParametresSyntheseMensuelle): 
     ligne("Factures clients", occurrencesFacturesClients(facturesClients, debut, fin), mois),
     ligne("Rentrées régulières", occurrencesRentreesRegulieres(rentreesRegulieres, debut, fin), mois),
     ligne("Financements", occurrencesFinancements(financements, debut, fin), mois),
-    ligne("Factures fournisseurs", occurrencesFacturesFournisseurs(facturesFournisseurs, debut, fin), mois),
+    ligne("Factures fournisseurs", occurrencesFacturesFournisseurs(facturesFournisseurs, dateReleve, debut, fin), mois),
     ligne("Charges fixes", occurrencesChargesFixes(chargesFixes, rentreesRegulieres, debut, fin, remplacements), mois),
     ligne("Autres dépenses", occurrencesAutresDepenses(autresDepenses, debut, fin), mois),
   ];

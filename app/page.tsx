@@ -575,6 +575,7 @@ export default function Home() {
         ? calculerFluxPeriode({
             debut: periodeFiltre.debut,
             fin: periodeFiltre.fin,
+            dateDepart,
             facturesClients,
             facturesFournisseurs,
             chargesFixes,
@@ -586,6 +587,7 @@ export default function Home() {
         : null,
     [
       periodeFiltre,
+      dateDepart,
       facturesClients,
       facturesFournisseurs,
       chargesFixes,
