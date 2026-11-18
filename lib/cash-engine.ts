@@ -43,6 +43,19 @@ export { genererOccurrencesRecurrentes };
 export type { FrequenceRecurrence } from "./dates";
 
 /**
+ * Date à laquelle une ligne pèse sur la projection : sa date théorique, ou le premier jour de la
+ * projection si cette date le précède (ligne encore active mais en retard) — un engagement échu ne
+ * disparaît jamais de la trésorerie projetée. "" si la date théorique est absente ou invalide.
+ * Date de calcul uniquement, jamais écrite. Ne dit rien des statuts d'exclusion propres à chaque ligne.
+ * Appliquée aux factures fournisseurs et aux Autres dépenses.
+ */
+export function dateEffectiveProjection(dateTheorique: string, dateDepart: string): string {
+  if (!estDateValide(dateTheorique)) return "";
+  if (!estDateValide(dateDepart)) return dateTheorique;
+  return parseDateISO(dateTheorique) < parseDateISO(dateDepart) ? toISODate(parseDateISO(dateDepart)) : dateTheorique;
+}
+
+/**
  * Date à laquelle une facture fournisseur pèse sur la projection : la date de paiement prévue, à
  * défaut l'échéance ; si cette date précède le début de la projection (facture non payée en retard),
  * le premier jour de la projection — une dette échue ne disparaît jamais de la trésorerie projetée.
@@ -60,9 +73,7 @@ export function dateEffectiveFactureFournisseur(
     : estDateValide(facture.dateEcheance)
       ? facture.dateEcheance
       : "";
-  if (!dateTheorique) return "";
-  if (!estDateValide(dateDepart)) return dateTheorique;
-  return parseDateISO(dateTheorique) < parseDateISO(dateDepart) ? toISODate(parseDateISO(dateDepart)) : dateTheorique;
+  return dateEffectiveProjection(dateTheorique, dateDepart);
 }
 
 /** Type de ligne Futur à l'origine d'un flux projeté. */
@@ -161,7 +172,7 @@ export function listerFluxProjetes(
   for (const depense of autresDepenses) {
     // Facturée et Payée sont deux raisons distinctes d'exclusion, comportement identique.
     if (depense.facturee || depense.payee) continue;
-    enregistrerFlux("autre_depense", depense.id, depense.libelle, depense.datePrevue, -depense.montant);
+    enregistrerFlux("autre_depense", depense.id, depense.libelle, dateEffectiveProjection(depense.datePrevue, dateDepart), -depense.montant);
   }
 
   for (const rentree of rentreesRegulieres) {
