@@ -11,6 +11,7 @@ import { ajouterJours, estDateValide, genererOccurrencesRecurrentes, parseDateIS
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 import { estOccurrenceRemplacee, Remplacements } from "./remplacementsOccurrences";
+import { estPrevisionnelleActive, FacturePrevisionnelle } from "./facturesPrevisionnelles";
 
 export const HORIZON_JOURS_DEFAUT = 90;
 
@@ -22,6 +23,9 @@ export interface ParametresProjectionCash {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  // Factures prévisionnelles (lib/facturesPrevisionnelles.ts) : seules celles « À facturer » comptent,
+  // à leur date d'encaissement prévue. Absent = aucune.
+  facturesPrevisionnelles?: FacturePrevisionnelle[];
   dateDepart: string; // YYYY-MM-DD
   horizonJours?: number;
   // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
@@ -68,6 +72,7 @@ export function dateEffectiveFactureFournisseur(
 /** Type de ligne Futur à l'origine d'un flux projeté. */
 export type SourceFlux =
   | "facture_client"
+  | "facture_previsionnelle"
   | "facture_fournisseur"
   | "financement"
   | "charge_fixe"
@@ -101,6 +106,7 @@ export function listerFluxProjetes(
     autresDepenses,
     financements,
     rentreesRegulieres,
+    facturesPrevisionnelles = [],
     dateDepart,
     horizonJours = HORIZON_JOURS_DEFAUT,
     remplacements,
@@ -122,6 +128,12 @@ export function listerFluxProjetes(
   for (const facture of facturesClients) {
     if (facture.litigieuse || facture.payee) continue;
     enregistrerFlux("facture_client", facture.id, `${facture.facture} — ${facture.client}`, facture.dateEncaissementAnticipee, facture.montant);
+  }
+
+  // Prévisionnelle rapprochée d'une vraie facture : exclue (la vraie facture compte seule, même payée).
+  for (const prevision of facturesPrevisionnelles) {
+    if (!estPrevisionnelleActive(prevision)) continue;
+    enregistrerFlux("facture_previsionnelle", prevision.id, `Prévisionnelle — ${prevision.client}`, prevision.dateEncaissementPrevue, prevision.montant);
   }
 
   for (const facture of facturesFournisseurs) {

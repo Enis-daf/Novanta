@@ -3,6 +3,7 @@ import { ajouterJours, estDateValide, parseDateISO } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 import { estOccurrenceRemplacee, Remplacements } from "./remplacementsOccurrences";
+import { estPrevisionnelleActive, FacturePrevisionnelle } from "./facturesPrevisionnelles";
 import {
   AutreDepense,
   ChargeFixe,
@@ -37,6 +38,8 @@ export interface ParametresSyntheseMensuelle {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  // Factures prévisionnelles : mêmes règles que le moteur (À facturer seulement). Absent = aucune.
+  facturesPrevisionnelles?: FacturePrevisionnelle[];
   // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
   // elles ne génèrent aucun flux, la facture portant seule la dépense. Absent = aucun remplacement.
   remplacements?: Remplacements;
@@ -104,6 +107,18 @@ function occurrencesFacturesClients(factures: FactureClient[], debut: Date, fin:
     const date = parseDateISO(f.dateEncaissementAnticipee);
     if (!dansHorizon(date, debut, fin)) continue;
     res.push({ date, montant: f.montant });
+  }
+  return res;
+}
+
+function occurrencesFacturesPrevisionnelles(previsions: FacturePrevisionnelle[], debut: Date, fin: Date): Occurrence[] {
+  const res: Occurrence[] = [];
+  for (const p of previsions) {
+    if (!estPrevisionnelleActive(p)) continue; // rapprochée : la vraie facture compte seule
+    if (!estDateValide(p.dateEncaissementPrevue)) continue;
+    const date = parseDateISO(p.dateEncaissementPrevue);
+    if (!dansHorizon(date, debut, fin)) continue;
+    res.push({ date, montant: p.montant });
   }
   return res;
 }
@@ -198,6 +213,7 @@ export function calculerSyntheseMensuelle(params: ParametresSyntheseMensuelle): 
     autresDepenses,
     financements,
     rentreesRegulieres,
+    facturesPrevisionnelles = [],
     remplacements,
   } = params;
 
@@ -211,6 +227,7 @@ export function calculerSyntheseMensuelle(params: ParametresSyntheseMensuelle): 
 
   const lignes: LigneSynthese[] = [
     ligne("Factures clients", occurrencesFacturesClients(facturesClients, debut, fin), mois),
+    ligne("Factures prévisionnelles", occurrencesFacturesPrevisionnelles(facturesPrevisionnelles, debut, fin), mois),
     ligne("Rentrées régulières", occurrencesRentreesRegulieres(rentreesRegulieres, debut, fin), mois),
     ligne("Financements", occurrencesFinancements(financements, debut, fin), mois),
     ligne("Factures fournisseurs", occurrencesFacturesFournisseurs(facturesFournisseurs, dateReleve, debut, fin), mois),

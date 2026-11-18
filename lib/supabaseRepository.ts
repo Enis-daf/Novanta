@@ -22,6 +22,7 @@ import {
   RentreeReguliere,
 } from "./types";
 import { CategorieFacture, CorrespondanceFutur, EtageDepense, estEtageDepense, lireCorrespondance } from "./futurPnl";
+import type { FacturePrevisionnelle } from "./facturesPrevisionnelles";
 
 export interface DonneesEntreprise {
   soldeInitial: number;
@@ -35,6 +36,7 @@ export interface DonneesEntreprise {
   rentreesRegulieres: RentreeReguliere[];
   liensRapprochement: LienRapprochement[];
   mappingsFournisseurs: MappingFournisseurCharge[];
+  facturesPrevisionnelles: FacturePrevisionnelle[];
 }
 
 type Row = Record<string, unknown>;
@@ -153,6 +155,50 @@ function rowToFactureClient(row: Row): FactureClient {
     paidAt: (row.paid_at as string | null) ?? null,
     settledOn: (row.settled_on as string | null) ?? null,
     pennylaneId: (row.pennylane_id as string | null) ?? null,
+  };
+}
+
+// --- Factures prévisionnelles (20261118_forecast_customer_invoices.sql) ---
+
+function facturePrevisionnelleToRow(companyId: string, p: FacturePrevisionnelle): Row {
+  const r = p.rapprochement;
+  return {
+    id: p.id,
+    company_id: companyId,
+    client: p.client,
+    montant: p.montant,
+    date_facturation_prevue: dateOuNull(p.dateFacturationPrevue),
+    date_encaissement_prevue: dateOuNull(p.dateEncaissementPrevue),
+    customer_invoice_id: r?.factureClientId ?? null,
+    invoice_number: r?.factureNumero ?? null,
+    invoice_pennylane_id: r?.facturePennylaneId ?? null,
+    invoice_amount: r?.montantFacture ?? null,
+    matched_at: r?.rapprocheLe ?? null,
+    ignored_invoice_keys: p.facturesIgnorees,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function rowToFacturePrevisionnelle(row: Row): FacturePrevisionnelle {
+  const rapprocheLe = (row.matched_at as string | null) ?? null;
+  return {
+    id: row.id as string,
+    client: (row.client as string | null) ?? "",
+    montant: Number(row.montant),
+    dateFacturationPrevue: (row.date_facturation_prevue as string | null) ?? "",
+    dateEncaissementPrevue: (row.date_encaissement_prevue as string | null) ?? "",
+    // matched_at fait foi : un lien dont la facture a été supprimée (customer_invoice_id remis à
+    // null par la base) reste un rapprochement — jamais d'annulation implicite.
+    rapprochement: rapprocheLe
+      ? {
+          factureClientId: (row.customer_invoice_id as string | null) ?? null,
+          factureNumero: (row.invoice_number as string | null) ?? "",
+          facturePennylaneId: (row.invoice_pennylane_id as string | null) ?? null,
+          montantFacture: Number(row.invoice_amount ?? 0),
+          rapprocheLe,
+        }
+      : null,
+    facturesIgnorees: Array.isArray(row.ignored_invoice_keys) ? (row.ignored_invoice_keys as string[]) : [],
   };
 }
 
@@ -441,6 +487,7 @@ async function initialiserAvecDonneesMock(companyId: string): Promise<DonneesEnt
     rentreesRegulieres,
     liensRapprochement: [],
     mappingsFournisseurs: [],
+    facturesPrevisionnelles: [],
   };
 }
 
@@ -456,7 +503,7 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
     return initialiserAvecDonneesMock(companyId);
   }
 
-  const [clientsRows, fournisseursRows, chargesRows, depensesRows, financementsRows, rentreesRows, liensRows, mappingsRows] =
+  const [clientsRows, fournisseursRows, chargesRows, depensesRows, financementsRows, rentreesRows, liensRows, mappingsRows, previsionnellesRows] =
     await Promise.all([
       selectAll("customer_invoices", companyId),
       selectAll("supplier_invoices", companyId),
@@ -466,6 +513,8 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
       selectAll("recurring_income", companyId),
       selectAllSiTableExiste("fixed_charge_invoice_links", companyId),
       selectAllSiTableExiste("fixed_charge_supplier_mappings", companyId),
+      // Migration 20261118 pas encore passée : aucune prévisionnelle, le cockpit s'ouvre normalement.
+      selectAllSiTableExiste("forecast_customer_invoices", companyId),
     ]);
 
   return {
@@ -480,6 +529,7 @@ export async function chargerOuInitialiserDonnees(companyId: string): Promise<Do
     rentreesRegulieres: rentreesRows.map(rowToRentreeReguliere),
     liensRapprochement: liensRows.map(rowToLienRapprochement),
     mappingsFournisseurs: mappingsRows.map(rowToMappingFournisseur),
+    facturesPrevisionnelles: previsionnellesRows.map(rowToFacturePrevisionnelle),
   };
 }
 
@@ -501,6 +551,15 @@ export async function sauvegarderFactureClient(companyId: string, facture: Factu
 
 export async function supprimerFactureClient(id: string): Promise<void> {
   await deleteOne("customer_invoices", id);
+}
+
+/** Crée ou met à jour une prévisionnelle (saisie, rapprochement, annulation, « Ignorer »). */
+export async function sauvegarderFacturePrevisionnelle(companyId: string, prevision: FacturePrevisionnelle): Promise<void> {
+  await upsertOne("forecast_customer_invoices", facturePrevisionnelleToRow(companyId, prevision));
+}
+
+export async function supprimerFacturePrevisionnelle(id: string): Promise<void> {
+  await deleteOne("forecast_customer_invoices", id);
 }
 
 export async function sauvegarderFactureFournisseur(
@@ -813,7 +872,7 @@ async function selectToutServeur(admin: SupabaseClient, table: string, companyId
 
 /** Données de prévision d'une société, lues côté serveur (aucune donnée de démonstration créée). */
 export async function chargerDonneesPrevisionServeur(admin: SupabaseClient, companyId: string) {
-  const [clients, fournisseurs, charges, depenses, financementsRows, rentrees, liens] = await Promise.all([
+  const [clients, fournisseurs, charges, depenses, financementsRows, rentrees, liens, previsionnelles] = await Promise.all([
     selectToutServeur(admin, "customer_invoices", companyId),
     selectToutServeur(admin, "supplier_invoices", companyId),
     selectToutServeur(admin, "fixed_charges", companyId),
@@ -821,6 +880,7 @@ export async function chargerDonneesPrevisionServeur(admin: SupabaseClient, comp
     selectToutServeur(admin, "financings", companyId),
     selectToutServeur(admin, "recurring_income", companyId),
     selectToutServeur(admin, "fixed_charge_invoice_links", companyId, true),
+    selectToutServeur(admin, "forecast_customer_invoices", companyId, true),
   ]);
   return {
     facturesClients: clients.map(rowToFactureClient),
@@ -830,6 +890,7 @@ export async function chargerDonneesPrevisionServeur(admin: SupabaseClient, comp
     financements: financementsRows.map(rowToFinancement),
     rentreesRegulieres: rentrees.map(rowToRentreeReguliere),
     liensRapprochement: liens.map(rowToLienRapprochement),
+    facturesPrevisionnelles: previsionnelles.map(rowToFacturePrevisionnelle),
   };
 }
 

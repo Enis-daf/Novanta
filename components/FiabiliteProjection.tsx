@@ -20,6 +20,7 @@ import type { DetailFiabilite, PointFiabilite, ReponseFiabilite } from "@/lib/fi
 
 const LIBELLES_SOURCE: Record<SourceFlux, string> = {
   facture_client: "Facture client",
+  facture_previsionnelle: "Facture prévisionnelle",
   facture_fournisseur: "Facture fournisseur",
   financement: "Financement prévu",
   charge_fixe: "Charge fixe",

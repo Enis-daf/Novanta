@@ -1047,6 +1047,39 @@ input[type="checkbox"] {
   opacity: 0.55;
 }
 
+/* Factures prévisionnelles : bloc distinct des factures réelles, sans nouvelle couleur — un filet
+   pointillé au-dessus et une ligne d'explication. */
+/* Les cartes de rapprochement restent fixes : seul le tableau défile horizontalement. */
+.table-wrapper--previsionnelles {
+  overflow-x: visible;
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--couleur-bordure);
+}
+
+.table-wrapper__defilement {
+  overflow-x: auto;
+}
+
+.table-wrapper__intro {
+  margin: -4px 0 10px;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.rapprochement__liste--previsionnelles {
+  margin-bottom: var(--space-2);
+}
+
+.etiquette--previsionnelle {
+  color: var(--couleur-texte);
+  white-space: nowrap;
+}
+
+.etiquette--facturee {
+  color: var(--couleur-texte-secondaire);
+}
+
 .row--en-retard {
   background: var(--couleur-fond-alt-rose);
 }

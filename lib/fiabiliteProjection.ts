@@ -15,6 +15,7 @@ import {
 import { EtagePnl, MappingCategorie, ventilerTransaction } from "./pastCategoryMapping";
 import { PastTransactionStockee } from "./pastTransactions";
 import { Remplacements } from "./remplacementsOccurrences";
+import type { FacturePrevisionnelle } from "./facturesPrevisionnelles";
 import { AutreDepense, ChargeFixe, FactureClient, FactureFournisseur, Financement, RentreeReguliere } from "./types";
 
 /**
@@ -34,7 +35,8 @@ import { AutreDepense, ChargeFixe, FactureClient, FactureFournisseur, Financemen
 export const FUSEAU_REFERENCE = "Europe/Paris";
 // Version des règles de construction d'une référence : enregistrée avec chaque référence.
 // 2 : une facture fournisseur non payée échue avant le début de la période compte au premier jour.
-export const VERSION_MOTEUR_REFERENCE = 2;
+// 3 : les factures prévisionnelles À facturer comptent (source « facture_previsionnelle »).
+export const VERSION_MOTEUR_REFERENCE = 3;
 
 export type TypePeriode = "month" | "quarter";
 
@@ -182,6 +184,7 @@ export interface DonneesPrevision {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  facturesPrevisionnelles?: FacturePrevisionnelle[];
   remplacements?: Remplacements;
 }
 
