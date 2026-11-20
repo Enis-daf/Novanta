@@ -22,6 +22,7 @@ Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, co
 
 import React, { act, createElement } from "react";
 import GestionRisques, { EtatRisques, GestionRisquesVue, GROUPES_AFFICHES } from "../components/GestionRisques";
+import { COURBE } from "../components/ImpactRisqueChart";
 import { analyserRisques, ParametresRisques, PerimetreFactures } from "./probaRisques";
 import { calibrerModele } from "./probaCalibration";
 import { EvenementTresorerie, LigneProbabiliste } from "./probaEvenements";
@@ -376,5 +377,58 @@ describe("Date de passage sous zéro dans le titre du duo", () => {
     const v = rendreVue(pret(CAS_DUO()));
     assert.equal(texte(v.conteneur.querySelector(".proba-risque__titre")!.textContent!), "Le retard simultané de ces deux factures peut faire passer votre trésorerie sous zéro le 30 nov. 2026.");
     v.demonter();
+  });
+});
+
+describe("Courbes lissées de « Voir l'impact sur la courbe »", () => {
+  // Chemin SVG exact que Recharts trace pour une ligne de type COURBE (même fonction interne).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getPath } = require("recharts/lib/shape/Curve") as { getPath: (p: { type: string; points: { x: number; y: number }[]; layout: string }) => string };
+
+  /** Segments cubiques du chemin : [y0, c1, c2, y1] (le y SVG est ici le solde lui-même). */
+  function segments(soldes: number[]) {
+    const chemin = getPath({ type: COURBE, layout: "horizontal", points: soldes.map((y, x) => ({ x, y })) });
+    const nombres = chemin.replace(/^M/, "").split(/[C,L]/).map(Number);
+    const pts: [number, number][] = [];
+    for (let i = 0; i < nombres.length; i += 2) pts.push([nombres[i], nombres[i + 1]]);
+    const resultat: { y0: number; c1: number; c2: number; y1: number }[] = [];
+    for (let i = 0; i + 3 < pts.length; i += 3) resultat.push({ y0: pts[i][1], c1: pts[i + 1][1], c2: pts[i + 2][1], y1: pts[i + 3][1] });
+    return resultat;
+  }
+
+  for (const [nom, cas] of [
+    ["cas de référence", CAS_DUO],
+    ["cas asymétrique", () => reponse(35_000, [["a", 1, 20_000], ["b", 10, 15_000], ["d1", 11, -45_000], ["d2", 15, -15_000]], ["a", "b"])],
+  ] as const) {
+    test(`${nom} : chaque solde journalier exact, aucun dépassement entre deux jours, paliers horizontaux`, () => {
+      const r = cas();
+      const alerte = r.groupes.find((g) => g.type === "duo")!.alertes[0];
+      assert.equal(alerte.situations.length, 4);
+      for (const s of alerte.situations) {
+        const segs = segments(s.soldes);
+        assert.equal(segs.length, s.soldes.length - 1);
+        segs.forEach((g, j) => {
+          // La courbe passe exactement par les soldes du jour j et du jour j + 1.
+          assert.equal(g.y0, s.soldes[j]);
+          assert.equal(g.y1, s.soldes[j + 1]);
+          // Bézier contenue dans l'enveloppe de ses points de contrôle : ceux-ci restent entre les
+          // deux soldes, donc la courbe aussi — pas de creux sous zéro entre deux soldes positifs.
+          const bas = Math.min(g.y0, g.y1) - 1e-6;
+          const haut = Math.max(g.y0, g.y1) + 1e-6;
+          assert.ok(g.c1 >= bas && g.c1 <= haut && g.c2 >= bas && g.c2 <= haut, `${s.libelle}, jour ${j}`);
+          if (g.y0 === g.y1) assert.ok(g.c1 === g.y0 && g.c2 === g.y0, "palier horizontal");
+          if (g.y0 >= 0 && g.y1 >= 0) assert.ok(Math.min(g.c1, g.c2) >= -1e-6);
+        });
+      }
+      // Données, tableau et mesures inchangés par le lissage (il n'agit que sur le tracé).
+      assert.deepEqual(alerte.situations.map((s) => s.mesures.minimum), cas === CAS_DUO ? [25_000, 5_000, 10_000, -10_000] : [10_000, 5_000, 10_000, -10_000]);
+    });
+  }
+
+  test("les quatre trajectoires utilisent la même interpolation monotone", () => {
+    const source = readFileSync(join(__dirname, "../components/ImpactRisqueChart.tsx"), "utf8");
+    assert.equal(COURBE, "monotone");
+    assert.equal((source.match(/type=\{COURBE\}/g) ?? []).length, 2, "ligne du scénario et lignes de référence / intermédiaires");
+    assert.doesNotMatch(source, /stepAfter|"basis"|"natural"|"cardinal"/);
   });
 });

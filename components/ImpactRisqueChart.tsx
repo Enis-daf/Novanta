@@ -5,6 +5,13 @@ import { formatDate, formatMontant } from "@/lib/format";
 import { NEUTRES } from "@/lib/dataviz";
 import type { Situation } from "@/lib/probaRisques";
 
+// Lissage VISUEL seulement : interpolation monotone (d3 curveMonotoneX, type « monotone » de
+// Recharts). La courbe passe exactement par chaque solde journalier et reste, entre deux jours,
+// comprise entre leurs deux valeurs : aucun creux ni pic inventé, un palier reste horizontal, un
+// passage sous zéro ne peut pas apparaître entre deux soldes positifs. Les données, les infobulles,
+// le tableau et les mesures (premier passage sous zéro, point bas, durée) sont inchangés.
+export const COURBE = "monotone" as const;
+
 // Référence en pointillé encre, scénario testé (dernière situation) en rose, situations
 // intermédiaires d'un duo (A seule, B seule) en gris : même vocabulaire que la courbe Futur.
 const STYLES = [
@@ -36,9 +43,9 @@ export default function ImpactRisqueChart({ dates, situations }: { dates: string
           <ReferenceLine y={0} stroke="#c10068" strokeDasharray="4 4" />
           {situations.map((s, i) =>
             i === derniere && i > 0 ? (
-              <Line key={i} dataKey={`s${i}`} stroke="#f02894" strokeWidth={2} dot={false} isAnimationActive={false} type="stepAfter" />
+              <Line key={i} dataKey={`s${i}`} stroke="#f02894" strokeWidth={2} dot={false} isAnimationActive={false} type={COURBE} />
             ) : (
-              <Line key={i} dataKey={`s${i}`} {...STYLES[Math.min(i, STYLES.length - 1)]} strokeWidth={1.5} dot={false} isAnimationActive={false} type="stepAfter" />
+              <Line key={i} dataKey={`s${i}`} {...STYLES[Math.min(i, STYLES.length - 1)]} strokeWidth={1.5} dot={false} isAnimationActive={false} type={COURBE} />
             )
           )}
         </LineChart>
