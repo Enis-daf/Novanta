@@ -11,6 +11,7 @@ import { ajouterJours, estDateValide, genererOccurrencesRecurrentes, parseDateIS
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 import { estOccurrenceRemplacee, Remplacements } from "./remplacementsOccurrences";
+import { estPrevisionnelleActive, FacturePrevisionnelle } from "./facturesPrevisionnelles";
 
 export const HORIZON_JOURS_DEFAUT = 90;
 
@@ -22,6 +23,9 @@ export interface ParametresProjectionCash {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  // Factures prévisionnelles (lib/facturesPrevisionnelles.ts) : seules celles « À facturer » comptent,
+  // à leur date d'encaissement prévue. Absent = aucune.
+  facturesPrevisionnelles?: FacturePrevisionnelle[];
   dateDepart: string; // YYYY-MM-DD
   horizonJours?: number;
   // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
@@ -42,9 +46,44 @@ export interface ResultatProjectionCash {
 export { genererOccurrencesRecurrentes };
 export type { FrequenceRecurrence } from "./dates";
 
+/**
+ * Date à laquelle une ligne pèse sur la projection : sa date théorique, ou le premier jour de la
+ * projection si cette date le précède (ligne encore active mais en retard) — un engagement échu ne
+ * disparaît jamais de la trésorerie projetée. "" si la date théorique est absente ou invalide.
+ * Date de calcul uniquement, jamais écrite. Ne dit rien des statuts d'exclusion propres à chaque ligne.
+ * Appliquée aux factures fournisseurs et aux Autres dépenses.
+ */
+export function dateEffectiveProjection(dateTheorique: string, dateDepart: string): string {
+  if (!estDateValide(dateTheorique)) return "";
+  if (!estDateValide(dateDepart)) return dateTheorique;
+  return parseDateISO(dateTheorique) < parseDateISO(dateDepart) ? toISODate(parseDateISO(dateDepart)) : dateTheorique;
+}
+
+/**
+ * Date à laquelle une facture fournisseur pèse sur la projection : la date de paiement prévue, à
+ * défaut l'échéance ; si cette date précède le début de la projection (facture non payée en retard),
+ * le premier jour de la projection — une dette échue ne disparaît jamais de la trésorerie projetée.
+ * "" si la facture n'a ni date de paiement prévue ni échéance (exclue, comme avant).
+ * Date de calcul uniquement : la date enregistrée de la facture n'est jamais modifiée.
+ * SEULE définition de cette règle : moteur (courbe, KPIs, point bas, référence de fiabilité),
+ * synthèse mensuelle et filtre de période la partagent. Ne dit rien du statut Payée / Litigieuse.
+ */
+export function dateEffectiveFactureFournisseur(
+  facture: Pick<FactureFournisseur, "datePaiementPrevue" | "dateEcheance">,
+  dateDepart: string
+): string {
+  const dateTheorique = estDateValide(facture.datePaiementPrevue)
+    ? facture.datePaiementPrevue
+    : estDateValide(facture.dateEcheance)
+      ? facture.dateEcheance
+      : "";
+  return dateEffectiveProjection(dateTheorique, dateDepart);
+}
+
 /** Type de ligne Futur à l'origine d'un flux projeté. */
 export type SourceFlux =
   | "facture_client"
+  | "facture_previsionnelle"
   | "facture_fournisseur"
   | "financement"
   | "charge_fixe"
@@ -78,6 +117,7 @@ export function listerFluxProjetes(
     autresDepenses,
     financements,
     rentreesRegulieres,
+    facturesPrevisionnelles = [],
     dateDepart,
     horizonJours = HORIZON_JOURS_DEFAUT,
     remplacements,
@@ -101,9 +141,21 @@ export function listerFluxProjetes(
     enregistrerFlux("facture_client", facture.id, `${facture.facture} — ${facture.client}`, facture.dateEncaissementAnticipee, facture.montant);
   }
 
+  // Prévisionnelle rapprochée d'une vraie facture : exclue (la vraie facture compte seule, même payée).
+  for (const prevision of facturesPrevisionnelles) {
+    if (!estPrevisionnelleActive(prevision)) continue;
+    enregistrerFlux("facture_previsionnelle", prevision.id, `Prévisionnelle — ${prevision.client}`, prevision.dateEncaissementPrevue, prevision.montant);
+  }
+
   for (const facture of facturesFournisseurs) {
     if (facture.litigieuse || facture.payee) continue;
-    enregistrerFlux("facture_fournisseur", facture.id, `${facture.facture} — ${facture.fournisseur}`, facture.datePaiementPrevue, -facture.montant);
+    enregistrerFlux(
+      "facture_fournisseur",
+      facture.id,
+      `${facture.facture} — ${facture.fournisseur}`,
+      dateEffectiveFactureFournisseur(facture, dateDepart),
+      -facture.montant
+    );
   }
 
   for (const financement of financements) {
@@ -132,7 +184,7 @@ export function listerFluxProjetes(
   for (const depense of autresDepenses) {
     // Facturée et Payée sont deux raisons distinctes d'exclusion, comportement identique.
     if (depense.facturee || depense.payee) continue;
-    enregistrerFlux("autre_depense", depense.id, depense.libelle, depense.datePrevue, -depense.montant);
+    enregistrerFlux("autre_depense", depense.id, depense.libelle, dateEffectiveProjection(depense.datePrevue, dateDepart), -depense.montant);
   }
 
   for (const rentree of rentreesRegulieres) {

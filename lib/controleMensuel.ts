@@ -3,6 +3,7 @@ import { ajouterJours, ajouterMois, estDateValide, parseDateISO } from "./dates"
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 import { estOccurrenceRemplacee, Remplacements } from "./remplacementsOccurrences";
+import { estPrevisionnelleActive, FacturePrevisionnelle } from "./facturesPrevisionnelles";
 import {
   AutreDepense,
   ChargeFixe,
@@ -35,6 +36,9 @@ export interface ParametresControleMensuel {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  // Factures prévisionnelles : comptées tant qu'elles sont À facturer, comme les autres lignes
+  // prévues (financements, rentrées) ; rapprochées, jamais (la vraie facture compte). Absent = aucune.
+  facturesPrevisionnelles?: FacturePrevisionnelle[];
   // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
   // elles ne génèrent aucun flux, la facture portant seule la dépense. Absent = aucun remplacement.
   remplacements?: Remplacements;
@@ -118,6 +122,14 @@ export function calculerControleMensuel(
     const date = parseDateISO(f.dateEncaissementAnticipee);
     if (!dansPeriode(date, debut, fin)) continue;
     ajouterAuMois(totaux, date, f.montant, "entree");
+  }
+
+  for (const p of params.facturesPrevisionnelles ?? []) {
+    if (!estPrevisionnelleActive(p)) continue;
+    if (!estDateValide(p.dateEncaissementPrevue)) continue;
+    const date = parseDateISO(p.dateEncaissementPrevue);
+    if (!dansPeriode(date, debut, fin)) continue;
+    ajouterAuMois(totaux, date, p.montant, "entree");
   }
 
   for (const f of params.financements) {

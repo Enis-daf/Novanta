@@ -1,5 +1,6 @@
 import { formatDateCourte } from "./dates";
 import { AutreDepense, ChargeFixe, FactureClient, FactureFournisseur, Financement, RentreeReguliere } from "./types";
+import type { FacturePrevisionnelle } from "./facturesPrevisionnelles";
 
 /** Minuscules et sans accents, pour une recherche insensible à la casse et aux accents. */
 export function normaliserRecherche(texte: string): string {
@@ -28,6 +29,19 @@ export function filtrerFacturesClients(factures: FactureClient[], recherche: str
       f.montant,
       formatDateCourte(f.dateEcheance),
       formatDateCourte(f.dateEncaissementAnticipee)
+    )
+  );
+}
+
+export function filtrerFacturesPrevisionnelles(previsions: FacturePrevisionnelle[], recherche: string): FacturePrevisionnelle[] {
+  return previsions.filter((p) =>
+    correspond(
+      recherche,
+      p.client,
+      p.montant,
+      p.rapprochement?.factureNumero,
+      formatDateCourte(p.dateFacturationPrevue),
+      formatDateCourte(p.dateEncaissementPrevue)
     )
   );
 }

@@ -6,6 +6,7 @@ import {
   filtrerChargesFixes,
   filtrerFacturesClients,
   filtrerFacturesFournisseurs,
+  filtrerFacturesPrevisionnelles,
   filtrerFinancements,
   filtrerRentreesRegulieres,
 } from "./recherche";
@@ -13,6 +14,7 @@ import { OccurrencesParId, PeriodeFiltre } from "./periodeFiltre";
 import { ResultatProjectionCash } from "./cash-engine";
 import { ResultatSyntheseMensuelle } from "./syntheseMensuelle";
 import { detailChargeFixeSurPeriode, libelleSourceCalcul, montantApercuChargeFixe } from "./montantCalcule";
+import { FacturePrevisionnelle, libelleStatut } from "./facturesPrevisionnelles";
 import { etatTotalPonderations, montantOccurrenceRentreeReguliere, montantRentreeReguliereSurPeriode, totalPonderations } from "./saisonnalite";
 
 // Ce module RECOMPOSE, pour chaque catégorie, exactement la même chaîne filtre → recherche →
@@ -71,6 +73,7 @@ function dateOuNull(iso: string | null | undefined): Date | null {
 
 export interface FiltresParCategorie {
   facturesClients: OccurrencesParId | null;
+  facturesPrevisionnelles?: OccurrencesParId | null;
   facturesFournisseurs: OccurrencesParId | null;
   chargesFixes: OccurrencesParId | null;
   autresDepenses: OccurrencesParId | null;
@@ -92,6 +95,7 @@ export interface ParametresExportExcel {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  facturesPrevisionnelles?: FacturePrevisionnelle[];
   filtresParCategorie: FiltresParCategorie;
   periodeFiltre: PeriodeFiltre | null;
 }
@@ -136,6 +140,36 @@ function construireFeuilleFacturesClients(classeur: ExcelJS.Workbook, params: Pa
       litigieuse: ouiNon(f.litigieuse),
       payee: ouiNon(f.payee),
       retard: ouiNon(estEnRetard(f.dateEncaissementAnticipee, f.payee, f.litigieuse)),
+    });
+  }
+}
+
+// Même chaîne que FacturesPrevisionnellesTable : période (À facturer seulement), recherche, tri.
+function lignesFacturesPrevisionnellesVisibles(params: ParametresExportExcel): FacturePrevisionnelle[] {
+  const toutes = params.facturesPrevisionnelles ?? [];
+  const filtrePeriode = params.filtresParCategorie.facturesPrevisionnelles ?? null;
+  const dansPeriode = filtrePeriode ? toutes.filter((p) => filtrePeriode.has(p.id)) : toutes;
+  const filtrees = filtrerFacturesPrevisionnelles(dansPeriode, params.recherche);
+  return params.tri === "montant"
+    ? trierParMontant(filtrees, (p) => p.montant)
+    : trierParDate(filtrees, (p) => p.dateEncaissementPrevue);
+}
+
+function construireFeuilleFacturesPrevisionnelles(classeur: ExcelJS.Workbook, params: ParametresExportExcel) {
+  const feuille = ajouterFeuille(classeur, "Factures prévisionnelles", [
+    { header: "Client / libellé", key: "client", width: 24 },
+    { header: "Montant prévisionnel", key: "montant", width: 18, style: { numFmt: FMT_MONTANT } },
+    { header: "Facturation prévue", key: "dateFacturation", width: 18, style: { numFmt: FMT_DATE } },
+    { header: "Encaissement prévu", key: "dateEncaissement", width: 18, style: { numFmt: FMT_DATE } },
+    { header: "Statut", key: "statut", width: 32 },
+  ]);
+  for (const p of lignesFacturesPrevisionnellesVisibles(params)) {
+    feuille.addRow({
+      client: p.client,
+      montant: p.montant,
+      dateFacturation: dateOuNull(p.dateFacturationPrevue),
+      dateEncaissement: dateOuNull(p.dateEncaissementPrevue),
+      statut: libelleStatut(p, params.facturesClients),
     });
   }
 }
@@ -406,6 +440,7 @@ export async function genererExportExcel(params: ParametresExportExcel): Promise
   // L'onglet Synthèse en premier : c'est la vue d'ensemble, indépendante des filtres.
   construireFeuilleSynthese(classeur, params);
   construireFeuilleFacturesClients(classeur, params);
+  construireFeuilleFacturesPrevisionnelles(classeur, params);
   construireFeuilleFacturesFournisseurs(classeur, params);
   construireFeuilleChargesFixes(classeur, params);
   construireFeuilleRentreesRegulieres(classeur, params);

@@ -1,8 +1,9 @@
-import { genererOccurrencesRecurrentes } from "./cash-engine";
+import { dateEffectiveFactureFournisseur, dateEffectiveProjection, genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 import { estOccurrenceRemplacee, Remplacements } from "./remplacementsOccurrences";
+import { estPrevisionnelleActive, FacturePrevisionnelle } from "./facturesPrevisionnelles";
 import {
   AutreDepense,
   ChargeFixe,
@@ -37,6 +38,8 @@ export interface ParametresSyntheseMensuelle {
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  // Factures prévisionnelles : mêmes règles que le moteur (À facturer seulement). Absent = aucune.
+  facturesPrevisionnelles?: FacturePrevisionnelle[];
   // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
   // elles ne génèrent aucun flux, la facture portant seule la dépense. Absent = aucun remplacement.
   remplacements?: Remplacements;
@@ -108,12 +111,26 @@ function occurrencesFacturesClients(factures: FactureClient[], debut: Date, fin:
   return res;
 }
 
-function occurrencesFacturesFournisseurs(factures: FactureFournisseur[], debut: Date, fin: Date): Occurrence[] {
+function occurrencesFacturesPrevisionnelles(previsions: FacturePrevisionnelle[], debut: Date, fin: Date): Occurrence[] {
+  const res: Occurrence[] = [];
+  for (const p of previsions) {
+    if (!estPrevisionnelleActive(p)) continue; // rapprochée : la vraie facture compte seule
+    if (!estDateValide(p.dateEncaissementPrevue)) continue;
+    const date = parseDateISO(p.dateEncaissementPrevue);
+    if (!dansHorizon(date, debut, fin)) continue;
+    res.push({ date, montant: p.montant });
+  }
+  return res;
+}
+
+function occurrencesFacturesFournisseurs(factures: FactureFournisseur[], dateReleve: string, debut: Date, fin: Date): Occurrence[] {
   const res: Occurrence[] = [];
   for (const f of factures) {
     if (f.litigieuse || f.payee) continue;
-    if (!estDateValide(f.datePaiementPrevue)) continue;
-    const date = parseDateISO(f.datePaiementPrevue);
+    // Même date que le moteur : une facture en retard compte au premier jour de la projection.
+    const dateEffective = dateEffectiveFactureFournisseur(f, dateReleve);
+    if (!estDateValide(dateEffective)) continue;
+    const date = parseDateISO(dateEffective);
     if (!dansHorizon(date, debut, fin)) continue;
     res.push({ date, montant: -f.montant });
   }
@@ -132,13 +149,15 @@ function occurrencesFinancements(financements: Financement[], debut: Date, fin: 
   return res;
 }
 
-function occurrencesAutresDepenses(depenses: AutreDepense[], debut: Date, fin: Date): Occurrence[] {
+function occurrencesAutresDepenses(depenses: AutreDepense[], dateReleve: string, debut: Date, fin: Date): Occurrence[] {
   const res: Occurrence[] = [];
   for (const d of depenses) {
     // Facturée et Payée sont deux raisons distinctes d'exclusion, comportement identique.
     if (d.facturee || d.payee) continue;
-    if (!estDateValide(d.datePrevue)) continue;
-    const date = parseDateISO(d.datePrevue);
+    // Même date que le moteur : une dépense en retard compte au premier jour de la projection.
+    const dateEffective = dateEffectiveProjection(d.datePrevue, dateReleve);
+    if (!estDateValide(dateEffective)) continue;
+    const date = parseDateISO(dateEffective);
     if (!dansHorizon(date, debut, fin)) continue;
     res.push({ date, montant: -d.montant });
   }
@@ -196,6 +215,7 @@ export function calculerSyntheseMensuelle(params: ParametresSyntheseMensuelle): 
     autresDepenses,
     financements,
     rentreesRegulieres,
+    facturesPrevisionnelles = [],
     remplacements,
   } = params;
 
@@ -209,11 +229,12 @@ export function calculerSyntheseMensuelle(params: ParametresSyntheseMensuelle): 
 
   const lignes: LigneSynthese[] = [
     ligne("Factures clients", occurrencesFacturesClients(facturesClients, debut, fin), mois),
+    ligne("Factures prévisionnelles", occurrencesFacturesPrevisionnelles(facturesPrevisionnelles, debut, fin), mois),
     ligne("Rentrées régulières", occurrencesRentreesRegulieres(rentreesRegulieres, debut, fin), mois),
     ligne("Financements", occurrencesFinancements(financements, debut, fin), mois),
-    ligne("Factures fournisseurs", occurrencesFacturesFournisseurs(facturesFournisseurs, debut, fin), mois),
+    ligne("Factures fournisseurs", occurrencesFacturesFournisseurs(facturesFournisseurs, dateReleve, debut, fin), mois),
     ligne("Charges fixes", occurrencesChargesFixes(chargesFixes, rentreesRegulieres, debut, fin, remplacements), mois),
-    ligne("Autres dépenses", occurrencesAutresDepenses(autresDepenses, debut, fin), mois),
+    ligne("Autres dépenses", occurrencesAutresDepenses(autresDepenses, dateReleve, debut, fin), mois),
   ];
 
   return { mois, lignes };

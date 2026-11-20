@@ -415,10 +415,10 @@ describe("calculerSyntheseMensuelle — agrégation mensuelle avec le montant ca
       rentreesRegulieres: [ca],
     });
 
-    // Aucune nouvelle catégorie "Saisonnières" : uniquement les 6 lignes habituelles.
+    // Aucune nouvelle catégorie "Saisonnières" : uniquement les lignes habituelles.
     assert.deepEqual(
       resultat.lignes.map((l) => l.libelle),
-      ["Factures clients", "Rentrées régulières", "Financements", "Factures fournisseurs", "Charges fixes", "Autres dépenses"]
+      ["Factures clients", "Factures prévisionnelles", "Rentrées régulières", "Financements", "Factures fournisseurs", "Charges fixes", "Autres dépenses"]
     );
 
     const ligneRentrees = resultat.lignes.find((l) => l.libelle === "Rentrées régulières")!;

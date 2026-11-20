@@ -1,8 +1,9 @@
-import { genererOccurrencesRecurrentes } from "./cash-engine";
+import { dateEffectiveFactureFournisseur, dateEffectiveProjection, genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO, toISODate } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
 import { estOccurrenceRemplacee, Remplacements } from "./remplacementsOccurrences";
+import { estPrevisionnelleActive, FacturePrevisionnelle } from "./facturesPrevisionnelles";
 import {
   AutreDepense,
   ChargeFixe,
@@ -121,6 +122,7 @@ export interface ResumePeriode {
 export interface ResultatFluxPeriode {
   resume: ResumePeriode;
   idsFacturesClients: OccurrencesParId;
+  idsFacturesPrevisionnelles: OccurrencesParId;
   idsFacturesFournisseurs: OccurrencesParId;
   idsAutresDepenses: OccurrencesParId;
   idsFinancements: OccurrencesParId;
@@ -131,12 +133,17 @@ export interface ResultatFluxPeriode {
 export interface ParametresFluxPeriode {
   debut: string; // YYYY-MM-DD
   fin: string; // YYYY-MM-DD
+  // Premier jour de la projection (dateDepart du moteur) : une facture fournisseur ou une Autre dépense
+  // en retard y est comptée, comme dans la courbe. Absent = date de chaque ligne telle quelle.
+  dateDepart?: string;
   facturesClients: FactureClient[];
   facturesFournisseurs: FactureFournisseur[];
   chargesFixes: ChargeFixe[];
   autresDepenses: AutreDepense[];
   financements: Financement[];
   rentreesRegulieres: RentreeReguliere[];
+  // Factures prévisionnelles : À facturer seulement, comme le moteur. Absent = aucune.
+  facturesPrevisionnelles?: FacturePrevisionnelle[];
   // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
   // elles ne génèrent aucun flux, la facture portant seule la dépense. Absent = aucun remplacement.
   remplacements?: Remplacements;
@@ -160,9 +167,17 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
     debut,
     fin
   );
+  const facturesPrevisionnellesRes = itemSimple(
+    params.facturesPrevisionnelles ?? [],
+    (p) => p.dateEncaissementPrevue,
+    1,
+    (p) => !estPrevisionnelleActive(p),
+    debut,
+    fin
+  );
   const facturesFournisseursRes = itemSimple(
     params.facturesFournisseurs,
-    (f) => f.datePaiementPrevue,
+    (f) => dateEffectiveFactureFournisseur(f, params.dateDepart ?? ""),
     -1,
     (f) => f.litigieuse || f.payee,
     debut,
@@ -170,7 +185,7 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
   );
   const autresDepensesRes = itemSimple(
     params.autresDepenses,
-    (d) => d.datePrevue,
+    (d) => dateEffectiveProjection(d.datePrevue, params.dateDepart ?? ""),
     -1,
     (d) => d.facturee || d.payee,
     debut,
@@ -216,12 +231,13 @@ export function calculerFluxPeriode(params: ParametresFluxPeriode): ResultatFlux
     fin
   );
 
-  const entrees = facturesClientsRes.totalSigne + financementsRes.totalSigne + rentreesRegulieresRes.totalSigne;
+  const entrees = facturesClientsRes.totalSigne + facturesPrevisionnellesRes.totalSigne + financementsRes.totalSigne + rentreesRegulieresRes.totalSigne;
   const sorties = facturesFournisseursRes.totalSigne + chargesFixesRes.totalSigne + autresDepensesRes.totalSigne;
 
   return {
     resume: { entrees, sorties, net: entrees + sorties },
     idsFacturesClients: facturesClientsRes.parId,
+    idsFacturesPrevisionnelles: facturesPrevisionnellesRes.parId,
     idsFacturesFournisseurs: facturesFournisseursRes.parId,
     idsAutresDepenses: autresDepensesRes.parId,
     idsFinancements: financementsRes.parId,
