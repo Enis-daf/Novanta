@@ -13,6 +13,8 @@
  *   financement    ajoute le financement confirmé de 30 000 € à J8 (étape « agir avant ») ;
  *   a-en-retard    date d'encaissement de A passée (vérification des factures en retard) ;
  *   reancrer       réécrit le jeu à l'état initial avec un nouveau J0 (--j0, défaut : aujourd'hui) ;
+ *   renommer       applique aux factures du jeu leurs noms actuels (numéro, client, fournisseur),
+ *                  sans toucher à rien d'autre : montants, dates, hypothèses et état de la démo ;
  *   retirer        supprime les seules lignes du jeu et rétablit l'existant depuis l'inventaire.
  *
  * Garde-fous : société imposée (SOCIETE ci-dessous) et revérifiée (nom, offre) avant toute
@@ -211,6 +213,27 @@ async function main() {
     case "reancrer":
       await ecrireJeu(jeuPilotage(SOCIETE, j0Arg ?? aujourdhui), "initial");
       break;
+    case "renommer": {
+      // Seules les colonnes de nom, ligne par ligne, par identifiant du jeu : l'état de la démo
+      // (dates, hypothèses, financement ajouté…) est conservé tel quel.
+      const jeu = jeuPilotage(SOCIETE, j0);
+      for (const f of jeu.facturesClients) {
+        await action(`renommage customer_invoices ${f.id} -> « ${f.facture} — ${f.client} »`, () =>
+          admin.from("customer_invoices").update({ facture: f.facture, client: f.client }).eq("company_id", SOCIETE).eq("id", f.id)
+        );
+      }
+      for (const f of jeu.facturesFournisseurs) {
+        await action(`renommage supplier_invoices ${f.id} -> « ${f.facture} — ${f.fournisseur} »`, () =>
+          admin.from("supplier_invoices").update({ facture: f.facture, fournisseur: f.fournisseur }).eq("company_id", SOCIETE).eq("id", f.id)
+        );
+      }
+      for (const p of jeu.facturesPrevisionnelles) {
+        await action(`renommage forecast_customer_invoices ${p.id} -> « ${p.client} »`, () =>
+          admin.from("forecast_customer_invoices").update({ client: p.client }).eq("company_id", SOCIETE).eq("id", p.id)
+        );
+      }
+      break;
+    }
     case "retirer": {
       if (!inventaire) throw new Error("Aucun inventaire : rien à rétablir.");
       for (const table of ["customer_invoices", "supplier_invoices", "fixed_charges", "other_expenses", "financings", "recurring_income", "forecast_customer_invoices"]) {

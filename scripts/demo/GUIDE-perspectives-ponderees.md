@@ -4,7 +4,7 @@ Compte : **Compte démo** (société `9d5170e6-019f-41ae-9782-c86085cb59cd`, off
 Où : **Preview de la PR #44** — https://novanta-git-feature-prevision-probabiliste-novanta.vercel.app — connecté avec le compte propriétaire du « Compte démo ».
 Chemin : en-tête **Futur** → onglet **Perspectives pondérées**.
 
-Toutes les données de la démonstration sont fictives et portent le préfixe **DEMO-PILOTAGE** (clients « DEMO — … »). Les lignes Futur qui existaient déjà dans le compte ont été mises de côté (À couper, Versé, Payée…) et sont rétablies à la demande.
+Toutes les données de la démonstration sont fictives. Les factures ont des numéros et des clients lisibles (FA-2026-101, Atelier Aurore…) ; les autres lignes (charges, dépenses, financements, rentrées) portent le préfixe **DEMO-PILOTAGE** dans leur libellé. Les lignes Futur qui existaient déjà dans le compte ont été mises de côté (À couper, Versé, Payée…) et sont rétablies à la demande.
 
 **Message à faire passer :** « Nous identifions les encaissements dont dépend votre trésorerie, nous voyons quand leur retard créerait un déficit et nous pouvons tester une réponse avant d'être dans l'urgence. »
 
@@ -13,11 +13,11 @@ Toutes les données de la démonstration sont fictives et portent le préfixe **
 | | Date | Flux de référence |
 |---|---|---:|
 | J0 | 20 nov. 2026 | Solde du relevé : **35 000 €** |
-| J1 | 21 nov. 2026 | Facture **DEMO-PILOTAGE-A** — DEMO — Atelier Aurore : +20 000 € (échéance contractuelle déjà passée, le 8 nov. ; encaissement actualisé au 21 nov.) |
-| J10 | 30 nov. 2026 | Facture **DEMO-PILOTAGE-B** — DEMO — Studio Boréal : +15 000 € |
+| J1 | 21 nov. 2026 | Facture **FA-2026-101** — Atelier Aurore : +20 000 € (échéance contractuelle déjà passée, le 8 nov. ; encaissement actualisé au 21 nov.) |
+| J10 | 30 nov. 2026 | Facture **FA-2026-102** — Studio Boréal : +15 000 € |
 | J11 | 1er déc. 2026 | Paie : −45 000 € |
 | J15 | 5 déc. 2026 | Échéances sociales et fiscales : −15 000 € |
-| J20 | 10 déc. 2026 | Facture **DEMO-PILOTAGE-D** — DEMO — Groupe Rivage : +50 000 € (reste dû d'une facture de 80 000 € dont 30 000 € déjà encaissés avant J0, donc dans le solde) |
+| J20 | 10 déc. 2026 | Facture **FA-2026-104** — Groupe Rivage : +50 000 € (reste dû d'une facture de 80 000 € dont 30 000 € déjà encaissés avant J0, donc dans le solde) |
 | J25 | 15 déc. 2026 | Fournisseurs du mois : −35 000 € |
 | J35 | 25 déc. 2026 | Contrats récurrents : +18 000 €/mois (**à renseigner**) |
 | J40 | 30 déc. 2026 | Équipe existante : −22 000 €/mois |
@@ -54,7 +54,7 @@ Référence (vérifiée sur les données en base) : **25 000 €** le 1er déc. 
 
 ### 4. Ouvrir l'alerte du duo
 - **Où :** Gestion des risques → carte **« Le retard simultané de ces deux factures peut faire passer votre trésorerie sous zéro le 01 déc. 2026. »**
-- **À voir :** DEMO-PILOTAGE-A : prévu le 21 nov., testé le 2 déc. (+11 jours) · DEMO-PILOTAGE-B : prévu le 30 nov., testé le 2 déc. (+2 jours) · **Tension le 01 déc. 2026 · déficit 10 000 € · 1 jour sous zéro** · « Ce jour-là sont aussi prévus : Paie (45 000 €) ».
+- **À voir :** FA-2026-101 (Atelier Aurore) : prévu le 21 nov., testé le 2 déc. (+11 jours) · FA-2026-102 (Studio Boréal) : prévu le 30 nov., testé le 2 déc. (+2 jours) · **Tension le 01 déc. 2026 · déficit 10 000 € · 1 jour sous zéro** · « Ce jour-là sont aussi prévus : Paie (45 000 €) ».
 - **Voir les 2 factures** : reste à encaisser, dates de référence et dates testées.
 - **À dire :** aucune des deux factures n'est dangereuse seule à ces dates ; ensemble, elles créent un déficit à couvrir de 10 000 € le jour de la paie.
 
@@ -64,7 +64,7 @@ Référence (vérifiée sur les données en base) : **25 000 €** le 1er déc. 
 - **À dire :** recevoir l'un des deux règlements à temps suffit à éviter le creux.
 
 ### 6. Ouvrir la facture D (encaissement critique)
-- **Où :** Gestion des risques → carte « Un retard sur cette facture peut faire passer votre trésorerie sous zéro. » (DEMO-PILOTAGE-D).
+- **Où :** Gestion des risques → carte « Un retard sur cette facture peut faire passer votre trésorerie sous zéro. » (FA-2026-104, Groupe Rivage).
 - **À voir :** reste à encaisser **50 000 €**, encaissement prévu le 10 déc., « Un paiement après le 15 déc. 2026 provoquerait une tension » · **Tension le 15 déc. 2026 · déficit 25 000 €**.
 - **À dire :** le déficit à couvrir est de 25 000 € — pas les 50 000 € restant dus, ni les 80 000 € facturés. Si D arrivait le 18 déc., le compte resterait à −25 000 € du 15 au 17 déc., puis remonterait à 25 000 €. L'alerte montre le premier jour de retard qui crée la tension (paiement le 16 déc.).
 - Autre carte visible : « Deux factures présentent chacune un risque… » le 5 déc. (A ou B payée après le 5 déc. suffit à elle seule).

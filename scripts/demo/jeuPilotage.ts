@@ -6,9 +6,11 @@ import type { HypotheseLigne } from "../../lib/probaEvenements";
 
 /**
  * Jeu de démonstration « Perspectives pondérées » (offre Pilotage). Données FICTIVES, toutes
- * repérées par le préfixe DEMO-PILOTAGE (numéro de facture ou libellé) et par des identifiants
- * DÉTERMINISTES (dérivés de la société et d'une clé stable) : réécrire le jeu met à jour les mêmes
- * lignes, sans doublon ; le retirer ne touche qu'elles.
+ * repérées par des identifiants DÉTERMINISTES (dérivés de la société et d'une clé stable) :
+ * réécrire le jeu met à jour les mêmes lignes, sans doublon ; le retirer ne touche qu'elles.
+ * Les factures portent des numéros et des noms de clients lisibles, sans marque de démonstration ;
+ * les autres lignes (charges, dépenses, financements, rentrées) gardent le préfixe DEMO-PILOTAGE
+ * dans leur libellé, qui sert aussi à repérer une ligne saisie pendant une démonstration.
  *
  * Toutes les dates sont relatives à J0 (date du relevé, cash_settings.date_releve) : réancrer le
  * jeu = le réécrire avec un autre J0.
@@ -25,10 +27,10 @@ import type { HypotheseLigne } from "../../lib/probaEvenements";
 export const PREFIXE = "DEMO-PILOTAGE";
 
 export const CLIENTS = {
-  aurore: "DEMO — Atelier Aurore", // ponctuel
-  boreal: "DEMO — Studio Boréal", // irrégulier
-  rivage: "DEMO — Groupe Rivage", // régulièrement tardif
-  nova: "DEMO — Nova Horizon", // nouveau client, sans historique propre
+  aurore: "Atelier Aurore", // ponctuel
+  boreal: "Studio Boréal", // irrégulier
+  rivage: "Groupe Rivage", // régulièrement tardif
+  nova: "Nova Horizon", // nouveau client, sans historique propre
 } as const;
 
 /** UUID déterministe (forme v5) : même société, même clé -> même identifiant. */
@@ -68,9 +70,10 @@ export const SEUIL_RECRUTEMENT = 60_000;
 export function jeuPilotage(companyId: string, j0: string, options: OptionsJeu = {}): JeuDemo {
   const j = (n: number) => decalerDateISO(j0, n);
   const id = (cle: string) => uuidDemo(companyId, cle);
-  const facture = (cle: string, client: string, montant: number, echeance: string, anticipee: string, extra: Partial<FactureClient> = {}): FactureClient => ({
+  // Numéro affiché lisible ; l'identité de la ligne reste la clé (id déterministe).
+  const facture = (cle: string, numero: string, client: string, montant: number, echeance: string, anticipee: string, extra: Partial<FactureClient> = {}): FactureClient => ({
     id: id(cle),
-    facture: `${PREFIXE}-${cle}`,
+    facture: numero,
     client,
     montant,
     dateEcheance: echeance,
@@ -87,10 +90,10 @@ export function jeuPilotage(companyId: string, j0: string, options: OptionsJeu =
   const dateA = options.factureAEnRetard === "date_passee" ? j(-3) : options.factureAEnRetard === "sans_date" ? "" : j(1);
   const facturesClients: JeuDemo["facturesClients"] = [
     // A : échéance contractuelle déjà passée (J−12), encaissement actualisé à J1.
-    facture("A", CLIENTS.aurore, 20_000, j(-12), dateA),
-    facture("B", CLIENTS.boreal, 15_000, j(10), j(10)),
+    facture("A", "FA-2026-101", CLIENTS.aurore, 20_000, j(-12), dateA),
+    facture("B", "FA-2026-102", CLIENTS.boreal, 15_000, j(10), j(10)),
     // D : facture de 80 000 € dont 30 000 € réglés avant J0 (déjà dans le solde) : reste dû 50 000 €.
-    facture("D", CLIENTS.rivage, 50_000, j(20), j(20)),
+    facture("D", "FA-2026-104", CLIENTS.rivage, 50_000, j(20), j(20)),
   ];
 
   // --- Historique réglé (calibration) : 12 factures par profil, réglées avant J0 ---
@@ -99,25 +102,25 @@ export function jeuPilotage(companyId: string, j0: string, options: OptionsJeu =
     ["boreal", [3, 12, 25, 6, 18, 2, 30, 9, 14, 21, 5, 27]],
     ["rivage", [28, 45, 60, 35, 52, 40, 31, 58, 47, 38, 55, 42]],
   ];
-  for (const [profil, retards] of profils) {
+  profils.forEach(([profil, retards], rang) => {
     retards.forEach((retard, i) => {
       const echeance = j(-300 + i * 22 + (profil === "boreal" ? 5 : profil === "rivage" ? 9 : 0));
       const reglement = decalerDateISO(echeance, retard);
       facturesClients.push(
-        facture(`H-${profil}-${String(i + 1).padStart(2, "0")}`, CLIENTS[profil], 6_000 + i * 750, echeance, echeance, {
+        facture(`H-${profil}-${String(i + 1).padStart(2, "0")}`, `FA-2025-${String(rang * 12 + i + 1).padStart(3, "0")}`, CLIENTS[profil], 6_000 + i * 750, echeance, echeance, {
           payee: true,
           paidAt: `${reglement}T09:00:00.000Z`,
           settledOn: reglement,
         })
       );
     });
-  }
+  });
 
   const facturesFournisseurs: FactureFournisseur[] = [
     {
       id: id("F-fournisseurs"),
-      facture: `${PREFIXE}-F1`,
-      fournisseur: "DEMO — Fournisseurs du mois",
+      facture: "FF-2026-201",
+      fournisseur: "Fournisseurs du mois",
       montant: 35_000,
       dateEcheance: j(25),
       datePaiementPrevue: j(25),
@@ -176,7 +179,7 @@ export function jeuPilotage(companyId: string, j0: string, options: OptionsJeu =
   const facturesPrevisionnelles: FacturePrevisionnelle[] = [
     {
       id: id("P-acompte"),
-      client: `${CLIENTS.nova} (${PREFIXE} — acompte projet non signé)`,
+      client: `${CLIENTS.nova} (acompte projet non signé)`,
       montant: 8_000,
       dateFacturationPrevue: j(55),
       dateEncaissementPrevue: j(60),
