@@ -35,8 +35,9 @@ import { AutreDepense, ChargeFixe, FactureClient, FactureFournisseur, Financemen
 export const FUSEAU_REFERENCE = "Europe/Paris";
 // Version des règles de construction d'une référence : enregistrée avec chaque référence.
 // 2 : une facture fournisseur non payée échue avant le début de la période compte au premier jour.
-// 3 : les factures prévisionnelles À facturer comptent (source « facture_previsionnelle »).
-export const VERSION_MOTEUR_REFERENCE = 3;
+// 3 : idem pour une Autre dépense ni Facturée ni Payée.
+// 4 : les factures prévisionnelles À facturer comptent (source « facture_previsionnelle »).
+export const VERSION_MOTEUR_REFERENCE = 4;
 
 export type TypePeriode = "month" | "quarter";
 

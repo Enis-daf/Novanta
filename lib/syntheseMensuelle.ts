@@ -1,4 +1,4 @@
-import { dateEffectiveFactureFournisseur, genererOccurrencesRecurrentes } from "./cash-engine";
+import { dateEffectiveFactureFournisseur, dateEffectiveProjection, genererOccurrencesRecurrentes } from "./cash-engine";
 import { ajouterJours, estDateValide, parseDateISO } from "./dates";
 import { montantOccurrenceChargeFixe } from "./montantCalcule";
 import { montantOccurrenceRentreeReguliere } from "./saisonnalite";
@@ -149,13 +149,15 @@ function occurrencesFinancements(financements: Financement[], debut: Date, fin: 
   return res;
 }
 
-function occurrencesAutresDepenses(depenses: AutreDepense[], debut: Date, fin: Date): Occurrence[] {
+function occurrencesAutresDepenses(depenses: AutreDepense[], dateReleve: string, debut: Date, fin: Date): Occurrence[] {
   const res: Occurrence[] = [];
   for (const d of depenses) {
     // Facturée et Payée sont deux raisons distinctes d'exclusion, comportement identique.
     if (d.facturee || d.payee) continue;
-    if (!estDateValide(d.datePrevue)) continue;
-    const date = parseDateISO(d.datePrevue);
+    // Même date que le moteur : une dépense en retard compte au premier jour de la projection.
+    const dateEffective = dateEffectiveProjection(d.datePrevue, dateReleve);
+    if (!estDateValide(dateEffective)) continue;
+    const date = parseDateISO(dateEffective);
     if (!dansHorizon(date, debut, fin)) continue;
     res.push({ date, montant: -d.montant });
   }
@@ -232,7 +234,7 @@ export function calculerSyntheseMensuelle(params: ParametresSyntheseMensuelle): 
     ligne("Financements", occurrencesFinancements(financements, debut, fin), mois),
     ligne("Factures fournisseurs", occurrencesFacturesFournisseurs(facturesFournisseurs, dateReleve, debut, fin), mois),
     ligne("Charges fixes", occurrencesChargesFixes(chargesFixes, rentreesRegulieres, debut, fin, remplacements), mois),
-    ligne("Autres dépenses", occurrencesAutresDepenses(autresDepenses, debut, fin), mois),
+    ligne("Autres dépenses", occurrencesAutresDepenses(autresDepenses, dateReleve, debut, fin), mois),
   ];
 
   return { mois, lignes };
