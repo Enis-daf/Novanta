@@ -25,9 +25,10 @@ import GestionRisques, { EtatRisques, GestionRisquesVue, GROUPES_AFFICHES } from
 import { analyserRisques, ParametresRisques, PerimetreFactures } from "./probaRisques";
 import { calibrerModele } from "./probaCalibration";
 import { EvenementTresorerie, LigneProbabiliste } from "./probaEvenements";
-import { limitesCouverture, messageSansAlerte, phraseDeclencheur, phrasesReference, titreGroupe } from "./probaRisquesEcran";
+import { dateTensionDuo, limitesCouverture, messageSansAlerte, phraseDeclencheur, phrasesReference, resumeTension, titreGroupe } from "./probaRisquesEcran";
 import type { ReponseRisques } from "./probaApi";
 import { decalerDateISO } from "./dates";
+import { formatDate } from "./format";
 import { capacitesDeLOffre } from "./offres";
 
 (globalThis as unknown as { React: typeof React }).React = React;
@@ -81,7 +82,8 @@ describe("Formulations", () => {
   test("facture seule, deux factures chacune critiques, duo, aggravation : quatre messages distincts", () => {
     assert.equal(titreGroupe(CAS_SEULE().groupes[0]), "Un retard sur cette facture peut faire passer votre trésorerie sous zéro.");
     assert.equal(titreGroupe(CAS_DEUX_SEULES().groupes[0]), "Deux factures présentent chacune un risque de passage sous zéro en cas de retard.");
-    assert.equal(titreGroupe(CAS_DUO().groupes[0]), "Le retard simultané de ces deux factures peut faire passer votre trésorerie sous zéro.");
+    const duo = CAS_DUO();
+    assert.equal(texte(titreGroupe(duo.groupes[0], duo.dates)), "Le retard simultané de ces deux factures peut faire passer votre trésorerie sous zéro le 30 nov. 2026.");
     assert.equal(titreGroupe(CAS_AGGRAVATION().groupes[0]), "Le retard de cette facture aggraverait une tension déjà prévue.");
   });
 
@@ -319,5 +321,60 @@ describe("Gating Pilotage", () => {
       (["essential", "forecast", "steering"] as const).map((o) => capacitesDeLOffre(o).canViewProbabilisticForecast),
       [false, false, true]
     );
+  });
+});
+
+describe("Date de passage sous zéro dans le titre du duo", () => {
+  const verifierCoherence = (r: ReponseRisques, attendue: string) => {
+    const groupe = r.groupes.find((g) => g.type === "duo")!;
+    const alerte = groupe.alertes[0];
+    const conjoint = alerte.situations[alerte.situations.length - 1];
+    assert.equal(conjoint.libelle, "Les deux retardées");
+    // Premier jour négatif du scénario conjoint, tel que le détail et la courbe l'affichent.
+    assert.equal(r.dates[conjoint.mesures.episodeDebut!], attendue);
+    assert.equal(dateTensionDuo(groupe, r.dates), attendue);
+    assert.equal(groupe.dateTension, attendue);
+    assert.match(texte(resumeTension(alerte.mesures, r.dates)), new RegExp(`^Tension le ${texte(formatDate(attendue))}`));
+    assert.ok(texte(titreGroupe(groupe, r.dates)).endsWith(`sous zéro le ${texte(formatDate(attendue))}.`));
+    // Premier solde négatif de la courbe « Les deux retardées » = cette date.
+    const premierNegatif = conjoint.soldes.findIndex((x, j) => x < 0 && r.reference.soldes[j] >= 0);
+    assert.equal(r.dates[premierNegatif], attendue);
+  };
+
+  test("cas de référence (A le 25/11, B le 27/11, −45 000 € le 30/11) : 30 novembre", () => {
+    verifierCoherence(CAS_DUO(), decalerDateISO(DEPART, 10));
+  });
+
+  test("cas asymétrique (A +11 j, B +2 j) : J11", () => {
+    const r = reponse(35_000, [["a", 1, 20_000], ["b", 10, 15_000], ["d1", 11, -45_000], ["d2", 15, -15_000]], ["a", "b"]);
+    verifierCoherence(r, decalerDateISO(DEPART, 11));
+    assert.match(texte(titreGroupe(r.groupes.find((g) => g.type === "duo")!, r.dates)), /sous zéro le 01 déc\. 2026\.$/);
+  });
+
+  test("tension déjà prévue plus tôt : la date est celle de la tension CRÉÉE par le duo", () => {
+    // Référence négative les 23-24/11 ; le duo crée une nouvelle tension le 30/11.
+    const r = reponse(0, [["dec0", 3, -5_000], ["c", 5, 20_000], ["a", 6, 6_000], ["b", 7, 6_000], ["dec", 10, -18_000]], ["a", "b"]);
+    const groupe = r.groupes.find((g) => g.type === "duo")!;
+    const conjoint = groupe.alertes[0].situations[3];
+    assert.equal(conjoint.mesures.premierNegatif, 3, "le scénario conjoint passe d'abord sous zéro avec la tension déjà prévue");
+    assert.equal(dateTensionDuo(groupe, r.dates), decalerDateISO(DEPART, 10));
+    assert.match(texte(titreGroupe(groupe, r.dates)), /sous zéro le 30 nov\. 2026\.$/);
+  });
+
+  test("date de début de la tension, pas du point bas ; date absente : aucune date inventée", () => {
+    const base = CAS_DUO().groupes[0];
+    const dates = CAS_DUO().dates;
+    const decale = { ...base, alertes: [{ ...base.alertes[0], mesures: { ...base.alertes[0].mesures, episodeDebut: 10, jourMinimum: 12 } }] };
+    assert.equal(dateTensionDuo(decale, dates), decalerDateISO(DEPART, 10));
+    const sansDate = { ...base, alertes: [{ ...base.alertes[0], mesures: { ...base.alertes[0].mesures, episodeDebut: null } }] };
+    assert.equal(dateTensionDuo(sansDate, dates), null);
+    assert.equal(titreGroupe(sansDate, dates), "Le retard simultané de ces deux factures peut faire passer votre trésorerie sous zéro.");
+    assert.doesNotMatch(titreGroupe(sansDate, dates), /\[Date\]| le \./);
+  });
+
+  test("carte rendue : la date figure dans le titre, sans ouvrir le détail", () => {
+    const v = rendreVue(pret(CAS_DUO()));
+    assert.equal(texte(v.conteneur.querySelector(".proba-risque__titre")!.textContent!), "Le retard simultané de ces deux factures peut faire passer votre trésorerie sous zéro le 30 nov. 2026.");
+    v.demonter();
   });
 });

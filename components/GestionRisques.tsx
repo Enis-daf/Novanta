@@ -137,8 +137,8 @@ function CarteGroupe({ groupe, dates, onVoirFacture }: { groupe: GroupeAlertes; 
   const [autresOuverts, setAutresOuverts] = useState(false);
   const reste = groupe.nombreTotal - groupe.alertes.length;
   return (
-    <article className={`proba-risque proba-risque--${groupe.type}`} aria-label={titreGroupe(groupe)}>
-      <p className="proba-risque__titre">{titreGroupe(groupe)}</p>
+    <article className={`proba-risque proba-risque--${groupe.type}`} aria-label={titreGroupe(groupe, dates)}>
+      <p className="proba-risque__titre">{titreGroupe(groupe, dates)}</p>
       {groupe.alertes.map((a) => (
         <CarteAlerte key={a.id} alerte={a} dates={dates} onVoirFacture={onVoirFacture} />
       ))}

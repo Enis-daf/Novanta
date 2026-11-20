@@ -11,7 +11,19 @@ import type { AlerteRisque, CouvertureAnalyse, FactureDansAlerte, GroupeAlertes,
 const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`;
 const pourcent = (x: number) => (x > 0 && x < 0.01 ? "moins de 1 %" : x > 0.99 && x < 1 ? "plus de 99 %" : `${Math.round(x * 100)} %`);
 
-export function titreGroupe(g: GroupeAlertes): string {
+/**
+ * Date de passage sous zéro d'un duo : premier jour de l'épisode négatif que crée le scénario où
+ * les deux factures sont retardées (mesures.episodeDebut, la même source que « Tension le … » du
+ * détail et que la courbe). Ce n'est pas le jour du point bas. Si la référence avait déjà une
+ * tension plus tôt, c'est bien le début de la tension CRÉÉE par le duo qui est donné, pas celle-là.
+ * null si le calcul ne la fournit pas : aucune date n'est alors affichée.
+ */
+export function dateTensionDuo(g: GroupeAlertes, dates: string[]): string | null {
+  const jour = g.alertes[0]?.mesures.episodeDebut;
+  return jour !== null && jour !== undefined && dates[jour] ? dates[jour] : null;
+}
+
+export function titreGroupe(g: GroupeAlertes, dates: string[] = []): string {
   if (g.type === "seule") return "Un retard sur cette facture peut faire passer votre trésorerie sous zéro.";
   if (g.type === "seules_multiples") {
     return g.nombreTotal === 2
@@ -19,9 +31,11 @@ export function titreGroupe(g: GroupeAlertes): string {
       : `${g.nombreTotal} factures présentent chacune un risque de passage sous zéro en cas de retard.`;
   }
   if (g.type === "duo") {
+    const date = dateTensionDuo(g, dates);
+    const quand = date ? ` le ${formatDate(date)}` : "";
     return g.nombreTotal === 1
-      ? "Le retard simultané de ces deux factures peut faire passer votre trésorerie sous zéro."
-      : `Le retard simultané de deux de ces factures peut faire passer votre trésorerie sous zéro (${g.nombreTotal} combinaisons).`;
+      ? `Le retard simultané de ces deux factures peut faire passer votre trésorerie sous zéro${quand}.`
+      : `Le retard simultané de deux de ces factures peut faire passer votre trésorerie sous zéro${quand} (${g.nombreTotal} combinaisons).`;
   }
   return g.nombreTotal === 1
     ? "Le retard de cette facture aggraverait une tension déjà prévue."
