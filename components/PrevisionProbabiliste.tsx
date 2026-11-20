@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PrevisionProbabilisteChart from "./PrevisionProbabilisteChart";
 import HypothesesProbabilistes from "./HypothesesProbabilistes";
+import GestionRisques from "./GestionRisques";
+import type { FactureAnalysee } from "@/lib/probaRisques";
+import { estPrevisionnelleActive } from "@/lib/facturesPrevisionnelles";
+import { estDateValide } from "@/lib/dates";
 import DateField from "./DateField";
 import { formatDate, formatMontant } from "@/lib/format";
 import { listerFluxProjetes, ParametresProjectionCash, SourceFlux } from "@/lib/cash-engine";
@@ -20,6 +24,8 @@ interface PrevisionProbabilisteProps {
   projection: Omit<ParametresProjectionCash, "soldeInitial">;
   correspondance: CorrespondanceFutur;
   serieDeterministe: SoldeJournalier[];
+  // « Ouvrir dans Flux de tréso » : l'onglet Flux, recherche posée sur la facture.
+  onVoirFacture?: (terme: string) => void;
 }
 
 const DELAI_CALCUL_MS = 500;
@@ -49,7 +55,7 @@ function phraseComportement(c: ResumeCalibration): string | null {
   return `Vos clients paient en général ${median} ; ${pourcent(c.partALHeure)} des factures sont réglées à l'heure, ${pourcent(c.partPlus30)} avec plus de 30 jours de retard.`;
 }
 
-export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial, projection, correspondance, serieDeterministe }: PrevisionProbabilisteProps) {
+export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial, projection, correspondance, serieDeterministe, onVoirFacture }: PrevisionProbabilisteProps) {
   const [hypotheses, setHypotheses] = useState<Map<string, HypotheseLigne> | null>(null);
   const [erreurHypotheses, setErreurHypotheses] = useState<string | null>(null);
   const [resultat, setResultat] = useState<ReponseSimulation | null>(null);
@@ -132,6 +138,41 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
     () => (hypotheses === null ? null : construireEvenements(flux, projection, Array.from(hypotheses.values()), classement.etageDe)),
     [flux, projection, hypotheses, classement]
   );
+  // Gestion des risques : mêmes échéances que la projection, identité des factures à encaisser.
+  const facturesAnalysees = useMemo<FactureAnalysee[]>(
+    () => [
+      ...projection.facturesClients
+        .filter((f) => !f.payee && !f.litigieuse)
+        .map((f) => ({ cleLigne: cleLigne("facture_client", f.id), type: "facture_client" as const, numero: f.facture || null, client: f.client, dateEcheance: f.dateEcheance || null })),
+      ...(projection.facturesPrevisionnelles ?? [])
+        .filter(estPrevisionnelleActive)
+        .map((p) => ({ cleLigne: cleLigne("facture_previsionnelle", p.id), type: "facture_previsionnelle" as const, numero: null, client: p.client, dateEcheance: null })),
+    ],
+    [projection.facturesClients, projection.facturesPrevisionnelles]
+  );
+  // Factures ouvertes que la projection ne retient pas (date d'encaissement passée ou absente).
+  const horsProjection = useMemo(
+    () =>
+      projection.facturesClients.filter(
+        (f) => !f.payee && !f.litigieuse && (!estDateValide(f.dateEncaissementAnticipee) || f.dateEncaissementAnticipee < projection.dateDepart)
+      ).length,
+    [projection.facturesClients, projection.dateDepart]
+  );
+  const requeteRisques = useMemo(
+    () =>
+      construit === null
+        ? null
+        : {
+            soldeInitial,
+            dateDepart: projection.dateDepart,
+            horizonJours: projection.horizonJours ?? 90,
+            lignes: construit.lignes,
+            evenements: construit.evenements,
+            factures: facturesAnalysees,
+          },
+    [construit, soldeInitial, projection.dateDepart, projection.horizonJours, facturesAnalysees]
+  );
+
   const liens = useMemo(
     () => lignes.map((l) => ({ cle: l.cle, parentCle: parentDeCondition(conditionVersMoteur(l.hypothese.condition)) })),
     [lignes]
@@ -284,6 +325,14 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
           </div>
         </>
       )}
+
+      <GestionRisques
+        accessToken={accessToken}
+        actif={actif}
+        requete={requeteRisques}
+        horsProjection={horsProjection}
+        onVoirFacture={(terme) => onVoirFacture?.(terme)}
+      />
 
       <div className="proba-section">
         <h4>Hypothèses de la prévision</h4>

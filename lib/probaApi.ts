@@ -16,6 +16,7 @@ import {
 import { estEtagePnl } from "./pastCategoryMapping";
 import type { Completude } from "./probaEcran";
 import type { IndicateursRisque } from "./probaIndicateurs";
+import type { FactureAnalysee, ResultatRisques } from "./probaRisques";
 
 /**
  * Prévision probabiliste — 7. Contrat de l'API (app/api/futur/probabiliste), partagé par le
@@ -180,4 +181,40 @@ export function validerHypothese(corps: unknown): Validation<HypotheseLigne> {
       condition,
     },
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Gestion des risques (POST /api/futur/probabiliste/risques)
+// ---------------------------------------------------------------------------------------------
+
+export interface RequeteRisques extends RequeteSimulation {
+  factures: FactureAnalysee[];
+}
+
+export interface ReponseRisques extends ResultatRisques {
+  parametres: { dateDepart: string; horizonJours: number; soldeInitial: number; dureeMs: number };
+}
+
+/** Requête de simulation + factures à analyser (identité affichable de chaque facture). */
+export function validerRequeteRisques(corps: unknown): Validation<RequeteRisques> {
+  const base = validerRequeteSimulation(corps);
+  if (!base.ok) return base;
+  const brutes = (corps as Record<string, unknown>).factures;
+  if (!Array.isArray(brutes) || brutes.length > LIMITES.lignes) return { ok: false, erreur: "Factures invalides." };
+  const factures: FactureAnalysee[] = [];
+  for (const f of brutes as Record<string, unknown>[]) {
+    if (typeof f !== "object" || f === null || !estTexte(f.cleLigne, 200)) return { ok: false, erreur: "Facture invalide." };
+    if (f.type !== "facture_client" && f.type !== "facture_previsionnelle") return { ok: false, erreur: "Facture invalide." };
+    if (f.numero !== null && typeof f.numero !== "string") return { ok: false, erreur: "Facture invalide." };
+    if (typeof f.client !== "string") return { ok: false, erreur: "Facture invalide." };
+    if (f.dateEcheance !== null && !estDate(f.dateEcheance)) return { ok: false, erreur: "Échéance invalide." };
+    factures.push({
+      cleLigne: f.cleLigne,
+      type: f.type,
+      numero: f.numero === null ? null : (f.numero as string).slice(0, 100),
+      client: (f.client as string).slice(0, 300),
+      dateEcheance: f.dateEcheance as string | null,
+    });
+  }
+  return { ok: true, valeur: { ...base.valeur, factures } };
 }

@@ -2115,6 +2115,10 @@ export default function Home() {
             projection={projectionProbabiliste}
             correspondance={correspondancePnl}
             serieDeterministe={resultat.serie}
+            onVoirFacture={(terme) => {
+              setRecherche(terme);
+              setOngletFutur("flux");
+            }}
           />
         ) : droitsRisque ? (
           <OffreVerrouillee

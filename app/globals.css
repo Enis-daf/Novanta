@@ -6154,3 +6154,125 @@ button.passe-cible--lien:focus-visible,
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+/* Perspectives pondérées — Gestion des risques (encaissements critiques). */
+
+.proba-risques__sous-titre {
+  margin: 0;
+  font-size: 12px;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-risques__liste {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* Résultat qui n'est plus à jour : lisible, mais visiblement en attente. */
+.proba-risques__liste--perime {
+  opacity: 0.6;
+}
+
+.proba-risque {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-self: stretch;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--couleur-filet);
+  border-left: 3px solid var(--couleur-accent);
+  border-radius: var(--radius-sm);
+  background: var(--couleur-fond);
+}
+
+/* Tension déjà prévue : la carte ne réclame pas la même urgence. */
+.proba-risque--aggravation {
+  border-left-color: var(--couleur-filet);
+}
+
+.proba-risque__titre {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.proba-risque__alerte {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--couleur-bordure);
+}
+
+.proba-risque__alerte:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.proba-risque__declencheur,
+.proba-risque__tension {
+  margin: 0;
+  font-size: 13px;
+}
+
+.proba-risque__tension {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.proba-risque__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.proba-risque__factures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.proba-risque__factures li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.proba-risque__facture-nom {
+  font-weight: 600;
+}
+
+.proba-risque__impact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.proba-risque__autres ul {
+  margin: 4px 0 0;
+  padding-left: var(--space-3);
+}
+
+.proba-risques__hypotheses {
+  font-size: 12px;
+  color: var(--couleur-texte-option);
+}
+
+.proba-risques__hypotheses summary {
+  cursor: pointer;
+  color: var(--couleur-texte-secondaire);
+}
+
+.proba-risques__hypotheses ul {
+  margin: 6px 0 0;
+  padding-left: var(--space-3);
+}

@@ -128,11 +128,27 @@ function debutMoisApres(depart: Date, jour: number, decalage: number): number {
   return Math.round((cible.getTime() - Date.UTC(depart.getUTCFullYear(), depart.getUTCMonth(), depart.getUTCDate())) / 86_400_000);
 }
 
-export function simuler(params: ParametresSimulation): SimulationBrute {
-  const nombre = Math.max(1, Math.floor(params.nombreSimulations ?? NOMBRE_SIMULATIONS_PAR_DEFAUT));
+/**
+ * Préparation commune au tirage Monte Carlo et aux trajectoires déterministes (tests de sensibilité,
+ * lib/probaRisques.ts) : mêmes lignes, mêmes échéances, mêmes conditions « Dépend de ».
+ */
+export interface PreparationSimulation {
+  soldeInitial: number;
+  jours: number;
+  dates: string[];
+  depart: Date;
+  moisPrecedent: (readonly [number, number])[];
+  lignes: LignePreparee[];
+  evenements: EvenementPrepare[];
+  // Échéance d'origine de chaque événement préparé (même index que `evenements`).
+  sources: EvenementTresorerie[];
+  phase2: number[];
+  dependancesIgnorees: OrdreLignes["dependancesIgnorees"];
+}
+
+export function preparerSimulation(params: Omit<ParametresSimulation, "nombreSimulations" | "graine">): PreparationSimulation {
   const horizon = Math.max(0, Math.floor(params.horizonJours));
   const jours = horizon + 1;
-  const alea = creerAlea(params.graine ?? GRAINE_PAR_DEFAUT);
   const debut = parseDateISO(params.dateDepart);
   const depart = new Date(Date.UTC(debut.getFullYear(), debut.getMonth(), debut.getDate()));
   const dates = Array.from({ length: jours }, (_, i) => toISODate(ajouterJours(debut, i)));
@@ -159,6 +175,7 @@ export function simuler(params: ParametresSimulation): SimulationBrute {
   for (const l of lignes) l.phase2 = l.condition?.type === "seuil" || (l.parent >= 0 && lignes[l.parent].phase2);
 
   const evenements: EvenementPrepare[] = [];
+  const sources: EvenementTresorerie[] = [];
   for (const e of params.evenements) {
     const i = indexLigne.get(e.cleLigne);
     if (i === undefined || !(e.montant > 0)) continue;
@@ -167,15 +184,13 @@ export function simuler(params: ParametresSimulation): SimulationBrute {
     const facteur = FACTEURS_FIABILITE[e.fiabiliteDate] ?? 0;
     const modele = e.sens === "encaissement" ? params.modeles.client : params.modeles.fournisseur;
     const echantillonneur = facteur > 0 ? echantillonneurPour(modele, e.tiers, e.montant) : null;
-    if (ligne.source.modeDate === "debut") {
-      if (jourPrevu < ligne.premierJourPrevu) {
-        ligne.premierJourPrevu = jourPrevu;
-        ligne.facteurDebut = facteur;
-        ligne.echantillonneurDebut = echantillonneur;
-      }
+    if (ligne.source.modeDate === "debut" && jourPrevu < ligne.premierJourPrevu) {
+      ligne.facteurDebut = facteur;
+      ligne.echantillonneurDebut = echantillonneur;
     }
     ligne.premierJourPrevu = Math.min(ligne.premierJourPrevu, jourPrevu);
     ligne.evenements.push(evenements.length);
+    sources.push(e);
     evenements.push({
       ligne: i,
       montantSigne: e.sens === "encaissement" ? e.montant : -e.montant,
@@ -188,82 +203,177 @@ export function simuler(params: ParametresSimulation): SimulationBrute {
     });
   }
   const phase2 = lignes.map((l, i) => (l.phase2 ? i : -1)).filter((i) => i >= 0);
+  return { soldeInitial: params.soldeInitial, jours, dates, depart, moisPrecedent, lignes, evenements, sources, phase2, dependancesIgnorees };
+}
 
-  const soldes = new Float64Array(jours * nombre);
-  const minimums = new Float64Array(nombre);
-  const jourDuMinimum = new Int32Array(nombre);
-  const premierJourNegatif = new Int32Array(nombre);
-  const variations = new Float64Array(jours);
-  const ca = new Float64Array(jours);
-  const coutsDirects = new Float64Array(jours);
-  const tirage = new Uint8Array(lignes.length);
-  const etat = new Uint8Array(lignes.length); // 0 à traiter, 1 présente, 2 absente
-  const facteurMontant = new Float64Array(lignes.length);
-  const premierJour = new Float64Array(lignes.length);
-  const jourEvenement = new Int32Array(evenements.length);
-  const presences = new Uint32Array(lignes.length);
+/** Tampons d'une passe : réutilisés d'une simulation (ou d'un test) à l'autre. */
+interface Tampons {
+  variations: Float64Array;
+  ca: Float64Array;
+  coutsDirects: Float64Array;
+  tirage: Uint8Array;
+  etat: Uint8Array; // 0 à traiter, 1 présente, 2 absente
+  facteurMontant: Float64Array;
+  premierJour: Float64Array;
+  jourEvenement: Int32Array; // jour de l'encaissement / décaissement (jours = hors horizon)
+  jourCA: Int32Array; // jour où l'encaissement compte dans le CA (= jourEvenement en Monte Carlo)
+}
 
-  const somme = (t: Float64Array, de: number, a: number) => {
+function creerTampons(prep: PreparationSimulation): Tampons {
+  return {
+    variations: new Float64Array(prep.jours),
+    ca: new Float64Array(prep.jours),
+    coutsDirects: new Float64Array(prep.jours),
+    tirage: new Uint8Array(prep.lignes.length),
+    etat: new Uint8Array(prep.lignes.length),
+    facteurMontant: new Float64Array(prep.lignes.length),
+    premierJour: new Float64Array(prep.lignes.length),
+    jourEvenement: new Int32Array(prep.evenements.length),
+    jourCA: new Int32Array(prep.evenements.length),
+  };
+}
+
+/**
+ * Pose les lignes présentes dans `t.variations` à partir des tirages, facteurs et jours déjà
+ * fixés : existence (parent présent), puis conditions à seuil évaluées dans l'ordre des
+ * démarrages. SEULE définition de la placement : Monte Carlo et tests de sensibilité la partagent.
+ */
+function placerLignes(prep: PreparationSimulation, t: Tampons): void {
+  const { jours, lignes, evenements, moisPrecedent } = prep;
+  t.variations.fill(0);
+  t.ca.fill(0);
+  t.coutsDirects.fill(0);
+  t.etat.fill(0);
+  const somme = (tab: Float64Array, de: number, a: number) => {
     let s = 0;
-    for (let j = Math.max(0, de); j <= Math.min(a, jours - 1); j++) s += t[j];
+    for (let j = Math.max(0, de); j <= Math.min(a, jours - 1); j++) s += tab[j];
     return s;
   };
   const conditionSatisfaite = (c: ConditionMoteur & { type: "seuil" }, jour: number): boolean => {
     if (jour >= jours) return false; // démarrerait après l'horizon : sans effet sur la prévision
     let valeur: number;
     if (c.indicateur === "tresorerie") {
-      valeur = params.soldeInitial + somme(variations, 0, jour - 1);
+      valeur = prep.soldeInitial + somme(t.variations, 0, jour - 1);
     } else {
       const [de, a] = moisPrecedent[Math.max(0, jour)];
-      const chiffre = somme(ca, de, a);
+      const chiffre = somme(t.ca, de, a);
       if (c.indicateur === "ca_mois_precedent") valeur = chiffre;
       else {
         if (chiffre <= 0) return false; // marge indéfinie sans CA : condition non remplie
-        valeur = ((chiffre - somme(coutsDirects, de, a)) / chiffre) * 100;
+        valeur = ((chiffre - somme(t.coutsDirects, de, a)) / chiffre) * 100;
       }
     }
     return c.comparateur === ">" ? valeur > c.valeur : valeur < c.valeur;
   };
   const poser = (i: number) => {
-    const f = facteurMontant[i];
+    const f = t.facteurMontant[i];
     for (const k of lignes[i].evenements) {
-      const j = jourEvenement[k];
-      if (j >= jours) continue;
       const e = evenements[k];
       const m = e.montantSigne * f;
-      variations[j] += m;
-      if (e.ca) ca[j] += m;
-      if (e.coutDirect) coutsDirects[j] -= m;
+      const j = t.jourEvenement[k];
+      if (j < jours) t.variations[j] += m;
+      const jca = t.jourCA[k];
+      if (jca < jours) {
+        if (e.ca) t.ca[jca] += m;
+        if (e.coutDirect) t.coutsDirects[jca] -= m;
+      }
     }
   };
   const traiterPhase2 = (i: number) => {
-    if (etat[i] !== 0) return;
+    if (t.etat[i] !== 0) return;
     const l = lignes[i];
     if (l.parent >= 0) traiterPhase2(l.parent);
-    const parentOk = l.parent < 0 || etat[l.parent] === 1;
-    const ok = tirage[i] === 1 && parentOk && (l.condition?.type !== "seuil" || conditionSatisfaite(l.condition, premierJour[i]));
-    etat[i] = ok ? 1 : 2;
+    const parentOk = l.parent < 0 || t.etat[l.parent] === 1;
+    const ok = t.tirage[i] === 1 && parentOk && (l.condition?.type !== "seuil" || conditionSatisfaite(l.condition, t.premierJour[i]));
+    t.etat[i] = ok ? 1 : 2;
     if (ok) poser(i);
   };
+  for (let i = 0; i < lignes.length; i++) {
+    const l = lignes[i];
+    if (!l.phase2) t.etat[i] = t.tirage[i] === 1 && (l.parent < 0 || t.etat[l.parent] === 1) ? 1 : 2;
+  }
+  for (let i = 0; i < lignes.length; i++) if (!lignes[i].phase2 && t.etat[i] === 1) poser(i);
+  if (prep.phase2.length > 0) {
+    const ordrePhase2 = [...prep.phase2].sort((a, b) => t.premierJour[a] - t.premierJour[b]);
+    for (const i of ordrePhase2) traiterPhase2(i);
+  }
+}
+
+/** Premier jour autorisé par « à partir du mois suivant » une autre ligne (-∞ sans condition). */
+function debutAutoriseDe(prep: PreparationSimulation, t: Tampons, i: number): number {
+  const l = prep.lignes[i];
+  if (l.condition?.type !== "apres_evenement" || l.parent < 0) return -Infinity;
+  const jourParent = t.premierJour[l.parent];
+  return jourParent >= prep.jours ? Infinity : debutMoisApres(prep.depart, jourParent, 1 + l.condition.decalageMois);
+}
+
+/**
+ * Trajectoire déterministe : toutes les lignes prévues, à leurs montants et dates de référence,
+ * conditions « Dépend de » évaluées — sauf les échéances dont le jour est imposé par `forces`
+ * (index d'événement -> jour, `jours` ou plus = au-delà de l'horizon). Un jour imposé ne change que
+ * la date de l'encaissement : le CA reste compté à sa date de référence (un retard de paiement ne
+ * décale pas le chiffre d'affaires). Rien n'est enregistré nulle part.
+ */
+export interface Trajectoire {
+  soldes: Float64Array; // solde de fin de journée
+  presentes: Uint8Array; // 1 : ligne présente dans ce scénario
+  jours: Int32Array; // jour retenu pour chaque événement préparé (jours = au-delà de l'horizon)
+}
+
+export function creerEvaluateur(prep: PreparationSimulation): (forces?: ReadonlyMap<number, number>) => Trajectoire {
+  const t = creerTampons(prep);
+  const { lignes, evenements, jours } = prep;
+  return (forces) => {
+    for (let i = 0; i < lignes.length; i++) {
+      const l = lignes[i];
+      t.tirage[i] = 1;
+      t.facteurMontant[i] = 1;
+      const debutAutorise = debutAutoriseDe(prep, t, i);
+      const decalage = l.source.modeDate === "debut" && debutAutorise > l.premierJourPrevu ? debutAutorise - l.premierJourPrevu : 0;
+      let premier = Infinity;
+      for (const k of l.evenements) {
+        const reference = Math.max(evenements[k].jourPrevu, 0);
+        const jourRef = l.source.modeDate === "debut" ? reference + decalage : Math.max(reference, debutAutorise);
+        const force = forces?.get(k);
+        const jour = force !== undefined ? Math.max(force, jourRef) : jourRef;
+        t.jourEvenement[k] = jour >= jours ? jours : jour;
+        t.jourCA[k] = jourRef >= jours ? jours : jourRef;
+        if (jour < premier) premier = jour;
+      }
+      t.premierJour[i] = premier;
+    }
+    placerLignes(prep, t);
+    const soldes = new Float64Array(jours);
+    let solde = prep.soldeInitial;
+    for (let j = 0; j < jours; j++) {
+      solde += t.variations[j];
+      soldes[j] = solde;
+    }
+    return { soldes, presentes: Uint8Array.from(t.etat, (e) => (e === 1 ? 1 : 0)), jours: Int32Array.from(t.jourEvenement) };
+  };
+}
+
+export function simuler(params: ParametresSimulation): SimulationBrute {
+  const nombre = Math.max(1, Math.floor(params.nombreSimulations ?? NOMBRE_SIMULATIONS_PAR_DEFAUT));
+  const alea = creerAlea(params.graine ?? GRAINE_PAR_DEFAUT);
+  const prep = preparerSimulation(params);
+  const { jours, dates, lignes, evenements, dependancesIgnorees } = prep;
+  const t = creerTampons(prep);
+
+  const soldes = new Float64Array(jours * nombre);
+  const minimums = new Float64Array(nombre);
+  const jourDuMinimum = new Int32Array(nombre);
+  const premierJourNegatif = new Int32Array(nombre);
+  const presences = new Uint32Array(lignes.length);
 
   for (let s = 0; s < nombre; s++) {
-    variations.fill(0);
-    ca.fill(0);
-    coutsDirects.fill(0);
-    etat.fill(0);
-
     // Existence (tirage par ligne), montants, dates — dans l'ordre topologique.
     for (let i = 0; i < lignes.length; i++) {
       const l = lignes[i];
       const p = l.source.probabilite;
-      tirage[i] = p >= 100 ? 1 : p <= 0 ? 0 : alea.uniforme() < p / 100 ? 1 : 0;
-      facteurMontant[i] = tirerFacteurMontant(l.ecartMontant, alea);
-      // « À partir du mois suivant » une autre ligne : premier jour autorisé (-∞ sans condition).
-      let debutAutorise = -Infinity;
-      if (l.condition?.type === "apres_evenement" && l.parent >= 0) {
-        const jourParent = premierJour[l.parent];
-        debutAutorise = jourParent >= jours ? Infinity : debutMoisApres(depart, jourParent, 1 + l.condition.decalageMois);
-      }
+      t.tirage[i] = p >= 100 ? 1 : p <= 0 ? 0 : alea.uniforme() < p / 100 ? 1 : 0;
+      t.facteurMontant[i] = tirerFacteurMontant(l.ecartMontant, alea);
+      const debutAutorise = debutAutoriseDe(prep, t, i);
       let premier = Infinity;
       if (l.source.modeDate === "debut") {
         // Toute la série glisse d'un même décalage : retard tiré, puis début autorisé.
@@ -271,35 +381,28 @@ export function simuler(params: ParametresSimulation): SimulationBrute {
         if (debutAutorise > l.premierJourPrevu + decalage) decalage = debutAutorise - l.premierJourPrevu;
         for (const k of l.evenements) {
           const jour = Math.max(evenements[k].jourPrevu, 0) + decalage;
-          jourEvenement[k] = jour >= jours ? jours : jour;
+          t.jourEvenement[k] = jour >= jours ? jours : jour;
           if (jour < premier) premier = jour;
         }
       } else {
         for (const k of l.evenements) {
           const jour = Math.max(simulerJour(evenements[k], alea), debutAutorise);
-          jourEvenement[k] = jour >= jours ? jours : jour;
+          t.jourEvenement[k] = jour >= jours ? jours : jour;
           if (jour < premier) premier = jour;
         }
       }
-      premierJour[i] = premier;
-      if (!l.phase2) {
-        const present = tirage[i] === 1 && (l.parent < 0 || etat[l.parent] === 1);
-        etat[i] = present ? 1 : 2;
-      }
+      t.premierJour[i] = premier;
     }
-    for (let i = 0; i < lignes.length; i++) if (!lignes[i].phase2 && etat[i] === 1) poser(i);
-    if (phase2.length > 0) {
-      const ordrePhase2 = [...phase2].sort((a, b) => premierJour[a] - premierJour[b]);
-      for (const i of ordrePhase2) traiterPhase2(i);
-    }
-    for (let i = 0; i < lignes.length; i++) if (etat[i] === 1) presences[i]++;
+    t.jourCA.set(t.jourEvenement);
+    placerLignes(prep, t);
+    for (let i = 0; i < lignes.length; i++) if (t.etat[i] === 1) presences[i]++;
 
     let solde = params.soldeInitial;
     let minimum = Infinity;
     let jourMin = 0;
     let negatif = -1;
     for (let j = 0; j < jours; j++) {
-      solde += variations[j];
+      solde += t.variations[j];
       soldes[j * nombre + s] = solde;
       if (solde < minimum) {
         minimum = solde;

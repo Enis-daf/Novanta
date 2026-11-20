@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin, supabaseAdminConfigured } from "@/lib/supabaseAdmin";
 import { accesPrevisionProbabiliste } from "@/lib/probaAcces";
-import { chargerFacturesBfr } from "@/lib/pastBfrRepository";
-import { chargerFacturesPayeesFutur, enregistrerProfilSiChange } from "@/lib/probaRepository";
-import { construireHistorique } from "@/lib/probaHistorique";
-import { calibrerModele, ModeleRetards, ProfilPaiement, profilPaiement } from "@/lib/probaCalibration";
+import { calibrerCompte } from "@/lib/probaServeur";
+import type { ModeleRetards, ProfilPaiement } from "@/lib/probaCalibration";
 import { simuler, NOMBRE_SIMULATIONS_PAR_DEFAUT } from "@/lib/probaSimulation";
 import { calculerIndicateurs } from "@/lib/probaIndicateurs";
 import { GRAINE_PAR_DEFAUT } from "@/lib/probaAlea";
 import { ReponseSimulation, ResumeCalibration, validerRequeteSimulation } from "@/lib/probaApi";
-import { dateDansFuseau } from "@/lib/fiabiliteProjection";
 import { completudeMoteur } from "@/lib/probaEcran";
 import { decalerDateISO } from "@/lib/dates";
 
@@ -65,30 +62,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const debut = Date.now();
-    const aujourdhui = dateDansFuseau(new Date());
-    const [{ factures }, futur] = await Promise.all([chargerFacturesBfr(admin, companyId), chargerFacturesPayeesFutur(admin, companyId)]);
-    const historique = construireHistorique(factures, futur, aujourdhui);
-    const modeles = {
-      client: calibrerModele(historique.client, "client", aujourdhui),
-      fournisseur: calibrerModele(historique.fournisseur, "fournisseur", aujourdhui),
-    };
-    const profils = {
-      client: profilPaiement(historique.client, "client", aujourdhui),
-      fournisseur: profilPaiement(historique.fournisseur, "fournisseur", aujourdhui),
-    };
-    // Recalibration enregistrée au fil de l'eau ; son échec ne prive jamais l'utilisateur de sa prévision.
-    await Promise.all(
-      [profils.client, profils.fournisseur].map((p) =>
-        enregistrerProfilSiChange(admin, companyId, p).catch((erreur) => console.error(`[futur/probabiliste] profil ${p.cote} non enregistré`, erreur))
-      )
-    );
+    const { modeles, profils, historique } = await calibrerCompte(admin, companyId, "futur/probabiliste");
 
     const graine = requete.graine ?? GRAINE_PAR_DEFAUT;
     const nombreSimulations = requete.nombreSimulations ?? NOMBRE_SIMULATIONS_PAR_DEFAUT;
     const brute = simuler({ ...requete, modeles, graine, nombreSimulations });
     const indicateurs = calculerIndicateurs(brute);
     console.log(
-      `[futur/probabiliste] company=${companyId} simulations=${nombreSimulations} echeances=${requete.evenements.length} historique=${historique.client.length}/${historique.fournisseur.length} duree_ms=${Date.now() - debut}`
+      `[futur/probabiliste] company=${companyId} simulations=${nombreSimulations} echeances=${requete.evenements.length} historique=${historique.client}/${historique.fournisseur} duree_ms=${Date.now() - debut}`
     );
     const reponse: ReponseSimulation = {
       indicateurs,
