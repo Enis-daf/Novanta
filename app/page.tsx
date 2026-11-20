@@ -7,6 +7,7 @@ import type { Session } from "@supabase/supabase-js";
 import Dashboard from "@/components/Dashboard";
 import SyntheseMensuelle from "@/components/SyntheseMensuelle";
 import FacturesClientsTable from "@/components/FacturesClientsTable";
+import FacturesPrevisionnellesTable from "@/components/FacturesPrevisionnellesTable";
 import FacturesFournisseursTable from "@/components/FacturesFournisseursTable";
 import ChargesFixesTable from "@/components/ChargesFixesTable";
 import AutresDepensesTable from "@/components/AutresDepensesTable";
@@ -59,9 +60,20 @@ import {
   montantApercuChargeFixe,
 } from "@/lib/montantCalcule";
 import {
+  annulerRapprochement,
+  deplacerRapprochements,
+  FacturePrevisionnelle,
+  ignorerFacture,
+  nouvellePrevisionnelle,
+  previsionnellesARattacher,
+  proposerRapprochementsPrevisionnelles,
+  rapprocher,
+} from "@/lib/facturesPrevisionnelles";
+import {
   filtrerAutresDepenses,
   filtrerChargesFixes,
   filtrerFacturesClients,
+  filtrerFacturesPrevisionnelles,
   filtrerFacturesFournisseurs,
   filtrerFinancements,
   filtrerRentreesRegulieres,
@@ -127,6 +139,8 @@ import {
   sauvegarderDateReleve,
   sauvegarderFactureClient,
   sauvegarderFactureFournisseur,
+  sauvegarderFacturePrevisionnelle,
+  supprimerFacturePrevisionnelle,
   sauvegarderFinancement,
   sauvegarderHorizonJours,
   sauvegarderRentreeReguliere,
@@ -248,6 +262,11 @@ export default function Home() {
   const [autresDepenses, setAutresDepenses] = useState<AutreDepense[]>(mockAutresDepenses);
   const [financements, setFinancements] = useState<Financement[]>(mockFinancements);
   const [rentreesRegulieres, setRentreesRegulieres] = useState<RentreeReguliere[]>(mockRentreesRegulieres);
+  // Factures prévisionnelles (lib/facturesPrevisionnelles.ts) : entité distincte des factures clients.
+  const [facturesPrevisionnelles, setFacturesPrevisionnelles] = useState<FacturePrevisionnelle[]>([]);
+  // Synchronisations Pennylane des factures clients réussies depuis le chargement : les suggestions
+  // de rapprochement avec les prévisionnelles ne sont proposées qu'après l'une d'elles.
+  const [syncsClientsPennylaneReussies, setSyncsClientsPennylaneReussies] = useState(0);
   // Rapprochement Factures fournisseurs <-> Charges fixes (voir lib/rapprochementChargesFixes.ts).
   const [liensRapprochement, setLiensRapprochement] = useState<LienRapprochement[]>([]);
   const [mappingsFournisseurs, setMappingsFournisseurs] = useState<MappingFournisseurCharge[]>([]);
@@ -280,6 +299,7 @@ export default function Home() {
     );
     return (
       filtrerFacturesClients(facturesClientsActives, recherche).length +
+      filtrerFacturesPrevisionnelles(facturesPrevisionnelles, recherche).length +
       filtrerFacturesFournisseurs(facturesFournisseursActives, recherche).length +
       filtrerChargesFixes(chargesFixes, recherche).length +
       filtrerRentreesRegulieres(rentreesRegulieres, recherche).length +
@@ -289,6 +309,7 @@ export default function Home() {
   }, [
     recherche,
     facturesClients,
+    facturesPrevisionnelles,
     facturesFournisseurs,
     chargesFixes,
     rentreesRegulieres,
@@ -460,6 +481,14 @@ export default function Home() {
       setFinancements(donnees.financements);
       setRentreesRegulieres(donnees.rentreesRegulieres);
       setMappingsFournisseurs(donnees.mappingsFournisseurs);
+      // Prévisionnelle dont la vraie facture Pennylane a été réimportée sous un nouvel identifiant
+      // interne : le rapprochement y est rattaché (jamais d'annulation implicite).
+      const prevRattachees = previsionnellesARattacher(donnees.facturesPrevisionnelles, donnees.facturesClients);
+      const prevParId = new Map(prevRattachees.map((p) => [p.id, p]));
+      setFacturesPrevisionnelles(donnees.facturesPrevisionnelles.map((p) => prevParId.get(p.id) ?? p));
+      persist(async () => {
+        for (const p of prevRattachees) await sauvegarderFacturePrevisionnelle(company.id, p);
+      });
       // Une facture Pennylane supprimée puis réimportée retrouve ses décisions de rapprochement.
       const rattaches = rattacherLiens(donnees.liensRapprochement, donnees.facturesFournisseurs);
       setLiensRapprochement(rattaches.liens);
@@ -515,6 +544,7 @@ export default function Home() {
         autresDepenses,
         financements,
         rentreesRegulieres,
+        facturesPrevisionnelles,
         dateDepart,
         horizonJours,
         remplacements,
@@ -522,6 +552,7 @@ export default function Home() {
     [
       soldeInitial,
       facturesClients,
+      facturesPrevisionnelles,
       facturesFournisseurs,
       chargesFixes,
       autresDepenses,
@@ -546,12 +577,14 @@ export default function Home() {
         autresDepenses,
         financements,
         rentreesRegulieres,
+        facturesPrevisionnelles,
         remplacements,
       }),
     [
       dateReleve,
       horizonJours,
       facturesClients,
+      facturesPrevisionnelles,
       facturesFournisseurs,
       chargesFixes,
       autresDepenses,
@@ -582,6 +615,7 @@ export default function Home() {
             autresDepenses,
             financements,
             rentreesRegulieres,
+            facturesPrevisionnelles,
             remplacements,
           })
         : null,
@@ -589,6 +623,7 @@ export default function Home() {
       periodeFiltre,
       dateDepart,
       facturesClients,
+      facturesPrevisionnelles,
       facturesFournisseurs,
       chargesFixes,
       autresDepenses,
@@ -626,8 +661,10 @@ export default function Home() {
         autresDepenses,
         financements,
         rentreesRegulieres,
+        facturesPrevisionnelles,
         filtresParCategorie: {
           facturesClients: fluxPeriode?.idsFacturesClients ?? null,
+          facturesPrevisionnelles: fluxPeriode?.idsFacturesPrevisionnelles ?? null,
           facturesFournisseurs: fluxPeriode?.idsFacturesFournisseurs ?? null,
           chargesFixes: fluxPeriode?.occurrencesChargesFixes ?? null,
           autresDepenses: fluxPeriode?.idsAutresDepenses ?? null,
@@ -658,10 +695,25 @@ export default function Home() {
         autresDepenses,
         financements,
         rentreesRegulieres,
+        facturesPrevisionnelles,
         remplacements,
       }),
-    [facturesClients, facturesFournisseurs, chargesFixes, autresDepenses, financements, rentreesRegulieres, remplacements]
+    [facturesClients, facturesFournisseurs, chargesFixes, autresDepenses, financements, rentreesRegulieres, facturesPrevisionnelles, remplacements]
   );
+
+  // Vraies factures clients qui semblent correspondre à une prévisionnelle À facturer : proposées
+  // après chaque synchronisation Pennylane des factures clients. Rien n'est neutralisé ici.
+  const suggestionsPrevisionnelles = useMemo(
+    () => (syncsClientsPennylaneReussies > 0 ? proposerRapprochementsPrevisionnelles(facturesPrevisionnelles, facturesClients) : []),
+    [syncsClientsPennylaneReussies, facturesPrevisionnelles, facturesClients]
+  );
+  const nombreSuggestionsPrevisionnelles = suggestionsPrevisionnelles.length;
+  useEffect(() => {
+    if (syncsClientsPennylaneReussies === 0 || nombreSuggestionsPrevisionnelles === 0) return;
+    document.getElementById("factures-previsionnelles")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // Uniquement à la fin d'une synchronisation, pas à chaque décision prise ensuite.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncsClientsPennylaneReussies]);
 
   // Doublons potentiels facture fournisseur <-> Charge fixe : recherchés automatiquement après
   // chaque synchronisation Pennylane réussie, à partir de l'état synchronisé. Rien n'est
@@ -803,7 +855,63 @@ export default function Home() {
 
   const handleRemoveFactureClient = (id: string) => {
     setFacturesClients((prev) => prev.filter((f) => f.id !== id));
+    // Une prévisionnelle rapprochée de cette facture reste Facturée (la base efface seulement le
+    // lien interne, la copie de la facture est conservée) : jamais d'annulation implicite.
+    setFacturesPrevisionnelles((prev) =>
+      prev.map((p) => (p.rapprochement?.factureClientId === id ? { ...p, rapprochement: { ...p.rapprochement, factureClientId: null } } : p))
+    );
     if (companyId) persist(() => supprimerFactureClient(id));
+  };
+
+  // --- Factures prévisionnelles ---
+  // Toute écriture d'une prévisionnelle (saisie, rapprochement, annulation, « Ignorer ») passe par
+  // la même clé de debounce : la dernière version l'emporte toujours, jamais une saisie périmée.
+  const enregistrerPrevisionnelle = (prevision: FacturePrevisionnelle) => {
+    if (companyId) persistDebounce(`previsionnelle:${prevision.id}`, () => sauvegarderFacturePrevisionnelle(companyId, prevision));
+  };
+  const modifierPrevisionnelle = (id: string, transformer: (p: FacturePrevisionnelle) => FacturePrevisionnelle) => {
+    setFacturesPrevisionnelles((prev) => {
+      const suivant = prev.map((p) => (p.id === id ? transformer(p) : p));
+      const modifiee = suivant.find((p) => p.id === id);
+      if (modifiee) enregistrerPrevisionnelle(modifiee);
+      return suivant;
+    });
+  };
+
+  const handleChangeFacturePrevisionnelle = (
+    id: string,
+    patch: Partial<Pick<FacturePrevisionnelle, "client" | "montant" | "dateFacturationPrevue" | "dateEncaissementPrevue">>
+  ) => modifierPrevisionnelle(id, (p) => ({ ...p, ...patch }));
+
+  const handleAddFacturePrevisionnelle = () => {
+    const prevision = nouvellePrevisionnelle(crypto.randomUUID());
+    setFacturesPrevisionnelles((prev) => [...prev, prevision]);
+    if (companyId) persist(() => sauvegarderFacturePrevisionnelle(companyId, prevision));
+  };
+
+  const handleRemoveFacturePrevisionnelle = (id: string) => {
+    const minuteur = minuteursDebounce.current.get(`previsionnelle:${id}`);
+    if (minuteur) clearTimeout(minuteur);
+    minuteursDebounce.current.delete(`previsionnelle:${id}`);
+    setFacturesPrevisionnelles((prev) => prev.filter((p) => p.id !== id));
+    if (companyId) persist(() => supprimerFacturePrevisionnelle(id));
+  };
+
+  // « Rapprocher » (suggestion ou action manuelle) : la vraie facture reste inchangée.
+  const handleRapprocherPrevisionnelle = (previsionnelleId: string, factureClientId: string) => {
+    const facture = facturesClients.find((f) => f.id === factureClientId);
+    if (!facture) return;
+    modifierPrevisionnelle(previsionnelleId, (p) => rapprocher(p, facture));
+  };
+
+  const handleAnnulerRapprochementPrevisionnelle = (previsionnelleId: string) =>
+    modifierPrevisionnelle(previsionnelleId, annulerRapprochement);
+
+  // « Ignorer » : cette facture n'est plus suggérée pour ces prévisionnelles. Aucune neutralisation.
+  const handleIgnorerSuggestionPrevisionnelle = (factureClientId: string, previsionnelleIds: string[]) => {
+    const facture = facturesClients.find((f) => f.id === factureClientId);
+    if (!facture) return;
+    for (const id of previsionnelleIds) modifierPrevisionnelle(id, (p) => ignorerFacture(p, facture));
   };
 
   const handleChangeFactureFournisseur = (id: string, patch: Partial<FactureFournisseur>) => {
@@ -1189,6 +1297,9 @@ export default function Home() {
       // Synchronisation des factures fournisseurs réussie : la recherche de doublons avec les
       // Charges fixes se lance d'elle-même (voir propositionsRapprochement).
       if (data.fournisseurCandidates) setSyncsPennylaneReussies((n) => n + 1);
+      // Synchronisation des factures clients réussie : les suggestions de rapprochement avec les
+      // factures prévisionnelles se calculent d'elles-mêmes (voir suggestionsPrevisionnelles).
+      if (data.clientCandidates && !erreurPersistanceClients) setSyncsClientsPennylaneReussies((n) => n + 1);
 
       // Factures payées par cette synchronisation, et factures déjà payées encore visibles : leur
       // règlement réel, une fois les marquages enregistrés. En arrière-plan : la synchronisation est
@@ -1327,7 +1438,25 @@ export default function Home() {
         const [ref, autre] = [facturesClients.find((f) => f.id === resultat.reference.id), facturesClients.find((f) => f.id === resultat.retiree.id)];
         if (!ref || !autre) throw new Error("Facture introuvable.");
         const reference: FactureClient = { ...ref, ...valeurs, dateEncaissementAnticipee: resultat.reference.datePrevue, paidAt: datePaiement(ref, autre) };
-        await enregistrerFusion(companyId, "client", { avant: [ref, autre], reference, retiree: autre, pennylaneIdRetire: resultat.pennylaneIdRetire, choix: { ...choix } });
+        // Prévisionnelle rapprochée de la ligne retirée : le lien passe à la facture gardée, sauf si
+        // celle-ci est déjà rapprochée d'une autre prévisionnelle (le lien garde alors sa copie).
+        const referenceDejaRapprochee = facturesPrevisionnelles.some((p) => p.rapprochement?.factureClientId === reference.id);
+        const prevDeplacees = referenceDejaRapprochee ? [] : deplacerRapprochements(facturesPrevisionnelles, autre.id, reference);
+        await enregistrerFusion(
+          companyId,
+          "client",
+          { avant: [ref, autre], reference, retiree: autre, pennylaneIdRetire: resultat.pennylaneIdRetire, choix: { ...choix } },
+          async () => {
+            for (const p of prevDeplacees) await sauvegarderFacturePrevisionnelle(companyId, p);
+          }
+        );
+        const prevParId = new Map(prevDeplacees.map((p) => [p.id, p]));
+        setFacturesPrevisionnelles((prev) =>
+          prev.map((p) =>
+            prevParId.get(p.id) ??
+            (p.rapprochement?.factureClientId === autre.id ? { ...p, rapprochement: { ...p.rapprochement, factureClientId: null } } : p)
+          )
+        );
         setFacturesClients((prev) => prev.filter((f) => f.id !== autre.id).map((f) => (f.id === reference.id ? reference : f)));
       } else {
         const [ref, autre] = [facturesFournisseurs.find((f) => f.id === resultat.reference.id), facturesFournisseurs.find((f) => f.id === resultat.retiree.id)];
@@ -1803,6 +1932,21 @@ export default function Home() {
             syncPennylaneEnCours={syncPennylaneEnCours}
             syncPennylaneResultat={syncPennylaneResultat}
             syncPennylaneErreur={syncPennylaneErreur}
+          />
+          <FacturesPrevisionnellesTable
+            previsionnelles={facturesPrevisionnelles}
+            factures={facturesClients}
+            onChange={handleChangeFacturePrevisionnelle}
+            onAdd={handleAddFacturePrevisionnelle}
+            onRemove={handleRemoveFacturePrevisionnelle}
+            onRapprocher={handleRapprocherPrevisionnelle}
+            onAnnulerRapprochement={handleAnnulerRapprochementPrevisionnelle}
+            suggestions={suggestionsPrevisionnelles}
+            onIgnorer={handleIgnorerSuggestionPrevisionnelle}
+            recherche={recherche}
+            tri={tri}
+            dateReleve={dateReleve}
+            filtrePeriode={fluxPeriode?.idsFacturesPrevisionnelles ?? null}
           />
           <RentreesRegulieresTable
             rentrees={rentreesRegulieres}

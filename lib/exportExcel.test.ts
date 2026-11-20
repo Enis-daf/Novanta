@@ -10,6 +10,7 @@ import { OccurrencesParId, PeriodeFiltre } from "./periodeFiltre";
 const NOMS_ONGLETS = [
   "Synthèse",
   "Factures clients",
+  "Factures prévisionnelles",
   "Factures fournisseurs",
   "Charges fixes",
   "Rentrées régulières",
@@ -161,7 +162,7 @@ async function chargerClasseur(blob: Blob): Promise<ExcelJS.Workbook> {
 }
 
 describe("genererExportExcel — export complet", () => {
-  test("fichier .xlsx valide contenant exactement les 7 onglets attendus, dans l'ordre", async () => {
+  test("fichier .xlsx valide contenant exactement les 8 onglets attendus, dans l'ordre", async () => {
     const blob = await genererExportExcel(baseParams());
     assert.equal(blob.type, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     const classeur = await chargerClasseur(blob);
@@ -344,5 +345,36 @@ describe("Synthèse — KPIs et synthèse mensuelle repris tels quels (jamais re
     // Synthèse mensuelle : les montants et totaux de test doivent être présents.
     assert.ok(valeurs.includes(300), "total Factures clients attendu");
     assert.ok(valeurs.includes(-110), "total Factures fournisseurs attendu");
+  });
+});
+
+describe("Factures prévisionnelles — onglet dédié", () => {
+  test("une ligne par prévisionnelle, statut « Facturée — n° » pour une prévisionnelle rapprochée", async () => {
+    const vraie = factureClient({ id: "fc-9", facture: "FAC-2026-123", client: "ACME" });
+    const params = baseParams({
+      facturesClients: [vraie],
+      facturesPrevisionnelles: [
+        { id: "p-1", client: "Beta", montant: 5000, dateFacturationPrevue: "2026-01-05", dateEncaissementPrevue: "2026-02-04", rapprochement: null, facturesIgnorees: [] },
+        {
+          id: "p-2",
+          client: "ACME",
+          montant: 20000,
+          dateFacturationPrevue: "2026-01-01",
+          dateEncaissementPrevue: "2026-01-31",
+          rapprochement: { factureClientId: "fc-9", factureNumero: "FAC-2026-123", facturePennylaneId: null, montantFacture: 1000, rapprocheLe: "2026-01-02T00:00:00.000Z" },
+          facturesIgnorees: [],
+        },
+      ],
+    });
+    const classeur = await chargerClasseur(await genererExportExcel(params));
+    const feuille = classeur.getWorksheet("Factures prévisionnelles")!;
+    const lignes: unknown[][] = [];
+    feuille.eachRow((row, numero) => {
+      if (numero > 1) lignes.push([row.getCell(1).value, row.getCell(2).value, row.getCell(5).value]);
+    });
+    assert.deepEqual(lignes, [
+      ["ACME", 20000, "Facturée — FAC-2026-123"],
+      ["Beta", 5000, "À facturer"],
+    ]);
   });
 });
