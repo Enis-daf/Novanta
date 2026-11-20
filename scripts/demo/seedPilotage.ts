@@ -121,17 +121,37 @@ async function main() {
     await upsert("financings", jeu.financements.map((f) => financementToRow(SOCIETE, f)));
     await upsert("recurring_income", jeu.rentreesRegulieres.map((r) => rentreeReguliereToRow(SOCIETE, r)));
     await upsert("forecast_customer_invoices", jeu.facturesPrevisionnelles.map((p) => facturePrevisionnelleToRow(SOCIETE, p)));
-    // Lignes du jeu absentes de cet état (ex. financement d'anticipation) : supprimées.
-    const presents = new Set([...jeu.financements].map((f) => f.id));
-    for (const id of [uuidDemo(SOCIETE, "FI-anticipation")].filter((x) => !presents.has(x))) {
-      await action(`suppression financings ${id} (hors de l'état « ${etat} »)`, () => admin.from("financings").delete().eq("company_id", SOCIETE).eq("id", id));
+    // Lignes du jeu absentes de cet état : celles du jeu (ex. financement d'anticipation) et toute
+    // ligne ajoutée pendant une démonstration avec le préfixe DEMO-PILOTAGE (ex. le financement
+    // saisi dans l'interface). Aucune autre ligne n'est concernée.
+    const idsEtat = new Set(
+      [jeu.facturesClients, jeu.facturesFournisseurs, jeu.chargesFixes, jeu.autresDepenses, jeu.financements, jeu.rentreesRegulieres, jeu.facturesPrevisionnelles].flatMap((l) => l.map((x) => x.id))
+    );
+    const ajoutees: string[] = [];
+    for (const [table, colonne] of [
+      ["customer_invoices", "facture"],
+      ["supplier_invoices", "facture"],
+      ["fixed_charges", "libelle"],
+      ["other_expenses", "libelle"],
+      ["financings", "libelle"],
+      ["recurring_income", "libelle"],
+    ] as const) {
+      const { data: lignesTable } = await admin.from(table).select(`id, ${colonne}`).eq("company_id", SOCIETE);
+      for (const r of (lignesTable ?? []) as unknown as Row[]) {
+        const id = String(r.id);
+        const libre = String(r[colonne] ?? "").startsWith(PREFIXE) && !idsJeu.has(id);
+        if ((idsJeu.has(id) || libre) && !idsEtat.has(id)) {
+          if (libre) ajoutees.push(id);
+          await action(`suppression ${table} ${id} « ${r[colonne]} » (hors de l'état « ${etat} »)`, () => admin.from(table).delete().eq("company_id", SOCIETE).eq("id", id));
+        }
+      }
     }
     // Hypothèses : celles de l'état, et rien d'autre parmi les lignes du jeu.
     const voulues = new Set(jeu.hypotheses.map((h) => `${h.source}:${h.sourceId}`));
     const { data: existantes } = await admin.from("forecast_event_assumptions").select("source_type, source_id").eq("company_id", SOCIETE);
     for (const h of (existantes ?? []) as Row[]) {
       const cle = `${h.source_type}:${h.source_id}`;
-      if (idsJeu.has(String(h.source_id)) && !voulues.has(cle)) {
+      if ((idsJeu.has(String(h.source_id)) || ajoutees.includes(String(h.source_id))) && !voulues.has(cle)) {
         await action(`suppression hypothèse ${cle}`, () =>
           admin.from("forecast_event_assumptions").delete().eq("company_id", SOCIETE).eq("source_type", String(h.source_type)).eq("source_id", String(h.source_id))
         );
