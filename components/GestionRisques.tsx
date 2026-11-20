@@ -7,15 +7,19 @@ import { decalerDateISO } from "@/lib/dates";
 import type { AlerteRisque, FactureAnalysee, GroupeAlertes } from "@/lib/probaRisques";
 import type { ReponseRisques, RequeteRisques } from "@/lib/probaApi";
 import {
-  messagePartiel,
+  datesDuScenario,
+  limitesCouverture,
   messageSansAlerte,
   nomFacture,
+  PHRASE_DATES_CONJOINTES,
   PHRASE_MEME_CLIENT,
   PHRASE_UN_SUFFIT,
   phraseDeclencheur,
   phrasePlausibilite,
+  phrasesReference,
   resumeTension,
   titreGroupe,
+  TypeLimite,
 } from "@/lib/probaRisquesEcran";
 
 const DELAI_CALCUL_MS = 700;
@@ -40,8 +44,11 @@ function DetailFactures({ alerte, onVoirFacture }: { alerte: AlerteRisque; onVoi
           <span className="proba-risque__facture-nom">{nomFacture(f)}</span>
           <span className="proba-ligne__detail">
             Reste à encaisser {formatMontant(f.montantRestant)}
-            {f.dateEcheance ? ` · échéance ${formatDate(f.dateEcheance)}` : ""} · encaissement de référence {formatDate(f.dateReference)} · testé{" "}
-            {f.dateTestee ? `le ${formatDate(f.dateTestee)}` : "après la fin de l'horizon"} (+{f.retardJours} j)
+            {f.dateEcheance ? ` · échéance contractuelle ${formatDate(f.dateEcheance)}` : ""}
+          </span>
+          <span className="proba-ligne__detail">
+            {datesDuScenario(f)}
+            {f.dateReferenceEstimee ? " · date de référence estimée par l'historique de paiement (facture en retard)" : ""}
           </span>
           <span className="proba-ligne__detail">
             {f.dateCertaine ? "Date saisie comme ferme : ce retard est hypothétique. " : ""}
@@ -87,6 +94,16 @@ function CarteAlerte({ alerte, dates, onVoirFacture }: { alerte: AlerteRisque; d
   return (
     <div className="proba-risque__alerte">
       <p className="proba-risque__declencheur">{phraseDeclencheur(alerte, dates)}</p>
+      {alerte.type === "duo" && (
+        <ul className="proba-risque__dates">
+          {alerte.factures.map((f) => (
+            <li key={f.cleLigne}>
+              {nomFacture(f)} : {datesDuScenario(f)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {alerte.type === "duo" && <p className="proba-editeur__aide">{PHRASE_DATES_CONJOINTES}</p>}
       {alerte.type === "duo" && <p className="proba-editeur__aide">{PHRASE_UN_SUFFIT}</p>}
       {alerte.type === "duo" && alerte.memeClient && <p className="proba-editeur__aide">{PHRASE_MEME_CLIENT}</p>}
       <p className="proba-risque__tension">{resumeTension(alerte.mesures, dates)}</p>
@@ -134,7 +151,7 @@ function CarteGroupe({ groupe, dates, onVoirFacture }: { groupe: GroupeAlertes; 
             <ul>
               {groupe.autres.map((x) => (
                 <li key={x.factures.map((f) => f.cleLigne).join("|")} className="proba-ligne__detail">
-                  {x.factures.map((f) => nomFacture(f)).join(" + ")} · retard de {x.retardJours} j · déficit {formatMontant(x.deficitMax)}
+                  {x.factures.map((f) => `${nomFacture(f)} (+${f.retardJours} j)`).join(" et ")} · déficit {formatMontant(x.deficitMax)}
                 </li>
               ))}
               {reste > groupe.autres.length && <li className="proba-ligne__detail">… et {reste - groupe.autres.length} autres.</li>}
@@ -146,21 +163,20 @@ function CarteGroupe({ groupe, dates, onVoirFacture }: { groupe: GroupeAlertes; 
   );
 }
 
-export function GestionRisquesVue({
-  etat,
-  horsProjection,
-  onVoirFacture,
-}: {
-  etat: EtatRisques;
-  horsProjection: number;
-  onVoirFacture: (terme: string) => void;
-}) {
+const LIBELLES_LIMITE: Record<TypeLimite, string> = {
+  donnees: "Données",
+  methode: "Méthode",
+  calcul: "Calcul",
+  affichage: "Affichage",
+};
+
+export function GestionRisquesVue({ etat, onVoirFacture }: { etat: EtatRisques; onVoirFacture: (terme: string) => void }) {
   const [toutes, setToutes] = useState(false);
   const { resultat } = etat;
   const dates = resultat?.dates ?? [];
   const groupes = resultat?.groupes ?? [];
   const affiches = toutes ? groupes : groupes.slice(0, GROUPES_AFFICHES);
-  const partiel = resultat ? messagePartiel(resultat.couverture) : null;
+  const limites = resultat ? limitesCouverture(resultat.couverture) : [];
 
   return (
     <section className="proba-section proba-risques" aria-label="Gestion des risques">
@@ -182,7 +198,41 @@ export function GestionRisquesVue({
       )}
       {!resultat && etat.enCours && <p className="proba-attente">Analyse des encaissements critiques en cours…</p>}
       {resultat && (etat.aActualiser || etat.enCours) && !etat.erreur && <p className="proba-editeur__aide">Résultats en cours d&apos;actualisation…</p>}
-      {partiel && <p className="fiabilite-alerte">{partiel}</p>}
+      {resultat && (
+        <div className="proba-risques__portee">
+          {phrasesReference(resultat.reference).map((p) => (
+            <p key={p}>{p}</p>
+          ))}
+        </div>
+      )}
+      {limites.length > 0 && (
+        <ul className="proba-risques__limites" aria-label="Couverture de l'analyse">
+          {resultat?.couverture.partielle && <li className="proba-risques__partielle">Analyse partielle</li>}
+          {limites.map((l) => (
+            <li key={l.type} className={l.type === "affichage" ? "proba-editeur__aide" : "fiabilite-alerte"}>
+              <strong>{LIBELLES_LIMITE[l.type]} · </strong>
+              {l.texte}
+            </li>
+          ))}
+        </ul>
+      )}
+      {resultat && resultat.couverture.perimetre.aActualiser.length > 0 && (
+        <div className="proba-risques__a-actualiser">
+          <p className="proba-editeur__aide">Date d&apos;encaissement à actualiser :</p>
+          <ul>
+            {resultat.couverture.perimetre.aActualiser.map((f) => (
+              <li key={f.cleLigne}>
+                <span>
+                  {nomFacture(f)} · {formatMontant(f.montant)} · {f.raison}
+                </span>{" "}
+                <button type="button" className="etage-pnl-outils__lien" onClick={() => onVoirFacture(f.numero ?? f.client)}>
+                  Actualiser la date
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {resultat && (
         <div className={`proba-risques__liste${etat.aActualiser || etat.erreur ? " proba-risques__liste--perime" : ""}`}>
@@ -213,15 +263,34 @@ export function GestionRisquesVue({
             </li>
             <li>Tension : solde de fin de journée strictement inférieur à 0 €. Le déficit est le montant à couvrir dans le scénario, pas une offre de financement.</li>
             <li>
-              {resultat.couverture.facturesAnalysees} facture{resultat.couverture.facturesAnalysees > 1 ? "s" : ""} à encaisser testée
-              {resultat.couverture.facturesAnalysees > 1 ? "s" : ""}, seule{resultat.couverture.facturesAnalysees > 1 ? "s" : ""} et par paires (
-              {resultat.couverture.pairesEcarteesSansRisque} paire{resultat.couverture.pairesEcarteesSansRisque > 1 ? "s" : ""} écartée
-              {resultat.couverture.pairesEcarteesSansRisque > 1 ? "s" : ""} car incapables de passer sous zéro).
+              Duos : chaque facture a son propre retard ; pour chaque jour de tension possible, les deux encaissements sont testés juste après ce jour.
+              {resultat.couverture.methode === "exacte" ? " Sans condition dépendant de la trésorerie, cette recherche couvre toutes les combinaisons de dates." : ""}
             </li>
-            {horsProjection > 0 && (
+            <li>
+              {resultat.couverture.facturesAnalysees} facture{resultat.couverture.facturesAnalysees > 1 ? "s" : ""} à encaisser testée
+              {resultat.couverture.facturesAnalysees > 1 ? "s" : ""} seule{resultat.couverture.facturesAnalysees > 1 ? "s" : ""} ; {resultat.couverture.pairesExplorees} paire
+              {resultat.couverture.pairesExplorees > 1 ? "s" : ""} explorée{resultat.couverture.pairesExplorees > 1 ? "s" : ""} sur {resultat.couverture.pairesPossibles},{" "}
+              {resultat.couverture.pairesEcarteesSansRisque} écartée{resultat.couverture.pairesEcarteesSansRisque > 1 ? "s" : ""} car incapable
+              {resultat.couverture.pairesEcarteesSansRisque > 1 ? "s" : ""} de passer sous zéro.
+            </li>
+            {resultat.couverture.perimetre.enRetardEstimees > 0 && (
               <li>
-                {horsProjection} facture{horsProjection > 1 ? "s" : ""} ouverte{horsProjection > 1 ? "s" : ""} sans date d&apos;encaissement à venir dans l&apos;horizon (date
-                passée ou absente) : hors de la projection, donc non analysée{horsProjection > 1 ? "s" : ""}.
+                {resultat.couverture.perimetre.enRetardEstimees} facture{resultat.couverture.perimetre.enRetardEstimees > 1 ? "s" : ""} en retard placée
+                {resultat.couverture.perimetre.enRetardEstimees > 1 ? "s" : ""} à une date estimée (médiane des paiements encore possibles selon l&apos;historique du client ou
+                du compte) ; jamais d&apos;office au premier jour.
+              </li>
+            )}
+            {resultat.couverture.perimetre.litigieusesExclues > 0 && (
+              <li>
+                {resultat.couverture.perimetre.litigieusesExclues} facture{resultat.couverture.perimetre.litigieusesExclues > 1 ? "s" : ""} litigieuse
+                {resultat.couverture.perimetre.litigieusesExclues > 1 ? "s" : ""} : exclue{resultat.couverture.perimetre.litigieusesExclues > 1 ? "s" : ""} de la projection (règle
+                existante de Futur), donc non testée{resultat.couverture.perimetre.litigieusesExclues > 1 ? "s" : ""}.
+              </li>
+            )}
+            {resultat.couverture.perimetre.horsHorizon > 0 && (
+              <li>
+                {resultat.couverture.perimetre.horsHorizon} facture{resultat.couverture.perimetre.horsHorizon > 1 ? "s" : ""} encaissée
+                {resultat.couverture.perimetre.horsHorizon > 1 ? "s" : ""} après la fin de l&apos;horizon dans la référence : aucun retard à tester.
               </li>
             )}
           </ul>
@@ -239,13 +308,11 @@ export default function GestionRisques({
   accessToken,
   actif,
   requete,
-  horsProjection,
   onVoirFacture,
 }: {
   accessToken: string | null;
   actif: boolean;
-  requete: Omit<RequeteRisques, "factures"> & { factures: FactureAnalysee[] } | null;
-  horsProjection: number;
+  requete: (Omit<RequeteRisques, "factures"> & { factures: FactureAnalysee[] }) | null;
   onVoirFacture: (terme: string) => void;
 }) {
   const [etat, setEtat] = useState<EtatRisques>({ resultat: null, enCours: false, aActualiser: false, erreur: null });
@@ -285,5 +352,5 @@ export default function GestionRisques({
     return () => clearTimeout(minuteur);
   }, [actif, accessToken, requete]);
 
-  return <GestionRisquesVue etat={etat} horsProjection={horsProjection} onVoirFacture={onVoirFacture} />;
+  return <GestionRisquesVue etat={etat} onVoirFacture={onVoirFacture} />;
 }

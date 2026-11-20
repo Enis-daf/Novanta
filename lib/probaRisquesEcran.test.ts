@@ -22,10 +22,10 @@ Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, co
 
 import React, { act, createElement } from "react";
 import GestionRisques, { EtatRisques, GestionRisquesVue, GROUPES_AFFICHES } from "../components/GestionRisques";
-import { analyserRisques, ParametresRisques } from "./probaRisques";
+import { analyserRisques, ParametresRisques, PerimetreFactures } from "./probaRisques";
 import { calibrerModele } from "./probaCalibration";
 import { EvenementTresorerie, LigneProbabiliste } from "./probaEvenements";
-import { messagePartiel, messageSansAlerte, phraseDeclencheur, titreGroupe } from "./probaRisquesEcran";
+import { limitesCouverture, messageSansAlerte, phraseDeclencheur, phrasesReference, titreGroupe } from "./probaRisquesEcran";
 import type { ReponseRisques } from "./probaApi";
 import { decalerDateISO } from "./dates";
 import { capacitesDeLOffre } from "./offres";
@@ -51,7 +51,7 @@ const evt = (cle: string, jour: number, montant: number, autres: Partial<Eveneme
   ...autres,
 });
 
-function reponse(soldeInitial: number, flux: [string, number, number, Partial<EvenementTresorerie>?][], factures: string[]): ReponseRisques {
+function reponse(soldeInitial: number, flux: [string, number, number, Partial<EvenementTresorerie>?][], factures: string[], perimetre?: PerimetreFactures): ReponseRisques {
   const modele = calibrerModele([], "client", DEPART);
   const params: ParametresRisques = {
     soldeInitial,
@@ -62,7 +62,11 @@ function reponse(soldeInitial: number, flux: [string, number, number, Partial<Ev
     modeles: { client: modele, fournisseur: calibrerModele([], "fournisseur", DEPART) },
     factures: factures.map((f) => ({ cleLigne: f, type: "facture_client", numero: `FC-${f.toUpperCase()}`, client: `Client ${f}`, dateEcheance: null })),
   };
-  return { ...analyserRisques(params, modele), parametres: { dateDepart: DEPART, horizonJours: 30, soldeInitial, dureeMs: 1 } };
+  return {
+    ...analyserRisques({ ...params, ...(perimetre ? { perimetre } : {}) }, modele),
+    parametres: { dateDepart: DEPART, horizonJours: 30, soldeInitial, dureeMs: 1 },
+    dureesRoute: { historiqueMs: 0, preparationMs: 0, analyseMs: 0, totalMs: 1 },
+  };
 }
 
 const CAS_DUO = (): ReponseRisques => reponse(35_000, [["a", 5, 20_000], ["b", 7, 15_000], ["dec", 10, -45_000]], ["a", "b"]);
@@ -85,7 +89,7 @@ describe("Formulations", () => {
     const r = CAS_DUO();
     assert.equal(
       texte(phraseDeclencheur(r.groupes[0].alertes[0], r.dates)),
-      "Si FC-A — Client a arrive après le 30 nov. 2026 et FC-B — Client b après le 02 déc. 2026, la trésorerie passe sous zéro dans les hypothèses analysées."
+      "Si FC-A — Client a arrive après le 30 nov. 2026 et FC-B — Client b après le 30 nov. 2026, la trésorerie passe sous zéro dans les hypothèses analysées."
     );
     const s = CAS_SEULE();
     assert.equal(
@@ -101,11 +105,10 @@ describe("Formulations", () => {
 
   test("aucune alerte : jamais « aucun risque » ; analyse partielle signalée avec son périmètre", () => {
     const sans = CAS_SANS();
-    assert.equal(messageSansAlerte(sans.couverture), "Aucune dépendance critique à une ou deux factures détectée sur l'horizon analysé.");
-    assert.equal(messagePartiel(sans.couverture), null);
-    const partielle = { ...sans.couverture, partielle: true, pairesPossibles: 10, pairesEvaluees: 3, pairesEcarteesSansRisque: 1, facturesAnalysees: 5 };
-    assert.match(messagePartiel(partielle)!, /^Analyse partielle : 5 factures testées seules, 4 paires sur 10 examinées/);
-    assert.match(messageSansAlerte(partielle), /dans le périmètre analysé \(analyse partielle\)/);
+    assert.equal(messageSansAlerte(sans.couverture), "Aucune dépendance critique à une ou deux factures détectée sur l'horizon analysé, dans la projection de référence.");
+    assert.deepEqual(limitesCouverture(sans.couverture), []);
+    const partielle = { ...sans.couverture, partielle: true };
+    assert.match(messageSansAlerte(partielle), /dans le périmètre analysé — analyse partielle, voir ses limites\./);
   });
 });
 
@@ -113,12 +116,12 @@ describe("Formulations", () => {
 // Rendu
 // ---------------------------------------------------------------------------------------------
 
-function rendreVue(etat: EtatRisques, horsProjection = 0) {
+function rendreVue(etat: EtatRisques) {
   const conteneur = document.createElement("div");
   document.body.appendChild(conteneur);
   const racine = createRoot(conteneur);
   const ouvertes: string[] = [];
-  act(() => racine.render(createElement(GestionRisquesVue, { etat, horsProjection, onVoirFacture: (t: string) => ouvertes.push(t) })));
+  act(() => racine.render(createElement(GestionRisquesVue, { etat, onVoirFacture: (t: string) => ouvertes.push(t) })));
   const clic = (libelle: string, n = 0) =>
     act(() => {
       const b = Array.from(conteneur.querySelectorAll("button")).filter((x) => x.textContent?.startsWith(libelle))[n];
@@ -146,7 +149,8 @@ describe("Bloc Gestion des risques", () => {
     const v = rendreVue(pret(CAS_DUO()));
     v.clic("Voir les 2 factures");
     const t = v.texte();
-    assert.match(t, /FC-A — Client a.*Reste à encaisser 20 000 € · encaissement de référence 25 nov\. 2026 · testé le 01 déc\. 2026 \(\+6 j\)/);
+    assert.match(t, /FC-A — Client a.*Reste à encaisser 20 000 €.*Encaissement prévu le 25 nov\. 2026, testé le 01 déc\. 2026 \(\+6 jours\)/);
+    assert.match(t, /FC-B — Client b.*Encaissement prévu le 27 nov\. 2026, testé le 01 déc\. 2026 \(\+4 jours\)/);
     assert.match(t, /FC-B — Client b.*Reste à encaisser 15 000 €/);
     assert.match(t, /Plausibilité du retard non estimée\./);
     v.clic("Ouvrir dans Flux de tréso", 1);
@@ -184,11 +188,31 @@ describe("Bloc Gestion des risques", () => {
     v.demonter();
   });
 
-  test("aucune alerte, factures hors projection signalées dans les hypothèses", () => {
-    const v = rendreVue(pret(CAS_SANS()), 2);
-    assert.match(v.texte(), /Aucune dépendance critique à une ou deux factures détectée sur l'horizon analysé\./);
+  test("aucune alerte : message contextualisé, portée de la référence visible à côté", () => {
+    const v = rendreVue(pret(CAS_SANS()));
+    assert.match(v.texte(), /Aucune dépendance critique à une ou deux factures détectée sur l'horizon analysé, dans la projection de référence\./);
+    assert.match(v.texte(), /Analyse fondée sur la projection de référence, incluant les flux incertains prévus\./);
     assert.doesNotMatch(v.texte(), /Aucun risque/);
-    assert.match(v.texte(), /2 factures ouvertes sans date d'encaissement à venir/);
+    v.demonter();
+  });
+
+  test("factures à actualiser : visibles avec leur raison, analyse partielle, lien vers l'édition existante", () => {
+    const perimetre: PerimetreFactures = {
+      enRetardEstimees: 1,
+      aActualiser: [{ cleLigne: "facture_client:z", numero: "FC-Z", client: "Zeta", montant: 12_000, raison: "historique de paiement insuffisant pour estimer une date" }],
+      litigieusesExclues: 1,
+      horsHorizon: 0,
+    };
+    const v = rendreVue(pret(reponse(100_000, [["a", 5, 20_000], ["dec", 10, -45_000]], ["a"], perimetre)));
+    const t = v.texte();
+    assert.match(t, /Analyse partielle/);
+    assert.match(t, /Données · 1 facture en retard sans date d'encaissement estimable : à actualiser, non testée\./);
+    assert.match(t, /FC-Z — Zeta · 12 000 € · historique de paiement insuffisant pour estimer une date/);
+    assert.match(t, /dans le périmètre analysé — analyse partielle/);
+    v.clic("Actualiser la date");
+    assert.deepEqual(v.ouvertes, ["FC-Z"]);
+    assert.match(t, /1 facture litigieuse : exclue de la projection/);
+    assert.match(t, /1 facture en retard placée à une date estimée/);
     v.demonter();
   });
 
@@ -209,11 +233,41 @@ describe("Bloc Gestion des risques", () => {
     erreurSans.demonter();
   });
 
-  test("analyse partielle affichée", () => {
+  test("quatre limites distinctes : données, méthode, calcul, affichage", () => {
     const r = CAS_SANS();
-    const v = rendreVue(pret({ ...r, couverture: { ...r.couverture, partielle: true } }));
-    assert.match(v.texte(), /Analyse partielle :/);
+    const c = {
+      ...r.couverture,
+      partielle: true,
+      perimetre: { ...r.couverture.perimetre, aActualiser: [{ cleLigne: "x", numero: "FC-X", client: "X", montant: 1, raison: "r" }] },
+      restrictionMethode: "Méthode restreinte.",
+      arret: { cause: "budget_temps" as const, evaluations: 1000 },
+      pairesNonExplorees: 3,
+      pairesPossibles: 10,
+      affichage: { alertesCalculees: 14, alertesDetaillees: 10, combinaisonsListees: 4, combinaisonsNonListees: 0 },
+    };
+    assert.deepEqual(limitesCouverture(c).map((l) => l.type), ["donnees", "methode", "calcul", "affichage"]);
+    assert.match(limitesCouverture(c)[2].texte, /limite de durée du calcul atteinte\) : 3 paires sur 10 non explorées/);
+    const v = rendreVue(pret({ ...r, couverture: c }));
+    assert.match(v.texte(), /Analyse partielle.*Données · .*Méthode · Méthode restreinte\..*Calcul · Calcul arrêté.*Affichage · 14 alertes calculées, 10 détaillées/);
     v.demonter();
+  });
+
+  test("affichage condensé seul : pas d'analyse partielle", () => {
+    const r = CAS_SANS();
+    const c = { ...r.couverture, affichage: { alertesCalculees: 14, alertesDetaillees: 10, combinaisonsListees: 4, combinaisonsNonListees: 0 } };
+    assert.deepEqual(limitesCouverture(c).map((l) => l.type), ["affichage"]);
+    const v = rendreVue(pret({ ...r, couverture: c }));
+    assert.doesNotMatch(v.texte(), /Analyse partielle/);
+    v.demonter();
+  });
+
+  test("portée de la référence : flux et financement incertains, hypothèses à renseigner", () => {
+    assert.deepEqual(phrasesReference({ soldes: [], mesures: CAS_SANS().reference.mesures, fluxIncertains: 2, financementsIncertains: 1, hypothesesARenseigner: 3 }), [
+      "Analyse fondée sur la projection de référence, incluant les flux incertains prévus.",
+      "Elle inclut 2 flux incertains, dont 1 financement : une absence d'alerte ne signifie pas que la trésorerie resterait positive sans eux.",
+      "3 hypothèses à renseigner, prises telles que saisies dans Futur.",
+      "Analyse de sensibilité aux retards d'une ou deux factures : elle ne résume pas le risque des perspectives pondérées.",
+    ]);
   });
 });
 
@@ -232,7 +286,7 @@ describe("Actualisation", () => {
       const racine = createRoot(conteneur);
       const requete = (soldeInitial: number) => ({ soldeInitial, dateDepart: DEPART, horizonJours: 30, lignes: [], evenements: [], factures: [] });
       const rendre = (soldeInitial: number) =>
-        act(() => racine.render(createElement(GestionRisques, { accessToken: "jeton", actif: true, requete: requete(soldeInitial), horsProjection: 0, onVoirFacture: () => {} })));
+        act(() => racine.render(createElement(GestionRisques, { accessToken: "jeton", actif: true, requete: requete(soldeInitial), onVoirFacture: () => {} })));
       rendre(35_000);
       await act(async () => mock.timers.tick(800));
       rendre(100_000); // hypothèse validée / solde actualisé : nouveau calcul
@@ -254,9 +308,13 @@ describe("Actualisation", () => {
 
 describe("Gating Pilotage", () => {
   test("route serveur : offre Pilotage revérifiée à chaque appel, seule l'offre Pilotage y accède", () => {
-    const route = readFileSync(join(__dirname, "../app/api/futur/probabiliste/risques/route.ts"), "utf8");
-    assert.match(route, /accesPrevisionProbabiliste\(req, "futur\/probabiliste\/risques"\)/);
-    assert.match(route, /if \(!acces\.ok\) return acces\.reponse;/);
+    for (const nom of ["risques", "estimations"]) {
+      const route = readFileSync(join(__dirname, `../app/api/futur/probabiliste/${nom}/route.ts`), "utf8");
+      assert.match(route, new RegExp(`accesPrevisionProbabiliste\\(req, "futur/probabiliste/${nom}"\\)`));
+      assert.match(route, /if \(!acces\.ok\) return acces\.reponse;/);
+      // Société toujours dérivée de l'utilisateur connecté (isolation des comptes).
+      assert.match(route, /acces\.companyId|const \{ companyId \} = acces;/);
+    }
     assert.deepEqual(
       (["essential", "forecast", "steering"] as const).map((o) => capacitesDeLOffre(o).canViewProbabilisticForecast),
       [false, false, true]

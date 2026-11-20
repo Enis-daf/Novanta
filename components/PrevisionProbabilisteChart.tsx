@@ -35,7 +35,7 @@ function Infobulle({ active, payload }: { active?: boolean; payload?: { payload:
       <p>
         8 cas sur 10 entre {formatMontant(p.p10)} et {formatMontant(p.p90)}
       </p>
-      {p.projection !== null && <p>Projection actuelle : {formatMontant(p.projection)}</p>}
+      {p.projection !== null && <p>Projection de référence : {formatMontant(p.projection)}</p>}
       {p.probaNegatif > 0 && <p>Risque d&apos;être sous 0 € ce jour : {pourcent(p.probaNegatif)}</p>}
     </div>
   );
@@ -98,7 +98,7 @@ export default function PrevisionProbabilisteChart({ serie, deterministe }: Prev
           <span className="proba-legende__trait proba-legende__trait--bande" /> Fourchette de 8 cas sur 10
         </li>
         <li>
-          <span className="proba-legende__trait proba-legende__trait--projection" /> Projection actuelle
+          <span className="proba-legende__trait proba-legende__trait--projection" /> Projection de référence
         </li>
       </ul>
     </div>

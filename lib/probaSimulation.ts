@@ -75,6 +75,8 @@ interface EvenementPrepare {
   ligne: number;
   montantSigne: number;
   jourPrevu: number;
+  // Date la plus tôt possible : la date prévue, ou aujourd'hui pour une date estimée (médiane).
+  plancher: number;
   jourBase: number;
   facteur: number;
   echantillonneur: Echantillonneur | null;
@@ -96,8 +98,8 @@ interface LignePreparee {
 }
 
 /** Jour simulé d'une échéance (peut dépasser l'horizon). */
-export function simulerJour(e: Pick<EvenementPrepare, "jourPrevu" | "jourBase" | "facteur" | "echantillonneur">, alea: Alea): number {
-  const plancher = Math.max(e.jourPrevu, 0);
+export function simulerJour(e: Pick<EvenementPrepare, "jourPrevu" | "jourBase" | "facteur" | "echantillonneur"> & { plancher?: number }, alea: Alea): number {
+  const plancher = Math.max(e.plancher ?? e.jourPrevu, 0);
   if (e.facteur <= 0 || e.echantillonneur === null) return plancher;
   const requis = -e.jourBase;
   for (let essai = 0; essai < ESSAIS_CONDITIONNELS; essai++) {
@@ -195,6 +197,7 @@ export function preparerSimulation(params: Omit<ParametresSimulation, "nombreSim
       ligne: i,
       montantSigne: e.sens === "encaissement" ? e.montant : -e.montant,
       jourPrevu,
+      plancher: e.dateEstimee ? 0 : Math.max(jourPrevu, 0),
       jourBase: e.dateEcheance ? Math.min(joursEntre(params.dateDepart, e.dateEcheance), jourPrevu) : jourPrevu,
       facteur: ligne.source.modeDate === "debut" ? 0 : facteur,
       echantillonneur: ligne.source.modeDate === "debut" ? null : echantillonneur,

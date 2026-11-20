@@ -1,11 +1,11 @@
 import { decalerDateISO } from "./dates";
 import { formatDate, formatMontant } from "./format";
-import type { AlerteRisque, CouvertureAnalyse, FactureDansAlerte, GroupeAlertes, Mesures, Plausibilite } from "./probaRisques";
+import type { AlerteRisque, CouvertureAnalyse, FactureDansAlerte, GroupeAlertes, Mesures, Plausibilite, ResultatRisques } from "./probaRisques";
 
 /**
  * Gestion des risques — formulations de l'écran. Fonctions pures : chaque phrase dit exactement ce
  * que le calcul a montré, et rien de plus (pas de garantie, pas d'échéance contractuelle, pas de
- * probabilité inventée).
+ * probabilité inventée, pas de conclusion générale de sécurité).
  */
 
 const pluriel = (n: number, mot: string) => `${n} ${mot}${n > 1 ? "s" : ""}`;
@@ -45,6 +45,10 @@ function apresLe(f: FactureDansAlerte, dates: string[]): string {
   return f.dateTestee === null ? `la fin de l'horizon (${formatDate(dates[dates.length - 1])})` : `le ${formatDate(decalerDateISO(f.dateTestee, -1))}`;
 }
 
+function encaissementDeReference(f: FactureDansAlerte): string {
+  return f.dateReferenceEstimee ? `Encaissement estimé au ${formatDate(f.dateReference)} (facture en retard)` : `Encaissement prévu le ${formatDate(f.dateReference)}`;
+}
+
 /** La phrase du retard déclencheur, conditionnelle au scénario analysé. */
 export function phraseDeclencheur(a: AlerteRisque, dates: string[]): string {
   if (a.type === "duo") {
@@ -54,10 +58,18 @@ export function phraseDeclencheur(a: AlerteRisque, dates: string[]): string {
   const f = a.factures[0];
   const prefixe = f.dateCertaine ? "Si ce paiement était malgré tout retardé, un" : "Un";
   const effet = a.type === "aggravation" ? "aggraverait la tension déjà prévue" : "provoquerait une tension";
-  return `Encaissement prévu le ${formatDate(f.dateReference)}. ${prefixe} paiement après ${apresLe(f, dates)} ${effet} dans les hypothèses analysées.`;
+  return `${encaissementDeReference(f)}. ${prefixe} paiement après ${apresLe(f, dates)} ${effet} dans les hypothèses analysées.`;
+}
+
+/** Dates propres à chaque facture du scénario : référence, date testée, retard supplémentaire. */
+export function datesDuScenario(f: FactureDansAlerte): string {
+  const reference = `${f.dateReferenceEstimee ? "estimé au" : "prévu le"} ${formatDate(f.dateReference)}`;
+  const teste = f.dateTestee ? `testé le ${formatDate(f.dateTestee)}` : "testé après la fin de l'horizon";
+  return `Encaissement ${reference}, ${teste} (+${pluriel(f.retardJours, "jour")})`;
 }
 
 export const PHRASE_UN_SUFFIT = "Recevoir l'un des deux paiements à sa date de référence suffit à éviter ce creux.";
+export const PHRASE_DATES_CONJOINTES = "Ces deux dates valent ensemble pour ce scénario : ce ne sont pas des limites indépendantes.";
 
 export function phrasePlausibilite(p: Plausibilite): string {
   if (!p.estimee) return "Plausibilité du retard non estimée.";
@@ -67,15 +79,61 @@ export function phrasePlausibilite(p: Plausibilite): string {
 
 export const PHRASE_MEME_CLIENT = "Même client : un retard commun est possible. Aucune probabilité conjointe n'est calculée.";
 
-/** Message quand il n'y a aucune alerte : jamais « aucun risque ». */
-export function messageSansAlerte(c: CouvertureAnalyse): string {
-  if (c.facturesAnalysees === 0) return "Aucune facture à encaisser sur l'horizon analysé : rien à tester.";
-  return c.partielle
-    ? "Aucune dépendance critique à une ou deux factures détectée dans le périmètre analysé (analyse partielle)."
-    : "Aucune dépendance critique à une ou deux factures détectée sur l'horizon analysé.";
+/** Portée de la référence : l'analyse est conditionnelle à elle. */
+export function phrasesReference(r: ResultatRisques["reference"]): string[] {
+  const phrases = ["Analyse fondée sur la projection de référence, incluant les flux incertains prévus."];
+  if (r.fluxIncertains > 0) {
+    const financement = r.financementsIncertains > 0 ? `, dont ${pluriel(r.financementsIncertains, "financement")}` : "";
+    phrases.push(
+      `Elle inclut ${pluriel(r.fluxIncertains, "flux incertain")}${financement} : une absence d'alerte ne signifie pas que la trésorerie resterait positive sans ${r.fluxIncertains > 1 ? "eux" : "lui"}.`
+    );
+  }
+  if (r.hypothesesARenseigner > 0) {
+    phrases.push(`${pluriel(r.hypothesesARenseigner, "hypothèse")} à renseigner, prise${r.hypothesesARenseigner > 1 ? "s" : ""} telle${r.hypothesesARenseigner > 1 ? "s" : ""} que saisie${r.hypothesesARenseigner > 1 ? "s" : ""} dans Futur.`);
+  }
+  phrases.push("Analyse de sensibilité aux retards d'une ou deux factures : elle ne résume pas le risque des perspectives pondérées.");
+  return phrases;
 }
 
-export function messagePartiel(c: CouvertureAnalyse): string | null {
-  if (!c.partielle) return null;
-  return `Analyse partielle : ${pluriel(c.facturesAnalysees, "facture")} testée${c.facturesAnalysees > 1 ? "s" : ""} seule${c.facturesAnalysees > 1 ? "s" : ""}, ${c.pairesEvaluees + c.pairesEcarteesSansRisque} paire${c.pairesEvaluees + c.pairesEcarteesSansRisque > 1 ? "s" : ""} sur ${c.pairesPossibles} examinée${c.pairesPossibles > 1 ? "s" : ""} avant la limite de calcul. L'absence d'alerte sur le reste n'est pas vérifiée.`;
+export type TypeLimite = "donnees" | "methode" | "calcul" | "affichage";
+
+/**
+ * Les quatre limites possibles, chacune avec sa phrase. « donnees », « methode » et « calcul »
+ * rendent l'analyse partielle ; « affichage » ne change rien au résultat calculé.
+ */
+export function limitesCouverture(c: CouvertureAnalyse): { type: TypeLimite; texte: string }[] {
+  const limites: { type: TypeLimite; texte: string }[] = [];
+  const n = c.perimetre.aActualiser.length;
+  if (n > 0) {
+    limites.push({
+      type: "donnees",
+      texte: `${pluriel(n, "facture")} en retard sans date d'encaissement estimable : à actualiser, non testée${n > 1 ? "s" : ""}.`,
+    });
+  }
+  if (c.restrictionMethode) limites.push({ type: "methode", texte: c.restrictionMethode });
+  if (c.arret) {
+    const cause = c.arret.cause === "budget_temps" ? "limite de durée du calcul atteinte" : "nombre maximal de scénarios atteint";
+    const nonFaites = [
+      c.facturesSeulesIncompletes > 0 ? `${pluriel(c.facturesSeulesIncompletes, "facture")} testée${c.facturesSeulesIncompletes > 1 ? "s" : ""} en partie seulement` : null,
+      c.pairesNonExplorees > 0 ? `${c.pairesNonExplorees} paire${c.pairesNonExplorees > 1 ? "s" : ""} sur ${c.pairesPossibles} non explorée${c.pairesNonExplorees > 1 ? "s" : ""}` : null,
+    ].filter(Boolean);
+    limites.push({ type: "calcul", texte: `Calcul arrêté avant la fin (${cause})${nonFaites.length > 0 ? ` : ${nonFaites.join(", ")}` : ""}. L'absence d'alerte sur ce reste n'est pas vérifiée.` });
+  }
+  const masquees = c.affichage.combinaisonsNonListees;
+  const condensees = c.affichage.alertesCalculees - c.affichage.alertesDetaillees;
+  if (condensees > 0) {
+    limites.push({
+      type: "affichage",
+      texte: `${c.affichage.alertesCalculees} alertes calculées, ${c.affichage.alertesDetaillees} détaillées${masquees > 0 ? `, ${masquees} non listées` : ""} : affichage condensé, le calcul est complet${c.partielle ? " dans son périmètre" : ""}.`,
+    });
+  }
+  return limites;
+}
+
+/** Message quand il n'y a aucune alerte : jamais une conclusion générale de sécurité. */
+export function messageSansAlerte(c: CouvertureAnalyse): string {
+  if (c.facturesAnalysees === 0 && c.perimetre.aActualiser.length === 0) return "Aucune facture à encaisser sur l'horizon analysé : rien à tester.";
+  return c.partielle
+    ? "Aucune dépendance critique à une ou deux factures détectée dans le périmètre analysé — analyse partielle, voir ses limites."
+    : "Aucune dépendance critique à une ou deux factures détectée sur l'horizon analysé, dans la projection de référence.";
 }

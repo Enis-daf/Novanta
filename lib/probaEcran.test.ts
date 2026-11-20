@@ -674,3 +674,11 @@ describe("Factures prévisionnelles dans les perspectives pondérées", () => {
     assert.match(bloc, /facturesPrevisionnelles,/);
   });
 });
+
+describe("Factures en retard dans le tableau des hypothèses", () => {
+  test("une date estimée est marquée comme telle", () => {
+    const [ligne] = construireLignesHypotheses([{ ...flux("facture_client", "late", 6_000, "2026-12-03"), dateEstimee: true }], new Map(), () => "revenue");
+    assert.equal(ligne.dateEstimee, true);
+    assert.equal(ligne.premiereDate, "2026-12-03");
+  });
+});

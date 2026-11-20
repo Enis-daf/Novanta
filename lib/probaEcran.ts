@@ -73,6 +73,7 @@ export interface LigneHypothese {
   // n'ont pas toutes le même montant (saisonnalité, montant calculé).
   montantParEcheance: number | null;
   premiereDate: string; // date prévue de la première échéance : plancher de la date simulée
+  dateEstimee: boolean; // facture en retard : date estimée par l'historique, pas saisie
   dateEcheance: string | null; // échéance contractuelle (factures) : point de départ des retards
   echeances: number;
   groupe: CleGroupeHypotheses;
@@ -118,6 +119,7 @@ export function construireLignesHypotheses(
       impact: montant,
       montantParEcheance: montant,
       premiereDate: f.date,
+      dateEstimee: f.dateEstimee === true,
       dateEcheance: options.echeanceDe?.(f.source, f.sourceId) || null,
       echeances: 1,
       groupe: groupeDe(f.source, f.sourceId),

@@ -200,6 +200,9 @@ export interface EvenementTresorerie {
   tiers: string | null; // client ou fournisseur, pour son historique propre
   // Étage P&L (encaissements : "revenue") : sert aux conditions sur le CA et la marge brute.
   etage: EtagePnl | null;
+  // Facture en retard dont la date prévue est ESTIMÉE (médiane des paiements possibles, voir
+  // lib/probaEstimation.ts) : la date simulée peut alors tomber dès aujourd'hui, avant la médiane.
+  dateEstimee?: boolean;
 }
 
 export const SOURCES_FLUX: readonly SourceFlux[] = [
@@ -348,6 +351,7 @@ export function construireEvenements(
       fiabiliteDate: h?.fiabiliteDate ?? defaut.fiabiliteDate,
       tiers,
       etage: etageDe ? etageDe(f.source, f.sourceId) : etageParDefaut(f.source),
+      ...(f.dateEstimee ? { dateEstimee: true } : {}),
     });
   }
   return { lignes: Array.from(lignes.values()), evenements };

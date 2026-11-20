@@ -6276,3 +6276,51 @@ button.passe-cible--lien:focus-visible,
   margin: 6px 0 0;
   padding-left: var(--space-3);
 }
+
+/* Gestion des risques — portée, couverture, dates propres au scénario. */
+
+.proba-risques__portee p {
+  margin: 0 0 2px;
+  font-size: 12px;
+  color: var(--couleur-texte-option);
+}
+
+.proba-risques__limites,
+.proba-risques__a-actualiser ul,
+.proba-risque__dates {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.proba-risques__partielle {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--couleur-accent-fonce);
+}
+
+.proba-risques__limites .fiabilite-alerte,
+.proba-risques__limites .proba-editeur__aide {
+  margin: 0;
+}
+
+.proba-risques__a-actualiser {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.proba-risques__a-actualiser p {
+  margin: 0;
+}
+
+.proba-risque__dates {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}

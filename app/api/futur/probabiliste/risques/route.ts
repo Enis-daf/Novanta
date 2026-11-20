@@ -38,15 +38,17 @@ export async function POST(req: NextRequest) {
   try {
     const debut = Date.now();
     const { modeles } = await calibrerCompte(admin, companyId, "futur/probabiliste/risques");
+    const historiqueMs = Date.now() - debut;
     const resultat = analyserRisques({ ...requete, modeles }, modeles.client);
     const dureeMs = Date.now() - debut;
-    const { couverture } = resultat;
+    const { couverture, durees } = resultat;
     console.log(
-      `[futur/probabiliste/risques] company=${companyId} factures=${couverture.facturesAnalysees} paires=${couverture.pairesEvaluees}/${couverture.pairesPossibles} ecartees=${couverture.pairesEcarteesSansRisque} methode=${couverture.methode} partielle=${couverture.partielle} groupes=${resultat.groupes.length} duree_ms=${dureeMs}`
+      `[futur/probabiliste/risques] company=${companyId} factures=${couverture.facturesAnalysees} a_actualiser=${couverture.perimetre.aActualiser.length} paires=${couverture.pairesExplorees}/${couverture.pairesPossibles} ecartees=${couverture.pairesEcarteesSansRisque} non_explorees=${couverture.pairesNonExplorees} methode=${couverture.methode} arret=${couverture.arret?.cause ?? "aucun"} alertes=${couverture.affichage.alertesCalculees} historique_ms=${historiqueMs} reference_ms=${durees.preparationMs} analyse_ms=${durees.analyseMs} total_ms=${dureeMs}`
     );
     const reponse: ReponseRisques = {
       ...resultat,
       parametres: { dateDepart: requete.dateDepart, horizonJours: requete.horizonJours, soldeInitial: requete.soldeInitial, dureeMs },
+      dureesRoute: { historiqueMs, preparationMs: durees.preparationMs, analyseMs: durees.analyseMs, totalMs: Date.now() - debut },
     };
     return NextResponse.json(reponse);
   } catch (erreur) {

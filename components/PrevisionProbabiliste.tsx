@@ -6,7 +6,10 @@ import HypothesesProbabilistes from "./HypothesesProbabilistes";
 import GestionRisques from "./GestionRisques";
 import type { FactureAnalysee } from "@/lib/probaRisques";
 import { estPrevisionnelleActive } from "@/lib/facturesPrevisionnelles";
-import { estDateValide } from "@/lib/dates";
+import { decalerDateISO, estDateValide } from "@/lib/dates";
+import { EstimationDate, facturesEnRetard, LIBELLES_RAISON_A_ACTUALISER } from "@/lib/probaEstimation";
+import type { PerimetreFactures } from "@/lib/probaRisques";
+import { calculerProjectionCash } from "@/lib/cash-engine";
 import DateField from "./DateField";
 import { formatDate, formatMontant } from "@/lib/format";
 import { listerFluxProjetes, ParametresProjectionCash, SourceFlux } from "@/lib/cash-engine";
@@ -14,7 +17,7 @@ import { classerDepense, CorrespondanceFutur, groupeDeClassement } from "@/lib/f
 import type { EtagePnl } from "@/lib/pastCategoryMapping";
 import { cleLigne, construireEvenements, descendants, DIMENSIONS, HypotheseLigne, parentDeCondition, conditionVersMoteur } from "@/lib/probaEvenements";
 import { CleGroupeHypotheses, completude, construireLignesHypotheses, HypotheseEffective, LigneHypothese, messageCompletude } from "@/lib/probaEcran";
-import type { ReponseSimulation, RequeteSimulation, ResumeCalibration } from "@/lib/probaApi";
+import type { ReponseEstimations, ReponseSimulation, RequeteSimulation, ResumeCalibration } from "@/lib/probaApi";
 import type { SoldeJournalier } from "@/lib/types";
 
 interface PrevisionProbabilisteProps {
@@ -112,7 +115,51 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
     };
   }, [projection, correspondance]);
 
-  const flux = useMemo(() => listerFluxProjetes(projection), [projection]);
+  // Factures clients en retard (date d'encaissement anticipée passée ou absente) : date estimée par
+  // l'historique de paiement (route serveur, offre Pilotage). Une estimation enrichit la préparation
+  // COMMUNE des flux (lib/cash-engine.ts::datesEstimees) : hypothèses, Monte Carlo, référence de
+  // Gestion des risques et courbe de référence utilisent les mêmes dates. Flux de tréso n'en reçoit
+  // aucune : ces factures y restent hors projection, ce que l'écran signale.
+  const enRetard = useMemo(() => facturesEnRetard(projection.facturesClients, projection.dateDepart), [projection.facturesClients, projection.dateDepart]);
+  const [estimations, setEstimations] = useState<{ cle: string; liste: EstimationDate[] } | null>(null);
+  const cleEnRetard = useMemo(() => JSON.stringify([projection.dateDepart, enRetard]), [projection.dateDepart, enRetard]);
+  useEffect(() => {
+    if (!actif || !accessToken) return;
+    if (enRetard.length === 0) {
+      setEstimations({ cle: cleEnRetard, liste: [] });
+      return;
+    }
+    let annule = false;
+    fetch("/api/futur/probabiliste/estimations", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ dateDepart: projection.dateDepart, factures: enRetard }),
+    })
+      .then(async (r) => {
+        const corps = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(corps.error ?? "Estimation impossible.");
+        return (corps as ReponseEstimations).estimations;
+      })
+      .then((liste) => !annule && setEstimations({ cle: cleEnRetard, liste }))
+      // Sans estimation, aucune date n'est inventée : toutes ces factures restent « à actualiser ».
+      .catch(() => !annule && setEstimations({ cle: cleEnRetard, liste: enRetard.map((f) => ({ factureId: f.id, statut: "a_actualiser", raison: "historique_insuffisant" })) }));
+    return () => {
+      annule = true;
+    };
+  }, [actif, accessToken, enRetard, cleEnRetard, projection.dateDepart]);
+  const estimationsAJour = estimations !== null && estimations.cle === cleEnRetard ? estimations.liste : null;
+  const projectionReference = useMemo(() => {
+    const datesEstimees = new Map<string, string>();
+    for (const e of estimationsAJour ?? []) if (e.statut === "estimee") datesEstimees.set(e.factureId, e.date);
+    return { ...projection, datesEstimees };
+  }, [projection, estimationsAJour]);
+  const serieReference = useMemo(
+    () => (estimationsAJour && estimationsAJour.some((e) => e.statut === "estimee") ? calculerProjectionCash({ soldeInitial, ...projectionReference }).serie : serieDeterministe),
+    [estimationsAJour, soldeInitial, projectionReference, serieDeterministe]
+  );
+  const nombreEstimees = (estimationsAJour ?? []).filter((e) => e.statut === "estimee").length;
+
+  const flux = useMemo(() => listerFluxProjetes(projectionReference), [projectionReference]);
   const montantsFixes = useMemo(
     () => new Map(projection.rentreesRegulieres.filter((r) => r.modeMontant === "fixe").map((r) => [cleLigne("rentree_reguliere", r.id), r.montant])),
     [projection.rentreesRegulieres]
@@ -134,9 +181,11 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
     [flux, hypotheses, classement, montantsFixes, echeances]
   );
   const etat = useMemo(() => completude(lignes), [lignes]);
+  // Rien n'est construit tant que les dates des factures en retard ne sont pas connues : pas de
+  // calcul transitoire qui les omettrait.
   const construit = useMemo(
-    () => (hypotheses === null ? null : construireEvenements(flux, projection, Array.from(hypotheses.values()), classement.etageDe)),
-    [flux, projection, hypotheses, classement]
+    () => (hypotheses === null || estimationsAJour === null ? null : construireEvenements(flux, projection, Array.from(hypotheses.values()), classement.etageDe)),
+    [flux, projection, hypotheses, classement, estimationsAJour]
   );
   // Gestion des risques : mêmes échéances que la projection, identité des factures à encaisser.
   const facturesAnalysees = useMemo<FactureAnalysee[]>(
@@ -150,14 +199,27 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
     ],
     [projection.facturesClients, projection.facturesPrevisionnelles]
   );
-  // Factures ouvertes que la projection ne retient pas (date d'encaissement passée ou absente).
-  const horsProjection = useMemo(
-    () =>
-      projection.facturesClients.filter(
-        (f) => !f.payee && !f.litigieuse && (!estDateValide(f.dateEncaissementAnticipee) || f.dateEncaissementAnticipee < projection.dateDepart)
-      ).length,
-    [projection.facturesClients, projection.dateDepart]
-  );
+  // Périmètre des créances pour la couverture de l'analyse.
+  const perimetre = useMemo<PerimetreFactures>(() => {
+    const fin = decalerDateISO(projection.dateDepart, projection.horizonJours ?? 90);
+    const parId = new Map(enRetard.map((f) => [f.id, f]));
+    const estimeeDe = new Map((estimationsAJour ?? []).filter((e) => e.statut === "estimee").map((e) => [e.factureId, (e as { date: string }).date]));
+    return {
+      enRetardEstimees: estimeeDe.size,
+      aActualiser: (estimationsAJour ?? [])
+        .filter((e): e is Extract<EstimationDate, { statut: "a_actualiser" }> => e.statut === "a_actualiser")
+        .map((e) => {
+          const f = parId.get(e.factureId)!;
+          return { cleLigne: cleLigne("facture_client", f.id), numero: f.numero || null, client: f.client, montant: f.montant, raison: LIBELLES_RAISON_A_ACTUALISER[e.raison] };
+        }),
+      litigieusesExclues: projection.facturesClients.filter((f) => !f.payee && f.litigieuse).length,
+      horsHorizon: projection.facturesClients.filter((f) => {
+        if (f.payee || f.litigieuse) return false;
+        const date = estDateValide(f.dateEncaissementAnticipee) && f.dateEncaissementAnticipee >= projection.dateDepart ? f.dateEncaissementAnticipee : estimeeDe.get(f.id);
+        return date !== undefined && date > fin;
+      }).length,
+    };
+  }, [projection.dateDepart, projection.horizonJours, projection.facturesClients, enRetard, estimationsAJour]);
   const requeteRisques = useMemo(
     () =>
       construit === null
@@ -169,8 +231,9 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
             lignes: construit.lignes,
             evenements: construit.evenements,
             factures: facturesAnalysees,
+            perimetre,
           },
-    [construit, soldeInitial, projection.dateDepart, projection.horizonJours, facturesAnalysees]
+    [construit, soldeInitial, projection.dateDepart, projection.horizonJours, facturesAnalysees, perimetre]
   );
 
   const liens = useMemo(
@@ -316,7 +379,13 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
           <hr className="pilotage__separateur" />
 
           <div className="pilotage__chart">
-            <PrevisionProbabilisteChart serie={serie} deterministe={serieDeterministe} />
+            <PrevisionProbabilisteChart serie={serie} deterministe={serieReference} />
+            {nombreEstimees > 0 && (
+              <p className="fiabilite-note">
+                La projection de référence inclut {nombreEstimees} facture{nombreEstimees > 1 ? "s" : ""} en retard placée{nombreEstimees > 1 ? "s" : ""} à une date estimée :
+                elle{nombreEstimees > 1 ? "s" : ""} ne figure{nombreEstimees > 1 ? "nt" : ""} pas dans la courbe de Flux de tréso.
+              </p>
+            )}
             <p className="fiabilite-note">
               La bande grise montre, jour par jour, la fourchette où se trouve votre trésorerie dans 8 cas sur 10. Ses bords ne forment pas un scénario : chaque jour se lit
               séparément. Calcul sur {resultat.parametres.nombreSimulations.toLocaleString("fr-FR")} scénarios
@@ -330,7 +399,6 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
         accessToken={accessToken}
         actif={actif}
         requete={requeteRisques}
-        horsProjection={horsProjection}
         onVoirFacture={(terme) => onVoirFacture?.(terme)}
       />
 

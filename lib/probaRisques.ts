@@ -58,16 +58,27 @@ export interface FactureAnalysee {
 
 export interface ParametresRisques extends Omit<ParametresSimulation, "nombreSimulations" | "graine"> {
   factures: FactureAnalysee[];
+  perimetre?: PerimetreFactures;
   // Budget des réévaluations complètes (cas avec conditions dépendantes) : nombre et durée.
   budgetEvaluations?: number;
   budgetMs?: number;
   echantillonsPlausibilite?: number;
 }
 
-export const BUDGET_EVALUATIONS_PAR_DEFAUT = 500_000;
-export const BUDGET_MS_PAR_DEFAUT = 8_000;
-// Taille de la réponse : alertes détaillées par groupe, courbes par groupe, combinaisons listées.
-export const LIMITES_AFFICHAGE = { alertesParGroupe: 10, courbesParGroupe: 3, autresParGroupe: 200 } as const;
+/**
+ * Paramètres de l'analyse (seul endroit où ils se règlent).
+ *  - budgetMs / budgetEvaluations : ne bornent QUE la réévaluation complète (conditions dépendant
+ *    de la trésorerie) ; la méthode exacte sans condition n'a pas de budget. Atteint : arrêt
+ *    déclaré (couverture.arret), jamais silencieux ;
+ *  - limitesAffichage : taille de la RÉPONSE seulement (le calcul est complet) — alertes détaillées
+ *    et courbes par tension, combinaisons listées en plus ; le total calculé est toujours renvoyé.
+ */
+export const CONFIG_ANALYSE_RISQUES = {
+  budgetMs: 8_000,
+  budgetEvaluations: 500_000,
+  limitesAffichage: { alertesParGroupe: 10, courbesParGroupe: 3, autresParGroupe: 200 },
+} as const;
+const LIMITES_AFFICHAGE = CONFIG_ANALYSE_RISQUES.limitesAffichage;
 const TOLERANCE = 0.005; // un centime : en deçà, deux soldes sont égaux
 
 export interface Mesures {
@@ -100,7 +111,7 @@ function episodes(soldes: Float64Array): [number, number][] {
 }
 
 /** Mesures d'une trajectoire, et nature de son écart avec la référence. */
-export function mesurer(soldes: Float64Array, reference: Float64Array): { mesures: Mesures; nature: NatureImpact } {
+export function mesurer(soldes: Float64Array, reference: Float64Array, jourCible?: number): { mesures: Mesures; nature: NatureImpact } {
   let minimum = Infinity;
   let jourMinimum = 0;
   for (let j = 0; j < soldes.length; j++) {
@@ -110,11 +121,16 @@ export function mesurer(soldes: Float64Array, reference: Float64Array): { mesure
     }
   }
   const eps = episodes(soldes);
-  const nouveau = eps.find(([d, f]) => {
+  const estNouveau = ([d, f]: [number, number]) => {
     for (let j = d; j <= f; j++) if (reference[j] < 0) return false;
     return true;
-  });
-  const retenu = nouveau ?? eps[0] ?? null;
+  };
+  // Plusieurs épisodes : celui qui contient le jour visé, sinon le premier nouvel épisode.
+  const cible = jourCible !== undefined ? eps.find(([d, f]) => d <= jourCible && jourCible <= f) : undefined;
+  const nouveau = cible && estNouveau(cible) ? cible : jourCible === undefined ? eps.find(estNouveau) : undefined;
+  const retenu = nouveau ?? cible ?? eps[0] ?? null;
+  let minEpisode = 0;
+  if (retenu) for (let j = retenu[0]; j <= retenu[1]; j++) minEpisode = Math.min(minEpisode, soldes[j]);
   const mesures: Mesures = {
     premierNegatif: eps.length > 0 ? eps[0][0] : null,
     minimum,
@@ -123,7 +139,8 @@ export function mesurer(soldes: Float64Array, reference: Float64Array): { mesure
     episodeFin: retenu ? retenu[1] : null,
     retourPositif: retenu ? retenu[1] < soldes.length - 1 : true,
     dureeJours: retenu ? retenu[1] - retenu[0] + 1 : 0,
-    deficitMax: minimum < 0 ? -minimum : 0,
+    // Déficit de l'épisode retenu : chaque épisode est attribué séparément.
+    deficitMax: -minEpisode,
   };
   if (nouveau) return { mesures, nature: "declenchement" };
   if (eps.length === 0) return { mesures, nature: "aucun" };
@@ -150,8 +167,9 @@ export interface FactureDansAlerte {
   montantRestant: number; // reste à encaisser retenu par la projection
   dateEcheance: string | null;
   dateReference: string; // date d'encaissement retenue dans la référence
+  dateReferenceEstimee: boolean; // facture en retard : date estimée par l'historique
   dateTestee: string | null; // null : au-delà de l'horizon
-  retardJours: number; // par rapport à la date de référence
+  retardJours: number; // retard supplémentaire testé pour CETTE facture, depuis sa date de référence
   dateCertaine: boolean; // fiabilité « Ferme » saisie : le stress est hypothétique
   plausibilite: Plausibilite;
 }
@@ -169,9 +187,8 @@ export interface Situation {
 export interface AlerteRisque {
   id: string;
   type: "seule" | "duo" | "aggravation";
-  factures: FactureDansAlerte[];
-  retardJours: number;
-  mesures: Mesures; // scénario testé
+  factures: FactureDansAlerte[]; // chacune avec SA date testée
+  mesures: Mesures; // scénario testé (épisode attribué)
   // Décaissements prévus le jour du premier passage sous zéro du scénario (contexte, pas la cause).
   decaissementsDuJour: { libelle: string; montant: number }[];
   memeClient: boolean;
@@ -181,27 +198,59 @@ export interface AlerteRisque {
 export interface GroupeAlertes {
   id: string;
   type: "seule" | "seules_multiples" | "duo" | "aggravation";
-  dateTension: string; // premier passage sous zéro (ou début de la tension aggravée)
+  dateTension: string; // début de l'épisode de tension concerné
   alertes: AlerteRisque[]; // priorisées ; courbes (situations) pour les premières seulement
   nombreTotal: number;
-  // Autres combinaisons de la même tension, au-delà des alertes détaillées (factures et retard testé).
-  autres: { factures: { cleLigne: string; numero: string | null; client: string }[]; retardJours: number; deficitMax: number }[];
+  // Autres combinaisons de la même tension, au-delà des alertes détaillées.
+  autres: { factures: { cleLigne: string; numero: string | null; client: string; retardJours: number }[]; deficitMax: number }[];
 }
 
+/** Créance que l'analyse ne peut pas positionner dans le temps : suivie, signalée, non testée. */
+export interface FactureNonPositionnee {
+  cleLigne: string;
+  numero: string | null;
+  client: string;
+  montant: number;
+  raison: string;
+}
+
+/** Périmètre des créances, tel que connu du navigateur (préparation commune des données). */
+export interface PerimetreFactures {
+  enRetardEstimees: number; // factures en retard positionnées à une date estimée
+  aActualiser: FactureNonPositionnee[]; // factures en retard sans estimation défendable
+  litigieusesExclues: number; // politique existante : une facture litigieuse n'est pas projetée
+  horsHorizon: number; // encaissement de référence au-delà de l'horizon : aucun retard à tester
+}
+
+/**
+ * Couverture de l'analyse, en quatre limites distinctes :
+ *  - donnees  : créances non exploitables (à actualiser) — l'analyse ne les a pas testées ;
+ *  - methode  : combinaisons de dates non explorées par construction (restriction déclarée) ;
+ *  - calcul   : arrêt avant la fin du périmètre (budget), avec sa cause ;
+ *  - affichage: tout est calculé, seul le détail affiché est condensé.
+ * `partielle` vaut true dès que l'une des trois premières limite le résultat.
+ */
 export interface CouvertureAnalyse {
   facturesAnalysees: number;
+  perimetre: PerimetreFactures;
+  methode: "exacte" | "retards_minimaux";
+  restrictionMethode: string | null;
   pairesPossibles: number;
-  pairesEvaluees: number;
-  pairesEcarteesSansRisque: number; // écartées par la borne exacte
+  pairesEcarteesSansRisque: number; // écartées par une borne exacte : aucun scénario possible
+  pairesExplorees: number;
+  pairesNonExplorees: number; // non atteintes avant l'arrêt du calcul
+  facturesSeulesIncompletes: number; // factures dont tous les retards n'ont pas été testés (arrêt)
+  arret: null | { cause: "budget_temps" | "budget_evaluations"; evaluations: number };
+  affichage: { alertesCalculees: number; alertesDetaillees: number; combinaisonsListees: number; combinaisonsNonListees: number };
   partielle: boolean;
-  methode: "exacte_rapide" | "reevaluation_complete";
 }
 
 export interface ResultatRisques {
   dates: string[];
-  reference: { soldes: number[]; mesures: Mesures };
+  reference: { soldes: number[]; mesures: Mesures; fluxIncertains: number; financementsIncertains: number; hypothesesARenseigner: number };
   groupes: GroupeAlertes[];
   couverture: CouvertureAnalyse;
+  durees: { preparationMs: number; analyseMs: number };
 }
 
 const arrondiCentime = (x: number) => Math.round(x * 100) / 100;
@@ -212,7 +261,7 @@ const arrondiCentime = (x: number) => Math.round(x * 100) / 100;
 
 export function plausibiliteRetard(
   modele: ModeleRetards,
-  facture: { tiers: string | null; montant: number; jourReference: number; jourEcheance: number | null },
+  facture: { tiers: string | null; montant: number; jourReference: number; jourEcheance: number | null; plancher?: number },
   jourTeste: number,
   echantillons = 4_000
 ): Plausibilite {
@@ -222,6 +271,7 @@ export function plausibiliteRetard(
   // Reproductible : même facture, même date testée -> même valeur.
   const alea = creerAlea(Math.round(facture.montant * 100) ^ (jourTeste * 7919) ^ (facture.jourReference * 104729));
   const base = facture.jourEcheance !== null ? Math.min(facture.jourEcheance, facture.jourReference) : facture.jourReference;
+  const plancher = facture.plancher ?? facture.jourReference;
   let valides = 0;
   let tardifs = 0;
   for (let i = 0; i < echantillons; i++) {
@@ -229,7 +279,7 @@ export function plausibiliteRetard(
     // Facture déjà échue : un paiement antérieur à aujourd'hui est incompatible avec une facture ouverte.
     if (paiement < 0) continue;
     valides++;
-    if (Math.max(facture.jourReference, paiement) >= jourTeste) tardifs++;
+    if (Math.max(plancher, paiement) >= jourTeste) tardifs++;
   }
   if (valides === 0) return { estimee: false, raison: "hypotheses_par_defaut" };
   return { estimee: true, part: tardifs / valides, source: ech.poids.client >= 0.5 ? "client" : "compte" };
@@ -246,9 +296,13 @@ interface Candidat {
   montant: number;
   tiers: string | null;
   dateCertaine: boolean;
+  dateEstimee: boolean;
 }
 
+const PERIMETRE_VIDE: PerimetreFactures = { enRetardEstimees: 0, aActualiser: [], litigieusesExclues: 0, horsHorizon: 0 };
+
 export function analyserRisques(params: ParametresRisques, modeleClients: ModeleRetards): ResultatRisques {
+  const t0 = Date.now();
   const prep = preparerSimulation(params);
   const evaluer = creerEvaluateur(prep);
   const { jours, dates } = prep;
@@ -257,6 +311,7 @@ export function analyserRisques(params: ParametresRisques, modeleClients: Modele
   const refMesures = mesurer(reference, reference).mesures;
   // Jours de référence tels que la référence les place (« à partir du mois suivant » compris).
   const jourRef = referenceTraj.jours;
+  const perimetre = params.perimetre ?? PERIMETRE_VIDE;
 
   // Candidats : factures à encaisser présentes dans la référence.
   const parCle = new Map(params.factures.map((f) => [f.cleLigne, f]));
@@ -274,8 +329,10 @@ export function analyserRisques(params: ParametresRisques, modeleClients: Modele
       montant: evts.reduce((s, k) => s + prep.evenements[k].montantSigne, 0),
       tiers: src.tiers,
       dateCertaine: evts.every((k) => prep.sources[k].fiabiliteDate === 100),
+      dateEstimee: evts.some((k) => prep.sources[k].dateEstimee === true),
     });
   });
+  const preparationMs = Date.now() - t0;
 
   // Calcul exact rapide possible ? (aucune condition dont le résultat dépend d'une date d'encaissement)
   const clesCandidates = new Set(candidats.map((c) => c.facture.cleLigne));
@@ -283,25 +340,29 @@ export function analyserRisques(params: ParametresRisques, modeleClients: Modele
     prep.phase2.length === 0 &&
     !prep.lignes.some((l) => l.condition?.type === "apres_evenement" && l.parent >= 0 && clesCandidates.has(prep.lignes[l.parent].source.cle));
 
-  const budget = params.budgetEvaluations ?? BUDGET_EVALUATIONS_PAR_DEFAUT;
-  const finBudget = Date.now() + (params.budgetMs ?? BUDGET_MS_PAR_DEFAUT);
+  const budget = params.budgetEvaluations ?? CONFIG_ANALYSE_RISQUES.budgetEvaluations;
+  const finBudget = Date.now() + (params.budgetMs ?? CONFIG_ANALYSE_RISQUES.budgetMs);
   let evaluations = 0;
-  let partielle = false;
-  const budgetAtteint = () => !lineaire && (evaluations >= budget || (evaluations % 256 === 0 && Date.now() > finBudget));
-
-  const forcesPour = (cs: Candidat[], k: number) => {
-    const m = new Map<number, number>();
-    for (const c of cs) for (const e of c.evenements) m.set(e, Math.min(jourRef[e] + k, jours));
-    return m;
+  let arret: CouvertureAnalyse["arret"] = null;
+  const budgetAtteint = () => {
+    if (lineaire) return false;
+    if (arret) return true;
+    if (evaluations >= budget) arret = { cause: "budget_evaluations", evaluations };
+    else if (evaluations % 256 === 0 && Date.now() > finBudget) arret = { cause: "budget_temps", evaluations };
+    return arret !== null;
   };
+
   const tampon = new Float64Array(jours);
-  const scenario = (cs: Candidat[], k: number): Float64Array => {
+  /** Scénario : chaque facture déplacée de SON retard (k jours après sa date de référence). */
+  const scenario = (deplacees: [Candidat, number][]): Float64Array => {
     if (!lineaire) {
       evaluations++;
-      return evaluer(forcesPour(cs, k)).soldes;
+      const forces = new Map<number, number>();
+      for (const [c, k] of deplacees) for (const e of c.evenements) forces.set(e, Math.min(jourRef[e] + k, jours));
+      return evaluer(forces).soldes;
     }
     tampon.set(reference);
-    for (const c of cs) {
+    for (const [c, k] of deplacees) {
       for (const e of c.evenements) {
         const m = prep.evenements[e].montantSigne;
         const de = jourRef[e];
@@ -311,7 +372,7 @@ export function analyserRisques(params: ParametresRisques, modeleClients: Modele
     }
     return Float64Array.from(tampon);
   };
-  const kMax = (cs: Candidat[]) => Math.max(...cs.map((c) => jours - c.jourReference)); // k où tout est au-delà de l'horizon
+  const kMax = (c: Candidat) => jours - c.jourReference; // k où l'encaissement passe au-delà de l'horizon
 
   // Minimum de la référence à partir de chaque jour : borne exacte pour écarter une facture ou une
   // paire qui ne peut pas passer sous zéro, même encaissée après l'horizon (cas linéaire).
@@ -319,52 +380,94 @@ export function analyserRisques(params: ParametresRisques, modeleClients: Modele
   for (let j = jours - 1; j >= 0; j--) minApres[j] = Math.min(reference[j], minApres[j + 1]);
   const peutPasserSousZero = (cs: Candidat[]) => !lineaire || minApres[Math.min(...cs.map((c) => c.jourReference))] - cs.reduce((s, c) => s + c.montant, 0) < 0;
 
-  // 1. Factures seules : nature pour chaque k (balayage complet).
+  // 1. Factures seules : nature pour chaque retard k (balayage complet, sans hypothèse de monotonie).
+  let facturesSeulesIncompletes = 0;
   const naturesSeules: NatureImpact[][] = candidats.map((c) => {
-    const n: NatureImpact[] = new Array(kMax([c]) + 1).fill("aucun");
+    const n: NatureImpact[] = new Array(kMax(c) + 1).fill("aucun");
     if (!peutPasserSousZero([c]) && refMesures.premierNegatif === null) return n;
-    for (let k = 1; k <= kMax([c]); k++) {
+    for (let k = 1; k <= kMax(c); k++) {
       if (budgetAtteint()) {
-        partielle = true;
+        facturesSeulesIncompletes++;
         break;
       }
-      n[k] = mesurer(scenario([c], k), reference).nature;
+      n[k] = mesurer(scenario([[c, k]]), reference).nature;
     }
     return n;
   });
-  const declencheSeule = (i: number, k: number) => (naturesSeules[i][Math.min(k, naturesSeules[i].length - 1)] ?? "aucun") === "declenchement";
+  const declencheSeule = (i: number, k: number) => naturesSeules[i][Math.min(k, naturesSeules[i].length - 1)] === "declenchement";
 
-  // 2. Paires.
-  let pairesEvaluees = 0;
+  // 2. Paires, retards DIFFÉRENTS pour A et B. Pour chaque jour de tension possible t, on teste le
+  //    scénario minimal : A et B encaissées juste après t (kA = t − pA + 1, kB = t − pB + 1).
+  //    Sans condition dépendante, un retard plus long ne fait que retirer du cash plus longtemps :
+  //    si un duo crée une tension au jour t, ce scénario minimal le montre aussi (méthode exacte,
+  //    vérifiée contre une exploration exhaustive des couples de dates dans les tests). Avec des
+  //    conditions dépendantes, cette propriété ne tient plus : la méthode est déclarée restreinte.
+  //    Un duo n'est retenu que si A seule (à kA) et B seule (à kB) ne créent pas la tension : une
+  //    facture critique seule sous un stress plus sévère reste analysée à ses retards plus courts.
+  let pairesExplorees = 0;
   let pairesEcartees = 0;
-  const duos: { a: number; b: number; k: number }[] = [];
+  let pairesNonExplorees = 0;
+  const duos: { a: number; b: number; ka: number; kb: number; jour: number }[] = [];
   for (let a = 0; a < candidats.length; a++) {
     for (let b = a + 1; b < candidats.length; b++) {
-      const paire = [candidats[a], candidats[b]];
-      if (!peutPasserSousZero(paire)) {
+      const A = candidats[a];
+      const B = candidats[b];
+      if (!peutPasserSousZero([A, B])) {
         pairesEcartees++;
         continue;
       }
       if (budgetAtteint()) {
-        partielle = true;
+        pairesNonExplorees++;
         continue;
       }
-      pairesEvaluees++;
-      for (let k = 1; k <= kMax(paire); k++) {
-        if (declencheSeule(a, k) || declencheSeule(b, k)) continue; // paire redondante à ce retard
+      let complete = true;
+      // Un duo par épisode de tension (le scénario minimal qui le crée) : un retard plus long qui ne
+      // fait qu'allonger le même épisode n'est pas une nouvelle alerte ; un autre épisode, si.
+      const episodesVus = new Set<number>();
+      for (let t = Math.max(A.jourReference, B.jourReference); t < jours; t++) {
+        if (reference[t] < 0) continue; // tension déjà prévue ce jour-là : pas un déclenchement
+        if (lineaire && reference[t] - A.montant - B.montant >= 0) continue; // impossible ce jour-là
+        const ka = t - A.jourReference + 1;
+        const kb = t - B.jourReference + 1;
+        if (declencheSeule(a, ka) || declencheSeule(b, kb)) continue; // l'une suffit seule à ces retards
         if (budgetAtteint()) {
-          partielle = true;
+          complete = false;
           break;
         }
-        if (mesurer(scenario(paire, k), reference).nature === "declenchement") {
-          duos.push({ a, b, k });
-          break;
+        const { mesures, nature } = mesurer(scenario([[A, ka], [B, kb]]), reference, t);
+        if (nature === "declenchement" && mesures.episodeDebut !== null && !episodesVus.has(mesures.episodeDebut)) {
+          episodesVus.add(mesures.episodeDebut);
+          duos.push({ a, b, ka, kb, jour: t });
         }
       }
+      if (complete) pairesExplorees++;
+      else pairesNonExplorees++;
     }
   }
 
   // 3. Construction des alertes.
+  // Plausibilité mise en cache par (facture, retard) : les duos partagent souvent les mêmes tests.
+  const cachePlausibilite = new Map<string, Plausibilite>();
+  const plausibiliteDe = (c: Candidat, jourTeste: number): Plausibilite => {
+    const cle = `${c.facture.cleLigne}|${jourTeste}`;
+    let p = cachePlausibilite.get(cle);
+    if (!p) {
+      p = plausibiliteRetard(
+        modeleClients,
+        {
+          tiers: c.tiers,
+          montant: c.montant,
+          jourReference: c.jourReference,
+          jourEcheance: c.facture.dateEcheance ? joursEntre(dates[0], c.facture.dateEcheance) : null,
+          plancher: c.dateEstimee ? 0 : c.jourReference,
+        },
+        jourTeste,
+        params.echantillonsPlausibilite
+      );
+      cachePlausibilite.set(cle, p);
+    }
+    return p;
+  };
   const enFacture = (c: Candidat, k: number): FactureDansAlerte => {
     const jourTeste = c.jourReference + k;
     return {
@@ -375,20 +478,11 @@ export function analyserRisques(params: ParametresRisques, modeleClients: Modele
       montantRestant: arrondiCentime(c.montant),
       dateEcheance: c.facture.dateEcheance,
       dateReference: dates[c.jourReference],
+      dateReferenceEstimee: c.dateEstimee,
       dateTestee: jourTeste < jours ? dates[jourTeste] : null,
       retardJours: k,
       dateCertaine: c.dateCertaine,
-      plausibilite: plausibiliteRetard(
-        modeleClients,
-        {
-          tiers: c.tiers,
-          montant: c.montant,
-          jourReference: c.jourReference,
-          jourEcheance: c.facture.dateEcheance ? joursEntre(dates[0], c.facture.dateEcheance) : null,
-        },
-        jourTeste,
-        params.echantillonsPlausibilite
-      ),
+      plausibilite: plausibiliteDe(c, jourTeste),
     };
   };
   const decaissementsDuJour = (jour: number | null) =>
@@ -400,66 +494,88 @@ export function analyserRisques(params: ParametresRisques, modeleClients: Modele
           .map(({ e, k }) => ({ libelle: prep.sources[k].libelle, montant: arrondiCentime(-e.montantSigne) }))
           .sort((x, y) => y.montant - x.montant)
           .slice(0, 3);
-  const situation = (libelle: string, soldes: Float64Array): Situation => ({
+  const situation = (libelle: string, soldes: Float64Array, jour?: number): Situation => ({
     libelle,
     soldes: Array.from(soldes, arrondiCentime),
-    mesures: mesurer(soldes, reference).mesures,
+    mesures: mesurer(soldes, reference, jour).mesures,
   });
   const nomFacture = (c: Candidat) => c.facture.numero ?? c.facture.client;
 
   const alertes: AlerteRisque[] = [];
+  // Courbes construites seulement pour les alertes affichées avec courbe (voir grouperAlertes).
+  const courbes = new Map<string, () => Situation[]>();
   candidats.forEach((c, i) => {
     const kDecl = naturesSeules[i].indexOf("declenchement");
     const kAggr = kDecl < 0 ? naturesSeules[i].indexOf("aggravation") : -1;
     const k = kDecl >= 0 ? kDecl : kAggr;
     if (k < 1) return;
-    const soldes = scenario([c], k);
-    const { mesures } = mesurer(soldes, reference);
+    const { mesures } = mesurer(scenario([[c, k]]), reference);
+    const id = `${kDecl >= 0 ? "seule" : "aggravation"}:${c.facture.cleLigne}`;
     alertes.push({
-      id: `${kDecl >= 0 ? "seule" : "aggravation"}:${c.facture.cleLigne}`,
+      id,
       type: kDecl >= 0 ? "seule" : "aggravation",
       factures: [enFacture(c, k)],
-      retardJours: k,
       mesures,
-      decaissementsDuJour: decaissementsDuJour(kDecl >= 0 ? mesures.premierNegatif : mesures.jourMinimum),
+      decaissementsDuJour: decaissementsDuJour(kDecl >= 0 ? mesures.episodeDebut : mesures.jourMinimum),
       memeClient: false,
-      situations: [situation("Référence", reference), situation(`${nomFacture(c)} retardée`, soldes)],
+      situations: [],
     });
+    courbes.set(id, () => [situation("Référence", reference), situation(`${nomFacture(c)} retardée`, scenario([[c, k]]))]);
   });
-  for (const { a, b, k } of duos) {
+  for (const { a, b, ka, kb, jour } of duos) {
     const A = candidats[a];
     const B = candidats[b];
-    const ensemble = scenario([A, B], k);
-    const { mesures } = mesurer(ensemble, reference);
+    const { mesures } = mesurer(scenario([[A, ka], [B, kb]]), reference, jour);
+    const id = `duo:${A.facture.cleLigne}|${B.facture.cleLigne}:${mesures.episodeDebut}`;
     alertes.push({
-      id: `duo:${A.facture.cleLigne}|${B.facture.cleLigne}`,
+      id,
       type: "duo",
-      factures: [enFacture(A, k), enFacture(B, k)],
-      retardJours: k,
+      factures: [enFacture(A, ka), enFacture(B, kb)],
       mesures,
-      decaissementsDuJour: decaissementsDuJour(mesures.premierNegatif),
+      decaissementsDuJour: decaissementsDuJour(mesures.episodeDebut),
       memeClient: A.tiers !== null && B.tiers !== null && cleTiers(A.tiers) === cleTiers(B.tiers),
-      situations: [
-        situation("Référence", reference),
-        situation(`${nomFacture(A)} seule retardée`, scenario([A], k)),
-        situation(`${nomFacture(B)} seule retardée`, scenario([B], k)),
-        situation("Les deux retardées", ensemble),
-      ],
+      situations: [],
     });
+    courbes.set(id, () => [
+      situation("Référence", reference),
+      situation(`${nomFacture(A)} seule retardée`, scenario([[A, ka]])),
+      situation(`${nomFacture(B)} seule retardée`, scenario([[B, kb]])),
+      situation("Les deux retardées", scenario([[A, ka], [B, kb]]), jour),
+    ]);
   }
 
+  const groupes = grouperAlertes(alertes, dates);
+  for (const g of groupes) for (const a of g.alertes.slice(0, LIMITES_AFFICHAGE.courbesParGroupe)) a.situations = courbes.get(a.id)?.() ?? [];
+  const detaillees = groupes.reduce((s, g) => s + g.alertes.length, 0);
+  const listees = groupes.reduce((s, g) => s + g.autres.length, 0);
+  const restrictionMethode = lineaire
+    ? null
+    : "Des conditions dépendent de la trésorerie : pour chaque jour de tension, seuls les retards minimaux des deux factures sont testés ; des retards plus longs, qui pourraient changer ces conditions, ne sont pas explorés.";
   return {
     dates,
-    reference: { soldes: Array.from(reference, arrondiCentime), mesures: refMesures },
-    groupes: grouperAlertes(alertes, dates),
+    reference: {
+      soldes: Array.from(reference, arrondiCentime),
+      mesures: refMesures,
+      fluxIncertains: prep.lignes.filter((l, i) => referenceTraj.presentes[i] === 1 && l.source.probabilite < 100).length,
+      financementsIncertains: prep.lignes.filter((l, i) => referenceTraj.presentes[i] === 1 && l.source.probabilite < 100 && l.source.cle.startsWith("financement:")).length,
+      hypothesesARenseigner: prep.lignes.filter((l) => l.source.aRenseigner).length,
+    },
+    groupes,
     couverture: {
       facturesAnalysees: candidats.length,
+      perimetre,
+      methode: lineaire ? "exacte" : "retards_minimaux",
+      restrictionMethode,
       pairesPossibles: (candidats.length * (candidats.length - 1)) / 2,
-      pairesEvaluees,
       pairesEcarteesSansRisque: pairesEcartees,
-      partielle,
-      methode: lineaire ? "exacte_rapide" : "reevaluation_complete",
+      pairesExplorees,
+      pairesNonExplorees,
+      facturesSeulesIncompletes,
+      arret,
+      affichage: { alertesCalculees: alertes.length, alertesDetaillees: detaillees, combinaisonsListees: listees, combinaisonsNonListees: alertes.length - detaillees - listees },
+      partielle: perimetre.aActualiser.length > 0 || restrictionMethode !== null || arret !== null,
     },
+    durees: { preparationMs, analyseMs: Date.now() - t0 - preparationMs },
   };
 }
 
@@ -491,11 +607,10 @@ export function grouperAlertes(alertes: AlerteRisque[], dates: string[]): Groupe
     const groupe: GroupeAlertes = groupes.get(cle) ?? { id: cle, type: a.type, dateTension: dates[jour], alertes: [], nombreTotal: 0, autres: [] };
     groupe.nombreTotal++;
     if (groupe.alertes.length < LIMITES_AFFICHAGE.alertesParGroupe) {
-      groupe.alertes.push(groupe.alertes.length < LIMITES_AFFICHAGE.courbesParGroupe ? a : { ...a, situations: [] });
+      groupe.alertes.push(a);
     } else if (groupe.autres.length < LIMITES_AFFICHAGE.autresParGroupe) {
       groupe.autres.push({
-        factures: a.factures.map((f) => ({ cleLigne: f.cleLigne, numero: f.numero, client: f.client })),
-        retardJours: a.retardJours,
+        factures: a.factures.map((f) => ({ cleLigne: f.cleLigne, numero: f.numero, client: f.client, retardJours: f.retardJours })),
         deficitMax: a.mesures.deficitMax,
       });
     }

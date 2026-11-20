@@ -195,13 +195,19 @@ function EditeurLigne({
 
       <div className="proba-editeur__champ proba-editeur__bloc">
         <p className="proba-editeur__reference">
-          <span>{dims.date === "debut" ? "Début prévu" : "Date prévue"}</span>
+          <span>{dims.date === "debut" ? "Début prévu" : ligne.dateEstimee ? "Date estimée" : "Date prévue"}</span>
           <strong>
             {formatDate(ligne.premiereDate)}
             {ligne.echeances > 1 ? `, puis ${ligne.echeances - 1} échéance${ligne.echeances > 2 ? "s" : ""}` : ""}
           </strong>
           {ligne.dateEcheance && ligne.dateEcheance < ligne.premiereDate && (
             <span className="proba-editeur__aide">Échéance de la facture : {formatDate(ligne.dateEcheance)}</span>
+          )}
+          {ligne.dateEstimee && (
+            <span className="proba-editeur__aide">
+              Facture en retard : date estimée selon l&apos;historique de paiement, sachant qu&apos;elle est impayée aujourd&apos;hui. Pour la fixer, actualisez sa date
+              d&apos;encaissement dans Flux de tréso.
+            </span>
           )}
         </p>
         <label htmlFor={`${id}-date`}>{dims.date === "debut" ? "Certitude de la date de début" : "Certitude de la date"}</label>
@@ -481,6 +487,7 @@ export default function HypothesesProbabilistes({ lignes, completude, montantsFi
                         </span>
                         <span className="proba-ligne__etat" data-colonne="Date">
                           {formatDate(l.premiereDate)}
+                          {l.dateEstimee && <span className="proba-ligne__detail">estimée (facture en retard)</span>}
                           {l.echeances > 1 && <span className="proba-ligne__detail">{DIMENSIONS[l.source].date === "debut" ? "début · " : ""}{l.echeances} échéances</span>}
                         </span>
                         <span

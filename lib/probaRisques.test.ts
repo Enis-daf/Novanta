@@ -89,10 +89,10 @@ describe("Cas de référence : 35 000 €, A 20 000 € le 25/11, B 15 000 € l
     assert.deepEqual(duo.factures.map((f) => f.cleLigne), ["a", "b"]);
     assert.equal(duo.mesures.deficitMax, 10_000);
     assert.equal(r.groupes[0].dateTension, "2026-11-30");
-    // Retard testé identique (6 jours) : A testée le 1/12, B le 3/12 — « après le 30/11 » et « après le 2/12 ».
+    // Scénario minimal pour la tension du 30/11 : chaque facture encaissée juste après, avec SON retard.
     assert.deepEqual(duo.factures.map((f) => [f.dateReference, f.dateTestee, f.retardJours]), [
       ["2026-11-25", "2026-12-01", 6],
-      ["2026-11-27", "2026-12-03", 6],
+      ["2026-11-27", "2026-12-01", 4],
     ]);
     // Les quatre situations : un seul des deux paiements à temps suffit à éviter le creux.
     assert.deepEqual(duo.situations.map((s) => s.libelle), ["Référence", "A seule retardée", "B seule retardée", "Les deux retardées"]);
@@ -154,8 +154,8 @@ describe("Détection", () => {
       ["a", "b"]
     );
     const parType = (t: string) => alertes(r).filter((x) => x.type === t);
-    assert.deepEqual(parType("seule").map((x) => [x.factures[0].cleLigne, x.retardJours]), [["a", 21], ["b", 20]]);
-    assert.deepEqual(parType("duo").map((x) => [x.factures.map((f) => f.cleLigne), x.retardJours]), [[["a", "b"], 6]]);
+    assert.deepEqual(parType("seule").map((x) => [x.factures[0].cleLigne, x.factures[0].retardJours]), [["a", 21], ["b", 20]]);
+    assert.deepEqual(parType("duo").map((x) => x.factures.map((f) => [f.cleLigne, f.retardJours])), [[["a", 6], ["b", 5]]]);
   });
 
   test("tension déjà prévue : aggravation, jamais déclenchement", () => {
@@ -251,7 +251,7 @@ describe("Conditions d'activation", () => {
       {},
       { achat: { condition: { type: "seuil", indicateur: "tresorerie", comparateur: ">", valeur: 40_000 } } }
     );
-    assert.equal(r.couverture.methode, "reevaluation_complete");
+    assert.equal(r.couverture.methode, "retards_minimaux");
     // Référence : 55 000 − 30 000 − 20 000 = 5 000 ≥ 0. A retardée : pas d'achat, 35 000 − 20 000 = 15 000 ≥ 0.
     assert.equal(r.reference.soldes[J30NOV], 5_000);
     assert.deepEqual(alertes(r), [], "retarder A annule l'achat conditionnel : pas de tension");
@@ -279,8 +279,8 @@ describe("Conditions d'activation", () => {
     const rapide = analyser(5_000, flux, ["a", "b", "c"]);
     // Même analyse forcée en réévaluation complète par une condition sans effet (ligne absente de l'horizon).
     const complet = analyser(5_000, [...flux, ["neutre", 40, -1]], ["a", "b", "c"], {}, { neutre: { condition: { type: "seuil", indicateur: "tresorerie", comparateur: ">", valeur: 0 } } });
-    assert.equal(rapide.couverture.methode, "exacte_rapide");
-    assert.equal(complet.couverture.methode, "reevaluation_complete");
+    assert.equal(rapide.couverture.methode, "exacte");
+    assert.equal(complet.couverture.methode, "retards_minimaux");
     assert.deepEqual(JSON.stringify(rapide.groupes), JSON.stringify(complet.groupes));
   });
 

@@ -16,7 +16,8 @@ import {
 import { estEtagePnl } from "./pastCategoryMapping";
 import type { Completude } from "./probaEcran";
 import type { IndicateursRisque } from "./probaIndicateurs";
-import type { FactureAnalysee, ResultatRisques } from "./probaRisques";
+import type { FactureAnalysee, PerimetreFactures, ResultatRisques } from "./probaRisques";
+import type { EstimationDate, FactureEnRetard } from "./probaEstimation";
 
 /**
  * Prévision probabiliste — 7. Contrat de l'API (app/api/futur/probabiliste), partagé par le
@@ -119,6 +120,7 @@ export function validerRequeteSimulation(corps: unknown): Validation<RequeteSimu
     if (!estFiabilite(e.fiabiliteDate)) return { ok: false, erreur: "Fiabilité invalide." };
     if (e.tiers !== null && typeof e.tiers !== "string") return { ok: false, erreur: "Tiers invalide." };
     if (e.etage !== null && !estEtagePnl(e.etage)) return { ok: false, erreur: "Étage invalide." };
+    if (e.dateEstimee !== undefined && typeof e.dateEstimee !== "boolean") return { ok: false, erreur: "Échéance invalide." };
     evenements.push({
       id: e.id,
       cleLigne: e.cleLigne,
@@ -130,6 +132,7 @@ export function validerRequeteSimulation(corps: unknown): Validation<RequeteSimu
       fiabiliteDate: e.fiabiliteDate,
       tiers: e.tiers === null ? null : (e.tiers as string).slice(0, 300),
       etage: e.etage as EvenementTresorerie["etage"],
+      ...(e.dateEstimee === true ? { dateEstimee: true } : {}),
     });
   }
 
@@ -189,10 +192,54 @@ export function validerHypothese(corps: unknown): Validation<HypotheseLigne> {
 
 export interface RequeteRisques extends RequeteSimulation {
   factures: FactureAnalysee[];
+  perimetre?: PerimetreFactures;
 }
 
 export interface ReponseRisques extends ResultatRisques {
   parametres: { dateDepart: string; horizonJours: number; soldeInitial: number; dureeMs: number };
+  // Durées mesurées par la route : historique (chargement + calibration), référence, analyse, total.
+  dureesRoute: { historiqueMs: number; preparationMs: number; analyseMs: number; totalMs: number };
+}
+
+/** Requête d'estimation des dates des factures en retard (POST /api/futur/probabiliste/estimations). */
+export interface ReponseEstimations {
+  estimations: EstimationDate[];
+}
+
+export function validerFacturesEnRetard(corps: unknown): Validation<FactureEnRetard[]> {
+  const brutes = (corps as { factures?: unknown } | null)?.factures;
+  if (!Array.isArray(brutes) || brutes.length > LIMITES.lignes) return { ok: false, erreur: "Factures invalides." };
+  const factures: FactureEnRetard[] = [];
+  for (const f of brutes as Record<string, unknown>[]) {
+    if (typeof f !== "object" || f === null || !estTexte(f.id, 100) || typeof f.numero !== "string" || typeof f.client !== "string") return { ok: false, erreur: "Facture invalide." };
+    if (!estNombreFini(f.montant) || f.montant <= 0) return { ok: false, erreur: "Montant invalide." };
+    if (f.dateEcheance !== null && !estDate(f.dateEcheance)) return { ok: false, erreur: "Échéance invalide." };
+    if (f.dateEncaissementAnticipee !== null && !estDate(f.dateEncaissementAnticipee)) return { ok: false, erreur: "Date invalide." };
+    factures.push({
+      id: f.id,
+      numero: f.numero.slice(0, 100),
+      client: f.client.slice(0, 300),
+      montant: f.montant,
+      dateEcheance: f.dateEcheance as string | null,
+      dateEncaissementAnticipee: f.dateEncaissementAnticipee as string | null,
+    });
+  }
+  return { ok: true, valeur: factures };
+}
+
+function validerPerimetre(brut: unknown): PerimetreFactures | null | undefined {
+  if (brut === undefined) return undefined;
+  if (typeof brut !== "object" || brut === null) return null;
+  const p = brut as Record<string, unknown>;
+  const entier = (v: unknown) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 100_000;
+  if (!entier(p.enRetardEstimees) || !entier(p.litigieusesExclues) || !entier(p.horsHorizon) || !Array.isArray(p.aActualiser) || p.aActualiser.length > LIMITES.lignes) return null;
+  const aActualiser: PerimetreFactures["aActualiser"] = [];
+  for (const f of p.aActualiser as Record<string, unknown>[]) {
+    if (typeof f !== "object" || f === null || !estTexte(f.cleLigne, 200) || typeof f.client !== "string" || typeof f.raison !== "string" || !estNombreFini(f.montant)) return null;
+    if (f.numero !== null && typeof f.numero !== "string") return null;
+    aActualiser.push({ cleLigne: f.cleLigne, numero: (f.numero as string | null)?.slice(0, 100) ?? null, client: f.client.slice(0, 300), montant: f.montant, raison: f.raison.slice(0, 200) });
+  }
+  return { enRetardEstimees: p.enRetardEstimees as number, litigieusesExclues: p.litigieusesExclues as number, horsHorizon: p.horsHorizon as number, aActualiser };
 }
 
 /** Requête de simulation + factures à analyser (identité affichable de chaque facture). */
@@ -216,5 +263,7 @@ export function validerRequeteRisques(corps: unknown): Validation<RequeteRisques
       dateEcheance: f.dateEcheance as string | null,
     });
   }
-  return { ok: true, valeur: { ...base.valeur, factures } };
+  const perimetre = validerPerimetre((corps as Record<string, unknown>).perimetre);
+  if (perimetre === null) return { ok: false, erreur: "Périmètre invalide." };
+  return { ok: true, valeur: { ...base.valeur, factures, ...(perimetre ? { perimetre } : {}) } };
 }
