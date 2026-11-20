@@ -19,7 +19,8 @@ Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, co
 import React, { act, createElement } from "react";
 import HypothesesProbabilistes from "../components/HypothesesProbabilistes";
 import type { FluxProjete, SourceFlux } from "./cash-engine";
-import { cleLigne, HypotheseLigne } from "./probaEvenements";
+import { cleLigne, construireEvenements, DIMENSIONS, HypotheseLigne } from "./probaEvenements";
+import { validerHypothese } from "./probaApi";
 import {
   CleGroupeHypotheses,
   completude,
@@ -29,6 +30,7 @@ import {
   construireLignesHypotheses,
   correspondAuFiltre,
   grouperHypotheses,
+  LIBELLES_SOURCE,
   messageCompletude,
   phraseARenseigner,
   resumeGroupe,
@@ -637,5 +639,38 @@ describe("Valeurs de référence pendant le choix de la certitude", () => {
     );
     assert.equal(lignes[0].montantParEcheance, null);
     assert.equal(lignes[0].impact, 4_000);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Factures prévisionnelles (entité ajoutée sur main)
+// ---------------------------------------------------------------------------------------------
+
+describe("Factures prévisionnelles dans les perspectives pondérées", () => {
+  const fluxPrev = [flux("facture_previsionnelle", "p1", 20_000, "2026-12-15", "Prévisionnelle — Dupont")];
+
+  test("« À renseigner » par défaut, montant et date ajustables, classée en Encaissements", () => {
+    const [ligne] = construireLignesHypotheses(fluxPrev, new Map(), (s) => (s === "facture_previsionnelle" ? "revenue" : "a_classer"));
+    assert.equal(ligne.aRenseigner, true);
+    assert.equal(ligne.groupe, "revenue");
+    assert.equal(DIMENSIONS.facture_previsionnelle.montant, true);
+    assert.equal(LIBELLES_SOURCE.facture_previsionnelle, "Facture prévisionnelle");
+  });
+
+  test("événement moteur : encaissement de CA, historique du client, sans échéance", () => {
+    const { lignes, evenements } = construireEvenements(fluxPrev, { facturesClients: [], facturesFournisseurs: [], facturesPrevisionnelles: [{ id: "p1", client: "Dupont" }] }, []);
+    assert.deepEqual(lignes[0], { cle: "facture_previsionnelle:p1", probabilite: 100, condition: null, fiabiliteMontant: 100, modeDate: "echeance", aRenseigner: true });
+    assert.deepEqual([evenements[0].sens, evenements[0].tiers, evenements[0].etage, evenements[0].dateEcheance], ["encaissement", "Dupont", "revenue", null]);
+  });
+
+  test("hypothèse acceptée par l'API (probabilité, certitude du montant)", () => {
+    const v = validerHypothese({ source: "facture_previsionnelle", sourceId: "p1", probabilite: 50, fiabiliteDate: 50, fiabiliteMontant: 75, montantCible: null, condition: null });
+    assert.equal(v.ok, true);
+  });
+
+  test("Futur transmet les factures prévisionnelles à la prévision probabiliste, comme à la courbe", () => {
+    const page = readFileSync(join(__dirname, "../app/page.tsx"), "utf8");
+    const bloc = page.slice(page.indexOf("const projectionProbabiliste"), page.indexOf("const projectionProbabiliste") + 900);
+    assert.match(bloc, /facturesPrevisionnelles,/);
   });
 });

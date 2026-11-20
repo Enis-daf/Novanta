@@ -1,6 +1,7 @@
 import type { FluxProjete, SourceFlux } from "./cash-engine";
 import type { EtagePnl } from "./pastCategoryMapping";
 import type { FactureClient, FactureFournisseur, RentreeReguliere } from "./types";
+import type { FacturePrevisionnelle } from "./facturesPrevisionnelles";
 
 /**
  * Prévision probabiliste — 3. Définition des hypothèses et des événements. Fonctions pures.
@@ -139,6 +140,9 @@ export const DIMENSIONS: Record<SourceFlux, DimensionsLigne> = {
   // Une facture émise existe et son montant est connu : seule sa date d'encaissement est incertaine.
   facture_client: { montant: false, date: "echeance", aRenseignerParDefaut: false },
   facture_fournisseur: { montant: false, date: "echeance", aRenseignerParDefaut: false },
+  // Facture prévue mais pas encore émise (lib/facturesPrevisionnelles.ts) : existence, montant et
+  // date incertains, sans hypothèse fiable dans les données — « À renseigner », comme un financement.
+  facture_previsionnelle: { montant: true, date: "echeance", aRenseignerParDefaut: true },
   // Montant récurrent connu ; la date de début peut être rendue incertaine.
   charge_fixe: { montant: false, date: "debut", aRenseignerParDefaut: false },
   rentree_reguliere: { montant: true, date: "debut", aRenseignerParDefaut: true },
@@ -200,6 +204,7 @@ export interface EvenementTresorerie {
 
 export const SOURCES_FLUX: readonly SourceFlux[] = [
   "facture_client",
+  "facture_previsionnelle",
   "facture_fournisseur",
   "financement",
   "charge_fixe",
@@ -265,6 +270,7 @@ export interface DonneesLignes {
   facturesClients: Pick<FactureClient, "id" | "client" | "dateEcheance">[];
   facturesFournisseurs: Pick<FactureFournisseur, "id" | "fournisseur" | "dateEcheance">[];
   rentreesRegulieres?: Pick<RentreeReguliere, "id" | "modeMontant">[];
+  facturesPrevisionnelles?: Pick<FacturePrevisionnelle, "id" | "client">[];
 }
 
 export interface EvenementsConstruits {
@@ -287,11 +293,12 @@ export function construireEvenements(
   const clients = new Map(donnees.facturesClients.map((f) => [f.id, f]));
   const fournisseurs = new Map(donnees.facturesFournisseurs.map((f) => [f.id, f]));
   const rentrees = new Map((donnees.rentreesRegulieres ?? []).map((r) => [r.id, r]));
+  const previsionnelles = new Map((donnees.facturesPrevisionnelles ?? []).map((p) => [p.id, p]));
   const lignes = new Map<string, LigneProbabiliste>();
   const evenements: EvenementTresorerie[] = [];
   const compteurs = new Map<string, number>();
   const etageParDefaut = (source: SourceFlux): EtagePnl | null =>
-    source === "facture_client" || source === "rentree_reguliere" ? "revenue" : source === "financement" ? "financing" : null;
+    source === "facture_client" || source === "facture_previsionnelle" || source === "rentree_reguliere" ? "revenue" : source === "financement" ? "financing" : null;
 
   for (const f of flux) {
     if (f.montant === 0) continue;
@@ -320,6 +327,9 @@ export function construireEvenements(
       const facture = fournisseurs.get(f.sourceId);
       tiers = facture?.fournisseur ?? null;
       dateEcheance = facture?.dateEcheance || null;
+    } else if (f.source === "facture_previsionnelle") {
+      // Pas encore émise : pas d'échéance ; le client sert à son historique de paiement.
+      tiers = previsionnelles.get(f.sourceId)?.client || null;
     } else if (f.source === "rentree_reguliere" && h?.montantCible != null && rentrees.get(f.sourceId)?.modeMontant === "fixe") {
       // Valeur cible saisie : elle remplace le montant de chaque échéance (mode fixe seulement).
       montant = h.montantCible;

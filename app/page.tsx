@@ -580,11 +580,12 @@ export default function Home() {
       autresDepenses,
       financements,
       rentreesRegulieres,
+      facturesPrevisionnelles,
       dateDepart,
       horizonJours,
       remplacements,
     }),
-    [facturesClients, facturesFournisseurs, chargesFixes, autresDepenses, financements, rentreesRegulieres, dateDepart, horizonJours, remplacements]
+    [facturesClients, facturesFournisseurs, chargesFixes, autresDepenses, financements, rentreesRegulieres, facturesPrevisionnelles, dateDepart, horizonJours, remplacements]
   );
 
   // Synthèse mensuelle : calcul indépendant, purement pour l'affichage du panneau

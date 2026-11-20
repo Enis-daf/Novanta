@@ -54,6 +54,7 @@ export interface HypotheseEffective {
 
 export const LIBELLES_SOURCE: Record<SourceFlux, string> = {
   facture_client: "Facture client",
+  facture_previsionnelle: "Facture prévisionnelle",
   facture_fournisseur: "Facture fournisseur",
   financement: "Financement",
   charge_fixe: "Charge fixe",

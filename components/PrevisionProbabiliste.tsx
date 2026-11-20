@@ -93,13 +93,13 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
     };
     return {
       groupeDe: (source: SourceFlux, sourceId: string): CleGroupeHypotheses => {
-        if (source === "facture_client" || source === "rentree_reguliere") return "revenue";
+        if (source === "facture_client" || source === "facture_previsionnelle" || source === "rentree_reguliere") return "revenue";
         if (source === "financement") return "financing";
         const c = classer(source, sourceId);
         return (c && groupeDeClassement(c)) ?? "a_classer";
       },
       etageDe: (source: SourceFlux, sourceId: string): EtagePnl | null => {
-        if (source === "facture_client" || source === "rentree_reguliere") return "revenue";
+        if (source === "facture_client" || source === "facture_previsionnelle" || source === "rentree_reguliere") return "revenue";
         if (source === "financement") return "financing";
         return classer(source, sourceId)?.etage ?? null;
       },
