@@ -1,6 +1,7 @@
 import { creerAlea, graineDepuisTexte } from "./probaAlea";
 import { Echantillonneur, echantillonneurPour, ModeleRetards, quantileTrie } from "./probaCalibration";
 import { joursEntre } from "./pastBfrDelais";
+import { cleTiers } from "./probaHistorique";
 import { decalerDateISO, estDateValide } from "./dates";
 import type { FactureClient } from "./types";
 
@@ -16,7 +17,8 @@ import type { FactureClient } from "./types";
  *     aujourd'hui ou plus tard sont retenus (paiement conditionnel) ; la date de référence est la
  *     MÉDIANE de ces paiements (convention P50 du modèle). Le retard déjà constaté n'est donc ni
  *     ignoré (on ne repart pas de l'échéance passée) ni compté deux fois. Niveaux :
- *       1. historique du client, s'il pèse au moins `poidsClientMinimal` dans son échantillonneur ;
+ *       1. historique du client, s'il pèse au moins `poidsClientMinimal` dans son échantillonneur ET
+ *          a déjà connu un retard au moins égal au retard constaté ;
  *       2. sinon historique du compte (segment puis compte), s'il n'est pas « peu calibré » et ne
  *          repose pas surtout sur les hypothèses par défaut ;
  *     un niveau dont moins de `partMinimaleSupport` des tirages restent possibles (retard constaté
@@ -90,7 +92,14 @@ export function estimerDateEncaissement(f: FactureEnRetard, modele: ModeleRetard
   let horsSupport = false;
 
   const client = echantillonneurPour(modele, f.client || null, f.montant);
-  if (client.poids.client >= CONFIG_ESTIMATION.poidsClientMinimal) {
+  // Le client ne peut fonder l'estimation que si SON historique a déjà connu un retard au moins égal
+  // au retard constaté : sinon, les paiements possibles viendraient en réalité du reste du compte
+  // et l'origine « historique du client » serait trompeuse.
+  const propre = f.client ? modele.clients.get(cleTiers(f.client))?.distribution : undefined;
+  const retardConstate = Math.max(0, -base);
+  const clientCouvre = propre !== undefined && propre !== null && propre.valeurs[propre.valeurs.length - 1] >= retardConstate;
+  if (client.poids.client >= CONFIG_ESTIMATION.poidsClientMinimal && !clientCouvre) horsSupport = true;
+  if (client.poids.client >= CONFIG_ESTIMATION.poidsClientMinimal && clientCouvre) {
     const jour = medianeConditionnelle(client, base, graine);
     if (jour !== null) return { factureId: f.id, statut: "estimee", date: decalerDateISO(dateDepart, jour), origine: "client", joursDepuisReference: jour - base };
     horsSupport = true;

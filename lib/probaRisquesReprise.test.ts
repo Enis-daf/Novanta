@@ -367,3 +367,11 @@ describe("Factures en retard : périmètre et date de référence", () => {
     assert.ok(avantMediane / sim.nombre > 0.2, `encaissée avant J10 dans une part des simulations (${avantMediane / sim.nombre})`);
   });
 });
+
+describe("Origine de l'estimation", () => {
+  test("client ponctuel déjà en retard au-delà de son historique : estimation par le compte, pas « par le client »", () => {
+    const modele = calibrerModele([...obs(Array(12).fill(2), "Ponctuel"), ...obs(Array(30).fill(35), "Autres")], "client", DEPART);
+    const e = estimerDateEncaissement({ id: "x", numero: "FC-x", client: "Ponctuel", montant: 10_000, dateEcheance: j(-12), dateEncaissementAnticipee: j(-3) }, modele, DEPART);
+    assert.equal(e.statut === "estimee" && e.origine, "compte");
+  });
+});

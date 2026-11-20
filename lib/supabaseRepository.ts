@@ -126,7 +126,7 @@ async function deleteOne(table: string, id: string): Promise<void> {
   if (error) throw error;
 }
 
-function factureClientToRow(companyId: string, f: FactureClient): Row {
+export function factureClientToRow(companyId: string, f: FactureClient): Row {
   return {
     id: f.id,
     company_id: companyId,
@@ -142,7 +142,7 @@ function factureClientToRow(companyId: string, f: FactureClient): Row {
   };
 }
 
-function rowToFactureClient(row: Row): FactureClient {
+export function rowToFactureClient(row: Row): FactureClient {
   return {
     id: row.id as string,
     facture: row.facture as string,
@@ -160,7 +160,7 @@ function rowToFactureClient(row: Row): FactureClient {
 
 // --- Factures prévisionnelles (20261118_forecast_customer_invoices.sql) ---
 
-function facturePrevisionnelleToRow(companyId: string, p: FacturePrevisionnelle): Row {
+export function facturePrevisionnelleToRow(companyId: string, p: FacturePrevisionnelle): Row {
   const r = p.rapprochement;
   return {
     id: p.id,
@@ -179,7 +179,7 @@ function facturePrevisionnelleToRow(companyId: string, p: FacturePrevisionnelle)
   };
 }
 
-function rowToFacturePrevisionnelle(row: Row): FacturePrevisionnelle {
+export function rowToFacturePrevisionnelle(row: Row): FacturePrevisionnelle {
   const rapprocheLe = (row.matched_at as string | null) ?? null;
   return {
     id: row.id as string,
@@ -202,7 +202,7 @@ function rowToFacturePrevisionnelle(row: Row): FacturePrevisionnelle {
   };
 }
 
-function factureFournisseurToRow(companyId: string, f: FactureFournisseur): Row {
+export function factureFournisseurToRow(companyId: string, f: FactureFournisseur): Row {
   return {
     id: f.id,
     company_id: companyId,
@@ -220,7 +220,7 @@ function factureFournisseurToRow(companyId: string, f: FactureFournisseur): Row 
   };
 }
 
-function rowToFactureFournisseur(row: Row): FactureFournisseur {
+export function rowToFactureFournisseur(row: Row): FactureFournisseur {
   return {
     id: row.id as string,
     facture: row.facture as string,
@@ -241,7 +241,7 @@ function rowToFactureFournisseur(row: Row): FactureFournisseur {
   };
 }
 
-function chargeFixeToRow(companyId: string, c: ChargeFixe): Row {
+export function chargeFixeToRow(companyId: string, c: ChargeFixe): Row {
   return {
     id: c.id,
     company_id: companyId,
@@ -258,7 +258,7 @@ function chargeFixeToRow(companyId: string, c: ChargeFixe): Row {
   };
 }
 
-function rowToChargeFixe(row: Row): ChargeFixe {
+export function rowToChargeFixe(row: Row): ChargeFixe {
   return {
     id: row.id as string,
     libelle: row.libelle as string,
@@ -277,7 +277,7 @@ function rowToChargeFixe(row: Row): ChargeFixe {
   };
 }
 
-function autreDepenseToRow(companyId: string, d: AutreDepense): Row {
+export function autreDepenseToRow(companyId: string, d: AutreDepense): Row {
   return {
     id: d.id,
     company_id: companyId,
@@ -290,7 +290,7 @@ function autreDepenseToRow(companyId: string, d: AutreDepense): Row {
   };
 }
 
-function rowToAutreDepense(row: Row): AutreDepense {
+export function rowToAutreDepense(row: Row): AutreDepense {
   return {
     id: row.id as string,
     libelle: row.libelle as string,
@@ -304,7 +304,7 @@ function rowToAutreDepense(row: Row): AutreDepense {
   };
 }
 
-function financementToRow(companyId: string, f: Financement): Row {
+export function financementToRow(companyId: string, f: Financement): Row {
   return {
     id: f.id,
     company_id: companyId,
@@ -315,7 +315,7 @@ function financementToRow(companyId: string, f: Financement): Row {
   };
 }
 
-function rowToFinancement(row: Row): Financement {
+export function rowToFinancement(row: Row): Financement {
   return {
     id: row.id as string,
     libelle: row.libelle as string,
@@ -325,7 +325,7 @@ function rowToFinancement(row: Row): Financement {
   };
 }
 
-function rentreeReguliereToRow(companyId: string, r: RentreeReguliere): Row {
+export function rentreeReguliereToRow(companyId: string, r: RentreeReguliere): Row {
   return {
     id: r.id,
     company_id: companyId,
@@ -339,7 +339,7 @@ function rentreeReguliereToRow(companyId: string, r: RentreeReguliere): Row {
   };
 }
 
-function rowToRentreeReguliere(row: Row): RentreeReguliere {
+export function rowToRentreeReguliere(row: Row): RentreeReguliere {
   return {
     id: row.id as string,
     libelle: row.libelle as string,
@@ -373,7 +373,7 @@ function lienRapprochementToRow(companyId: string, l: LienRapprochement): Row {
   };
 }
 
-function rowToLienRapprochement(row: Row): LienRapprochement {
+export function rowToLienRapprochement(row: Row): LienRapprochement {
   return {
     id: row.id as string,
     chargeFixeId: row.fixed_charge_id as string,
@@ -401,7 +401,7 @@ function mappingFournisseurToRow(companyId: string, m: MappingFournisseurCharge)
   };
 }
 
-function rowToMappingFournisseur(row: Row): MappingFournisseurCharge {
+export function rowToMappingFournisseur(row: Row): MappingFournisseurCharge {
   return {
     id: row.id as string,
     chargeFixeId: row.fixed_charge_id as string,
