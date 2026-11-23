@@ -4,7 +4,7 @@ Compte : **Compte démo** (société `9d5170e6-019f-41ae-9782-c86085cb59cd`, off
 Où : **Preview de la PR #44** — https://novanta-git-feature-prevision-probabiliste-novanta.vercel.app — connecté avec le compte propriétaire du « Compte démo ».
 Chemin : en-tête **Futur** → onglet **Perspectives pondérées**.
 
-Toutes les données de la démonstration sont fictives. Les factures ont des numéros et des clients lisibles (FA-2026-101, Atelier Aurore…) ; les autres lignes (charges, dépenses, financements, rentrées) portent le préfixe **DEMO-PILOTAGE** dans leur libellé. Les lignes Futur qui existaient déjà dans le compte ont été mises de côté (À couper, Versé, Payée…) et sont rétablies à la demande.
+Toutes les données de la démonstration sont fictives. Tous les libellés sont lisibles, sans marque de démonstration (factures FA-2026-101 Atelier Aurore…, charges « Paie », rentrée « Contrats récurrents »…). Les lignes Futur qui existaient déjà dans le compte ont été mises de côté (À couper, Versé, Payée…) et sont rétablies à la demande.
 
 **Message à faire passer :** « Nous identifions les encaissements dont dépend votre trésorerie, nous voyons quand leur retard créerait un déficit et nous pouvons tester une réponse avant d'être dans l'urgence. »
 
@@ -39,7 +39,7 @@ Référence (vérifiée sur les données en base) : **25 000 €** le 1er déc. 
 
 ### 2. Compléter les hypothèses
 - **Où :** section **Hypothèses de la prévision** → cliquer la cartouche « 3 hypothèses à renseigner » (filtre activé), ou le filtre **À renseigner** ; montrer aussi la recherche (taper « Contrats »).
-- **Contrats récurrents** (DEMO-PILOTAGE — Contrats récurrents) → **Renseigner** : au-dessus des choix, **Montant prévu 18 000 € par échéance** et **Début prévu 25 déc. 2026**.
+- **Contrats récurrents** (rentrée régulière) → **Renseigner** : au-dessus des choix, **Montant prévu 18 000 € par échéance** et **Début prévu 25 déc. 2026**.
   Choisir : Probabilité **Certain (100 %)** · Montant cible **18000** · Certitude du montant **Approximatif** (affiche « 8 fois sur 10 entre 13 500 € et 22 500 € par échéance ») · Certitude de la date de début **Ferme**.
   Montrer que la ligne reste affichée pendant les réglages, puis cliquer le bouton rose **Enregistrer** : elle quitte le filtre seulement après « Hypothèse enregistrée ».
 - **Financement potentiel** → **Renseigner** : Probabilité **Incertain (25 %)** · Certitude du montant **Certain** · Certitude de la date **Approximative** → **Enregistrer**.
@@ -71,13 +71,13 @@ Référence (vérifiée sur les données en base) : **25 000 €** le 1er déc. 
 
 ### 7. Agir avant la tension : un financement confirmé
 - **Où :** onglet **Flux de tréso** → section **Financements** → **+ Ajouter un financement**.
-- Saisir : Libellé **DEMO-PILOTAGE — Financement confirmé** · Montant **30000** · Date d'encaissement prévue **28/11/2026** · Versé : non.
+- Saisir : Libellé **Financement confirmé** (exactement, pour que la remise à l'état initial le retrouve) · Montant **30000** · Date d'encaissement prévue **28/11/2026** · Versé : non.
 - Revenir sur **Perspectives pondérées** : la ligne apparaît « À renseigner · important » → **Renseigner** → Probabilité **Certain**, Certitude du montant **Certain**, Certitude de la date **Ferme** → **Enregistrer**.
 - **À voir :** l'alerte du duo A + B disparaît (même stress : point bas **+20 000 €** au lieu de −10 000 €) ; la facture D n'est plus critique au 15 déc. (même stress : **+5 000 €** au lieu de −25 000 €). Risque Monte Carlo : 71 % au lieu de 97 %. Restent des tensions plus tardives (duos avec D le 15 et le 30 déc., D seule si elle est payée après le 1er janv.).
 - **À dire :** une ressource disponible avant la tension couvre les deux scénarios testés ; passer une date en « Ferme » n'aurait rien changé au risque structurel.
 
 ### 8. Revenir à l'état initial
-Demander à Claude : **« Remets la démo Pilotage à l'état initial. »** Le financement ajouté (préfixe DEMO-PILOTAGE) et les hypothèses saisies sont retirés, les trois hypothèses redeviennent « À renseigner », les dates du noyau sont rétablies. Rien d'autre n'est modifié.
+Demander à Claude : **« Remets la démo Pilotage à l'état initial. »** Le financement ajouté (libellé « Financement confirmé ») et les hypothèses saisies sont retirés, les trois hypothèses redeviennent « À renseigner », les dates du noyau sont rétablies. Rien d'autre n'est modifié.
 
 ## À savoir
 - **Ne pas cliquer « Synchroniser Pennylane »** dans Flux de tréso pendant la démonstration : la synchronisation pourrait réactiver des factures existantes mises de côté.

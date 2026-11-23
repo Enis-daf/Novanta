@@ -13,8 +13,9 @@
  *   financement    ajoute le financement confirmé de 30 000 € à J8 (étape « agir avant ») ;
  *   a-en-retard    date d'encaissement de A passée (vérification des factures en retard) ;
  *   reancrer       réécrit le jeu à l'état initial avec un nouveau J0 (--j0, défaut : aujourd'hui) ;
- *   renommer       applique aux factures du jeu leurs noms actuels (numéro, client, fournisseur),
- *                  sans toucher à rien d'autre : montants, dates, hypothèses et état de la démo ;
+ *   renommer       applique aux lignes du jeu leurs noms actuels (factures, charges, dépenses,
+ *                  financements, rentrées), sans toucher à rien d'autre : montants, dates,
+ *                  hypothèses et état de la démo ;
  *   retirer        supprime les seules lignes du jeu et rétablit l'existant depuis l'inventaire.
  *
  * Garde-fous : société imposée (SOCIETE ci-dessous) et revérifiée (nom, offre) avant toute
@@ -25,7 +26,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { clientAdmin } from "./connexion";
-import { jeuPilotage, JeuDemo, OptionsJeu, PREFIXE, uuidDemo } from "./jeuPilotage";
+import { estSaisieDeDemo, jeuPilotage, JeuDemo, OptionsJeu, uuidDemo } from "./jeuPilotage";
 import {
   autreDepenseToRow,
   chargeFixeToRow,
@@ -104,6 +105,7 @@ async function main() {
 
   const inventaire = lireInventaire();
   const idsJeu = idsDuJeu();
+  const idsMisDeCote = new Set(Object.values(inventaire?.misesDeCote ?? {}).flatMap((lignes) => lignes.map((l) => l.id)));
   const aujourdhui = dateDansFuseau(new Date());
 
   /** Écrit (upsert) le jeu dans l'état demandé, et retire ses lignes qui n'en font pas partie. */
@@ -124,8 +126,8 @@ async function main() {
     await upsert("recurring_income", jeu.rentreesRegulieres.map((r) => rentreeReguliereToRow(SOCIETE, r)));
     await upsert("forecast_customer_invoices", jeu.facturesPrevisionnelles.map((p) => facturePrevisionnelleToRow(SOCIETE, p)));
     // Lignes du jeu absentes de cet état : celles du jeu (ex. financement d'anticipation) et toute
-    // ligne ajoutée pendant une démonstration avec le préfixe DEMO-PILOTAGE (ex. le financement
-    // saisi dans l'interface). Aucune autre ligne n'est concernée.
+    // ligne saisie pendant une démonstration (libellé prévu par le guide, ex. « Financement
+    // confirmé », ou ancien préfixe DEMO-PILOTAGE). Une ligne mise de côté n'est jamais concernée.
     const idsEtat = new Set(
       [jeu.facturesClients, jeu.facturesFournisseurs, jeu.chargesFixes, jeu.autresDepenses, jeu.financements, jeu.rentreesRegulieres, jeu.facturesPrevisionnelles].flatMap((l) => l.map((x) => x.id))
     );
@@ -141,7 +143,7 @@ async function main() {
       const { data: lignesTable } = await admin.from(table).select(`id, ${colonne}`).eq("company_id", SOCIETE);
       for (const r of (lignesTable ?? []) as unknown as Row[]) {
         const id = String(r.id);
-        const libre = String(r[colonne] ?? "").startsWith(PREFIXE) && !idsJeu.has(id);
+        const libre = estSaisieDeDemo(String(r[colonne] ?? "")) && !idsJeu.has(id) && !idsMisDeCote.has(id);
         if ((idsJeu.has(id) || libre) && !idsEtat.has(id)) {
           if (libre) ajoutees.push(id);
           await action(`suppression ${table} ${id} « ${r[colonne]} » (hors de l'état « ${etat} »)`, () => admin.from(table).delete().eq("company_id", SOCIETE).eq("id", id));
@@ -177,7 +179,7 @@ async function main() {
       for (const r of (data ?? []) as unknown as Row[]) {
         const id = String(r.id);
         const libelle = String(r.facture ?? r.libelle ?? "");
-        if (idsJeu.has(id) || libelle.startsWith(PREFIXE) || deja.has(id) || !regle.active(r, j0)) continue;
+        if (idsJeu.has(id) || estSaisieDeDemo(libelle) || deja.has(id) || !regle.active(r, j0)) continue;
         const avant = Object.fromEntries(regle.colonnes.map((c) => [c, r[c] ?? null]));
         (inv.misesDeCote[table] ??= []).push({ id, avant });
         await action(`mise de côté ${table} ${id} (${libelle}) : ${JSON.stringify(regle.ecarter(j0))}`, () =>
@@ -231,6 +233,18 @@ async function main() {
         await action(`renommage forecast_customer_invoices ${p.id} -> « ${p.client} »`, () =>
           admin.from("forecast_customer_invoices").update({ client: p.client }).eq("company_id", SOCIETE).eq("id", p.id)
         );
+      }
+      for (const [table, lignes] of [
+        ["fixed_charges", jeu.chargesFixes],
+        ["other_expenses", jeu.autresDepenses],
+        ["financings", jeuPilotage(SOCIETE, j0, { financementAnticipation: true }).financements],
+        ["recurring_income", jeu.rentreesRegulieres],
+      ] as const) {
+        for (const l of lignes) {
+          await action(`renommage ${table} ${l.id} -> « ${l.libelle} »`, () =>
+            admin.from(table).update({ libelle: l.libelle }).eq("company_id", SOCIETE).eq("id", l.id)
+          );
+        }
       }
       break;
     }

@@ -8,9 +8,9 @@ import type { HypotheseLigne } from "../../lib/probaEvenements";
  * Jeu de démonstration « Perspectives pondérées » (offre Pilotage). Données FICTIVES, toutes
  * repérées par des identifiants DÉTERMINISTES (dérivés de la société et d'une clé stable) :
  * réécrire le jeu met à jour les mêmes lignes, sans doublon ; le retirer ne touche qu'elles.
- * Les factures portent des numéros et des noms de clients lisibles, sans marque de démonstration ;
- * les autres lignes (charges, dépenses, financements, rentrées) gardent le préfixe DEMO-PILOTAGE
- * dans leur libellé, qui sert aussi à repérer une ligne saisie pendant une démonstration.
+ * Aucun libellé ne porte de marque de démonstration : numéros de facture, clients et libellés sont
+ * lisibles. Une ligne SAISIE pendant une démonstration (étape du guide) est repérée par son libellé
+ * prévu (LIBELLES_SAISIS_EN_DEMO), ou par l'ancien préfixe DEMO-PILOTAGE (versions précédentes).
  *
  * Toutes les dates sont relatives à J0 (date du relevé, cash_settings.date_releve) : réancrer le
  * jeu = le réécrire avec un autre J0.
@@ -24,7 +24,19 @@ import type { HypotheseLigne } from "../../lib/probaEvenements";
  * Historique : factures réglées de quatre profils de clients, pour la calibration des retards.
  */
 
+// Ne plus afficher nulle part : sert de graine aux identifiants déterministes (uuidDemo) — le
+// changer ferait perdre le suivi des lignes déjà écrites — et à reconnaître les lignes saisies avec
+// l'ancien préfixe.
 export const PREFIXE = "DEMO-PILOTAGE";
+
+/** Libellés que le guide fait saisir dans l'interface pendant une démonstration. */
+export const LIBELLES_SAISIS_EN_DEMO = ["Financement confirmé"] as const;
+
+/** Ligne saisie pendant une démonstration (hors jeu) : libellé prévu par le guide, ou ancien préfixe. */
+export function estSaisieDeDemo(libelle: string): boolean {
+  const l = libelle.trim().toLocaleLowerCase("fr");
+  return l.startsWith(PREFIXE.toLocaleLowerCase("fr")) || LIBELLES_SAISIS_EN_DEMO.some((x) => x.toLocaleLowerCase("fr") === l);
+}
 
 export const CLIENTS = {
   aurore: "Atelier Aurore", // ponctuel
@@ -133,7 +145,7 @@ export function jeuPilotage(companyId: string, j0: string, options: OptionsJeu =
 
   const charge = (cle: string, libelle: string, montant: number, debut: string, recurrence: ChargeFixe["recurrence"]): ChargeFixe => ({
     id: id(cle),
-    libelle: `${PREFIXE} — ${libelle}`,
+    libelle,
     montant,
     datePrevue: debut,
     recurrence,
@@ -153,20 +165,20 @@ export function jeuPilotage(companyId: string, j0: string, options: OptionsJeu =
   ];
 
   const autresDepenses: AutreDepense[] = [
-    { id: id("AD-equipement"), libelle: `${PREFIXE} — Équipement`, montant: 9_000, datePrevue: j(50), type: "probable", facturee: false, payee: false },
+    { id: id("AD-equipement"), libelle: "Équipement", montant: 9_000, datePrevue: j(50), type: "probable", facturee: false, payee: false },
   ];
 
   const financements: Financement[] = [
-    { id: id("FI-potentiel"), libelle: `${PREFIXE} — Financement potentiel`, montant: 12_000, dateEncaissementPrevue: j(47), verse: false },
+    { id: id("FI-potentiel"), libelle: "Financement potentiel", montant: 12_000, dateEncaissementPrevue: j(47), verse: false },
   ];
   if (options.financementAnticipation) {
-    financements.push({ id: id("FI-anticipation"), libelle: `${PREFIXE} — Financement confirmé (anticipation)`, montant: 30_000, dateEncaissementPrevue: j(8), verse: false });
+    financements.push({ id: id("FI-anticipation"), libelle: "Financement confirmé (anticipation)", montant: 30_000, dateEncaissementPrevue: j(8), verse: false });
   }
 
   const rentreesRegulieres: RentreeReguliere[] = [
     {
       id: id("R-contrats"),
-      libelle: `${PREFIXE} — Contrats récurrents`,
+      libelle: "Contrats récurrents",
       montant: 18_000,
       dateDebut: j(35),
       frequence: "mensuel",
