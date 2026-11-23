@@ -31,6 +31,7 @@ export const CAPACITES = [
   "canViewDSO",
   "canViewDPO",
   "canViewActions",
+  "canViewProbabilisticForecast",
 ] as const;
 export type Capacite = (typeof CAPACITES)[number];
 export type Capacites = Record<Capacite, boolean>;
@@ -44,6 +45,10 @@ export type Capacites = Record<Capacite, boolean>;
 //  - canViewDSO / canViewDPO : Délai clients / Délai fournisseurs de l'onglet BFR (cartouche,
 //    distribution, courbe, export PDF) ; s'affichent dans cet onglet, donc requièrent aussi le BFR.
 //  - canViewActions          : module Action.
+//  - canViewProbabilisticForecast : onglet « Perspectives pondérées » de Futur — prévision
+//    probabiliste (simulations, fourchettes, risque de passer sous zéro, délais de paiement
+//    appris de l'historique, besoin de financement). Calcul serveur seulement
+//    (app/api/futur/probabiliste), revérifié à chaque appel ; requiert aussi canViewForecast.
 const OFFRES_PAR_CAPACITE: Record<Capacite, readonly Offre[]> = {
   canViewReporting: ["essential", "forecast", "steering"],
   canViewForecast: ["forecast", "steering"],
@@ -52,6 +57,7 @@ const OFFRES_PAR_CAPACITE: Record<Capacite, readonly Offre[]> = {
   canViewDSO: ["steering"],
   canViewDPO: ["steering"],
   canViewActions: ["steering"],
+  canViewProbabilisticForecast: ["steering"],
 };
 
 export function estOffre(valeur: unknown): valeur is Offre {

@@ -31,6 +31,12 @@ export interface ParametresProjectionCash {
   // Occurrences de Charges fixes remplacées par une facture fournisseur (rapprochement confirmé) :
   // elles ne génèrent aucun flux, la facture portant seule la dépense. Absent = aucun remplacement.
   remplacements?: Remplacements;
+  // Factures clients ouvertes dont la date d'encaissement anticipée est passée (ou absente) :
+  // date ESTIMÉE par facture (id -> YYYY-MM-DD), issue de l'historique de paiement du compte
+  // (lib/probaEstimation.ts, offre Pilotage). Sans estimation, une telle facture reste hors de la
+  // projection — jamais placée d'office au premier jour. Absent = aucune estimation (Flux de tréso).
+  // La date saisie et l'échéance de la facture ne sont jamais modifiées.
+  datesEstimees?: ReadonlyMap<string, string>;
 }
 
 export interface ResultatProjectionCash {
@@ -97,6 +103,8 @@ export interface FluxProjete {
   libelle: string;
   date: string; // YYYY-MM-DD
   montant: number;
+  // Date estimée (facture client en retard, voir ParametresProjectionCash.datesEstimees), et non saisie.
+  dateEstimee?: boolean;
 }
 
 /**
@@ -121,24 +129,36 @@ export function listerFluxProjetes(
     dateDepart,
     horizonJours = HORIZON_JOURS_DEFAUT,
     remplacements,
+    datesEstimees,
   } = params;
 
   const debut = parseDateISO(dateDepart);
   const fin = ajouterJours(debut, horizonJours);
   const flux: FluxProjete[] = [];
 
-  const enregistrerFlux = (source: SourceFlux, sourceId: string, libelle: string, dateStr: string, montant: number) => {
+  const enregistrerFlux = (source: SourceFlux, sourceId: string, libelle: string, dateStr: string, montant: number, dateEstimee = false) => {
     // Une ligne sans date (nouvellement ajoutée, pas encore complétée par l'utilisateur)
     // ne doit jamais entrer dans le calcul, et ne doit jamais faire planter le moteur.
     if (!estDateValide(dateStr)) return;
     const date = parseDateISO(dateStr);
     if (date < debut || date > fin) return;
-    flux.push({ source, sourceId, libelle, date: toISODate(date), montant });
+    flux.push(dateEstimee ? { source, sourceId, libelle, date: toISODate(date), montant, dateEstimee } : { source, sourceId, libelle, date: toISODate(date), montant });
   };
 
   for (const facture of facturesClients) {
     if (facture.litigieuse || facture.payee) continue;
-    enregistrerFlux("facture_client", facture.id, `${facture.facture} — ${facture.client}`, facture.dateEncaissementAnticipee, facture.montant);
+    // Date saisie encore à venir : elle fait foi. Sinon (passée ou absente), la date estimée si elle
+    // existe ; à défaut, la facture reste hors de la projection.
+    const saisieAVenir = estDateValide(facture.dateEncaissementAnticipee) && parseDateISO(facture.dateEncaissementAnticipee) >= debut;
+    const estimee = saisieAVenir ? undefined : datesEstimees?.get(facture.id);
+    enregistrerFlux(
+      "facture_client",
+      facture.id,
+      `${facture.facture} — ${facture.client}`,
+      estimee ?? facture.dateEncaissementAnticipee,
+      facture.montant,
+      estimee !== undefined
+    );
   }
 
   // Prévisionnelle rapprochée d'une vraie facture : exclue (la vraie facture compte seule, même payée).

@@ -1,0 +1,354 @@
+{
+  "societe": "9d5170e6-019f-41ae-9782-c86085cb59cd",
+  "creeLe": "2026-11-20T16:11:45.188Z",
+  "reglages": {
+    "solde_initial": 45000,
+    "date_releve": "2026-11-13",
+    "horizon_jours": 180
+  },
+  "misesDeCote": {
+    "customer_invoices": [
+      {
+        "id": "1ca6c075-4d2c-4d4a-b71b-89b6ec4c328f",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "0e5f1b35-9354-4183-a3fe-beee1eca78ad",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "0afc6510-3cd2-4a31-9b5d-ac4f14b8725f",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "50cd9876-bb5c-40f8-bd46-03406d98a37a",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "f36670b9-1a90-4e26-a41b-272d213f50fa",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "fa7aa7b4-d0ce-4a4e-aa9b-297b965dab93",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      }
+    ],
+    "supplier_invoices": [
+      {
+        "id": "ad161607-6624-4583-a66e-15a9ab8ac077",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "332f5357-4c3b-4a9c-a0c4-3443bdbd70c9",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "ea488b79-91ca-40c9-9f8a-d43da96f94ec",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "3f3bb9b0-9602-44d9-9663-25c2e69342c7",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "a6cf1fd6-1111-4d43-8759-65a2039e6c57",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "177e8f84-f8c7-4601-a037-585af3c206bf",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "b73b75eb-2be2-4014-be7f-0758be95bf71",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "3cca1e3c-5e59-43eb-b4b0-7d04790d5b06",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "8107529c-95fc-431b-9575-1a20d1a9c965",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "d73ccbf4-4bf3-4c3f-ae04-c391f36f7170",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "defcd269-3b39-4350-b98f-ddc9126f2c34",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "dbdbf6c8-5ffa-4ae6-bfe7-a9163ff195b7",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "590d1675-dfbf-4ca9-8d3e-3a1e21e586af",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "b439d9d1-9e97-4e61-8caf-f22c58c243bb",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "74c27756-4f25-417a-b96d-577f7aa43d0e",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "3047ff34-77a1-444e-8c10-9fc168ac6605",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "67a5ab5d-3339-4d86-a40b-a38d88be249f",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "7d48771a-1d2a-4876-8961-9efa00dd0714",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "0fbe4d34-6e2f-4514-b667-373b669ef466",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "75e34df1-c0a5-4bf6-b027-4a8e8240cced",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "e91a9f53-2c42-4f10-9486-83ce53d9c98b",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "f826d156-162d-4ffa-bb0b-af4c3edd5c33",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "3fb14406-73a5-4598-bafe-ee6aaf764e2a",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "49c349fd-da8c-40c1-901b-28a9fa3813ae",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "0998b5f1-bbff-4cfb-9d74-2e0c4a4fe2d2",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      },
+      {
+        "id": "a615b5b0-edfc-488e-b0aa-479aeccc0e1f",
+        "avant": {
+          "paid": false,
+          "paid_at": null
+        }
+      }
+    ],
+    "fixed_charges": [
+      {
+        "id": "1edb8b16-703e-4c5d-bc4b-fc1f334729ef",
+        "avant": {
+          "a_couper": false
+        }
+      },
+      {
+        "id": "5078bcdf-1d63-41df-8c11-50eeb8bae509",
+        "avant": {
+          "a_couper": false
+        }
+      },
+      {
+        "id": "cf3e4262-f497-4ea4-b03a-dfeb29fc7d7b",
+        "avant": {
+          "a_couper": false
+        }
+      },
+      {
+        "id": "4cc757c3-90cf-4dd3-9647-04f7a5c4c862",
+        "avant": {
+          "a_couper": false
+        }
+      },
+      {
+        "id": "38f6cc25-e4f1-4dc5-a3d6-9100c1a6ef8e",
+        "avant": {
+          "a_couper": false
+        }
+      }
+    ],
+    "other_expenses": [
+      {
+        "id": "cbf90caf-6601-4ba7-bcb3-eda65c31d311",
+        "avant": {
+          "payee": false
+        }
+      },
+      {
+        "id": "10fa8dca-204c-4923-8dbe-4ca3db0b4888",
+        "avant": {
+          "payee": false
+        }
+      },
+      {
+        "id": "168f50b9-9998-463f-a41f-07be1c172bba",
+        "avant": {
+          "payee": false
+        }
+      },
+      {
+        "id": "4086f69e-4100-4551-a1eb-264f41812527",
+        "avant": {
+          "payee": false
+        }
+      },
+      {
+        "id": "4cba496f-e609-4ac3-b58a-c6ca307a080c",
+        "avant": {
+          "payee": false
+        }
+      }
+    ],
+    "financings": [
+      {
+        "id": "0568d607-9c68-4fdb-9762-922c65adb8e0",
+        "avant": {
+          "verse": false
+        }
+      },
+      {
+        "id": "17027971-0d1f-41cb-82c7-e11439a7a651",
+        "avant": {
+          "verse": false
+        }
+      },
+      {
+        "id": "f711cd8c-b8a3-4a2d-8c5b-46eaa8154ca0",
+        "avant": {
+          "verse": false
+        }
+      },
+      {
+        "id": "8b31f996-8b5c-4df1-a4dc-7eff1fd0db31",
+        "avant": {
+          "verse": false
+        }
+      },
+      {
+        "id": "d9c27a8a-f9c5-48a6-9d7d-d3576717401b",
+        "avant": {
+          "verse": false
+        }
+      }
+    ],
+    "recurring_income": [
+      {
+        "id": "d824c173-02c7-42d6-8eaf-33e3d3199d19",
+        "avant": {
+          "date_fin": null
+        }
+      },
+      {
+        "id": "24f3cdcc-7448-426a-92b5-5bd274839717",
+        "avant": {
+          "date_fin": null
+        }
+      }
+    ]
+  },
+  "jeu": {
+    "j0": "2026-11-20",
+    "etat": "initial",
+    "ecritLe": "2026-11-20T16:14:08.805Z"
+  }
+}
