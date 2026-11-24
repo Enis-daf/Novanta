@@ -164,6 +164,7 @@ export default function FacturesClientsTable({
                       onChange(facture.id, {
                         payee: e.target.checked,
                         paidAt: e.target.checked ? new Date().toISOString() : null,
+                        paidOrigin: e.target.checked ? "manual" : null,
                       })
                     }
                   />

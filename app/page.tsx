@@ -97,6 +97,7 @@ import {
   HorizonJours,
   LienRapprochement,
   MappingFournisseurCharge,
+  OriginePaiement,
   RentreeReguliere,
   TriMode,
 } from "@/lib/types";
@@ -852,7 +853,9 @@ export default function Home() {
 
   const handleChangeFactureClient = (id: string, patch: Partial<FactureClient>) => {
     setFacturesClients((prev) => {
-      const suivant = prev.map((f) => (f.id === id ? { ...f, ...patch } : f));
+      // Décochée « Payée » : plus de règlement réel ni d'origine (même règle que la ligne enregistrée).
+      const complet = patch.payee === false ? { ...patch, settledOn: null, paidOrigin: null } : patch;
+      const suivant = prev.map((f) => (f.id === id ? { ...f, ...complet } : f));
       const facture = suivant.find((f) => f.id === id);
       if (companyId && facture) {
         persistDebounce(`factureClient:${id}`, () => sauvegarderFactureClient(companyId, facture));
@@ -940,7 +943,9 @@ export default function Home() {
 
   const handleChangeFactureFournisseur = (id: string, patch: Partial<FactureFournisseur>) => {
     setFacturesFournisseurs((prev) => {
-      const suivant = prev.map((f) => (f.id === id ? { ...f, ...patch } : f));
+      // Décochée « Payée » : plus de règlement réel ni d'origine (même règle que la ligne enregistrée).
+      const complet = patch.payee === false ? { ...patch, settledOn: null, paidOrigin: null } : patch;
+      const suivant = prev.map((f) => (f.id === id ? { ...f, ...complet } : f));
       const facture = suivant.find((f) => f.id === id);
       if (companyId && facture) {
         persistDebounce(`factureFournisseur:${id}`, () => sauvegarderFactureFournisseur(companyId, facture));
@@ -1064,7 +1069,7 @@ export default function Home() {
       const idsAMettreAJour = new Set(idsClientsAMettreAJourPayee);
       const maintenant = new Date().toISOString();
       setFacturesClients((prev) =>
-        prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant } : f))
+        prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant, paidOrigin: "sync" as const } : f))
       );
       marquages.push(
         marquerFacturesClientsPayees(idsClientsAMettreAJourPayee).catch((erreur) => {
@@ -1077,7 +1082,7 @@ export default function Home() {
       const idsAMettreAJour = new Set(idsFournisseursAMettreAJourPayee);
       const maintenant = new Date().toISOString();
       setFacturesFournisseurs((prev) =>
-        prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant } : f))
+        prev.map((f) => (idsAMettreAJour.has(f.id) ? { ...f, payee: true, paidAt: maintenant, paidOrigin: "sync" as const } : f))
       );
       marquages.push(
         marquerFacturesFournisseursPayees(idsFournisseursAMettreAJourPayee).catch((erreur) => {
@@ -1331,8 +1336,8 @@ export default function Home() {
       const maintenantIso = new Date().toISOString();
       const marqueesClients = new Set(idsClientsAMettreAJourPayee);
       const marqueesFournisseurs = new Set(idsFournisseursAMettreAJourPayee);
-      const clientsApres = facturesClients.map((f) => (marqueesClients.has(f.id) ? { ...f, payee: true, paidAt: maintenantIso } : f));
-      const fournisseursApres = facturesFournisseurs.map((f) => (marqueesFournisseurs.has(f.id) ? { ...f, payee: true, paidAt: maintenantIso } : f));
+      const clientsApres = facturesClients.map((f) => (marqueesClients.has(f.id) ? { ...f, payee: true, paidAt: maintenantIso, paidOrigin: "sync" as const } : f));
+      const fournisseursApres = facturesFournisseurs.map((f) => (marqueesFournisseurs.has(f.id) ? { ...f, payee: true, paidAt: maintenantIso, paidOrigin: "sync" as const } : f));
       // Puis les catégories Pennylane des factures fournisseurs (étage P&L), nouvelles comprises :
       // `marquages` attend aussi leur insertion, pour que le serveur les retrouve en base.
       const fournisseursACategoriser = [...fournisseursApres, ...nouvellesFacturesFournisseurs].filter(
@@ -1417,6 +1422,8 @@ export default function Home() {
         dateEncaissementAnticipee: r.datePrevue,
         payee: r.payee,
         paidAt: existante.payee ? existante.paidAt : r.payee ? new Date().toISOString() : null,
+        // Payée par le document Pennylane rattaché : origine synchronisation.
+        paidOrigin: existante.payee ? (existante.paidOrigin ?? null) : r.payee ? "sync" : null,
       };
       setFacturesClients((prev) => prev.map((f) => (f.id === rattachee.id ? rattachee : f)));
       if (companyId) persist(() => sauvegarderFactureClient(companyId, rattachee));
@@ -1434,6 +1441,8 @@ export default function Home() {
         datePaiementPrevue: r.datePrevue,
         payee: r.payee,
         paidAt: existante.payee ? existante.paidAt : r.payee ? new Date().toISOString() : null,
+        // Payée par le document Pennylane rattaché : origine synchronisation.
+        paidOrigin: existante.payee ? (existante.paidOrigin ?? null) : r.payee ? "sync" : null,
       };
       setFacturesFournisseurs((prev) => prev.map((f) => (f.id === rattachee.id ? rattachee : f)));
       if (companyId) persist(() => sauvegarderFactureFournisseur(companyId, rattachee));
@@ -1456,12 +1465,15 @@ export default function Home() {
     // La référence garde son document (n°, tiers, montant, échéance) ; elle reçoit les réglages de
     // prévision repris. Payée : la date de paiement vient de la ligne qui la portait.
     const datePaiement = <T extends { payee: boolean; paidAt: string | null }>(ref: T, autre: T) => (ref.payee ? ref.paidAt : autre.payee ? autre.paidAt : null);
+    // L'origine du marquage suit la date : celle de la ligne qui portait « Payée ».
+    const originePaiement = <T extends { payee: boolean; paidOrigin?: OriginePaiement | null }>(ref: T, autre: T) =>
+      ref.payee ? (ref.paidOrigin ?? null) : autre.payee ? (autre.paidOrigin ?? null) : null;
     const valeurs = { litigieuse: resultat.reference.litigieuse, payee: resultat.reference.payee };
     try {
       if (sens === "client") {
         const [ref, autre] = [facturesClients.find((f) => f.id === resultat.reference.id), facturesClients.find((f) => f.id === resultat.retiree.id)];
         if (!ref || !autre) throw new Error("Facture introuvable.");
-        const reference: FactureClient = { ...ref, ...valeurs, dateEncaissementAnticipee: resultat.reference.datePrevue, paidAt: datePaiement(ref, autre) };
+        const reference: FactureClient = { ...ref, ...valeurs, dateEncaissementAnticipee: resultat.reference.datePrevue, paidAt: datePaiement(ref, autre), paidOrigin: originePaiement(ref, autre) };
         // Prévisionnelle rapprochée de la ligne retirée : le lien passe à la facture gardée, sauf si
         // celle-ci est déjà rapprochée d'une autre prévisionnelle (le lien garde alors sa copie).
         const referenceDejaRapprochee = facturesPrevisionnelles.some((p) => p.rapprochement?.factureClientId === reference.id);
@@ -1490,6 +1502,7 @@ export default function Home() {
           ...valeurs,
           datePaiementPrevue: resultat.reference.datePrevue,
           paidAt: datePaiement(ref, autre),
+          paidOrigin: originePaiement(ref, autre),
           etagePnlManuel: resultat.reference.etagePnlManuel ?? null,
         };
         // Rapprochements avec les Charges fixes : ceux de la ligne retirée passent à la référence (pas

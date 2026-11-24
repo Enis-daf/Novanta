@@ -19,6 +19,7 @@ import {
   HorizonJours,
   LienRapprochement,
   MappingFournisseurCharge,
+  OriginePaiement,
   RentreeReguliere,
 } from "./types";
 import { CategorieFacture, CorrespondanceFutur, EtageDepense, estEtageDepense, lireCorrespondance } from "./futurPnl";
@@ -126,6 +127,11 @@ async function deleteOne(table: string, id: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Origine du marquage « Payée » lue en base ; valeur absente ou inconnue -> null (règle actuelle). */
+function origineOuNull(valeur: unknown): OriginePaiement | null {
+  return valeur === "manual" || valeur === "sync" ? valeur : null;
+}
+
 export function factureClientToRow(companyId: string, f: FactureClient): Row {
   return {
     id: f.id,
@@ -139,6 +145,10 @@ export function factureClientToRow(companyId: string, f: FactureClient): Row {
     paid: f.payee,
     paid_at: f.paidAt,
     pennylane_id: f.pennylaneId ?? null,
+    // Non payée : aucun règlement réel. Décocher « Payée » efface la date, sinon un nouveau
+    // marquage repartirait d'un règlement périmé (masquage immédiat). Payée : jamais touchée ici.
+    ...(f.payee ? {} : { settled_on: null }),
+    paid_origin: f.payee ? (f.paidOrigin ?? null) : null,
   };
 }
 
@@ -154,6 +164,7 @@ export function rowToFactureClient(row: Row): FactureClient {
     payee: Boolean(row.paid),
     paidAt: (row.paid_at as string | null) ?? null,
     settledOn: (row.settled_on as string | null) ?? null,
+    paidOrigin: origineOuNull(row.paid_origin),
     pennylaneId: (row.pennylane_id as string | null) ?? null,
   };
 }
@@ -215,6 +226,9 @@ export function factureFournisseurToRow(companyId: string, f: FactureFournisseur
     paid: f.payee,
     paid_at: f.paidAt,
     pennylane_id: f.pennylaneId ?? null,
+    // Voir factureClientToRow : non payée -> aucun règlement réel.
+    ...(f.payee ? {} : { settled_on: null }),
+    paid_origin: f.payee ? (f.paidOrigin ?? null) : null,
     // Ni l'étage P&L ni les catégories Pennylane ne sont renvoyés ici (voir affecterEtagePnlManuel).
     pennylane_supplier_id: f.pennylaneSupplierId ?? null,
   };
@@ -232,6 +246,7 @@ export function rowToFactureFournisseur(row: Row): FactureFournisseur {
     payee: Boolean(row.paid),
     paidAt: (row.paid_at as string | null) ?? null,
     settledOn: (row.settled_on as string | null) ?? null,
+    paidOrigin: origineOuNull(row.paid_origin),
     pennylaneId: (row.pennylane_id as string | null) ?? null,
     // Colonnes absentes avant la migration « étage P&L Futur » : « À classer ».
     etagePnlManuel: etageManuelOuNull(row.pnl_stage_manual),
@@ -601,7 +616,7 @@ export async function marquerFacturesClientsPayees(ids: string[]): Promise<void>
   if (ids.length === 0) return;
   const { error } = await client()
     .from("customer_invoices")
-    .update({ paid: true, paid_at: new Date().toISOString() })
+    .update({ paid: true, paid_at: new Date().toISOString(), paid_origin: "sync" })
     .in("id", ids);
   if (error) throw error;
 }
@@ -610,7 +625,7 @@ export async function marquerFacturesFournisseursPayees(ids: string[]): Promise<
   if (ids.length === 0) return;
   const { error } = await client()
     .from("supplier_invoices")
-    .update({ paid: true, paid_at: new Date().toISOString() })
+    .update({ paid: true, paid_at: new Date().toISOString(), paid_origin: "sync" })
     .in("id", ids);
   if (error) throw error;
 }

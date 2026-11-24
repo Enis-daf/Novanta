@@ -5,18 +5,18 @@ import { getOrCreateCompanyForBilling } from "@/lib/billing";
 import { chargerDroitsOrganisation, refusOffre } from "@/lib/offres";
 import { obtenirTokenPennylane, resumeErreurSupabaseSansSecret } from "@/lib/pennylaneRepository";
 import { CompanyApiTokenCredentialProvider } from "@/lib/pennylaneCredentialProvider";
-import { listMatchedTransactions, PennylaneApiError } from "@/lib/pennylaneClient";
+import { getInvoice, listMatchedTransactions, PennylaneApiError } from "@/lib/pennylaneClient";
 import { cleChiffrementConfiguree } from "@/lib/pennylaneCrypto";
-import { dateDeReglementReel } from "@/lib/pennylaneInvoiceAdapter";
+import { reglementReelSiSoldee } from "@/lib/pennylaneInvoiceAdapter";
 
 // Règlement réel des factures Pennylane payées : la date de leur dernière transaction bancaire
-// rapprochée, écrite dans settled_on (customer_invoices / supplier_invoices). Appelée par le cockpit
+// rapprochée, à condition que Pennylane tienne la facture pour soldée, écrite dans settled_on (customer_invoices / supplier_invoices). Appelée par le cockpit
 // après une synchronisation, pour les seules factures payées encore visibles (voir
 // lib/dates.ts::reglementReelARecuperer). Ne sert qu'au masquage des factures payées.
 //
 // Le navigateur n'envoie que des ids Novanta : la facture, son pennylane_id et sa société sont relus
-// en base, bornés à la société de l'utilisateur connecté. Facture sans transaction rapprochée, ou
-// erreur Pennylane : rien n'est écrit, le masquage continue de partir de paid_at — jamais une date
+// en base, bornés à la société de l'utilisateur connecté. Facture non soldée chez Pennylane (un
+// acompte n'est pas un règlement), sans transaction rapprochée, ou erreur Pennylane : rien n'est écrit, le masquage continue de partir de paid_at — jamais une date
 // inventée.
 
 export const maxDuration = 60;
@@ -88,7 +88,10 @@ export async function POST(req: NextRequest) {
   let erreurs = 0;
   for (const ligne of (data ?? []) as { id: string; pennylane_id: string }[]) {
     try {
-      const date = dateDeReglementReel(await listMatchedTransactions(provider, TYPES_PENNYLANE[type], ligne.pennylane_id));
+      // Soldée chez Pennylane seulement : une facture encore due peut porter un acompte rapproché,
+      // dont la date n'est pas un règlement (cas réel KUBII FA451261, acompte du 14/08).
+      const facture = await getInvoice(provider, TYPES_PENNYLANE[type], ligne.pennylane_id);
+      const date = reglementReelSiSoldee(type, facture, await listMatchedTransactions(provider, TYPES_PENNYLANE[type], ligne.pennylane_id));
       if (date === null) {
         sansTransaction++;
         continue;

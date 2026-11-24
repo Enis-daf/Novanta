@@ -185,9 +185,9 @@ export default function VerifierMesDonnees({
   const executerAction = (issue: ConsistencyIssue) => {
     if (!issue.entityId) return;
     if (issue.type === "invoice_maybe_paid" && issue.entityType === "facture_fournisseur") {
-      onChangeFactureFournisseur(issue.entityId, { payee: true, paidAt: new Date().toISOString() });
+      onChangeFactureFournisseur(issue.entityId, { payee: true, paidAt: new Date().toISOString(), paidOrigin: "manual" });
     } else if (issue.type === "invoice_maybe_paid" && issue.entityType === "facture_client") {
-      onChangeFactureClient(issue.entityId, { payee: true, paidAt: new Date().toISOString() });
+      onChangeFactureClient(issue.entityId, { payee: true, paidAt: new Date().toISOString(), paidOrigin: "manual" });
     } else if (issue.type === "other_expense_maybe_invoiced") {
       onChangeAutreDepense(issue.entityId, { facturee: true });
     } else if (issue.type === "other_expense_maybe_paid") {

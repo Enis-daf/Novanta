@@ -457,6 +457,21 @@ export async function listMatchedTransactions(
 }
 
 /**
+ * Une facture Pennylane (GET /customer_invoices/{id} ou /supplier_invoices/{id}, mêmes scopes que
+ * les listes). Sert à la route de règlement réel : une transaction rapprochée ne date un règlement
+ * que si la facture est soldée chez Pennylane (lib/pennylaneInvoiceAdapter.ts::reglementReelSiSoldee).
+ */
+export async function getInvoice(
+  credentialProvider: PennylaneCredentialProvider,
+  type: "customer" | "supplier",
+  invoiceId: string
+): Promise<PennylaneCustomerInvoiceListItem | PennylaneSupplierInvoiceListItem> {
+  const bearer = await credentialProvider.getBearerToken();
+  const endpoint = `${type === "customer" ? ENDPOINT_CUSTOMER_INVOICES : ENDPOINT_SUPPLIER_INVOICES}/${encodeURIComponent(invoiceId)}`;
+  return (await appelerPennylane(bearer, endpoint, new URLSearchParams())) as PennylaneCustomerInvoiceListItem | PennylaneSupplierInvoiceListItem;
+}
+
+/**
  * Catégories analytiques d'une facture fournisseur (GET /supplier_invoices/{id}/categories,
  * pagination par curseur, scope supplier_invoices:readonly — le même que la liste). La liste des
  * factures ne renvoie qu'une URL vers cette sous-ressource, jamais les catégories elles-mêmes.
