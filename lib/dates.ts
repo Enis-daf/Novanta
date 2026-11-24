@@ -150,12 +150,26 @@ export function estMasqueeApresPaiement(payee: boolean, paidAt: string | null, s
  *     antérieure au marquage « Payée » : une facture de janvier marquée payée aujourd'hui ne reste
  *     pas une semaine à l'écran (décision du 21/10/2026, option B) ;
  *  3. sinon du marquage « Payée » (paidAt) — et toujours pour une facture saisie dans Novanta.
+ * Exception prioritaire : une facture cochée Payée à la main (paidOrigin "manual") part toujours de
+ * son marquage — ni règlement réel ni échéance (décision du 24/11/2026). Origine inconnue (payée
+ * avant cette version) ou synchronisation : règles 1 à 3 ci-dessus, inchangées.
  */
 export function estFactureMasquee(
-  f: { payee: boolean; paidAt: string | null; settledOn?: string | null; pennylaneId?: string | null; dateEcheance?: string | null },
+  f: {
+    payee: boolean;
+    paidAt: string | null;
+    settledOn?: string | null;
+    pennylaneId?: string | null;
+    dateEcheance?: string | null;
+    paidOrigin?: "manual" | "sync" | null;
+  },
   maintenant: Date = new Date()
 ): boolean {
   if (!f.payee) return false;
+  // Cochée à la main : 7 jours après le clic, quoi qu'il arrive (décision du 24/11/2026). Une erreur
+  // de marquage reste visible, donc réparable — cas réel KUBII FA451261, échue le 14/11, cochée
+  // Payée par erreur le 24/11 et disparue aussitôt par le repli sur l'échéance.
+  if (f.paidOrigin === "manual") return estMasqueeApresPaiement(true, f.paidAt, null, maintenant);
   if (f.settledOn && estDateValide(f.settledOn)) return estMasqueeApresPaiement(true, f.paidAt, f.settledOn, maintenant);
   const marquage = f.paidAt ? new Date(f.paidAt) : null;
   const echeance = f.pennylaneId && estDateValide(f.dateEcheance) ? f.dateEcheance : null;
@@ -171,8 +185,9 @@ export function estFactureMasquee(
  * réelle (toujours antérieure) ne changerait rien, inutile de la redemander.
  */
 export function reglementReelARecuperer(
-  f: { payee: boolean; paidAt: string | null; settledOn?: string | null; pennylaneId?: string | null },
+  f: { payee: boolean; paidAt: string | null; settledOn?: string | null; pennylaneId?: string | null; paidOrigin?: "manual" | "sync" | null },
   maintenant: Date = new Date()
 ): boolean {
-  return f.payee && !!f.pennylaneId && !f.settledOn && !!f.paidAt && !estMasqueeApresPaiement(true, f.paidAt, null, maintenant);
+  // Cochée à la main : le règlement réel ne sert pas au masquage (voir estFactureMasquee).
+  return f.payee && f.paidOrigin !== "manual" && !!f.pennylaneId && !f.settledOn && !!f.paidAt && !estMasqueeApresPaiement(true, f.paidAt, null, maintenant);
 }

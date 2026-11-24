@@ -1,5 +1,8 @@
 import type { CategorieFacture, EtageDepense } from "./futurPnl";
 
+/** Origine du marquage « Payée » d'une facture (colonne paid_origin). */
+export type OriginePaiement = "manual" | "sync";
+
 export interface FactureClient {
   id: string;
   facture: string;
@@ -14,6 +17,10 @@ export interface FactureClient {
   // Pennylane. Écrit par le serveur seulement (/api/pennylane/invoices/settlement) ; sert au
   // masquage des factures payées (lib/dates.ts::estFactureMasquee), à rien d'autre.
   settledOn?: string | null;
+  // Qui a marqué la facture Payée : "manual" (case, Vérifier mes données) ou "sync" (synchronisation
+  // Pennylane). null = non payée ou origine inconnue (payée avant le 24/11/2026). Sert au masquage
+  // seulement (lib/dates.ts::estFactureMasquee).
+  paidOrigin?: OriginePaiement | null;
   // ID de la facture côté Pennylane — présent uniquement si importée par la synchronisation
   // Pennylane (voir lib/pennylaneInvoiceAdapter.ts) ; absent/null pour une facture créée
   // manuellement ou importée par fichier. Clé de dédoublonnage, jamais recalculée.
@@ -32,6 +39,8 @@ export interface FactureFournisseur {
   paidAt: string | null; // ISO 8601 datetime — moment où "Payée" a été cochée
   // Voir FactureClient.settledOn.
   settledOn?: string | null;
+  // Voir FactureClient.paidOrigin.
+  paidOrigin?: OriginePaiement | null;
   // Voir FactureClient.pennylaneId — même rôle côté factures fournisseurs.
   pennylaneId?: string | null;
   // Étage P&L choisi dans Futur (null = aucun choix manuel) — voir lib/futurPnl.ts. Prime sur

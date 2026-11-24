@@ -102,6 +102,31 @@ export function dateDeReglementReel(transactions: { date?: string | null }[]): s
 }
 
 /**
+ * Règlement réel d'une facture, seulement si Pennylane la tient pour SOLDÉE (mêmes règles que la
+ * synchronisation : decisionPaiementFournisseur / decisionPaiementClient). Une facture encore due
+ * chez Pennylane peut porter une transaction rapprochée — un acompte : sa date n'est pas un
+ * règlement, et la retenir masquerait aussitôt une facture marquée Payée dans Novanta (cas réel
+ * KUBII FA451261, acompte du 14/08 marqué « règlement » le 24/11). null -> le masquage part de
+ * paid_at, comme pour une facture sans transaction rapprochée.
+ */
+export function reglementReelSiSoldee(
+  sens: "client" | "fournisseur",
+  facturePennylane: {
+    paid: boolean;
+    payment_status?: string | null;
+    remaining_amount_with_tax?: string | null;
+    amount?: string | null;
+    accounting_status?: string | null;
+    archived_at?: string | null;
+    status?: string | null;
+  },
+  transactions: { date?: string | null }[]
+): string | null {
+  const decision = sens === "fournisseur" ? decisionPaiementFournisseur(facturePennylane) : decisionPaiementClient(facturePennylane);
+  return decision.motifSolde === "payee" ? dateDeReglementReel(transactions) : null;
+}
+
+/**
  * Catégories analytiques d'une facture fournisseur, normalisées pour le classement Futur
  * (lib/futurPnl.ts). Identifiants convertis en chaîne, comme dans Passé ; une catégorie sans
  * libellé est écartée (rien à rapprocher d'une correspondance) ; pondération illisible -> 1.
