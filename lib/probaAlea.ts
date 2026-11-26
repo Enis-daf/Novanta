@@ -12,6 +12,19 @@ export interface Alea {
   normale(): number;
   /** Entier uniforme dans [0, n). */
   entier(n: number): number;
+  /** État courant : rejouer une simulation à l'identique à partir de ce point (creerAleaDepuis). */
+  capturer(): EtatAlea;
+}
+
+/** État complet du générateur (graine courante et éventuelle normale en réserve). */
+export interface EtatAlea {
+  etat: number;
+  reserve: number | null;
+}
+
+/** Générateur repartant exactement d'un état capturé : mêmes tirages que l'original à partir de là. */
+export function creerAleaDepuis(e: EtatAlea): Alea {
+  return creerAlea(e.etat, e.reserve);
 }
 
 /** Graine par défaut : stable d'un appel à l'autre. */
@@ -27,9 +40,9 @@ export function graineDepuisTexte(texte: string): number {
   return h >>> 0;
 }
 
-export function creerAlea(graine: number = GRAINE_PAR_DEFAUT): Alea {
+export function creerAlea(graine: number = GRAINE_PAR_DEFAUT, reserve: number | null = null): Alea {
   let etat = graine >>> 0;
-  let normaleEnReserve: number | null = null;
+  let normaleEnReserve: number | null = reserve;
   const uniforme = () => {
     etat = (etat + 0x6d2b79f5) >>> 0;
     let t = etat;
@@ -54,6 +67,9 @@ export function creerAlea(graine: number = GRAINE_PAR_DEFAUT): Alea {
     },
     entier(n: number) {
       return Math.floor(uniforme() * n);
+    },
+    capturer() {
+      return { etat, reserve: normaleEnReserve };
     },
   };
 }

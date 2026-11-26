@@ -1,4 +1,4 @@
-import { Alea, creerAlea, GRAINE_PAR_DEFAUT } from "./probaAlea";
+import { Alea, creerAlea, creerAleaDepuis, EtatAlea, GRAINE_PAR_DEFAUT } from "./probaAlea";
 import { Echantillonneur, echantillonneurPour, ModeleRetards } from "./probaCalibration";
 import {
   ConditionMoteur,
@@ -356,12 +356,147 @@ export function creerEvaluateur(prep: PreparationSimulation): (forces?: Readonly
   };
 }
 
-export function simuler(params: ParametresSimulation): SimulationBrute {
+/**
+ * Tirages bruts d'une simulation, AVANT les contraintes entre lignes (« à partir du mois suivant »)
+ * et avant la pose des flux. Séparer le tirage (aléatoire) de l'assemblage (déterministe) permet de
+ * rejouer une simulation à l'identique, ou en ne changeant qu'un élément (lib/probaSemaine.ts).
+ */
+export interface TiragesSimulation {
+  tirage: Uint8Array; // par ligne : 1 si la ligne survient (avant conditions)
+  facteurMontant: Float64Array; // par ligne
+  decalageDebut: Float64Array; // par ligne (début de série) : décalage tiré, en jours
+  jourBrut: Float64Array; // par événement (échéance par échéance) : jour simulé avant contrainte
+}
+
+function creerTirages(prep: PreparationSimulation): TiragesSimulation {
+  return {
+    tirage: new Uint8Array(prep.lignes.length),
+    facteurMontant: new Float64Array(prep.lignes.length),
+    decalageDebut: new Float64Array(prep.lignes.length),
+    jourBrut: new Float64Array(prep.evenements.length),
+  };
+}
+
+/** Tire une simulation : mêmes appels au générateur, dans le même ordre, qu'avant la séparation. */
+function tirerSimulation(prep: PreparationSimulation, alea: Alea, tir: TiragesSimulation): void {
+  const { lignes, evenements } = prep;
+  for (let i = 0; i < lignes.length; i++) {
+    const l = lignes[i];
+    const p = l.source.probabilite;
+    tir.tirage[i] = p >= 100 ? 1 : p <= 0 ? 0 : alea.uniforme() < p / 100 ? 1 : 0;
+    tir.facteurMontant[i] = tirerFacteurMontant(l.ecartMontant, alea);
+    if (l.source.modeDate === "debut") {
+      tir.decalageDebut[i] = l.facteurDebut > 0 && l.echantillonneurDebut ? Math.max(0, Math.round(l.facteurDebut * l.echantillonneurDebut.tirer(alea))) : 0;
+    } else {
+      for (const k of l.evenements) tir.jourBrut[k] = simulerJour(evenements[k], alea);
+    }
+  }
+}
+
+/**
+ * Changements appliqués à une simulation rejouée — tout le reste (autres tirages, autres dates,
+ * montants) est identique. `jours` impose le jour d'un événement (index préparé) ; `presence` et
+ * `facteurs` remplacent la survenue et le facteur de montant tirés pour une ligne (index préparé).
+ * Les conséquences métier (conditions « Dépend de », CA du mois, « à partir du mois suivant ») sont
+ * ensuite recalculées normalement.
+ */
+export interface ModificationsRejeu {
+  jours?: ReadonlyMap<number, number>;
+  presence?: ReadonlyMap<number, 0 | 1>;
+  facteurs?: ReadonlyMap<number, number>;
+}
+
+/** Assemble une simulation à partir de ses tirages : dates, contraintes entre lignes, pose des flux. */
+function assemblerSimulation(prep: PreparationSimulation, tir: TiragesSimulation, t: Tampons, modifs?: ModificationsRejeu): void {
+  const { lignes, evenements, jours } = prep;
+  for (let i = 0; i < lignes.length; i++) {
+    const l = lignes[i];
+    t.tirage[i] = modifs?.presence?.get(i) ?? tir.tirage[i];
+    t.facteurMontant[i] = modifs?.facteurs?.get(i) ?? tir.facteurMontant[i];
+    const debutAutorise = debutAutoriseDe(prep, t, i);
+    let decalage = tir.decalageDebut[i];
+    if (l.source.modeDate === "debut" && debutAutorise > l.premierJourPrevu + decalage) decalage = debutAutorise - l.premierJourPrevu;
+    let premier = Infinity;
+    for (const k of l.evenements) {
+      const impose = modifs?.jours?.get(k);
+      const jour =
+        impose !== undefined
+          ? impose
+          : l.source.modeDate === "debut"
+            ? Math.max(evenements[k].jourPrevu, 0) + decalage
+            : Math.max(tir.jourBrut[k], debutAutorise);
+      t.jourEvenement[k] = jour >= jours ? jours : jour;
+      if (jour < premier) premier = jour;
+    }
+    t.premierJour[i] = premier;
+  }
+  t.jourCA.set(t.jourEvenement);
+  placerLignes(prep, t);
+}
+
+/** Simulation rejouée (à l'identique, ou avec des modifications ciblées). */
+export interface SimulationRejouee {
+  soldes: Float64Array; // solde de fin de journée
+  jourEvenement: Int32Array; // jour retenu par événement (jours = au-delà de l'horizon)
+  presentes: Uint8Array; // 1 : ligne présente (conditions comprises)
+  tirage: Uint8Array; // survenue tirée par ligne
+  facteurMontant: Float64Array; // facteur de montant par ligne
+}
+
+/**
+ * Rejoue LA simulation partie de l'état `etat` du générateur : mêmes tirages que lors du calcul des
+ * 10 000 simulations (simuler(..., capturer)). Sans modification, elle est identique à la colonne
+ * correspondante ; avec, seul l'élément modifié change. Aucun nouveau tirage aléatoire.
+ */
+export function rejouerSimulation(prep: PreparationSimulation, etat: EtatAlea, modifs?: ModificationsRejeu): SimulationRejouee {
+  const tir = creerTirages(prep);
+  tirerSimulation(prep, creerAleaDepuis(etat), tir);
+  return rejouerTirages(prep, tir, modifs);
+}
+
+/** Variante : tirages déjà connus (plusieurs modifications d'une même simulation, sans retirer). */
+export function tiragesDeSimulation(prep: PreparationSimulation, etat: EtatAlea): TiragesSimulation {
+  const tir = creerTirages(prep);
+  tirerSimulation(prep, creerAleaDepuis(etat), tir);
+  return tir;
+}
+
+export function rejouerTirages(prep: PreparationSimulation, tir: TiragesSimulation, modifs?: ModificationsRejeu): SimulationRejouee {
+  const t = creerTampons(prep);
+  assemblerSimulation(prep, tir, t, modifs);
+  const soldes = new Float64Array(prep.jours);
+  let solde = prep.soldeInitial;
+  for (let j = 0; j < prep.jours; j++) {
+    solde += t.variations[j];
+    soldes[j] = solde;
+  }
+  return {
+    soldes,
+    jourEvenement: Int32Array.from(t.jourEvenement),
+    presentes: Uint8Array.from(t.etat, (e) => (e === 1 ? 1 : 0)),
+    tirage: Uint8Array.from(t.tirage),
+    facteurMontant: Float64Array.from(t.facteurMontant),
+  };
+}
+
+/** États du générateur au début de chaque simulation : de quoi rejouer n'importe laquelle. */
+export interface EtatsSimulations {
+  etat: Uint32Array;
+  reserve: Float64Array; // NaN : aucune normale en réserve
+}
+
+export function etatDeSimulation(etats: EtatsSimulations, s: number): EtatAlea {
+  return { etat: etats.etat[s], reserve: Number.isNaN(etats.reserve[s]) ? null : etats.reserve[s] };
+}
+
+export function simuler(params: ParametresSimulation & { capturer?: boolean }): SimulationBrute & { etats?: EtatsSimulations } {
   const nombre = Math.max(1, Math.floor(params.nombreSimulations ?? NOMBRE_SIMULATIONS_PAR_DEFAUT));
   const alea = creerAlea(params.graine ?? GRAINE_PAR_DEFAUT);
   const prep = preparerSimulation(params);
-  const { jours, dates, lignes, evenements, dependancesIgnorees } = prep;
+  const { jours, dates, lignes, dependancesIgnorees } = prep;
   const t = creerTampons(prep);
+  const tir = creerTirages(prep);
+  const etats: EtatsSimulations | undefined = params.capturer ? { etat: new Uint32Array(nombre), reserve: new Float64Array(nombre) } : undefined;
 
   const soldes = new Float64Array(jours * nombre);
   const minimums = new Float64Array(nombre);
@@ -370,34 +505,14 @@ export function simuler(params: ParametresSimulation): SimulationBrute {
   const presences = new Uint32Array(lignes.length);
 
   for (let s = 0; s < nombre; s++) {
-    // Existence (tirage par ligne), montants, dates — dans l'ordre topologique.
-    for (let i = 0; i < lignes.length; i++) {
-      const l = lignes[i];
-      const p = l.source.probabilite;
-      t.tirage[i] = p >= 100 ? 1 : p <= 0 ? 0 : alea.uniforme() < p / 100 ? 1 : 0;
-      t.facteurMontant[i] = tirerFacteurMontant(l.ecartMontant, alea);
-      const debutAutorise = debutAutoriseDe(prep, t, i);
-      let premier = Infinity;
-      if (l.source.modeDate === "debut") {
-        // Toute la série glisse d'un même décalage : retard tiré, puis début autorisé.
-        let decalage = l.facteurDebut > 0 && l.echantillonneurDebut ? Math.max(0, Math.round(l.facteurDebut * l.echantillonneurDebut.tirer(alea))) : 0;
-        if (debutAutorise > l.premierJourPrevu + decalage) decalage = debutAutorise - l.premierJourPrevu;
-        for (const k of l.evenements) {
-          const jour = Math.max(evenements[k].jourPrevu, 0) + decalage;
-          t.jourEvenement[k] = jour >= jours ? jours : jour;
-          if (jour < premier) premier = jour;
-        }
-      } else {
-        for (const k of l.evenements) {
-          const jour = Math.max(simulerJour(evenements[k], alea), debutAutorise);
-          t.jourEvenement[k] = jour >= jours ? jours : jour;
-          if (jour < premier) premier = jour;
-        }
-      }
-      t.premierJour[i] = premier;
+    if (etats) {
+      const e = alea.capturer();
+      etats.etat[s] = e.etat;
+      etats.reserve[s] = e.reserve ?? NaN;
     }
-    t.jourCA.set(t.jourEvenement);
-    placerLignes(prep, t);
+    // Existence (tirage par ligne), montants, dates — dans l'ordre topologique.
+    tirerSimulation(prep, alea, tir);
+    assemblerSimulation(prep, tir, t);
     for (let i = 0; i < lignes.length; i++) if (t.etat[i] === 1) presences[i]++;
 
     let solde = params.soldeInitial;
@@ -419,5 +534,5 @@ export function simuler(params: ParametresSimulation): SimulationBrute {
   }
 
   const partPresence = new Map(lignes.map((l, i) => [l.source.cle, presences[i] / nombre]));
-  return { nombre, jours, dates, soldes, minimums, jourDuMinimum, premierJourNegatif, partPresence, dependancesIgnorees };
+  return { nombre, jours, dates, soldes, minimums, jourDuMinimum, premierJourNegatif, partPresence, dependancesIgnorees, ...(etats ? { etats } : {}) };
 }

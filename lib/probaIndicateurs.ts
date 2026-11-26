@@ -34,6 +34,35 @@ export interface PeriodeTension {
   dateProbaMax: string;
 }
 
+/**
+ * Semaine de l'horizon (lundi -> dimanche, bornée à l'horizon). `probaNegatif` : part des
+ * simulations dont le solde est sous 0 € AU MOINS UN JOUR de la semaine — une simulation négative
+ * trois jours de la semaine n'est comptée qu'une fois. À ne pas confondre avec la probabilité d'être
+ * sous 0 € un jour donné (PointProbabiliste.probaNegatif) ni avec celle de passer sous 0 € au moins
+ * une fois sur tout l'horizon (probaNegatifHorizon).
+ */
+export interface SemaineRisque {
+  debut: string; // lundi, ou premier jour de l'horizon
+  fin: string; // dimanche, ou dernier jour de l'horizon
+  debutIndex: number;
+  finIndex: number;
+  simulationsNegatives: number;
+  probaNegatif: number;
+}
+
+/** Semaines lundi -> dimanche couvrant l'horizon (première et dernière éventuellement partielles). */
+export function semainesDeLHorizon(dates: string[]): { debut: string; fin: string; debutIndex: number; finIndex: number }[] {
+  const semaines: { debut: string; fin: string; debutIndex: number; finIndex: number }[] = [];
+  for (let j = 0; j < dates.length; j++) {
+    const jourSemaine = new Date(`${dates[j]}T00:00:00Z`).getUTCDay(); // 0 = dimanche
+    if (j === 0 || jourSemaine === 1) semaines.push({ debut: dates[j], fin: dates[j], debutIndex: j, finIndex: j });
+    const courante = semaines[semaines.length - 1];
+    courante.fin = dates[j];
+    courante.finIndex = j;
+  }
+  return semaines;
+}
+
 export interface IndicateursRisque {
   nombreSimulations: number;
   serie: PointProbabiliste[];
@@ -46,6 +75,7 @@ export interface IndicateursRisque {
   dateMinimumP10: string;
   dateMinimumP50: string;
   periodesTension: PeriodeTension[];
+  semaines: SemaineRisque[];
 }
 
 /** Plus petite valeur A ≥ 0 telle qu'une part ≥ niveau des besoins triés soit ≤ A (rang supérieur). */
@@ -117,6 +147,18 @@ export function calculerIndicateurs(sim: SimulationBrute, seuilTension: number =
     dateMinimumP10: serie[indexP10].date,
     dateMinimumP50: serie[indexP50].date,
     periodesTension: periodesDeTension(serie, seuilTension),
+    semaines: semainesDeLHorizon(dates).map((w) => {
+      let negatives = 0;
+      for (let s = 0; s < nombre; s++) {
+        for (let j = w.debutIndex; j <= w.finIndex; j++) {
+          if (soldes[j * nombre + s] < 0) {
+            negatives++;
+            break;
+          }
+        }
+      }
+      return { ...w, simulationsNegatives: negatives, probaNegatif: negatives / nombre };
+    }),
   };
 }
 

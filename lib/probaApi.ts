@@ -18,6 +18,7 @@ import type { Completude } from "./probaEcran";
 import type { IndicateursRisque } from "./probaIndicateurs";
 import type { FactureAnalysee, PerimetreFactures, ResultatRisques } from "./probaRisques";
 import type { EstimationDate, FactureEnRetard } from "./probaEstimation";
+import type { ResultatSemaine, testerDecalage } from "./probaSemaine";
 
 /**
  * Prévision probabiliste — 7. Contrat de l'API (app/api/futur/probabiliste), partagé par le
@@ -266,4 +267,34 @@ export function validerRequeteRisques(corps: unknown): Validation<RequeteRisques
   const perimetre = validerPerimetre((corps as Record<string, unknown>).perimetre);
   if (perimetre === null) return { ok: false, erreur: "Périmètre invalide." };
   return { ok: true, valeur: { ...base.valeur, factures, ...(perimetre ? { perimetre } : {}) } };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Encaissements à sécuriser (POST /api/futur/probabiliste/semaine)
+// ---------------------------------------------------------------------------------------------
+
+export interface RequeteSemaine extends RequeteRisques {
+  semaine: { debut: string; fin: string };
+  // Tester un décalage : la simulation `simulation` rejouée avec `cleLigne` encaissée le `date`.
+  test?: { simulation: number; cleLigne: string; date: string };
+}
+
+export type ReponseSemaine = ResultatSemaine & { dureeRouteMs: number; historiqueMs: number };
+export type ReponseTestDecalage = ReturnType<typeof testerDecalage>;
+
+export function validerRequeteSemaine(corps: unknown): Validation<RequeteSemaine> {
+  const base = validerRequeteRisques(corps);
+  if (!base.ok) return base;
+  const c = corps as Record<string, unknown>;
+  const semaine = c.semaine as Record<string, unknown> | undefined;
+  if (!semaine || !estDate(semaine.debut) || !estDate(semaine.fin) || (semaine.debut as string) > (semaine.fin as string)) return { ok: false, erreur: "Semaine invalide." };
+  let test: RequeteSemaine["test"];
+  if (c.test !== undefined) {
+    const t = c.test as Record<string, unknown>;
+    if (!t || !Number.isInteger(t.simulation) || (t.simulation as number) < 0 || (t.simulation as number) >= LIMITES.simulationsMax || !estTexte(t.cleLigne, 200) || !estDate(t.date)) {
+      return { ok: false, erreur: "Test de décalage invalide." };
+    }
+    test = { simulation: t.simulation as number, cleLigne: t.cleLigne as string, date: t.date as string };
+  }
+  return { ok: true, valeur: { ...base.valeur, semaine: { debut: semaine.debut as string, fin: semaine.fin as string }, ...(test ? { test } : {}) } };
 }
