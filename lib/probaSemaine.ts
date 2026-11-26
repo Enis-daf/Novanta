@@ -300,20 +300,21 @@ export function analyserSemaine(params: ParametresSemaine): ResultatSemaine {
       for (let i = 0; i < suffisantes.length; i++) for (let j = i + 1; j < suffisantes.length; j++) compterDuo(suffisantes[i].c, suffisantes[j].c, "une_suffit");
     } else {
       const testees = [...effets].sort((x, y) => y.reduction - x.reduction).slice(0, CONFIG_ANALYSE_SEMAINE.facturesParPaires);
-      let duoTrouve = false;
+      // Une facture présente dans plusieurs paires suffisantes du même scénario n'y est comptée qu'une fois.
+      const dansUnDuo = new Set<string>();
       for (let i = 0; i < testees.length; i++) {
         for (let j = i + 1; j < testees.length; j++) {
           pairesTestees++;
           const d = deficitSemaine(rejouerTirages(prep, tir, { jours: corriger([testees[i].c, testees[j].c]) }).soldes, a, b);
           if (d === 0) {
-            duoTrouve = true;
             compterDuo(testees[i].c, testees[j].c, "les_deux");
-            stats.get(testees[i].c.facture.cleLigne)!.duo++;
-            stats.get(testees[j].c.facture.cleLigne)!.duo++;
+            dansUnDuo.add(testees[i].c.facture.cleLigne);
+            dansUnDuo.add(testees[j].c.facture.cleLigne);
           }
         }
       }
-      if (duoTrouve) classe = "duo";
+      for (const cle of dansUnDuo) stats.get(cle)!.duo++;
+      if (dansUnDuo.size > 0) classe = "duo";
       else if (retardees.length > 0 && deficitSemaine(rejouerTirages(prep, tir, { jours: corriger(retardees) }).soldes, a, b) === 0) classe = "plusieurs";
       else classe = "autres";
     }

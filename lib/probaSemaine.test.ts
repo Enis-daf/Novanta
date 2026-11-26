@@ -202,6 +202,27 @@ describe("Contribution vérifiée, pas corrélation", () => {
     assert.ok(r.repartition.facture > 0, "et des simulations où une seule est retardée");
   });
 
+  test("une facture présente dans deux paires suffisantes d'un même scénario n'y est comptée qu'une fois", () => {
+    // Trois factures de 10 000 € ; dépense de 15 000 € : il en faut deux à temps, n'importe lesquelles.
+    const p = params(
+      0,
+      [ligne("a"), ligne("b"), ligne("c"), ligne("dec")],
+      [
+        evt("a", 3, 10_000, { fiabiliteDate: 25, tiers: "Lent" }),
+        evt("b", 5, 10_000, { fiabiliteDate: 25, tiers: "Lent" }),
+        evt("c", 7, 10_000, { fiabiliteDate: 25, tiers: "Lent" }),
+        evt("dec", 20, -15_000),
+      ],
+      ["a", "b", "c"]
+    );
+    const r = analyserSemaine(p);
+    assert.ok(r.repartition.duo > 0, JSON.stringify(r.repartition));
+    assert.ok(r.duos.filter((d) => d.nature === "les_deux").length >= 2, "plusieurs paires suffisantes");
+    for (const f of r.factures) assert.ok(f.dansUnDuo <= r.repartition.duo, `${f.cleLigne} : ${f.dansUnDuo} > ${r.repartition.duo}`);
+    // Les trois sont en retard dans chaque scénario « duo » et appartiennent chacune à deux paires suffisantes.
+    for (const f of r.factures) assert.equal(f.dansUnDuo, r.repartition.duo, f.cleLigne);
+  });
+
   test("plus de deux factures nécessaires : « plusieurs encaissements », pas d'explication réductrice à deux", () => {
     const noms = ["f1", "f2", "f3", "f4", "f5", "f6"];
     const p = params(
