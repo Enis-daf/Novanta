@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PrevisionProbabilisteChart from "./PrevisionProbabilisteChart";
 import HypothesesProbabilistes from "./HypothesesProbabilistes";
 import GestionRisques from "./GestionRisques";
+import EncaissementsASecuriser from "./EncaissementsASecuriser";
+import { semaineDeLaDate, semaineLaPlusExposee, titreSemaine } from "@/lib/probaSemaineEcran";
 import type { FactureAnalysee } from "@/lib/probaRisques";
 import { estPrevisionnelleActive } from "@/lib/facturesPrevisionnelles";
 import { decalerDateISO, estDateValide } from "@/lib/dates";
@@ -65,6 +67,8 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
   const [calculEnCours, setCalculEnCours] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [dateCible, setDateCible] = useState("");
+  // Semaine analysée dans « Encaissements à sécuriser » (choisie par clic sur la courbe).
+  const [semaineChoisie, setSemaineChoisie] = useState<{ debut: string; fin: string } | null>(null);
   const requeteEnCours = useRef<AbortController | null>(null);
 
   // Hypothèses : lues une fois, à la première ouverture de l'onglet.
@@ -326,6 +330,11 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
   const pointCible = serie.find((p) => p.date === dateCible) ?? (dernierJour ? serie[serie.length - 1] : null);
   const libelles = new Map(lignes.map((l) => [l.cle, l.libelle]));
   const tension = indicateurs?.periodesTension[0] ?? null;
+  const semaines = indicateurs?.semaines ?? [];
+  const indexSemaine = semaineChoisie ? semaines.findIndex((s) => s.debut === semaineChoisie.debut) : -1;
+  const risqueSemaine = indexSemaine >= 0 ? semaines[indexSemaine] : null;
+  const plusExposee = semaineLaPlusExposee(semaines);
+  const choisirSemaine = (s: { debut: string; fin: string } | null) => setSemaineChoisie(s ? { debut: s.debut, fin: s.fin } : null);
   const message = messageCompletude(etat);
 
   return (
@@ -379,7 +388,23 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
           <hr className="pilotage__separateur" />
 
           <div className="pilotage__chart">
-            <PrevisionProbabilisteChart serie={serie} deterministe={serieReference} />
+            <PrevisionProbabilisteChart
+              serie={serie}
+              deterministe={serieReference}
+              semaine={risqueSemaine}
+              onChoisirDate={(date) => choisirSemaine(semaineDeLaDate(semaines, date))}
+            />
+            <p className="fiabilite-note proba-semaine__invite">
+              Cliquez sur la courbe pour analyser une semaine (du lundi au dimanche) et voir les encaissements à sécuriser.
+              {plusExposee && !risqueSemaine && (
+                <>
+                  {" "}
+                  <button type="button" className="etage-pnl-outils__lien" onClick={() => choisirSemaine(plusExposee)}>
+                    Analyser la semaine la plus exposée ({titreSemaine(plusExposee).replace("Semaine du ", "du ")})
+                  </button>
+                </>
+              )}
+            </p>
             {nombreEstimees > 0 && (
               <p className="fiabilite-note">
                 La projection de référence inclut {nombreEstimees} facture{nombreEstimees > 1 ? "s" : ""} en retard placée{nombreEstimees > 1 ? "s" : ""} à une date estimée :
@@ -393,6 +418,20 @@ export default function PrevisionProbabiliste({ accessToken, actif, soldeInitial
             </p>
           </div>
         </>
+      )}
+
+      {indicateurs && resultat && risqueSemaine && semaineChoisie && (
+        <EncaissementsASecuriser
+          accessToken={accessToken}
+          requete={requeteRisques}
+          semaine={semaineChoisie}
+          risque={risqueSemaine}
+          nombreSimulations={resultat.parametres.nombreSimulations}
+          onVoirFacture={(terme) => onVoirFacture?.(terme)}
+          onSemainePrecedente={indexSemaine > 0 ? () => choisirSemaine(semaines[indexSemaine - 1]) : null}
+          onSemaineSuivante={indexSemaine < semaines.length - 1 ? () => choisirSemaine(semaines[indexSemaine + 1]) : null}
+          onFermer={() => choisirSemaine(null)}
+        />
       )}
 
       <GestionRisques

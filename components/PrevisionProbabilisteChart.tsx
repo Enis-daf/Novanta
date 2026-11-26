@@ -1,6 +1,6 @@
 "use client";
 
-import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, CartesianGrid, ComposedChart, Line, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { formatDate, formatMontant } from "@/lib/format";
 import { NEUTRES } from "@/lib/dataviz";
 import type { PointProbabiliste } from "@/lib/probaIndicateurs";
@@ -9,6 +9,9 @@ import type { SoldeJournalier } from "@/lib/types";
 interface PrevisionProbabilisteChartProps {
   serie: PointProbabiliste[];
   deterministe: SoldeJournalier[];
+  // Semaine sélectionnée (mise en évidence) et sélection d'une date par clic sur la courbe.
+  semaine?: { debut: string; fin: string } | null;
+  onChoisirDate?: (date: string) => void;
 }
 
 interface Point {
@@ -43,7 +46,7 @@ function Infobulle({ active, payload }: { active?: boolean; payload?: { payload:
 
 // Courbe médiane (rose) et fourchette de 8 cas sur 10 (bande neutre), projection actuelle en
 // pointillé. La bande n'est pas un scénario : chaque jour est lu séparément.
-export default function PrevisionProbabilisteChart({ serie, deterministe }: PrevisionProbabilisteChartProps) {
+export default function PrevisionProbabilisteChart({ serie, deterministe, semaine, onChoisirDate }: PrevisionProbabilisteChartProps) {
   const projection = new Map(deterministe.map((p) => [p.date, p.solde]));
   const donnees: Point[] = serie.map((p) => ({
     date: p.date,
@@ -55,9 +58,16 @@ export default function PrevisionProbabilisteChart({ serie, deterministe }: Prev
     projection: projection.get(p.date) ?? null,
   }));
   return (
-    <div style={{ fontFamily: "var(--font-lexend), sans-serif" }}>
+    <div style={{ fontFamily: "var(--font-lexend), sans-serif", cursor: onChoisirDate ? "pointer" : undefined }}>
       <ResponsiveContainer width="100%" height={340}>
-        <ComposedChart data={donnees} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+        <ComposedChart
+          data={donnees}
+          margin={{ top: 10, right: 20, left: 10, bottom: 0 }}
+          onClick={(etat) => {
+            const date = etat?.activeLabel;
+            if (onChoisirDate && typeof date === "string") onChoisirDate(date);
+          }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke={NEUTRES.bordure} />
           <XAxis
             dataKey="date"
@@ -76,6 +86,7 @@ export default function PrevisionProbabilisteChart({ serie, deterministe }: Prev
             axisLine={{ stroke: NEUTRES.bordure }}
             tickLine={{ stroke: NEUTRES.bordure }}
           />
+          {semaine && <ReferenceArea x1={semaine.debut} x2={semaine.fin} fill={NEUTRES.encre} fillOpacity={0.07} stroke="none" ifOverflow="hidden" />}
           <Tooltip content={<Infobulle />} />
           <ReferenceLine y={0} stroke="#c10068" strokeDasharray="4 4" />
           <Area dataKey="plage" stroke="none" fill={NEUTRES.secondaire} fillOpacity={0.16} isAnimationActive={false} activeDot={false} />

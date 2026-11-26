@@ -6324,3 +6324,62 @@ button.passe-cible--lien:focus-visible,
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
+
+/* Perspectives pondérées — Encaissements à sécuriser (semaine choisie sur la courbe). */
+.proba-semaine__invite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.proba-semaine__entete {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+}
+
+.proba-semaine__entete h4 {
+  margin: 0;
+}
+
+.proba-semaine__chiffres {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-1) 0;
+}
+
+.proba-semaine__chiffres > div {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.proba-semaine__repartition,
+.proba-semaine__liste {
+  margin: 0;
+  padding-left: var(--space-3);
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.proba-semaine__scenario {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.proba-semaine__test {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.proba-semaine__date-libre {
+  display: inline-flex;
+  min-width: 150px;
+}
