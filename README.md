@@ -39,3 +39,10 @@ npm run start
 2. Dans les paramètres du projet Vercel (Settings → Environment Variables), ajouter `NEXT_PUBLIC_SUPABASE_URL` et `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (mêmes valeurs que `.env.local`). Sans elles, l'app se redéploie automatiquement en mode local mocké.
 3. Dans Supabase, ajouter l'URL de production (`https://votre-projet.vercel.app`) aux **Site URL** / **Redirect URLs** du projet (Authentication → URL Configuration), sinon les emails de confirmation/connexion redirigeront vers `localhost`.
 4. Déployer. Aucune autre configuration serveur n'est nécessaire (pas de backend séparé, l'app est 100 % Next.js + Supabase).
+
+### Réinitialisation du mot de passe
+
+- Écran dédié : `/reinitialiser-mot-de-passe` ; lien « Mot de passe oublié ? » sur l'écran de connexion.
+- Redirect URLs (Supabase → Authentication → URL Configuration) : `https://<domaine-de-production>/reinitialiser-mot-de-passe` (et, pour les Preview, `https://*-<équipe>.vercel.app/**`). Si l'URL n'est pas autorisée, Supabase renvoie vers la Site URL et l'app redirige d'elle-même vers l'écran dédié.
+- Une récupération lancée depuis le dashboard Supabase arrive toujours sur la Site URL : elle doit être le domaine de production.
+- Modèle d'e-mail « Reset Password » : le modèle par défaut (`{{ .ConfirmationURL }}`) convient. Le modèle `{{ .SiteURL }}/reinitialiser-mot-de-passe?token_hash={{ .TokenHash }}&type=recovery` est aussi pris en charge.
