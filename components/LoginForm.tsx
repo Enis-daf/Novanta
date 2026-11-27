@@ -1,10 +1,12 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import { FormEvent, useEffect, useState } from "react";
+import DemandeReinitialisation from "@/components/DemandeReinitialisation";
+import { supabase, urlAuChargement } from "@/lib/supabaseClient";
+import { lireLienAuth } from "@/lib/recuperationMotDePasse";
 
 export default function LoginForm() {
-  const [mode, setMode] = useState<"connexion" | "creation">("connexion");
+  const [mode, setMode] = useState<"connexion" | "creation" | "oubli">("connexion");
   const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
   const [entreprise, setEntreprise] = useState("");
@@ -13,6 +15,16 @@ export default function LoginForm() {
   const [erreur, setErreur] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [enCours, setEnCours] = useState(false);
+
+  // Lien d'e-mail expiré ou déjà utilisé arrivé sur la Site URL (le fragment d'erreur ne dit pas de
+  // quel lien il s'agit) : sans ce message, l'utilisateur retombait sur la connexion sans explication.
+  useEffect(() => {
+    if (lireLienAuth(urlAuChargement).type === "erreur") {
+      setErreur(
+        "Ce lien a expiré ou a déjà été utilisé. Pour réinitialiser votre mot de passe, cliquez sur « Mot de passe oublié ? ».",
+      );
+    }
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -55,6 +67,33 @@ export default function LoginForm() {
     }
     setEnCours(false);
   };
+
+  if (mode === "oubli") {
+    return (
+      <main className="ecran-editorial">
+        <div className="carte-editoriale login-card">
+          <p className="eyebrow">
+            Novanta
+            <span className="carte-editoriale__rubrique">Mot de passe oublié</span>
+          </p>
+          <h1>Cockpit de trésorerie</h1>
+          <p className="login-subtitle">Recevez un lien pour choisir un nouveau mot de passe</p>
+          <DemandeReinitialisation emailInitial={email} />
+          <button
+            type="button"
+            className="login-toggle"
+            onClick={() => {
+              setMode("connexion");
+              setErreur(null);
+              setInfo(null);
+            }}
+          >
+            Retour à la connexion
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="ecran-editorial">
@@ -111,6 +150,20 @@ export default function LoginForm() {
           value={motDePasse}
           onChange={(e) => setMotDePasse(e.target.value)}
         />
+
+        {mode === "connexion" && (
+          <button
+            type="button"
+            className="login-toggle login-oubli"
+            onClick={() => {
+              setMode("oubli");
+              setErreur(null);
+              setInfo(null);
+            }}
+          >
+            Mot de passe oublié ?
+          </button>
+        )}
 
         {erreur && <div className="login-erreur">{erreur}</div>}
         {info && <div className="login-info">{info}</div>}

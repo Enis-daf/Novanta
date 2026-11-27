@@ -6383,3 +6383,22 @@ button.passe-cible--lien:focus-visible,
   display: inline-flex;
   min-width: 150px;
 }
+
+/* Récupération du mot de passe : « Mot de passe oublié ? » sous le champ, formulaires en colonne
+   comme la carte de connexion, lien « Se connecter » présenté en bouton. */
+.login-oubli {
+  align-self: flex-end;
+  padding: 0;
+}
+
+.demande-reinitialisation,
+.reinitialisation-formulaire {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.reinitialisation-lien {
+  text-align: center;
+  text-decoration: none;
+}
